@@ -1,31 +1,17 @@
 import api from './api'
-
-export interface User {
-  id: number
-  name: string
-  email: string
-  role: 'admin' | 'employee'
-  phone?: string
-  last_login_at?: string
-  active: boolean
-}
-
-export interface LoginData {
-  email: string
-  password: string
-}
-
-export interface LoginResponse {
-  message: string
-  user: User
-  token: string
-}
+import type { 
+  User, 
+  LoginCredentials, 
+  LoginResponse, 
+  ChangePasswordData,
+  UpdateProfileData 
+} from '../types'
 
 class AuthService {
   /**
    * Realizar login
    */
-  async login(credentials: LoginData): Promise<LoginResponse> {
+  async login(credentials: LoginCredentials): Promise<LoginResponse> {
     const response = await api.post<LoginResponse>('/auth/login', credentials)
     
     // Guardar token y datos del usuario en localStorage
@@ -55,10 +41,32 @@ class AuthService {
   async me(): Promise<User> {
     const response = await api.get<{ user: User }>('/auth/me')
     
-    // Actualizar datos del usuario en localStorage
-    localStorage.setItem('user_data', JSON.stringify(response.data.user))
+    const user = response.data.user
     
-    return response.data.user
+    // Actualizar datos del usuario en localStorage
+    localStorage.setItem('user_data', JSON.stringify(user))
+    
+    return user
+  }
+
+  /**
+   * Cambiar contraseña del usuario actual
+   */
+  async changePassword(passwordData: ChangePasswordData): Promise<void> {
+    await api.post('/auth/change-password', passwordData)
+  }
+
+  /**
+   * Actualizar perfil del usuario actual
+   */
+  async updateProfile(profileData: UpdateProfileData): Promise<User> {
+    const response = await api.put<User>('/auth/profile', profileData)
+    const user = response.data
+    
+    // Actualizar usuario en localStorage
+    localStorage.setItem('user_data', JSON.stringify(user))
+    
+    return user
   }
 
   /**
@@ -98,6 +106,8 @@ class AuthService {
   clearAuthData(): void {
     localStorage.removeItem('auth_token')
     localStorage.removeItem('user_data')
+    // También limpiar el header de Axios
+    delete api.defaults.headers.common['Authorization']
   }
 }
 

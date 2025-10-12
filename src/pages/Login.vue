@@ -9,29 +9,29 @@
             <p class="text-body-1 text-grey-darken-1">Sistema de Gestión</p>
           </div>
 
-          <v-form @submit.prevent="login" v-model="valid">
+          <v-form @submit.prevent="login">
             <v-text-field
               v-model="email"
+              v-bind="emailAttrs"
               label="Email"
               type="email"
-              :rules="emailRules"
               prepend-inner-icon="mdi-email"
               variant="outlined"
-              class="mb-3"
-              required
+              class="mb-3" 
+              :error-messages="errors.email"
             />
 
             <v-text-field
               v-model="password"
+              v-bind="passwordAttrs"
               label="Contraseña"
               :type="showPassword ? 'text' : 'password'"
-              :rules="passwordRules"
               prepend-inner-icon="mdi-lock"
               :append-inner-icon="showPassword ? 'mdi-eye' : 'mdi-eye-off'"
               @click:append-inner="showPassword = !showPassword"
               variant="outlined"
               class="mb-3"
-              required
+              :error-messages="errors.password"
             />
 
             <v-btn
@@ -40,7 +40,7 @@
               size="large"
               block
               :loading="loading"
-              :disabled="!valid"
+              :disabled="!isFormValid"
               class="mb-3"
             >
               Iniciar Sesión
@@ -55,27 +55,13 @@
             :text="error"
           />
 
-          <!-- Usuarios de prueba -->
-          <v-expansion-panels variant="accordion" class="mt-4">
-            <v-expansion-panel>
-              <v-expansion-panel-title>
-                <v-icon class="mr-2">mdi-help-circle</v-icon>
-                Usuarios de Prueba
-              </v-expansion-panel-title>
-              <v-expansion-panel-text>
-                <div class="text-body-2">
-                  <div class="mb-2">
-                    <strong>Admin:</strong><br>
-                    admin@saboresdeltrigo.com / admin123
-                  </div>
-                  <div>
-                    <strong>Empleado:</strong><br>
-                    empleado@saboresdeltrigo.com / empleado123
-                  </div>
-                </div>
-              </v-expansion-panel-text>
-            </v-expansion-panel>
-          </v-expansion-panels>
+          <v-alert
+            v-if="successMessage"
+            type="success"
+            variant="tonal"
+            class="mt-3"
+            :text="successMessage"
+          />
         </v-card>
       </v-col>
     </v-row>
@@ -83,55 +69,104 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useForm } from 'vee-validate'
+import { toTypedSchema } from '@vee-validate/zod'
+import { z } from 'zod'
+import { useAuthStore } from '../stores/auth'
+import type { LoginCredentials } from '../types'
 
 const router = useRouter()
+const authStore = useAuthStore()
 
-const email = ref('')
-const password = ref('')
-const loading = ref(false)
-const error = ref('')
-const showPassword = ref(false)
-const valid = ref(false)
+// Schema de validación con Zod
+const loginSchema = toTypedSchema(
+  z.object({
+    email: z
+      .string()
+      .min(1, 'El email es requerido')
+      .email('El email debe ser válido'),
+    password: z
+      .string()
+      .min(6, 'La contraseña debe tener al menos 6 caracteres')
+  })
+)
 
-const emailRules = [
-  (v: string) => !!v || 'Email es requerido',
-  (v: string) => /.+@.+\..+/.test(v) || 'Email debe ser válido'
-]
+// Configurar VeeValidate
+const { handleSubmit, defineField, errors } = useForm({
+  validationSchema: loginSchema,
+  initialValues: {
+    email: '',
+    password: ''
+  }
+})
 
-const passwordRules = [
-  (v: string) => !!v || 'Contraseña es requerida',
-  (v: string) => v.length >= 6 || 'Contraseña debe tener al menos 6 caracteres'
-]
+// Definir campos del formulario
+const [email, emailAttrs] = defineField('email')
+const [password, passwordAttrs] = defineField('password')
 
-const login = async () => {
-  if (!valid.value) return
+// Estado local
+const loading = ref<boolean>(false)
+const error = ref<string>('')
+const successMessage = ref<string>('')
+const showPassword = ref<boolean>(false)
 
-  loading.value = true
+
+const isFormValid = computed((): boolean => {
+  const hasNoErrors = Object.keys(errors.value).length === 0
+  const hasEmail = !!(email.value && email.value.trim().length > 0)
+  const hasPassword = !!(password.value && password.value.trim().length > 0)
+  return hasNoErrors && hasEmail && hasPassword && !loading.value
+})
+
+const clearMessages = (): void => {
   error.value = ''
+  successMessage.value = ''
+}
+
+// Usar handleSubmit de VeeValidate
+const login = handleSubmit(async (values: LoginCredentials): Promise<void> => {
+  loading.value = true
+  clearMessages()
 
   try {
-    // TODO: Implementar llamada real a la API
-    await new Promise(resolve => setTimeout(resolve, 1000)) // Simular delay
+    await authStore.login(values)
     
-    // Simular login exitoso
-    if (email.value.includes('@saboresdeltrigo.com')) {
-      localStorage.setItem('isAuthenticated', 'true')
-      localStorage.setItem('user', JSON.stringify({
-        name: email.value.includes('admin') ? 'Administrador' : 'Empleado',
-        email: email.value,
-        role: email.value.includes('admin') ? 'admin' : 'employee'
-      }))
+    const userName = authStore.user?.name || 'Usuario'
+    successMessage.value = `¡Bienvenido ${userName}!`
+    
+    setTimeout(() => {
       router.push('/dashboard')
+    }, 150)
+
+  } catch (err: any) {
+    if (err.response?.status === 422) {
+      // Errores de validación del servidor (credenciales incorrectas)
+      const serverErrors = err.response.data.errors
+      if (serverErrors?.email) {
+        // Mostrar el mensaje específico del servidor
+        error.value = serverErrors.email[0]
+      } else {
+        error.value = 'Credenciales incorrectas'
+      }
+    } else if (err.response?.status === 401) {
+      // Error de autorización - usar mensaje del servidor si está disponible
+      error.value = err.response.data?.message || 'Credenciales incorrectas'
+    } else if (err.response?.data?.message) {
+      // Otros errores del servidor
+      error.value = err.response.data.message
     } else {
-      error.value = 'Credenciales inválidas'
+      error.value = 'Error de conexión. Verifica que el backend esté funcionando.'
     }
-  } catch (err) {
-    error.value = 'Error al iniciar sesión'
+    
   } finally {
     loading.value = false
   }
+})
+
+if (authStore.isAuthenticated) {
+  router.push('/dashboard')
 }
 </script>
 
