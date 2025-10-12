@@ -1,13 +1,17 @@
 import axios from 'axios'
+import type { ApiRequestConfig } from '../types'
 
 // Crear instancia de Axios con configuración base
-const api = axios.create({
+const config: ApiRequestConfig = {
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001/api',
+  timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   },
-})
+}
+
+const api = axios.create(config)
 
 // Interceptor para agregar token de autenticación
 api.interceptors.request.use(

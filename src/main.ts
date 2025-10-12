@@ -12,7 +12,7 @@ import { aliases, mdi } from 'vuetify/iconsets/mdi'
 import App from './App.vue'
 
 // Configuración de rutas
-import { routes } from './router'
+import { routes, setupRouterGuards } from './router'
 
 // Crear instancias
 const app = createApp(App)
@@ -48,6 +48,8 @@ const router = createRouter({
   history: createWebHistory(),
   routes,
 })
+
+setupRouterGuards(router)
 
 // Usar plugins
 app.use(pinia)
