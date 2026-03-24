@@ -4,11 +4,14 @@
       <!-- Estadísticas principales -->
       <v-col cols="12" md="3" v-for="stat in stats" :key="stat.title">
         <v-card elevation="2" class="text-center pa-4">
-          <div class="text-h4 mb-2" :class="stat.color">
+          <div class="text-h4 mb-1" :class="stat.color">
             {{ stat.value }}
           </div>
-          <div class="text-body-1 text-grey-darken-1 mb-2">
+          <div class="text-body-1 font-weight-bold text-grey-darken-1 mb-1">
             {{ stat.title }}
+          </div>
+          <div class="text-caption text-grey mb-2">
+            {{ stat.subtitle }}
           </div>
           <v-chip 
             :color="stat.trend.color" 
@@ -31,9 +34,14 @@
             Ventas de la Semana
           </v-card-title>
           <v-card-text>
-            <div class="text-center pa-8 text-grey-darken-1">
-              <v-icon size="64" class="mb-4">mdi-chart-areaspline</v-icon>
-              <div>Gráfico de ventas se implementará aquí</div>
+            <div v-if="loading" class="text-center pa-8">
+              <v-progress-circular indeterminate color="primary" />
+            </div>
+            <div v-else-if="salesWeekData.length > 0" style="height: 300px; position: relative;">
+              <Line :data="chartData" :options="chartOptions" />
+            </div>
+            <div v-else class="text-center pa-8 text-grey">
+              No hay datos de ventas disponibles
             </div>
           </v-card-text>
         </v-card>
@@ -47,28 +55,34 @@
             Pedidos Recientes
           </v-card-title>
           <v-card-text>
-            <v-list density="compact">
+            <v-list v-if="!loading && recentOrders.length > 0" density="compact">
               <v-list-item
                 v-for="order in recentOrders"
                 :key="order.id"
                 class="mb-2"
               >
                 <template v-slot:prepend>
-                  <v-avatar :color="order.statusColor" size="32">
-                    <v-icon color="white" size="16">{{ order.icon }}</v-icon>
+                  <v-avatar :color="getStatusInfo(order.status).color" size="32">
+                    <v-icon color="white" size="16">{{ getStatusInfo(order.status).icon }}</v-icon>
                   </v-avatar>
                 </template>
                 <v-list-item-title>Pedido #{{ order.id }}</v-list-item-title>
                 <v-list-item-subtitle>
-                  {{ order.customer }} - ${{ order.total }}
+                  {{ order.customer_name }} - ${{ Number(order.total || 0).toFixed(2) }}
                 </v-list-item-subtitle>
                 <template v-slot:append>
-                  <v-chip :color="order.statusColor" size="small" variant="outlined">
-                    {{ order.status }}
+                  <v-chip :color="getStatusInfo(order.status).color" size="small" variant="outlined">
+                    {{ getStatusInfo(order.status).text }}
                   </v-chip>
                 </template>
               </v-list-item>
             </v-list>
+            <div v-else-if="loading" class="text-center pa-4">
+              <v-progress-circular indeterminate color="primary" />
+            </div>
+            <div v-else class="text-center pa-4 text-grey">
+              No hay pedidos recientes
+            </div>
           </v-card-text>
         </v-card>
       </v-col>
@@ -83,14 +97,15 @@
             Stock Bajo
           </v-card-title>
           <v-card-text>
-            <v-list density="compact">
+            <v-list v-if="!loading && lowStockProducts.length > 0" density="compact">
               <v-list-item
                 v-for="product in lowStockProducts"
                 :key="product.id"
               >
                 <v-list-item-title>{{ product.name }}</v-list-item-title>
                 <v-list-item-subtitle>
-                  Stock: {{ product.stock }} unidades
+                  Actual: <strong>{{ Number(product.stock || 0).toFixed(2) }} {{ product.unidad }}</strong> 
+                  / Mínimo: {{ Number(product.stock_minimo || 0).toFixed(2) }} {{ product.unidad }}
                 </v-list-item-subtitle>
                 <template v-slot:append>
                   <v-chip color="warning" size="small" variant="outlined">
@@ -99,6 +114,12 @@
                 </template>
               </v-list-item>
             </v-list>
+            <div v-else-if="loading" class="text-center pa-4">
+              <v-progress-circular indeterminate color="primary" />
+            </div>
+            <div v-else class="text-center pa-4 text-success">
+              ✓ Todo el stock está bien
+            </div>
           </v-card-text>
         </v-card>
       </v-col>
@@ -111,10 +132,10 @@
             Más Vendidos
           </v-card-title>
           <v-card-text>
-            <v-list density="compact">
+            <v-list v-if="!loading && topProducts.length > 0" density="compact">
               <v-list-item
                 v-for="(product, index) in topProducts"
-                :key="product.id"
+                :key="index"
               >
                 <template v-slot:prepend>
                   <v-avatar :color="getRankColor(index)" size="32">
@@ -127,6 +148,12 @@
                 </v-list-item-subtitle>
               </v-list-item>
             </v-list>
+            <div v-else-if="loading" class="text-center pa-4">
+              <v-progress-circular indeterminate color="primary" />
+            </div>
+            <div v-else class="text-center pa-4 text-grey">
+              No hay ventas registradas aún
+            </div>
           </v-card-text>
         </v-card>
       </v-col>
@@ -135,59 +162,148 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, computed } from 'vue'
+import { dashboardService, type DashboardStats, type TopProduct, type LowStockProduct, type SalesWeekDay } from '@/services/dashboardService'
+import { ordersService, type Order } from '@/services/ordersService'
+import { Line } from 'vue-chartjs'
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from 'chart.js'
 
-// Datos simulados - reemplazar con datos reales de la API
-const stats = ref([
+// Registrar componentes de Chart.js
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
+
+const dashStats = ref<DashboardStats>({
+  pedidos_hoy: 0,
+  ventas_hoy: 0,
+  pedidos_mes: 0,
+  ventas_mes: 0,
+  productos_activos: 0,
+  stock_bajo: 0,
+})
+
+const recentOrders = ref<Order[]>([])
+const lowStockProducts = ref<LowStockProduct[]>([])
+const topProducts = ref<TopProduct[]>([])
+const salesWeekData = ref<SalesWeekDay[]>([])
+const loading = ref(true)
+
+const stats = computed(() => [
   {
     title: 'Pedidos Hoy',
-    value: '23',
+    value: dashStats.value.pedidos_hoy.toString(),
+    subtitle: `${dashStats.value.pedidos_mes} este mes`,
     color: 'text-primary',
-    trend: { icon: 'mdi-arrow-up', text: '+12% vs ayer', color: 'success' }
+    trend: { icon: 'mdi-receipt', text: 'Pedidos del día', color: 'primary' }
   },
   {
     title: 'Ventas Hoy',
-    value: '$1,250',
+    value: `$${Number(dashStats.value.ventas_hoy || 0).toFixed(0)}`,
+    subtitle: `$${Number(dashStats.value.ventas_mes || 0).toFixed(0)} este mes`,
     color: 'text-success',
-    trend: { icon: 'mdi-arrow-up', text: '+8% vs ayer', color: 'success' }
+    trend: { icon: 'mdi-cash', text: 'Ventas pagadas', color: 'success' }
   },
   {
     title: 'Productos Activos',
-    value: '42',
+    value: dashStats.value.productos_activos.toString(),
+    subtitle: 'En el menú',
     color: 'text-info',
-    trend: { icon: 'mdi-plus', text: '3 nuevos', color: 'info' }
+    trend: { icon: 'mdi-silverware-fork-knife', text: 'Disponibles', color: 'info' }
   },
   {
     title: 'Stock Bajo',
-    value: '5',
-    color: 'text-warning',
-    trend: { icon: 'mdi-alert', text: 'Revisar', color: 'warning' }
+    value: dashStats.value.stock_bajo.toString(),
+    subtitle: dashStats.value.stock_bajo > 0 ? 'Requiere atención' : 'Todo bien',
+    color: dashStats.value.stock_bajo > 0 ? 'text-warning' : 'text-success',
+    trend: { 
+      icon: dashStats.value.stock_bajo > 0 ? 'mdi-alert' : 'mdi-check-circle', 
+      text: 'Inventario', 
+      color: dashStats.value.stock_bajo > 0 ? 'warning' : 'success'
+    }
   }
 ])
 
-const recentOrders = ref([
-  { id: '001', customer: 'Juan Pérez', total: 45.50, status: 'Preparando', statusColor: 'warning', icon: 'mdi-chef-hat' },
-  { id: '002', customer: 'María García', total: 23.00, status: 'Listo', statusColor: 'success', icon: 'mdi-check' },
-  { id: '003', customer: 'Carlos Ruiz', total: 67.30, status: 'Entregado', statusColor: 'info', icon: 'mdi-truck' },
-  { id: '004', customer: 'Ana López', total: 34.20, status: 'Pendiente', statusColor: 'grey', icon: 'mdi-clock' }
-])
+const getStatusInfo = (status: string) => {
+  const statusMap: Record<string, { text: string; color: string; icon: string }> = {
+    pending: { text: 'Pendiente', color: 'grey', icon: 'mdi-clock' },
+    preparing: { text: 'Preparando', color: 'warning', icon: 'mdi-chef-hat' },
+    ready: { text: 'Listo', color: 'success', icon: 'mdi-check' },
+    delivered: { text: 'Entregado', color: 'info', icon: 'mdi-truck' },
+    cancelled: { text: 'Cancelado', color: 'error', icon: 'mdi-close' },
+  }
+  return statusMap[status] || statusMap.pending
+}
 
-const lowStockProducts = ref([
-  { id: 1, name: 'Harina Integral', stock: 5 },
-  { id: 2, name: 'Levadura Fresca', stock: 8 },
-  { id: 3, name: 'Mozzarella', stock: 12 },
-  { id: 4, name: 'Tomate en Conserva', stock: 3 }
-])
+const chartData = computed(() => ({
+  labels: salesWeekData.value.map(d => d.day),
+  datasets: [
+    {
+      label: 'Ventas ($)',
+      data: salesWeekData.value.map(d => d.total),
+      backgroundColor: 'rgba(255, 138, 0, 0.2)',
+      borderColor: 'rgba(255, 138, 0, 1)',
+      borderWidth: 2,
+      fill: true,
+      tension: 0.4,
+    }
+  ]
+}))
 
-const topProducts = ref([
-  { id: 1, name: 'Pizza Margherita', sold: 45 },
-  { id: 2, name: 'Pan Francés', sold: 38 },
-  { id: 3, name: 'Empanadas de Carne', sold: 32 },
-  { id: 4, name: 'Croissant', sold: 28 }
-])
+const chartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      display: true,
+      position: 'top' as const,
+    },
+    tooltip: {
+      callbacks: {
+        label: function(context: any) {
+          return `Ventas: $${context.parsed.y.toFixed(2)}`
+        }
+      }
+    }
+  },
+  scales: {
+    y: {
+      beginAtZero: true,
+      ticks: {
+        callback: function(value: any) {
+          return '$' + value
+        }
+      }
+    }
+  }
+}
+
+const loadData = async () => {
+  loading.value = true
+  try {
+    const [stats, orders, stock, products, salesWeek] = await Promise.all([
+      dashboardService.getStats(),
+      ordersService.getAll({ hoy: true }),
+      dashboardService.getLowStock(),
+      dashboardService.getTopProducts(),
+      dashboardService.getSalesWeek(),
+    ])
+
+    dashStats.value = stats
+    recentOrders.value = orders.slice(0, 4) // Últimos 4 pedidos
+    lowStockProducts.value = stock
+    topProducts.value = products
+    salesWeekData.value = salesWeek
+  } catch (error) {
+    console.error('[Dashboard] Error al cargar datos:', error)
+  } finally {
+    loading.value = false
+  }
+}
 
 const getRankColor = (index: number) => {
   const colors = ['warning', 'grey-darken-1', 'brown', 'grey']
   return colors[index] || 'grey'
 }
+
+onMounted(() => {
+  loadData()
+})
 </script>

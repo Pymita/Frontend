@@ -93,7 +93,6 @@ const loginSchema = toTypedSchema(
   })
 )
 
-// Configurar VeeValidate
 const { handleSubmit, defineField, errors } = useForm({
   validationSchema: loginSchema,
   initialValues: {
@@ -102,7 +101,6 @@ const { handleSubmit, defineField, errors } = useForm({
   }
 })
 
-// Definir campos del formulario
 const [email, emailAttrs] = defineField('email')
 const [password, passwordAttrs] = defineField('password')
 
@@ -125,7 +123,6 @@ const clearMessages = (): void => {
   successMessage.value = ''
 }
 
-// Usar handleSubmit de VeeValidate
 const login = handleSubmit(async (values: LoginCredentials): Promise<void> => {
   loading.value = true
   clearMessages()
@@ -142,10 +139,8 @@ const login = handleSubmit(async (values: LoginCredentials): Promise<void> => {
 
   } catch (err: any) {
     if (err.response?.status === 422) {
-      // Errores de validación del servidor (credenciales incorrectas)
       const serverErrors = err.response.data.errors
       if (serverErrors?.email) {
-        // Mostrar el mensaje específico del servidor
         error.value = serverErrors.email[0]
       } else {
         error.value = 'Credenciales incorrectas'

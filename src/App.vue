@@ -65,7 +65,7 @@
 
     <!-- Main Content -->
     <v-main>
-      <router-view />
+      <router-view :key="route.fullPath" />
     </v-main>
 
     <!-- Loading overlay -->
@@ -94,12 +94,15 @@ const isAdmin = computed(() => authStore.isAdmin)
 
 const allMenuItems: MenuItem[] = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', route: '/dashboard' },
-  // TODO: Implementar estos módulos
-  // { title: 'Productos', icon: 'mdi-food', route: '/products' },
-  // { title: 'Pedidos', icon: 'mdi-receipt', route: '/orders' },
-  // { title: 'Inventario', icon: 'mdi-package-variant', route: '/inventory' },
-  // { title: 'Reportes', icon: 'mdi-chart-box', route: '/reports' },
-  // { title: 'Usuarios', icon: 'mdi-account-group', route: '/users', requiresAdmin: true },
+  { title: 'Pedidos', icon: 'mdi-receipt', route: '/pedidos' },
+  { title: 'Mesas', icon: 'mdi-table-chair', route: '/mesas' },
+  { title: 'Menú (Venta)', icon: 'mdi-silverware-fork-knife', route: '/productos' },
+  { title: 'Categorías', icon: 'mdi-shape', route: '/categorias' },
+  { title: 'Productos Base', icon: 'mdi-package-variant', route: '/productos-base' },
+  { title: 'Recetas', icon: 'mdi-food-variant', route: '/recetas' },
+  { title: 'Tipos de Producto', icon: 'mdi-tag-multiple', route: '/tipos-producto', requiresAdmin: true },
+  { title: 'Clientes', icon: 'mdi-account-multiple', route: '/clientes' },
+  { title: 'Gastos', icon: 'mdi-cash-multiple', route: '/gastos', requiresAdmin: true },
 ]
 
 const availableMenuItems = computed((): MenuItem[] => {
