@@ -1,6 +1,15 @@
 import type { RouteRecordRaw } from 'vue-router'
 const Dashboard = () => import('../pages/Dashboard.vue')
 const Login = () => import('../pages/Login.vue')
+const Categorias = () => import('../pages/Categorias.vue')
+const TiposProducto = () => import('../pages/TiposProducto.vue')
+const ProductosBase = () => import('../pages/ProductosBase.vue')
+const Recetas = () => import('../pages/Recetas.vue')
+const Productos = () => import('../pages/Productos.vue')
+const Pedidos = () => import('../pages/Pedidos.vue')
+const Mesas = () => import('../pages/Mesas.vue')
+const Clientes = () => import('../pages/Clientes.vue')
+const Gastos = () => import('../pages/Gastos.vue')
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -12,7 +21,7 @@ export const routes: RouteRecordRaw[] = [
     name: 'Login',
     component: Login,
     meta: { requiresAuth: false },
-    beforeEnter: (to, from, next) => {
+    beforeEnter: (_to, _from, next) => {
       // Si ya está autenticado, redirigir al dashboard
       const token = localStorage.getItem('auth_token')
       if (token) {
@@ -27,11 +36,65 @@ export const routes: RouteRecordRaw[] = [
     name: 'Dashboard',
     component: Dashboard,
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/categorias',
+    name: 'Categorias',
+    component: Categorias,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/tipos-producto',
+    name: 'TiposProducto',
+    component: TiposProducto,
+    meta: { requiresAuth: true, requiresAdmin: true }
+  },
+  {
+    path: '/productos-base',
+    name: 'ProductosBase',
+    component: ProductosBase,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/recetas',
+    name: 'Recetas',
+    component: Recetas,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/productos',
+    name: 'Productos',
+    component: Productos,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/pedidos',
+    name: 'Pedidos',
+    component: Pedidos,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/mesas',
+    name: 'Mesas',
+    component: Mesas,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/clientes',
+    name: 'Clientes',
+    component: Clientes,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/gastos',
+    name: 'Gastos',
+    component: Gastos,
+    meta: { requiresAuth: true, requiresAdmin: true }
   }
 ]
 
 export const setupRouterGuards = (router: any) => {
-  router.beforeEach((to: any, from: any, next: any) => {
+  router.beforeEach((to: any, _from: any, next: any) => {
     const requiresAuth = to.meta.requiresAuth
     const requiresAdmin = to.meta.requiresAdmin
     
