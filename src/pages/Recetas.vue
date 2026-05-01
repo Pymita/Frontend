@@ -18,8 +18,8 @@
     </v-row>
 
     <v-alert type="info" density="compact" variant="tonal" class="mb-4">
-      Si un producto tiene variantes (tipos/tamanos), registra una receta por cada variante.
-      Asi se descuentan ingredientes reales por tipo al preparar pedidos.
+      Define cuanto produce la receta y los ingredientes para ese lote. El sistema calcula
+      automaticamente el costo y el descuento proporcional por unidad vendida.
     </v-alert>
 
     <!-- Lista de recetas -->
@@ -78,6 +78,11 @@
           <v-form ref="form">
             <!-- Información básica -->
             <h3 class="mb-3">Información General</h3>
+            <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+              Primero define cuanto produce esta receta. Si es una receta por unidad, deja
+              <strong>1</strong>. Ejemplo: una pizza produce <strong>1 unidad</strong>;
+              una salsa puede producir <strong>2 litros</strong>.
+            </v-alert>
             <v-row>
               <v-col cols="12" md="6">
                 <v-autocomplete
@@ -121,7 +126,9 @@
               <v-col cols="12" md="4">
                 <v-text-field
                   v-model.number="formData.cantidad_producida"
-                  label="Cantidad que produce"
+                  label="Rendimiento de la receta"
+                  hint="Ej: 1 pizza, 2 litros de salsa, 50 unidades"
+                  persistent-hint
                   type="number"
                   step="0.01"
                   min="0"
@@ -132,8 +139,9 @@
               <v-col cols="12" md="4">
                 <v-text-field
                   v-model="formData.unidad_producida"
-                  label="Unidad"
-                  hint="Ej: kg, litros, unidades"
+                  label="Unidad producida"
+                  hint="Ej: unidad, litro, kg, pizza"
+                  persistent-hint
                   :rules="[v => !!v || 'Unidad requerida']"
                   required
                 />
@@ -159,7 +167,12 @@
 
             <!-- Ingredientes -->
             <div class="d-flex justify-space-between align-center mb-3">
-              <h3>Ingredientes</h3>
+              <div>
+                <h3>Ingredientes</h3>
+                <div class="text-body-2 text-grey-darken-1">
+                  Puedes ingresar cantidades de dos formas: lo que usa todo el lote, o una cantidad que rinde varias unidades.
+                </div>
+              </div>
               <v-btn color="success" size="small" @click="addIngrediente">
                 <v-icon start>mdi-plus</v-icon>
                 Agregar Ingrediente
@@ -170,6 +183,12 @@
               Agrega al menos un ingrediente a la receta
             </v-alert>
 
+            <v-alert v-else type="info" density="compact" variant="tonal" class="mb-3">
+              <strong>Ejemplo por unidad:</strong> una pizza usa 10 ml de salsa.
+              <strong>Ejemplo por rendimiento:</strong> 1 tarro de salsa rinde 50 pizzas.
+              Ambos terminan convertidos al consumo real por unidad.
+            </v-alert>
+
             <v-list v-else class="pa-0">
               <v-list-item
                 v-for="(ing, index) in ingredientes"
@@ -177,7 +196,7 @@
                 class="border mb-2 rounded"
               >
                 <v-row align="center">
-                  <v-col cols="12" md="5">
+                  <v-col cols="12" md="4">
                     <v-autocomplete
                       v-model="ing.producto_id"
                       :items="materiasPrimas"
@@ -199,27 +218,75 @@
                       </template>
                     </v-autocomplete>
                   </v-col>
+                  <v-col cols="12" md="3">
+                    <v-select
+                      v-model="ing.entry_mode"
+                      :items="ingredientEntryModes"
+                      item-title="title"
+                      item-value="value"
+                      label="Modo de cantidad"
+                      :hint="getEntryModeHint(ing)"
+                      persistent-hint
+                      density="compact"
+                    />
+                  </v-col>
                   <v-col cols="6" md="2">
                     <v-text-field
                       v-model.number="ing.cantidad"
-                      label="Cantidad"
+                      :label="ing.entry_mode === 'per_yield' ? 'Cantidad que rinde' : 'Cantidad para este lote'"
+                      :hint="ing.entry_mode === 'per_yield' ? 'Ej: 1 tarro' : 'Ej: 10 ml si la receta produce 1 pizza'"
+                      persistent-hint
                       type="number"
                       step="0.01"
                       min="0"
                       density="compact"
-                      hide-details
                     />
                   </v-col>
                   <v-col cols="6" md="2">
                     <v-text-field
                       v-model="ing.unidad"
-                      label="Unidad"
+                      label="Unidad ingrediente"
+                      hint="Debe coincidir con el inventario"
+                      persistent-hint
+                      density="compact"
+                    />
+                  </v-col>
+                  <v-col v-if="ing.entry_mode === 'per_yield'" cols="12" md="3">
+                    <v-text-field
+                      v-model.number="ing.rinde_cantidad"
+                      :label="`Rinde cuantas ${formData.unidad_producida || 'unidades'}`"
+                      hint="Ej: 50 pizzas"
+                      persistent-hint
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      density="compact"
+                    />
+                  </v-col>
+                  <v-col cols="12" md="3">
+                    <div class="text-caption text-grey">Consumo calculado para el lote</div>
+                    <div class="font-weight-bold">
+                      {{ getBatchQuantity(ing).toFixed(4) }} {{ ing.unidad || 'unid.' }}
+                    </div>
+                    <div class="text-caption text-grey">
+                      Por cada {{ formData.unidad_producida || 'unidad' }}:
+                      {{ getQuantityPerProducedUnit(ing).toFixed(4) }} {{ ing.unidad || 'unid.' }}
+                    </div>
+                  </v-col>
+                  <v-col cols="6" md="2">
+                    <v-text-field
+                      v-model.number="ing.desperdicio_porcentaje"
+                      label="Desperdicio %"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100"
                       density="compact"
                       hide-details
                     />
                   </v-col>
                   <v-col cols="8" md="2">
-                    <div class="text-caption text-grey">Costo</div>
+                    <div class="text-caption text-grey">Costo lote</div>
                     <div class="font-weight-bold text-success">
                       ${{ calcularCostoIngrediente(ing).toFixed(2) }}
                     </div>
@@ -277,11 +344,23 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { recetasService, type Receta, type RecetaItem } from '@/services/recetasService';
+import { recetasService, type Receta, type RecetaItemPayload, type RecetaPayload } from '@/services/recetasService';
 import { productosService, type Product } from '@/services/productosService';
 import { itemsMenuService, type ItemMenu } from '@/services/menuService';
 
 const route = useRoute();
+
+type IngredientEntryMode = 'batch' | 'per_yield';
+interface RecipeIngredientForm {
+  id?: number;
+  producto_id: number | null;
+  cantidad: number;
+  unidad: string;
+  costo_unitario?: number;
+  desperdicio_porcentaje: number;
+  entry_mode: IngredientEntryMode;
+  rinde_cantidad?: number | null;
+}
 
 const recetas = ref<Receta[]>([]);
 const productos = ref<Product[]>([]);
@@ -303,7 +382,7 @@ const formData = ref({
   instrucciones: '',
 });
 
-const ingredientes = ref<Partial<RecetaItem>[]>([]);
+const ingredientes = ref<RecipeIngredientForm[]>([]);
 
 const snackbar = ref(false);
 const snackbarText = ref('');
@@ -316,6 +395,11 @@ const headers = [
   { title: 'Ingredientes', key: 'items' },
   { title: 'Costo Total', key: 'costo_total' },
   { title: 'Acciones', key: 'actions', sortable: false },
+];
+
+const ingredientEntryModes = [
+  { title: 'Cantidad para este lote', value: 'batch' },
+  { title: 'Esta cantidad rinde varias unidades', value: 'per_yield' },
 ];
 
 const productosDisponibles = computed(() => {
@@ -341,6 +425,10 @@ const materiasPrimas = computed(() => {
   return productos.value.filter(p => p.tipo === 'materia_prima' || p.tipo === 'intermedio');
 });
 
+const selectedRecipeProductUnit = computed(() => {
+  return productos.value.find((product) => product.id === formData.value.producto_id)?.unidad || 'unit';
+});
+
 const costoTotal = computed(() => {
   return ingredientes.value.reduce((sum, ing) => sum + calcularCostoIngrediente(ing), 0);
 });
@@ -350,16 +438,52 @@ const costoPorUnidad = computed(() => {
   return costoTotal.value / formData.value.cantidad_producida;
 });
 
-const calcularCostoIngrediente = (ing: Partial<RecetaItem>) => {
+const getBatchQuantity = (ing: RecipeIngredientForm) => {
+  const quantity = Number(ing.cantidad || 0);
+
+  if (ing.entry_mode !== 'per_yield') {
+    return quantity;
+  }
+
+  const recipeYield = Number(formData.value.cantidad_producida || 0);
+  const equivalentYield = Number(ing.rinde_cantidad || 0);
+  if (recipeYield <= 0 || equivalentYield <= 0) {
+    return 0;
+  }
+
+  return quantity * (recipeYield / equivalentYield);
+};
+
+const getEntryModeHint = (ing: RecipeIngredientForm) => {
+  if (ing.entry_mode === 'per_yield') {
+    return 'Úsalo para cosas como: 1 tarro de salsa rinde 50 pizzas';
+  }
+
+  return 'Úsalo para cosas como: esta pizza usa 10 ml de salsa';
+};
+
+const getQuantityWithWaste = (ing: RecipeIngredientForm) => {
+  const wasteMultiplier = 1 + Number(ing.desperdicio_porcentaje || 0) / 100;
+  return getBatchQuantity(ing) * wasteMultiplier;
+};
+
+const getQuantityPerProducedUnit = (ing: RecipeIngredientForm) => {
+  const recipeYield = Number(formData.value.cantidad_producida || 0);
+  if (recipeYield <= 0) return 0;
+
+  return getQuantityWithWaste(ing) / recipeYield;
+};
+
+const calcularCostoIngrediente = (ing: RecipeIngredientForm) => {
   if (!ing.producto_id || !ing.cantidad) return 0;
   
   const producto = productos.value.find(p => p.id === ing.producto_id);
   if (!producto || !producto.costo_unitario) return 0;
   
-  return Number(producto.costo_unitario) * Number(ing.cantidad);
+  return Number(producto.costo_unitario) * getQuantityWithWaste(ing);
 };
 
-const updateIngredienteCosto = (ing: Partial<RecetaItem>) => {
+const updateIngredienteCosto = (ing: RecipeIngredientForm) => {
   const producto = productos.value.find(p => p.id === ing.producto_id);
   if (producto) {
     ing.unidad = producto.unidad;
@@ -440,6 +564,8 @@ const openDialog = (receta?: Receta) => {
       unidad: item.unidad,
       costo_unitario: item.costo_unitario,
       desperdicio_porcentaje: item.desperdicio_porcentaje || 0,
+      entry_mode: 'batch',
+      rinde_cantidad: null,
     }));
   } else {
     formData.value = {
@@ -466,11 +592,13 @@ const closeDialog = () => {
 
 const addIngrediente = () => {
   ingredientes.value.push({
-    producto_id: null as any,
+    producto_id: null,
     cantidad: 1,
     unidad: '',
     costo_unitario: 0,
     desperdicio_porcentaje: 0,
+    entry_mode: 'batch',
+    rinde_cantidad: null,
   });
 };
 
@@ -491,9 +619,29 @@ const save = async () => {
   
   saving.value = true;
   try {
-    const data = {
-      ...formData.value,
-      items: ingredientes.value,
+    const items: RecetaItemPayload[] = ingredientes.value
+      .filter((ingredient) => ingredient.producto_id)
+      .map((ingredient) => {
+      return {
+        id: ingredient.id,
+        producto_id: ingredient.producto_id!,
+        unidad: ingredient.unidad,
+        costo_unitario: ingredient.costo_unitario,
+        cantidad: getBatchQuantity(ingredient),
+        desperdicio_porcentaje: Number(ingredient.desperdicio_porcentaje || 0),
+      };
+    });
+
+    const data: RecetaPayload = {
+      producto_id: formData.value.producto_id,
+      tipo_id: formData.value.tipo_id,
+      nombre: formData.value.nombre,
+      descripcion: formData.value.descripcion,
+      cantidad_producida: formData.value.cantidad_producida || 1,
+      unidad_producida: formData.value.unidad_producida || selectedRecipeProductUnit.value,
+      tiempo_preparacion: formData.value.tiempo_preparacion || undefined,
+      instrucciones: formData.value.instrucciones,
+      items,
     };
     
     if (editing.value) {
@@ -526,8 +674,12 @@ const deleteReceta = async (receta: Receta) => {
 
 watch(
   () => formData.value.producto_id,
-  () => {
+  (productId) => {
     formData.value.tipo_id = null;
+    const selectedProduct = productos.value.find((product) => product.id === productId);
+    if (selectedProduct && !formData.value.unidad_producida) {
+      formData.value.unidad_producida = selectedProduct.unidad;
+    }
   }
 );
 

@@ -10,6 +10,18 @@ export interface RecetaItem {
     costo_unitario?: number;
   };
   cantidad: number;
+  cantidad_con_desperdicio?: number;
+  cantidad_por_unidad_producida?: number;
+  unidad: string;
+  costo_unitario?: number;
+  costo_total?: number;
+  desperdicio_porcentaje?: number;
+}
+
+export interface RecetaItemPayload {
+  id?: number;
+  producto_id: number;
+  cantidad: number;
   unidad: string;
   costo_unitario?: number;
   desperdicio_porcentaje?: number;
@@ -39,6 +51,18 @@ export interface Receta {
   costo_unitario?: number;
 }
 
+export interface RecetaPayload {
+  producto_id: number;
+  tipo_id?: number | null;
+  nombre: string;
+  descripcion?: string;
+  cantidad_producida?: number;
+  unidad_producida?: string;
+  tiempo_preparacion?: number;
+  instrucciones?: string;
+  items: RecetaItemPayload[];
+}
+
 class RecetasService {
   async getAll(): Promise<Receta[]> {
     const response = await api.get('/recetas');
@@ -60,12 +84,12 @@ class RecetasService {
     }
   }
 
-  async create(data: Partial<Receta>): Promise<Receta> {
+  async create(data: RecetaPayload): Promise<Receta> {
     const response = await api.post('/recetas', data);
     return response.data.data;
   }
 
-  async update(id: number, data: Partial<Receta>): Promise<Receta> {
+  async update(id: number, data: RecetaPayload): Promise<Receta> {
     const response = await api.put(`/recetas/${id}`, data);
     return response.data.data;
   }
@@ -74,12 +98,12 @@ class RecetasService {
     await api.delete(`/recetas/${id}`);
   }
 
-  async addItem(recetaId: number, item: Partial<RecetaItem>): Promise<Receta> {
+  async addItem(recetaId: number, item: RecetaItemPayload): Promise<Receta> {
     const response = await api.post(`/recetas/${recetaId}/items`, item);
     return response.data.data;
   }
 
-  async updateItem(recetaId: number, itemId: number, item: Partial<RecetaItem>): Promise<Receta> {
+  async updateItem(recetaId: number, itemId: number, item: RecetaItemPayload): Promise<Receta> {
     const response = await api.put(`/recetas/${recetaId}/items/${itemId}`, item);
     return response.data.data;
   }
