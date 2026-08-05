@@ -22,6 +22,28 @@ export interface Product {
   estimated_cost?: number | null;
   active?: boolean;
   notes?: string | null;
+  in_menu?: boolean;
+  menu_item?: ProductMenuItem | null;
+}
+
+export interface ProductMenuItem {
+  id: number;
+  base_price: number;
+  variant_group_id: number | null;
+  preparation_time: number | null;
+  available: boolean;
+  active: boolean;
+}
+
+export interface ProductMenuPayload {
+  base_price?: number | null;
+  variant_group_id?: number | null;
+  preparation_time?: number | null;
+  available?: boolean;
+}
+
+export interface ProductPayload extends Partial<Product> {
+  menu?: ProductMenuPayload | null;
 }
 
 export interface Category {
@@ -31,8 +53,10 @@ export interface Category {
 }
 
 class ProductsService {
-  async getAll(type?: string): Promise<Product[]> {
-    const params = type ? { type } : {};
+  async getAll(type?: string, inMenu?: boolean): Promise<Product[]> {
+    const params: Record<string, string | number> = {};
+    if (type) params.type = type;
+    if (inMenu !== undefined) params.in_menu = inMenu ? 1 : 0;
     const response = await api.get('/products', { params });
     return response.data.data;
   }
@@ -42,12 +66,12 @@ class ProductsService {
     return response.data.data;
   }
 
-  async create(data: Partial<Product>): Promise<Product> {
+  async create(data: ProductPayload): Promise<Product> {
     const response = await api.post('/products', data);
     return response.data.data;
   }
 
-  async update(id: number, data: Partial<Product>): Promise<Product> {
+  async update(id: number, data: ProductPayload): Promise<Product> {
     const response = await api.put(`/products/${id}`, data);
     return response.data.data;
   }

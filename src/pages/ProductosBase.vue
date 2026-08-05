@@ -53,6 +53,16 @@
                   density="compact"
                 />
               </v-col>
+              <v-col cols="12" md="2">
+                <v-select
+                  v-model="menuFilter"
+                  :items="menuFilterOptions"
+                  label="Menú"
+                  clearable
+                  hide-details
+                  density="compact"
+                />
+              </v-col>
             </v-row>
           </v-card-text>
         </v-card>
@@ -126,6 +136,34 @@
               <v-chip v-if="item.category" size="small" variant="tonal">
                 {{ item.category.name }}
               </v-chip>
+            </template>
+            <template #item.in_menu="{ item }">
+              <v-tooltip
+                v-if="item.in_menu && item.menu_item"
+                :text="item.menu_item.available ? 'Clic para ocultarlo del menú' : 'Clic para mostrarlo en el menú'"
+              >
+                <template #activator="{ props }">
+                  <v-chip
+                    v-bind="props"
+                    :color="item.menu_item.available ? 'green' : 'grey'"
+                    size="small"
+                    style="cursor: pointer"
+                    @click="toggleMenuAvailability(item)"
+                  >
+                    {{ item.menu_item.available ? 'En el menú' : 'Oculto' }}
+                  </v-chip>
+                </template>
+              </v-tooltip>
+              <v-btn
+                v-else-if="item.type === 'final'"
+                size="small"
+                variant="text"
+                color="primary"
+                @click="openDialog(item, true)"
+              >
+                Añadir al menú
+              </v-btn>
+              <span v-else class="text-grey">-</span>
             </template>
             <template #item.actions="{ item }">
               <v-tooltip v-if="item.type !== 'raw_material'" text="Gestionar receta">
@@ -312,12 +350,61 @@
               Este producto no se incluirá en alertas ni reportes de stock.
             </v-alert>
 
-            <v-alert v-if="formData.type === 'final'" type="success" density="compact" class="mt-2">
-              <strong>✓ Producto Final:</strong> Al definir el precio de venta aquí, este producto estará listo para venderse. El costo se calculará automáticamente desde su receta.
-            </v-alert>
-            <v-alert v-else-if="formData.type === 'intermediate'" type="info" density="compact" class="mt-2">
+            <v-alert v-if="formData.type === 'intermediate'" type="info" density="compact" class="mt-2">
               <strong>Producto Intermedio:</strong> El costo de este producto se calculará automáticamente desde su receta
             </v-alert>
+
+            <template v-if="formData.type === 'final'">
+              <v-divider class="my-4" />
+              <h4 class="mb-3">Menú</h4>
+
+              <v-switch
+                v-model="publishToMenu"
+                color="primary"
+                inset
+                label="Publicar en el menú de venta"
+                :hint="editing?.in_menu
+                  ? 'Este producto ya está en el menú; aquí actualizas sus datos de venta'
+                  : 'Crea el ítem del menú de una vez, visible en la app y en Pedidos'"
+                persistent-hint
+                class="mb-2"
+              />
+
+              <v-row v-if="publishToMenu">
+                <v-col cols="12" md="4">
+                  <v-text-field
+                    v-model.number="menuForm.base_price"
+                    label="Precio en el menú"
+                    type="number"
+                    step="100"
+                    min="0"
+                    prefix="$"
+                    :hint="`Si lo dejas vacío se usa el precio de venta ($${formData.sale_price || 0})`"
+                    persistent-hint
+                  />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-select
+                    v-model="menuForm.variant_group_id"
+                    :items="variantGroups"
+                    item-title="name"
+                    item-value="id"
+                    label="Grupo de variantes (opcional)"
+                    hint="Ej: tamaños de pizza, tipos de pan"
+                    persistent-hint
+                    clearable
+                  />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-text-field
+                    v-model.number="menuForm.preparation_time"
+                    label="Tiempo de preparación (min)"
+                    type="number"
+                    min="0"
+                  />
+                </v-col>
+              </v-row>
+            </template>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -406,21 +493,37 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { productsService, productCategoriesService, type Product, type Category } from '@/services/productsService';
+import { productsService, productCategoriesService, type Product, type Category, type ProductPayload } from '@/services/productsService';
+import { menuItemsService } from '@/services/menuService';
+import { variantGroupsService, type VariantGroup } from '@/services/variantsService';
 import { productTypeLabels, label } from '@/utils/labels';
 
 const router = useRouter();
 
 const products = ref<Product[]>([]);
 const categorias = ref<Category[]>([]);
+const variantGroups = ref<VariantGroup[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 const search = ref('');
 const tipoFilter = ref('');
 const filterCategoria = ref<number | null>(null);
+const menuFilter = ref<'in_menu' | 'not_in_menu' | null>(null);
+
+const menuFilterOptions = [
+  { title: 'En el menú', value: 'in_menu' },
+  { title: 'Sin publicar', value: 'not_in_menu' },
+];
 
 const dialog = ref(false);
 const editing = ref<Product | null>(null);
+const publishToMenu = ref(false);
+
+const menuForm = ref({
+  base_price: null as number | null,
+  variant_group_id: null as number | null,
+  preparation_time: null as number | null,
+});
 
 const formData = ref({
   name: '',
@@ -457,6 +560,7 @@ const headers = [
   { title: 'Precio Venta', key: 'sale_price' },
   { title: 'Costo Estimado', key: 'estimated_cost' },
   { title: 'Categoría', key: 'category' },
+  { title: 'Menú', key: 'in_menu', sortable: false },
   { title: 'Acciones', key: 'actions', sortable: false },
 ];
 
@@ -470,7 +574,13 @@ const filteredProducts = computed(() => {
   if (filterCategoria.value) {
     filtered = filtered.filter(p => p.category_id === filterCategoria.value);
   }
-  
+
+  if (menuFilter.value === 'in_menu') {
+    filtered = filtered.filter(p => p.in_menu);
+  } else if (menuFilter.value === 'not_in_menu') {
+    filtered = filtered.filter(p => !p.in_menu);
+  }
+
   return filtered;
 });
 
@@ -635,14 +745,16 @@ const loadData = async () => {
   loading.value = true;
   try {
     console.log('[ProductosBase] Cargando datos...');
-    const [productsData, categoriasData] = await Promise.all([
+    const [productsData, categoriasData, groupsData] = await Promise.all([
       productsService.getAll(),
       productCategoriesService.getAll(),
+      variantGroupsService.getAll(),
     ]);
     console.log('[ProductosBase] Productos cargados:', productsData.length);
     console.log('[ProductosBase] Categorías cargadas:', categoriasData.length);
     products.value = productsData;
     categorias.value = categoriasData;
+    variantGroups.value = groupsData;
   } catch (error: any) {
     console.error('[ProductosBase] Error al cargar datos:', error);
     console.error('[ProductosBase] Error response:', error.response);
@@ -652,8 +764,14 @@ const loadData = async () => {
   }
 };
 
-const openDialog = (product?: Product) => {
+const openDialog = (product?: Product, forceMenu = false) => {
   editing.value = product || null;
+  publishToMenu.value = forceMenu || !!product?.in_menu;
+  menuForm.value = {
+    base_price: product?.menu_item?.base_price ?? null,
+    variant_group_id: product?.menu_item?.variant_group_id ?? null,
+    preparation_time: product?.menu_item?.preparation_time ?? null,
+  };
   formData.value = product
     ? {
         name: product.name,
@@ -699,8 +817,18 @@ const save = async () => {
   saving.value = true;
   try {
     // Preparar datos: convertir comas a puntos y parsear
-    const dataToSend = {
+    const dataToSend: ProductPayload = {
       ...formData.value,
+      // Publicación en el menú (solo productos finales, opcional)
+      ...(formData.value.type === 'final' && publishToMenu.value
+        ? {
+            menu: {
+              base_price: menuForm.value.base_price ?? formData.value.sale_price,
+              variant_group_id: menuForm.value.variant_group_id,
+              preparation_time: menuForm.value.preparation_time,
+            },
+          }
+        : {}),
       // Generar SKU automáticamente si está vacío
       sku: formData.value.sku?.trim()
         ? formData.value.sku
@@ -743,6 +871,17 @@ const deleteProduct = async (product: Product) => {
 
 const goToRecipe = (product: Product) => {
   router.push({ name: 'Recetas', query: { product: product.id } });
+};
+
+const toggleMenuAvailability = async (product: Product) => {
+  if (!product.menu_item) return;
+  try {
+    const updated = await menuItemsService.toggleAvailability(product.menu_item.id);
+    product.menu_item.available = updated.available;
+    showMessage(updated.available ? 'Visible en el menú' : 'Oculto del menú');
+  } catch {
+    showMessage('No se pudo cambiar la disponibilidad', 'error');
+  }
 };
 
 onMounted(() => {
