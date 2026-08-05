@@ -8,6 +8,7 @@ const Recetas = () => import('../pages/Recetas.vue')
 const Productos = () => import('../pages/Productos.vue')
 const Pedidos = () => import('../pages/Pedidos.vue')
 const Mesas = () => import('../pages/Mesas.vue')
+const PlanoSalon = () => import('../pages/PlanoSalon.vue')
 const Clientes = () => import('../pages/Clientes.vue')
 const Gastos = () => import('../pages/Gastos.vue')
 
@@ -77,6 +78,12 @@ export const routes: RouteRecordRaw[] = [
     path: '/mesas',
     name: 'Mesas',
     component: Mesas,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/plano',
+    name: 'PlanoSalon',
+    component: PlanoSalon,
     meta: { requiresAuth: true }
   },
   {

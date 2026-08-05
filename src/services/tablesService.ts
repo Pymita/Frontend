@@ -1,6 +1,7 @@
 import api from './api';
 
 export type DiningTableStatus = 'available' | 'occupied' | 'reserved';
+export type DiningTableShape = 'square' | 'round' | 'rect';
 
 export interface DiningTable {
   id: number;
@@ -9,6 +10,24 @@ export interface DiningTable {
   capacity: number;
   status: DiningTableStatus;
   active: boolean;
+  pos_x: number | null;
+  pos_y: number | null;
+  shape: DiningTableShape;
+  zone: string | null;
+  latest_active_order?: {
+    id: number;
+    total: string | number;
+    payment_status: string;
+    customer_name?: string;
+  } | null;
+}
+
+export interface TableLayoutEntry {
+  id: number;
+  pos_x: number | null;
+  pos_y: number | null;
+  shape?: DiningTableShape;
+  zone?: string | null;
 }
 
 interface ApiResponse<T> {
@@ -44,6 +63,11 @@ export const tablesService = {
 
   async delete(id: number): Promise<void> {
     await api.delete(`/tables/${id}`);
+  },
+
+  async saveLayout(tables: TableLayoutEntry[]): Promise<DiningTable[]> {
+    const response = await api.put<ApiResponse<DiningTable[]>>('/tables/layout', { tables });
+    return response.data.data;
   },
 
   async occupy(id: number): Promise<DiningTable> {

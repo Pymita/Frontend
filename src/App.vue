@@ -96,6 +96,7 @@ const allMenuItems: MenuItem[] = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', route: '/dashboard' },
   { title: 'Pedidos', icon: 'mdi-receipt', route: '/pedidos' },
   { title: 'Mesas', icon: 'mdi-table-chair', route: '/mesas' },
+  { title: 'Plano del Salón', icon: 'mdi-floor-plan', route: '/plano' },
   { title: 'Menú (Venta)', icon: 'mdi-silverware-fork-knife', route: '/productos' },
   { title: 'Categorías', icon: 'mdi-shape', route: '/categorias' },
   { title: 'Productos Base', icon: 'mdi-package-variant', route: '/productos-base' },
