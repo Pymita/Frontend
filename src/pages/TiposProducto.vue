@@ -29,9 +29,9 @@
               @click="selectGrupo(grupo)"
               class="cursor-pointer"
             >
-              <v-list-item-title>{{ grupo.nombre }}</v-list-item-title>
-              <v-list-item-subtitle v-if="grupo.descripcion">
-                {{ grupo.descripcion }}
+              <v-list-item-title>{{ grupo.name }}</v-list-item-title>
+              <v-list-item-subtitle v-if="grupo.description">
+                {{ grupo.description }}
               </v-list-item-subtitle>
               <template #append>
                 <v-btn icon size="small" variant="text" @click.stop="openGrupoDialog(grupo)">
@@ -56,7 +56,7 @@
             <span>
               Tipos
               <v-chip v-if="selectedGrupo" class="ml-2" size="small" color="primary">
-                {{ selectedGrupo.nombre }}
+                {{ selectedGrupo.name }}
               </v-chip>
             </span>
             <v-btn
@@ -79,17 +79,17 @@
             :loading="loadingTipos"
             class="elevation-0"
           >
-            <template #item.diferencia_precio="{ item }">
-              <span :class="Number(item.diferencia_precio || 0) > 0 ? 'text-success' : Number(item.diferencia_precio || 0) < 0 ? 'text-error' : ''">
-                {{ Number(item.diferencia_precio || 0) > 0 ? '+' : '' }}${{ Number(item.diferencia_precio || 0).toFixed(2) }}
+            <template #item.price_difference="{ item }">
+              <span :class="Number(item.price_difference || 0) > 0 ? 'text-success' : Number(item.price_difference || 0) < 0 ? 'text-error' : ''">
+                {{ Number(item.price_difference || 0) > 0 ? '+' : '' }}${{ Number(item.price_difference || 0).toFixed(2) }}
               </span>
             </template>
-            <template #item.multiplicador_precio="{ item }">
-              x{{ Number(item.multiplicador_precio || 1).toFixed(2) }}
+            <template #item.price_multiplier="{ item }">
+              x{{ Number(item.price_multiplier || 1).toFixed(2) }}
             </template>
-            <template #item.activo="{ item }">
-              <v-chip :color="item.activo ? 'success' : 'error'" size="small">
-                {{ item.activo ? 'Activo' : 'Inactivo' }}
+            <template #item.active="{ item }">
+              <v-chip :color="item.active ? 'success' : 'error'" size="small">
+                {{ item.active ? 'Activo' : 'Inactivo' }}
               </v-chip>
             </template>
             <template #item.actions="{ item }">
@@ -116,13 +116,13 @@
         <v-card-text>
           <v-form ref="grupoForm" @submit.prevent="saveGrupo">
             <v-text-field
-              v-model="grupoFormData.nombre"
+              v-model="grupoFormData.name"
               label="Nombre"
               :rules="[v => !!v || 'Nombre requerido']"
               required
             />
             <v-textarea
-              v-model="grupoFormData.descripcion"
+              v-model="grupoFormData.description"
               label="Descripción"
               rows="2"
             />
@@ -143,20 +143,20 @@
         <v-card-text>
           <v-form ref="tipoForm" @submit.prevent="saveTipo">
             <v-text-field
-              v-model="tipoFormData.nombre"
+              v-model="tipoFormData.name"
               label="Nombre"
               :rules="[v => !!v || 'Nombre requerido']"
               required
             />
             <v-textarea
-              v-model="tipoFormData.descripcion"
+              v-model="tipoFormData.description"
               label="Descripción"
               rows="2"
             />
             <v-row>
               <v-col cols="6">
                 <v-text-field
-                  v-model.number="tipoFormData.diferencia_precio"
+                  v-model.number="tipoFormData.price_difference"
                   label="Diferencia de precio ($)"
                   type="number"
                   step="0.01"
@@ -165,7 +165,7 @@
               </v-col>
               <v-col cols="6">
                 <v-text-field
-                  v-model.number="tipoFormData.multiplicador_precio"
+                  v-model.number="tipoFormData.price_multiplier"
                   label="Multiplicador de precio"
                   type="number"
                   step="0.01"
@@ -177,7 +177,7 @@
             <v-row>
               <v-col cols="6">
                 <v-text-field
-                  v-model.number="tipoFormData.orden"
+                  v-model.number="tipoFormData.sort_order"
                   label="Orden"
                   type="number"
                   min="0"
@@ -202,26 +202,26 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
-import { grupoTiposService, tiposService, type GrupoTipo, type Tipo } from '@/services/tiposService';
+import { variantGroupsService, variantsService, type VariantGroup, type Variant } from '@/services/variantsService';
 
-const grupos = ref<GrupoTipo[]>([]);
-const tipos = ref<Tipo[]>([]);
-const selectedGrupo = ref<GrupoTipo | null>(null);
+const grupos = ref<VariantGroup[]>([]);
+const tipos = ref<Variant[]>([]);
+const selectedGrupo = ref<VariantGroup | null>(null);
 const loadingTipos = ref(false);
 const saving = ref(false);
 
 const grupoDialog = ref(false);
 const tipoDialog = ref(false);
-const editingGrupo = ref<GrupoTipo | null>(null);
-const editingTipo = ref<Tipo | null>(null);
+const editingGrupo = ref<VariantGroup | null>(null);
+const editingTipo = ref<Variant | null>(null);
 
-const grupoFormData = ref({ nombre: '', descripcion: '' });
+const grupoFormData = ref({ name: '', description: '' });
 const tipoFormData = ref({
-  nombre: '',
-  descripcion: '',
-  diferencia_precio: 0,
-  multiplicador_precio: 1,
-  orden: 0,
+  name: '',
+  description: '',
+  price_difference: 0,
+  price_multiplier: 1,
+  sort_order: 0,
 });
 
 const snackbar = ref(false);
@@ -229,11 +229,11 @@ const snackbarText = ref('');
 const snackbarColor = ref('success');
 
 const tipoHeaders = [
-  { title: 'Nombre', key: 'nombre' },
-  { title: 'Diferencia Precio', key: 'diferencia_precio' },
-  { title: 'Multiplicador', key: 'multiplicador_precio' },
-  { title: 'Orden', key: 'orden' },
-  { title: 'Estado', key: 'activo' },
+  { title: 'Nombre', key: 'name' },
+  { title: 'Diferencia Precio', key: 'price_difference' },
+  { title: 'Multiplicador', key: 'price_multiplier' },
+  { title: 'Orden', key: 'sort_order' },
+  { title: 'Estado', key: 'active' },
   { title: 'Acciones', key: 'actions', sortable: false },
 ];
 
@@ -245,7 +245,7 @@ const showMessage = (text: string, color = 'success') => {
 
 const loadGrupos = async () => {
   try {
-    grupos.value = await grupoTiposService.getAll();
+    grupos.value = await variantGroupsService.getAll();
   } catch (error) {
     showMessage('Error al cargar grupos', 'error');
   }
@@ -255,7 +255,7 @@ const loadTipos = async () => {
   if (!selectedGrupo.value) return;
   loadingTipos.value = true;
   try {
-    tipos.value = await tiposService.getAll(selectedGrupo.value.id);
+    tipos.value = await variantsService.getAll(selectedGrupo.value.id);
   } catch (error) {
     showMessage('Error al cargar tipos', 'error');
   } finally {
@@ -263,7 +263,7 @@ const loadTipos = async () => {
   }
 };
 
-const selectGrupo = (grupo: GrupoTipo) => {
+const selectGrupo = (grupo: VariantGroup) => {
   selectedGrupo.value = grupo;
 };
 
@@ -275,23 +275,23 @@ watch(selectedGrupo, (newValue) => {
   }
 });
 
-const openGrupoDialog = (grupo?: GrupoTipo) => {
+const openGrupoDialog = (grupo?: VariantGroup) => {
   editingGrupo.value = grupo || null;
   grupoFormData.value = grupo
-    ? { nombre: grupo.nombre, descripcion: grupo.descripcion || '' }
-    : { nombre: '', descripcion: '' };
+    ? { name: grupo.name, description: grupo.description || '' }
+    : { name: '', description: '' };
   grupoDialog.value = true;
 };
 
 const saveGrupo = async () => {
-  if (!grupoFormData.value.nombre) return;
+  if (!grupoFormData.value.name) return;
   saving.value = true;
   try {
     if (editingGrupo.value) {
-      await grupoTiposService.update(editingGrupo.value.id, grupoFormData.value);
+      await variantGroupsService.update(editingGrupo.value.id, grupoFormData.value);
       showMessage('Grupo actualizado');
     } else {
-      await grupoTiposService.create(grupoFormData.value);
+      await variantGroupsService.create(grupoFormData.value);
       showMessage('Grupo creado');
     }
     grupoDialog.value = false;
@@ -303,10 +303,10 @@ const saveGrupo = async () => {
   }
 };
 
-const deleteGrupo = async (grupo: GrupoTipo) => {
-  if (!confirm(`¿Eliminar el grupo "${grupo.nombre}"?`)) return;
+const deleteGrupo = async (grupo: VariantGroup) => {
+  if (!confirm(`¿Eliminar el grupo "${grupo.name}"?`)) return;
   try {
-    await grupoTiposService.delete(grupo.id);
+    await variantGroupsService.delete(grupo.id);
     showMessage('Grupo eliminado');
     if (selectedGrupo.value?.id === grupo.id) {
       selectedGrupo.value = null;
@@ -318,36 +318,36 @@ const deleteGrupo = async (grupo: GrupoTipo) => {
   }
 };
 
-const openTipoDialog = (tipo?: Tipo) => {
+const openTipoDialog = (tipo?: Variant) => {
   editingTipo.value = tipo || null;
   tipoFormData.value = tipo
     ? {
-        nombre: tipo.nombre,
-        descripcion: tipo.descripcion || '',
-        diferencia_precio: tipo.diferencia_precio,
-        multiplicador_precio: tipo.multiplicador_precio,
-        orden: tipo.orden,
+        name: tipo.name,
+        description: tipo.description || '',
+        price_difference: tipo.price_difference,
+        price_multiplier: tipo.price_multiplier,
+        sort_order: tipo.sort_order,
       }
     : {
-        nombre: '',
-        descripcion: '',
-        diferencia_precio: 0,
-        multiplicador_precio: 1,
-        orden: 0,
+        name: '',
+        description: '',
+        price_difference: 0,
+        price_multiplier: 1,
+        sort_order: 0,
       };
   tipoDialog.value = true;
 };
 
 const saveTipo = async () => {
-  if (!tipoFormData.value.nombre || !selectedGrupo.value) return;
+  if (!tipoFormData.value.name || !selectedGrupo.value) return;
   saving.value = true;
   try {
-    const data = { ...tipoFormData.value, grupo_tipo_id: selectedGrupo.value.id };
+    const data = { ...tipoFormData.value, variant_group_id: selectedGrupo.value.id };
     if (editingTipo.value) {
-      await tiposService.update(editingTipo.value.id, data);
+      await variantsService.update(editingTipo.value.id, data);
       showMessage('Tipo actualizado');
     } else {
-      await tiposService.create(data);
+      await variantsService.create(data);
       showMessage('Tipo creado');
     }
     tipoDialog.value = false;
@@ -359,21 +359,15 @@ const saveTipo = async () => {
   }
 };
 
-const deleteTipo = async (tipo: Tipo) => {
-  if (!confirm(`¿Eliminar el tipo "${tipo.nombre}"?`)) return;
+const deleteTipo = async (tipo: Variant) => {
+  if (!confirm(`¿Eliminar el tipo "${tipo.name}"?`)) return;
   try {
-    await tiposService.delete(tipo.id);
+    await variantsService.delete(tipo.id);
     showMessage('Tipo eliminado');
     loadTipos();
   } catch (error) {
     showMessage('Error al eliminar', 'error');
   }
-};
-
-// Función helper para formatear precios
-const formatPrice = (value: any, defaultValue = 0): number => {
-  const num = Number(value);
-  return isNaN(num) ? defaultValue : num;
 };
 
 onMounted(() => {

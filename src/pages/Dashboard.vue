@@ -104,8 +104,8 @@
               >
                 <v-list-item-title>{{ product.name }}</v-list-item-title>
                 <v-list-item-subtitle>
-                  Actual: <strong>{{ Number(product.stock || 0).toFixed(2) }} {{ product.unidad }}</strong> 
-                  / Mínimo: {{ Number(product.stock_minimo || 0).toFixed(2) }} {{ product.unidad }}
+                  Actual: <strong>{{ Number(product.current_stock || 0).toFixed(2) }} {{ product.unit }}</strong>
+                  / Mínimo: {{ Number(product.minimum_stock || 0).toFixed(2) }} {{ product.unit }}
                 </v-list-item-subtitle>
                 <template v-slot:append>
                   <v-chip color="warning" size="small" variant="outlined">
@@ -172,12 +172,12 @@ import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
 const dashStats = ref<DashboardStats>({
-  pedidos_hoy: 0,
-  ventas_hoy: 0,
-  pedidos_mes: 0,
-  ventas_mes: 0,
-  productos_activos: 0,
-  stock_bajo: 0,
+  orders_today: 0,
+  sales_today: 0,
+  orders_month: 0,
+  sales_month: 0,
+  active_products: 0,
+  low_stock: 0,
 })
 
 const recentOrders = ref<Order[]>([])
@@ -189,39 +189,39 @@ const loading = ref(true)
 const stats = computed(() => [
   {
     title: 'Pedidos Hoy',
-    value: dashStats.value.pedidos_hoy.toString(),
-    subtitle: `${dashStats.value.pedidos_mes} este mes`,
+    value: dashStats.value.orders_today.toString(),
+    subtitle: `${dashStats.value.orders_month} este mes`,
     color: 'text-primary',
     trend: { icon: 'mdi-receipt', text: 'Pedidos del día', color: 'primary' }
   },
   {
     title: 'Ventas Hoy',
-    value: `$${Number(dashStats.value.ventas_hoy || 0).toFixed(0)}`,
-    subtitle: `$${Number(dashStats.value.ventas_mes || 0).toFixed(0)} este mes`,
+    value: `$${Number(dashStats.value.sales_today || 0).toFixed(0)}`,
+    subtitle: `$${Number(dashStats.value.sales_month || 0).toFixed(0)} este mes`,
     color: 'text-success',
     trend: { icon: 'mdi-cash', text: 'Ventas pagadas', color: 'success' }
   },
   {
     title: 'Productos Activos',
-    value: dashStats.value.productos_activos.toString(),
+    value: dashStats.value.active_products.toString(),
     subtitle: 'En el menú',
     color: 'text-info',
     trend: { icon: 'mdi-silverware-fork-knife', text: 'Disponibles', color: 'info' }
   },
   {
     title: 'Stock Bajo',
-    value: dashStats.value.stock_bajo.toString(),
-    subtitle: dashStats.value.stock_bajo > 0 ? 'Requiere atención' : 'Todo bien',
-    color: dashStats.value.stock_bajo > 0 ? 'text-warning' : 'text-success',
-    trend: { 
-      icon: dashStats.value.stock_bajo > 0 ? 'mdi-alert' : 'mdi-check-circle', 
-      text: 'Inventario', 
-      color: dashStats.value.stock_bajo > 0 ? 'warning' : 'success'
+    value: dashStats.value.low_stock.toString(),
+    subtitle: dashStats.value.low_stock > 0 ? 'Requiere atención' : 'Todo bien',
+    color: dashStats.value.low_stock > 0 ? 'text-warning' : 'text-success',
+    trend: {
+      icon: dashStats.value.low_stock > 0 ? 'mdi-alert' : 'mdi-check-circle',
+      text: 'Inventario',
+      color: dashStats.value.low_stock > 0 ? 'warning' : 'success'
     }
   }
 ])
 
-const getStatusInfo = (status: string) => {
+const getStatusInfo = (status: string): { text: string; color: string; icon: string } => {
   const statusMap: Record<string, { text: string; color: string; icon: string }> = {
     pending: { text: 'Pendiente', color: 'grey', icon: 'mdi-clock' },
     preparing: { text: 'Preparando', color: 'warning', icon: 'mdi-chef-hat' },
@@ -229,7 +229,7 @@ const getStatusInfo = (status: string) => {
     delivered: { text: 'Entregado', color: 'info', icon: 'mdi-truck' },
     cancelled: { text: 'Cancelado', color: 'error', icon: 'mdi-close' },
   }
-  return statusMap[status] || statusMap.pending
+  return statusMap[status] || { text: 'Pendiente', color: 'grey', icon: 'mdi-clock' }
 }
 
 const chartData = computed(() => ({
@@ -280,7 +280,7 @@ const loadData = async () => {
   try {
     const [stats, orders, stock, products, salesWeek] = await Promise.all([
       dashboardService.getStats(),
-      ordersService.getAll({ hoy: true }),
+      ordersService.getAll({ today: true }),
       dashboardService.getLowStock(),
       dashboardService.getTopProducts(),
       dashboardService.getSalesWeek(),

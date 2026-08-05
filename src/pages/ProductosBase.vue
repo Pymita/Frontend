@@ -26,8 +26,8 @@
               <v-col cols="12" md="3">
                 <v-tabs v-model="tipoFilter" color="primary" density="compact">
                   <v-tab value="">Todos</v-tab>
-                  <v-tab value="materia_prima">Materias Primas</v-tab>
-                  <v-tab value="intermedio">Intermedios</v-tab>
+                  <v-tab value="raw_material">Materias Primas</v-tab>
+                  <v-tab value="intermediate">Intermedios</v-tab>
                   <v-tab value="final">Finales</v-tab>
                 </v-tabs>
               </v-col>
@@ -70,21 +70,21 @@
             :search="search"
             class="elevation-0"
           >
-            <template #item.tipo="{ item }">
-              <v-chip :color="getTipoColor(item.tipo)" size="small">
-                {{ getTipoLabel(item.tipo) }}
+            <template #item.type="{ item }">
+              <v-chip :color="getTipoColor(item.type)" size="small">
+                {{ getTipoLabel(item.type) }}
               </v-chip>
             </template>
-            <template #item.stock_actual="{ item }">
-              <span v-if="item.maneja_stock === false" class="text-grey">No aplica</span>
-              <div v-else-if="item.stock_actual !== null && item.stock_actual !== undefined">
+            <template #item.current_stock="{ item }">
+              <span v-if="item.tracks_stock === false" class="text-grey">No aplica</span>
+              <div v-else-if="item.current_stock !== null && item.current_stock !== undefined">
                 <v-chip 
                   :color="getStockColor(item)" 
                   size="small"
                   @click="openStockDialog(item)"
                   style="cursor: pointer"
                 >
-                  {{ item.stock_actual }} {{ item.unidad }}
+                  {{ item.current_stock }} {{ item.unit }}
                 </v-chip>
               </div>
               <v-btn 
@@ -97,28 +97,28 @@
                 Definir
               </v-btn>
             </template>
-            <template #item.stock_minimo="{ item }">
-              <span v-if="item.maneja_stock === false" class="text-grey">No aplica</span>
-              <span v-else-if="item.stock_minimo">
-                {{ item.stock_minimo }} {{ item.unidad }}
+            <template #item.minimum_stock="{ item }">
+              <span v-if="item.tracks_stock === false" class="text-grey">No aplica</span>
+              <span v-else-if="item.minimum_stock">
+                {{ item.minimum_stock }} {{ item.unit }}
               </span>
               <span v-else class="text-grey">-</span>
             </template>
-            <template #item.costo_unitario="{ item }">
-              <span v-if="item.costo_unitario" class="font-weight-bold">
-                ${{ Number(item.costo_unitario).toFixed(2) }}/{{ item.unidad }}
+            <template #item.unit_cost="{ item }">
+              <span v-if="item.unit_cost" class="font-weight-bold">
+                ${{ Number(item.unit_cost).toFixed(2) }}/{{ item.unit }}
               </span>
               <span v-else class="text-grey">-</span>
             </template>
-            <template #item.precio_venta="{ item }">
-              <span v-if="item.precio_venta" class="font-weight-bold text-success">
-                ${{ Number(item.precio_venta).toLocaleString('es-CO') }}
+            <template #item.sale_price="{ item }">
+              <span v-if="item.sale_price" class="font-weight-bold text-success">
+                ${{ Number(item.sale_price).toLocaleString('es-CO') }}
               </span>
               <span v-else class="text-grey">-</span>
             </template>
-            <template #item.costo_estimado="{ item }">
-              <span v-if="item.costo_estimado" class="text-success">
-                ${{ Number(item.costo_estimado).toFixed(2) }}
+            <template #item.estimated_cost="{ item }">
+              <span v-if="item.estimated_cost" class="text-success">
+                ${{ Number(item.estimated_cost).toFixed(2) }}
               </span>
               <span v-else class="text-grey">-</span>
             </template>
@@ -128,7 +128,7 @@
               </v-chip>
             </template>
             <template #item.actions="{ item }">
-              <v-tooltip v-if="item.tipo !== 'materia_prima'" text="Gestionar receta">
+              <v-tooltip v-if="item.type !== 'raw_material'" text="Gestionar receta">
                 <template #activator="{ props }">
                   <v-btn
                     v-bind="props"
@@ -136,7 +136,7 @@
                     size="small"
                     variant="text"
                     color="info"
-                    @click="goToReceta(item)"
+                    @click="goToRecipe(item)"
                   >
                     <v-icon size="small">mdi-food-variant</v-icon>
                   </v-btn>
@@ -203,8 +203,8 @@
             <v-row>
               <v-col cols="12" md="6">
                 <v-select
-                  v-model="formData.tipo"
-                  :items="tiposProducto"
+                  v-model="formData.type"
+                  :items="productTypeOptions"
                   label="Tipo de producto"
                   :rules="[v => !!v || 'Tipo requerido']"
                   required
@@ -224,7 +224,7 @@
             <v-row>
               <v-col cols="12" md="6">
                 <v-text-field
-                  v-model="formData.unidad"
+                  v-model="formData.unit"
                   label="Unidad de medida *"
                   hint="Ej: kg, litros, unidad, gramos"
                   persistent-hint
@@ -234,8 +234,8 @@
               </v-col>
               <v-col cols="12" md="6">
                 <v-text-field
-                  v-if="formData.tipo === 'materia_prima'"
-                  v-model.number="formData.costo_unitario"
+                  v-if="formData.type === 'raw_material'"
+                  v-model.number="formData.unit_cost"
                   label="Costo unitario"
                   type="number"
                   step="0.01"
@@ -246,8 +246,8 @@
                   :rules="[v => v >= 0 || 'Costo inválido']"
                 />
                 <v-text-field
-                  v-if="formData.tipo === 'final'"
-                  v-model.number="formData.precio_venta"
+                  v-if="formData.type === 'final'"
+                  v-model.number="formData.sale_price"
                   label="Precio de venta *"
                   type="number"
                   step="100"
@@ -265,7 +265,7 @@
             <h4 class="mb-3">Control de Inventario</h4>
 
             <v-switch
-              v-model="formData.maneja_stock"
+              v-model="formData.tracks_stock"
               color="primary"
               inset
               label="Este producto maneja stock e inventario"
@@ -274,15 +274,15 @@
               class="mb-2"
             />
             
-            <v-row v-if="formData.maneja_stock">
+            <v-row v-if="formData.tracks_stock">
               <v-col cols="12" md="6">
                 <v-text-field
-                  v-model="formData.stock_actual"
+                  v-model="formData.current_stock"
                   label="Stock actual"
                   type="text"
                   inputmode="decimal"
-                  :suffix="formData.unidad || ''"
-                  @blur="formatStockField('stock_actual')"
+                  :suffix="formData.unit || ''"
+                  @blur="formatStockField('current_stock')"
                   @keypress="allowDecimalInput"
                   hint="Ej: 10,5 o 10.5"
                   persistent-hint
@@ -290,12 +290,12 @@
               </v-col>
               <v-col cols="12" md="6">
                 <v-text-field
-                  v-model="formData.stock_minimo"
+                  v-model="formData.minimum_stock"
                   label="Stock mínimo (alerta)"
                   type="text"
                   inputmode="decimal"
-                  :suffix="formData.unidad || ''"
-                  @blur="formatStockField('stock_minimo')"
+                  :suffix="formData.unit || ''"
+                  @blur="formatStockField('minimum_stock')"
                   @keypress="allowDecimalInput"
                   hint="Se alertará cuando baje de este nivel. Ej: 5,5 o 5.5"
                   persistent-hint
@@ -312,10 +312,10 @@
               Este producto no se incluirá en alertas ni reportes de stock.
             </v-alert>
 
-            <v-alert v-if="formData.tipo === 'final'" type="success" density="compact" class="mt-2">
+            <v-alert v-if="formData.type === 'final'" type="success" density="compact" class="mt-2">
               <strong>✓ Producto Final:</strong> Al definir el precio de venta aquí, este producto estará listo para venderse. El costo se calculará automáticamente desde su receta.
             </v-alert>
-            <v-alert v-else-if="formData.tipo === 'intermedio'" type="info" density="compact" class="mt-2">
+            <v-alert v-else-if="formData.type === 'intermediate'" type="info" density="compact" class="mt-2">
               <strong>Producto Intermedio:</strong> El costo de este producto se calculará automáticamente desde su receta
             </v-alert>
           </v-form>
@@ -333,20 +333,20 @@
       <v-card v-if="stockProduct">
         <v-card-title>Ajustar Stock: {{ stockProduct.name }}</v-card-title>
         <v-card-text>
-          <v-alert 
-            :type="getStockColor(stockProduct)"
+          <v-alert
+            :type="getStockAlertType(stockProduct)"
             density="compact"
             class="mb-4"
           >
             <div class="d-flex justify-space-between align-center">
               <span>Stock actual:</span>
               <span class="text-h6">
-                {{ stockProduct.stock_actual || 0 }} {{ stockProduct.unidad }}
+                {{ stockProduct.current_stock || 0 }} {{ stockProduct.unit }}
               </span>
             </div>
-            <div v-if="stockProduct.stock_minimo" class="d-flex justify-space-between align-center mt-2">
+            <div v-if="stockProduct.minimum_stock" class="d-flex justify-space-between align-center mt-2">
               <span>Stock mínimo:</span>
-              <span>{{ stockProduct.stock_minimo }} {{ stockProduct.unidad }}</span>
+              <span>{{ stockProduct.minimum_stock }} {{ stockProduct.unit }}</span>
             </div>
           </v-alert>
 
@@ -357,7 +357,7 @@
                 label="Ajuste"
                 type="text"
                 inputmode="decimal"
-                :suffix="stockProduct.unidad"
+                :suffix="stockProduct.unit"
                 hint="Usa negativos para restar. Ej: -2,5 o 3,75"
                 persistent-hint
                 autofocus
@@ -368,7 +368,7 @@
               <v-card flat color="grey-lighten-4" class="pa-3">
                 <div class="text-caption">Nuevo stock:</div>
                 <div class="text-h5" :class="calcularNuevoStock >= 0 ? 'text-success' : 'text-error'">
-                  {{ calcularNuevoStock.toFixed(2) }} {{ stockProduct.unidad }}
+                  {{ calcularNuevoStock.toFixed(2) }} {{ stockProduct.unit }}
                 </div>
               </v-card>
             </v-col>
@@ -404,9 +404,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { productosService, categoriesProductosService, type Product, type Category } from '@/services/productosService';
+import { productsService, productCategoriesService, type Product, type Category } from '@/services/productsService';
+import { productTypeLabels, label } from '@/utils/labels';
 
 const router = useRouter();
 
@@ -425,36 +426,36 @@ const formData = ref({
   name: '',
   description: '',
   sku: '',
-  tipo: 'materia_prima' as 'materia_prima' | 'intermedio' | 'final',
-  unidad: '',
-  maneja_stock: true,
-  costo_unitario: 0,
-  precio_venta: null as number | null,
+  type: 'raw_material' as 'raw_material' | 'intermediate' | 'final',
+  unit: '',
+  tracks_stock: true,
+  unit_cost: 0,
+  sale_price: null as number | null,
   category_id: null as number | null,
-  stock_actual: null as string | number | null,
-  stock_minimo: null as string | number | null,
+  current_stock: null as string | number | null,
+  minimum_stock: null as string | number | null,
 });
 
 const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref('success');
 
-const tiposProducto = [
-  { title: 'Materia Prima', value: 'materia_prima' },
-  { title: 'Producto Intermedio', value: 'intermedio' },
+const productTypeOptions = [
+  { title: 'Materia Prima', value: 'raw_material' },
+  { title: 'Producto Intermedio', value: 'intermediate' },
   { title: 'Producto Final', value: 'final' },
 ];
 
 const headers = [
   { title: 'SKU', key: 'sku' },
   { title: 'Nombre', key: 'name' },
-  { title: 'Tipo', key: 'tipo' },
-  { title: 'Stock Actual', key: 'stock_actual' },
-  { title: 'Stock Mínimo', key: 'stock_minimo' },
-  { title: 'Unidad', key: 'unidad' },
-  { title: 'Costo Unitario', key: 'costo_unitario' },
-  { title: 'Precio Venta', key: 'precio_venta' },
-  { title: 'Costo Estimado', key: 'costo_estimado' },
+  { title: 'Tipo', key: 'type' },
+  { title: 'Stock Actual', key: 'current_stock' },
+  { title: 'Stock Mínimo', key: 'minimum_stock' },
+  { title: 'Unidad', key: 'unit' },
+  { title: 'Costo Unitario', key: 'unit_cost' },
+  { title: 'Precio Venta', key: 'sale_price' },
+  { title: 'Costo Estimado', key: 'estimated_cost' },
   { title: 'Categoría', key: 'category' },
   { title: 'Acciones', key: 'actions', sortable: false },
 ];
@@ -463,7 +464,7 @@ const filteredProducts = computed(() => {
   let filtered = products.value;
   
   if (tipoFilter.value) {
-    filtered = filtered.filter(p => p.tipo === tipoFilter.value);
+    filtered = filtered.filter(p => p.type === tipoFilter.value);
   }
   
   if (filterCategoria.value) {
@@ -475,27 +476,25 @@ const filteredProducts = computed(() => {
 
 const getTipoColor = (tipo: string) => {
   const colors: Record<string, string> = {
-    materia_prima: 'blue',
-    intermedio: 'orange',
+    raw_material: 'blue',
+    intermediate: 'orange',
     final: 'green',
   };
   return colors[tipo] || 'grey';
 };
 
-const getTipoLabel = (tipo: string) => {
-  const labels: Record<string, string> = {
-    materia_prima: 'Materia Prima',
-    intermedio: 'Intermedio',
-    final: 'Final',
-  };
-  return labels[tipo] || tipo;
+const getTipoLabel = (tipo: string) => label(productTypeLabels, tipo);
+
+const getStockAlertType = (product: Product): 'success' | 'error' | 'warning' | 'info' => {
+  const color = getStockColor(product);
+  return color === 'grey' ? 'info' : color;
 };
 
 const getStockColor = (product: Product) => {
-  if (product.maneja_stock === false) return 'grey';
-  if (!product.stock_actual || !product.stock_minimo) return 'grey';
-  if (product.stock_actual <= product.stock_minimo) return 'error';
-  if (product.stock_actual <= product.stock_minimo * 1.5) return 'warning';
+  if (product.tracks_stock === false) return 'grey';
+  if (!product.current_stock || !product.minimum_stock) return 'grey';
+  if (product.current_stock <= product.minimum_stock) return 'error';
+  if (product.current_stock <= product.minimum_stock * 1.5) return 'warning';
   return 'success';
 };
 
@@ -511,7 +510,7 @@ const calcularNuevoStock = computed(() => {
   const ajuste = parseFloat(ajusteStr);
   const ajusteValido = isNaN(ajuste) ? 0 : ajuste;
   
-  return Number(stockProduct.value.stock_actual || 0) + ajusteValido;
+  return Number(stockProduct.value.current_stock || 0) + ajusteValido;
 });
 
 // Función para generar SKU automáticamente
@@ -525,7 +524,7 @@ const generarSKU = (nombre: string, tipo: string): string => {
     .substring(0, 8); // Máximo 8 caracteres
   
   // Prefijo según tipo
-  const prefijo = tipo === 'materia_prima' ? 'MP' : tipo === 'intermedio' ? 'INT' : 'FIN';
+  const prefijo = tipo === 'raw_material' ? 'MP' : tipo === 'intermediate' ? 'INT' : 'FIN';
   
   // Timestamp corto para garantizar unicidad
   const timestamp = Date.now().toString().slice(-6);
@@ -536,11 +535,11 @@ const generarSKU = (nombre: string, tipo: string): string => {
 // Vista previa del SKU que se generará
 const skuPreview = computed(() => {
   if (!formData.value.name?.trim()) return 'Ingresa un nombre primero';
-  return generarSKU(formData.value.name, formData.value.tipo);
+  return generarSKU(formData.value.name, formData.value.type);
 });
 
 const openStockDialog = (product: Product) => {
-  if (product.maneja_stock === false) {
+  if (product.tracks_stock === false) {
     showMessage('Este producto no tiene control de stock activo', 'warning');
     return;
   }
@@ -565,7 +564,7 @@ const updateStock = async () => {
       return;
     }
     
-    const nuevoStock = Number(stockProduct.value.stock_actual || 0) + ajuste;
+    const nuevoStock = Number(stockProduct.value.current_stock || 0) + ajuste;
     
     if (nuevoStock < 0) {
       showMessage('El stock no puede ser negativo', 'error');
@@ -573,10 +572,10 @@ const updateStock = async () => {
       return;
     }
     
-    await productosService.update(stockProduct.value.id, {
-      stock_actual: nuevoStock,
+    await productsService.update(stockProduct.value.id, {
+      current_stock: nuevoStock,
     });
-    showMessage(`Stock actualizado: ${nuevoStock.toFixed(2)} ${stockProduct.value.unidad}`);
+    showMessage(`Stock actualizado: ${nuevoStock.toFixed(2)} ${stockProduct.value.unit}`);
     stockDialog.value = false;
     stockAjuste.value = 0;
     loadData();
@@ -624,7 +623,7 @@ const allowDecimalInput = (event: KeyboardEvent) => {
 };
 
 // Formatear campo de stock: convertir coma a punto
-const formatStockField = (field: 'stock_actual' | 'stock_minimo') => {
+const formatStockField = (field: 'current_stock' | 'minimum_stock') => {
   if (formData.value[field] !== null && formData.value[field] !== undefined) {
     const value = String(formData.value[field]).replace(',', '.');
     const parsed = parseFloat(value);
@@ -637,8 +636,8 @@ const loadData = async () => {
   try {
     console.log('[ProductosBase] Cargando datos...');
     const [productsData, categoriasData] = await Promise.all([
-      productosService.getAll(),
-      categoriesProductosService.getAll(),
+      productsService.getAll(),
+      productCategoriesService.getAll(),
     ]);
     console.log('[ProductosBase] Productos cargados:', productsData.length);
     console.log('[ProductosBase] Categorías cargadas:', categoriasData.length);
@@ -660,39 +659,39 @@ const openDialog = (product?: Product) => {
         name: product.name,
         description: product.description || '',
         sku: product.sku,
-        tipo: product.tipo,
-        unidad: product.unidad,
-        maneja_stock: product.maneja_stock ?? true,
-        costo_unitario: product.costo_unitario || 0,
-        precio_venta: product.precio_venta || null,
+        type: product.type,
+        unit: product.unit,
+        tracks_stock: product.tracks_stock ?? true,
+        unit_cost: product.unit_cost || 0,
+        sale_price: product.sale_price || null,
         category_id: product.category_id || null,
-        stock_actual: product.stock_actual || null,
-        stock_minimo: product.stock_minimo || null,
+        current_stock: product.current_stock || null,
+        minimum_stock: product.minimum_stock || null,
       }
     : {
         name: '',
         description: '',
         sku: '',
-        tipo: 'materia_prima',
-        unidad: '',
-        maneja_stock: true,
-        costo_unitario: 0,
-        precio_venta: null,
+        type: 'raw_material',
+        unit: '',
+        tracks_stock: true,
+        unit_cost: 0,
+        sale_price: null,
         category_id: null,
-        stock_actual: null,
-        stock_minimo: null,
+        current_stock: null,
+        minimum_stock: null,
       };
   dialog.value = true;
 };
 
 const save = async () => {
-  if (!formData.value.name || !formData.value.unidad) {
+  if (!formData.value.name || !formData.value.unit) {
     showMessage('Completa los campos obligatorios', 'error');
     return;
   }
   
   // Validar precio de venta para productos finales
-  if (formData.value.tipo === 'final' && (!formData.value.precio_venta || formData.value.precio_venta <= 0)) {
+  if (formData.value.type === 'final' && (!formData.value.sale_price || formData.value.sale_price <= 0)) {
     showMessage('El precio de venta es obligatorio para productos finales', 'error');
     return;
   }
@@ -703,22 +702,22 @@ const save = async () => {
     const dataToSend = {
       ...formData.value,
       // Generar SKU automáticamente si está vacío
-      sku: formData.value.sku?.trim() 
-        ? formData.value.sku 
-        : generarSKU(formData.value.name, formData.value.tipo),
-      stock_actual: formData.value.maneja_stock && formData.value.stock_actual 
-        ? parseFloat(String(formData.value.stock_actual).replace(',', '.'))
+      sku: formData.value.sku?.trim()
+        ? formData.value.sku
+        : generarSKU(formData.value.name, formData.value.type),
+      current_stock: formData.value.tracks_stock && formData.value.current_stock
+        ? parseFloat(String(formData.value.current_stock).replace(',', '.'))
         : null,
-      stock_minimo: formData.value.maneja_stock && formData.value.stock_minimo
-        ? parseFloat(String(formData.value.stock_minimo).replace(',', '.'))
+      minimum_stock: formData.value.tracks_stock && formData.value.minimum_stock
+        ? parseFloat(String(formData.value.minimum_stock).replace(',', '.'))
         : null,
     };
     
     if (editing.value) {
-      await productosService.update(editing.value.id, dataToSend);
+      await productsService.update(editing.value.id, dataToSend);
       showMessage('Producto actualizado');
     } else {
-      await productosService.create(dataToSend);
+      await productsService.create(dataToSend);
       showMessage('Producto creado');
     }
     dialog.value = false;
@@ -734,7 +733,7 @@ const save = async () => {
 const deleteProduct = async (product: Product) => {
   if (!confirm(`¿Eliminar "${product.name}"?`)) return;
   try {
-    await productosService.delete(product.id);
+    await productsService.delete(product.id);
     showMessage('Producto eliminado');
     loadData();
   } catch (error) {
@@ -742,8 +741,8 @@ const deleteProduct = async (product: Product) => {
   }
 };
 
-const goToReceta = (product: Product) => {
-  router.push({ name: 'Recetas', query: { producto: product.id } });
+const goToRecipe = (product: Product) => {
+  router.push({ name: 'Recetas', query: { product: product.id } });
 };
 
 onMounted(() => {

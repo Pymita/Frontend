@@ -1,12 +1,23 @@
 import api from './api'
 
+export type ExpenseCategoryType =
+  | 'inventory_purchase'
+  | 'variable_expense'
+  | 'fixed_expense'
+  | 'administrative_expense'
+  | 'payroll'
+  | 'taxes'
+
+export type ExpensePaymentMethod = 'cash' | 'transfer' | 'card' | 'check' | 'credit'
+export type ExpensePaymentStatus = 'pending' | 'paid' | 'partial'
+
 export interface ExpenseCategory {
   id: number
-  nombre: string
-  descripcion?: string
-  tipo: 'compra_inventario' | 'gasto_variable' | 'gasto_fijo' | 'gasto_administrativo' | 'nomina' | 'impuestos'
-  afecta_costo_producto: boolean
-  activa: boolean
+  name: string
+  description?: string
+  type: ExpenseCategoryType
+  affects_product_cost: boolean
+  active: boolean
   created_at: string
   updated_at: string
 }
@@ -16,19 +27,30 @@ export interface Expense {
   expense_category_id: number
   category?: ExpenseCategory
   user_id?: number
-  concepto: string
-  monto: number
-  fecha_gasto: string
-  numero_factura?: string
-  proveedor?: string
+  concept: string
+  amount: number
+  expense_date: string
+  invoice_number?: string
+  supplier_name?: string
   product_id?: number
-  cantidad_comprada?: number
-  metodo_pago?: 'efectivo' | 'transferencia' | 'tarjeta' | 'cheque' | 'credito'
-  estado_pago?: 'pendiente' | 'pagado' | 'parcial'
-  monto_pagado?: number
-  notas?: string
+  quantity_purchased?: number
+  payment_method?: ExpensePaymentMethod
+  payment_status?: ExpensePaymentStatus
+  amount_paid?: number
+  attachments?: string[]
+  notes?: string
   created_at: string
   updated_at: string
+}
+
+export interface ExpenseSummary {
+  total_expenses: number
+  by_category: Array<{
+    category: string
+    type: string
+    total: number
+    count: number
+  }>
 }
 
 interface ApiResponse<T> {
@@ -36,7 +58,7 @@ interface ApiResponse<T> {
   message?: string
 }
 
-export const gastosService = {
+export const expensesService = {
   // ===== Categorías de Gastos =====
   async getCategories(): Promise<ExpenseCategory[]> {
     const response = await api.get<ApiResponse<ExpenseCategory[]>>('/expense-categories')
@@ -59,9 +81,9 @@ export const gastosService = {
 
   // ===== Gastos =====
   async getExpenses(params?: {
-    fecha_inicio?: string
-    fecha_fin?: string
-    categoria_id?: number
+    start_date?: string
+    end_date?: string
+    category_id?: number
   }): Promise<Expense[]> {
     const response = await api.get<ApiResponse<Expense[]>>('/expenses', { params })
     return response.data.data
@@ -87,19 +109,11 @@ export const gastosService = {
   },
 
   // ===== Reportes =====
-  async getResumenGastos(params?: {
-    fecha_inicio?: string
-    fecha_fin?: string
-  }): Promise<{
-    total_gastos: number
-    por_categoria: Array<{
-      categoria: string
-      tipo: string
-      total: number
-      cantidad: number
-    }>
-  }> {
-    const response = await api.get<ApiResponse<any>>('/expenses/resumen', { params })
+  async getExpenseSummary(params?: {
+    start_date?: string
+    end_date?: string
+  }): Promise<ExpenseSummary> {
+    const response = await api.get<ApiResponse<ExpenseSummary>>('/expenses/summary', { params })
     return response.data.data
   },
 }

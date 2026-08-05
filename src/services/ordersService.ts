@@ -1,35 +1,42 @@
 import api from './api';
 
+export type PaymentStatus = 'pending' | 'paid' | 'partial';
+export type OrderItemStatus = 'pending' | 'preparing' | 'ready' | 'delivered';
+
 export interface OrderItem {
   id: number;
-  nombre: string;
+  menu_item_id?: number | null;
+  variant_id?: number | null;
+  product_name: string;
   quantity: number;
   unit_price: number;
-  precio_original?: number;
-  descuento: number;
+  original_price?: number;
+  discount: number;
   total_price: number;
   special_instructions?: string;
-  estado_item: 'pendiente' | 'preparando' | 'listo' | 'entregado';
-  tipo?: string;
+  applied_modifiers?: any[] | null;
+  item_status: OrderItemStatus;
+  variant?: string | null;
 }
 
 export interface Order {
   id: number;
-  mesa: {
+  dining_table: {
     id: number;
-    numero: number;
-    nombre: string;
+    number: number;
+    display_name: string;
   } | null;
+  dining_table_id?: number | null;
   customer_name: string;
   status: 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
-  estado_pago: 'pendiente' | 'pagado' | 'parcial';
+  payment_status: PaymentStatus;
   subtotal: number;
-  descuento_porcentaje: number;
-  descuento_monto: number;
-  motivo_descuento?: string;
+  discount_percentage: number;
+  discount_amount: number;
+  discount_reason?: string;
   total: number;
-  monto_pagado: number;
-  saldo_pendiente: number;
+  amount_paid: number;
+  pending_balance: number;
   notes?: string;
   items: OrderItem[];
   created_at: string;
@@ -42,11 +49,11 @@ interface ApiResponse<T> {
 }
 
 interface OrderFilters {
-  activos?: boolean;
-  pendientes_pago?: boolean;
-  hoy?: boolean;
+  active?: boolean;
+  pending_payment?: boolean;
+  today?: boolean;
   status?: string;
-  estado_pago?: string;
+  payment_status?: string;
 }
 
 export const ordersService = {
@@ -70,34 +77,34 @@ export const ordersService = {
     return response.data.data;
   },
 
-  async aplicarDescuento(id: number, tipo: 'porcentaje' | 'monto', valor: number, motivo?: string): Promise<Order> {
-    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/descuento`, {
-      tipo,
-      valor,
-      motivo,
+  async applyDiscount(id: number, type: 'percentage' | 'amount', value: number, reason?: string): Promise<Order> {
+    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/discount`, {
+      type,
+      value,
+      reason,
     });
     return response.data.data;
   },
 
-  async marcarPagado(id: number): Promise<Order> {
-    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/pagar`);
+  async markPaid(id: number): Promise<Order> {
+    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/pay`);
     return response.data.data;
   },
 
-  async pagoParcial(id: number, monto: number): Promise<Order> {
-    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/pago-parcial`, { monto });
+  async recordPartialPayment(id: number, amount: number): Promise<Order> {
+    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/partial-payment`, { amount });
     return response.data.data;
   },
 
-  async cancelar(id: number): Promise<Order> {
-    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/cancelar`);
+  async cancel(id: number): Promise<Order> {
+    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/cancel`);
     return response.data.data;
   },
 
   async updateItem(orderId: number, itemId: number, data: {
     quantity?: number;
     unit_price?: number;
-    descuento?: number;
+    discount?: number;
   }): Promise<Order> {
     const response = await api.put<ApiResponse<Order>>(`/orders/${orderId}/items/${itemId}`, data);
     return response.data.data;
@@ -108,5 +115,3 @@ export const ordersService = {
     return response.data.data;
   },
 };
-
-

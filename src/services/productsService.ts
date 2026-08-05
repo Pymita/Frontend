@@ -1,23 +1,27 @@
 import api from './api';
 
+export type ProductType = 'raw_material' | 'intermediate' | 'final';
+
 export interface Product {
   id: number;
   name: string;
   description?: string;
   sku: string;
-  tipo: 'materia_prima' | 'intermedio' | 'final';
-  unidad: string;
-  maneja_stock?: boolean;
-  costo_unitario?: number;
-  precio_venta?: number;
-  category_id?: number;
+  type: ProductType;
+  unit: string;
+  tracks_stock?: boolean;
+  unit_cost?: number | null;
+  sale_price?: number | null;
+  category_id?: number | null;
   category?: {
     id: number;
     name: string;
   };
-  stock_actual?: number;
-  stock_minimo?: number;
-  costo_estimado?: number;
+  current_stock?: number | null;
+  minimum_stock?: number | null;
+  estimated_cost?: number | null;
+  active?: boolean;
+  notes?: string | null;
 }
 
 export interface Category {
@@ -26,9 +30,9 @@ export interface Category {
   description?: string;
 }
 
-class ProductosService {
-  async getAll(tipo?: string): Promise<Product[]> {
-    const params = tipo ? { tipo } : {};
+class ProductsService {
+  async getAll(type?: string): Promise<Product[]> {
+    const params = type ? { type } : {};
     const response = await api.get('/products', { params });
     return response.data.data;
   }
@@ -53,7 +57,7 @@ class ProductosService {
   }
 }
 
-class CategoriesProductosService {
+class ProductCategoriesService {
   async getAll(): Promise<Category[]> {
     const response = await api.get('/categories');
     return response.data.data;
@@ -74,5 +78,5 @@ class CategoriesProductosService {
   }
 }
 
-export const productosService = new ProductosService();
-export const categoriesProductosService = new CategoriesProductosService();
+export const productsService = new ProductsService();
+export const productCategoriesService = new ProductCategoriesService();

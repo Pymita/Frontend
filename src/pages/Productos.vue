@@ -55,9 +55,9 @@
             :search="search"
             class="elevation-0"
           >
-            <template #item.precio="{ item }">
+            <template #item.final_price="{ item }">
               <span class="font-weight-bold text-success">
-                ${{ Number(item.precio || 0).toFixed(2) }}
+                ${{ Number(item.final_price || 0).toFixed(2) }}
               </span>
             </template>
             <template #item.category="{ item }">
@@ -65,18 +65,18 @@
                 {{ item.category.name }}
               </v-chip>
             </template>
-            <template #item.tipo="{ item }">
-              <v-chip v-if="item.tipo" size="small" variant="outlined">
-                {{ item.tipo.nombre }}
+            <template #item.variant="{ item }">
+              <v-chip v-if="item.variant" size="small" variant="outlined">
+                {{ item.variant.name }}
               </v-chip>
             </template>
-            <template #item.disponible="{ item }">
+            <template #item.available="{ item }">
               <v-switch
-                :model-value="item.disponible"
+                :model-value="item.available"
                 color="success"
                 hide-details
                 density="compact"
-                @update:model-value="toggleDisponibilidad(item)"
+                @update:model-value="toggleAvailability(item)"
               />
             </template>
             <template #item.actions="{ item }">
@@ -102,8 +102,8 @@
           </v-alert>
           <v-form ref="form" @submit.prevent="save">
             <v-select
-              v-model="formData.producto_final_id"
-              :items="productosParaMenu"
+              v-model="formData.final_product_id"
+              :items="menuBaseProducts"
               item-title="name"
               item-value="id"
               label="Producto base para receta *"
@@ -114,7 +114,7 @@
             <v-row>
               <v-col cols="12" md="8">
                 <v-text-field
-                  v-model="formData.nombre"
+                  v-model="formData.name"
                   label="Nombre del producto"
                   :rules="[v => !!v || 'Nombre requerido']"
                   required
@@ -122,7 +122,7 @@
               </v-col>
               <v-col cols="12" md="4">
                 <v-text-field
-                  v-model.number="formData.precio_base"
+                  v-model.number="formData.base_price"
                   label="Precio base"
                   type="number"
                   step="0.01"
@@ -134,7 +134,7 @@
             </v-row>
             
             <v-textarea
-              v-model="formData.descripcion"
+              v-model="formData.description"
               label="Descripción"
               rows="2"
             />
@@ -152,9 +152,9 @@
               </v-col>
               <v-col cols="12" md="6">
                 <v-select
-                  v-model="formData.grupo_tipo_id"
+                  v-model="formData.variant_group_id"
                   :items="gruposTipo"
-                  item-title="nombre"
+                  item-title="name"
                   item-value="id"
                   label="Grupo de tipo (opcional)"
                   clearable
@@ -165,18 +165,18 @@
             <v-row>
               <v-col cols="12" md="6">
                 <v-select
-                  v-model="formData.tipo_id"
-                  :items="tiposDisponibles"
-                  item-title="nombre"
+                  v-model="formData.variant_id"
+                  :items="availableVariants"
+                  item-title="name"
                   item-value="id"
                   label="Tipo específico (opcional)"
                   clearable
-                  :disabled="!formData.grupo_tipo_id"
+                  :disabled="!formData.variant_group_id"
                 />
               </v-col>
               <v-col cols="12" md="6">
                 <v-text-field
-                  v-model.number="formData.tiempo_preparacion"
+                  v-model.number="formData.preparation_time"
                   label="Tiempo de preparación (min)"
                   type="number"
                   min="0"
@@ -187,13 +187,13 @@
             <v-row>
               <v-col cols="12" md="6">
                 <v-text-field
-                  v-model="formData.imagen_url"
+                  v-model="formData.image_url"
                   label="URL de imagen (opcional)"
                 />
               </v-col>
               <v-col cols="12" md="6">
                 <v-switch
-                  v-model="formData.usar_precio_automatico"
+                  v-model="formData.use_automatic_price"
                   label="Calcular precio automáticamente"
                   color="primary"
                   hint="Usa multiplicadores del tipo seleccionado"
@@ -203,8 +203,8 @@
             </v-row>
 
             <v-text-field
-              v-if="!formData.usar_precio_automatico"
-              v-model.number="formData.precio_especifico"
+              v-if="!formData.use_automatic_price"
+              v-model.number="formData.custom_price"
               label="Precio específico"
               type="number"
               step="0.01"
@@ -229,35 +229,35 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { itemsMenuService, categoriesService, type ItemMenu, type Category } from '@/services/menuService';
-import { grupoTiposService, tiposService, type GrupoTipo, type Tipo } from '@/services/tiposService';
-import { productosService, type Product } from '@/services/productosService';
+import { menuItemsService, categoriesService, type MenuItem, type Category } from '@/services/menuService';
+import { variantGroupsService, variantsService, type VariantGroup, type Variant } from '@/services/variantsService';
+import { productsService, type Product } from '@/services/productsService';
 
-const items = ref<ItemMenu[]>([]);
+const items = ref<MenuItem[]>([]);
 const categorias = ref<Category[]>([]);
-const gruposTipo = ref<GrupoTipo[]>([]);
-const tiposDisponibles = ref<Tipo[]>([]);
-const productosBase = ref<Product[]>([]);
+const gruposTipo = ref<VariantGroup[]>([]);
+const availableVariants = ref<Variant[]>([]);
+const baseProducts = ref<Product[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 const search = ref('');
 const filterCategoria = ref<number | null>(null);
 
 const dialog = ref(false);
-const editing = ref<ItemMenu | null>(null);
+const editing = ref<MenuItem | null>(null);
 
 const formData = ref({
-  nombre: '',
-  descripcion: '',
-  producto_final_id: null as number | null,
-  precio_base: 0,
-  precio_especifico: null as number | null,
-  usar_precio_automatico: true,
+  name: '',
+  description: '',
+  final_product_id: null as number | null,
+  base_price: 0,
+  custom_price: null as number | null,
+  use_automatic_price: true,
   category_id: null as number | null,
-  grupo_tipo_id: null as number | null,
-  tipo_id: null as number | null,
-  tiempo_preparacion: null as number | null,
-  imagen_url: '',
+  variant_group_id: null as number | null,
+  variant_id: null as number | null,
+  preparation_time: null as number | null,
+  image_url: '',
 });
 
 const snackbar = ref(false);
@@ -265,11 +265,11 @@ const snackbarText = ref('');
 const snackbarColor = ref('success');
 
 const headers = [
-  { title: 'Nombre', key: 'nombre' },
-  { title: 'Precio', key: 'precio' },
+  { title: 'Nombre', key: 'name' },
+  { title: 'Precio', key: 'final_price' },
   { title: 'Categoría', key: 'category' },
-  { title: 'Tipo', key: 'tipo' },
-  { title: 'Disponible', key: 'disponible' },
+  { title: 'Tipo', key: 'variant' },
+  { title: 'Disponible', key: 'available' },
   { title: 'Acciones', key: 'actions', sortable: false },
 ];
 
@@ -278,8 +278,8 @@ const filteredItems = computed(() => {
   return items.value.filter(item => item.category_id === filterCategoria.value);
 });
 
-const productosParaMenu = computed(() => {
-  return productosBase.value.filter(p => p.tipo === 'final' || p.tipo === 'intermedio');
+const menuBaseProducts = computed(() => {
+  return baseProducts.value.filter(p => p.type === 'final' || p.type === 'intermediate');
 });
 
 const showMessage = (text: string, color = 'success') => {
@@ -292,11 +292,11 @@ const loadData = async () => {
   loading.value = true;
   try {
     console.log('[Productos] Cargando datos...');
-    const [itemsData, categoriasData, gruposData, productosData] = await Promise.all([
-      itemsMenuService.getAll(),
+    const [itemsData, categoriasData, gruposData, baseProductsData] = await Promise.all([
+      menuItemsService.getAll(),
       categoriesService.getAll(),
-      grupoTiposService.getAll(),
-      productosService.getAll(),
+      variantGroupsService.getAll(),
+      productsService.getAll(),
     ]);
     console.log('[Productos] Items cargados:', itemsData.length);
     console.log('[Productos] Categorías cargadas:', categoriasData);
@@ -304,7 +304,7 @@ const loadData = async () => {
     items.value = itemsData;
     categorias.value = categoriasData;
     gruposTipo.value = gruposData;
-    productosBase.value = productosData;
+    baseProducts.value = baseProductsData;
   } catch (error: any) {
     console.error('[Productos] Error al cargar datos:', error);
     showMessage('Error al cargar datos: ' + (error.response?.data?.message || error.message), 'error');
@@ -313,51 +313,51 @@ const loadData = async () => {
   }
 };
 
-watch(() => formData.value.grupo_tipo_id, async (grupoId) => {
+watch(() => formData.value.variant_group_id, async (grupoId) => {
   try {
     if (grupoId) {
-      tiposDisponibles.value = await tiposService.getAll(grupoId);
+      availableVariants.value = await variantsService.getAll(grupoId);
     } else {
-      tiposDisponibles.value = [];
-      formData.value.tipo_id = null;
+      availableVariants.value = [];
+      formData.value.variant_id = null;
     }
   } catch (error) {
     console.error('[Productos] Error al cargar tipos:', error);
-    tiposDisponibles.value = [];
+    availableVariants.value = [];
   }
 });
 
-const openDialog = (item?: ItemMenu) => {
+const openDialog = (item?: MenuItem) => {
   console.log('[Productos] Abriendo diálogo con item:', item);
   console.log('[Productos] Categorías disponibles:', categorias.value);
   
   editing.value = item || null;
   formData.value = item
     ? {
-        nombre: item.nombre,
-        descripcion: item.descripcion || '',
-        producto_final_id: item.producto_final_id || item.producto_final?.id || null,
-        precio_base: item.precio_base,
-        precio_especifico: item.precio_especifico || null,
-        usar_precio_automatico: item.usar_precio_automatico,
+        name: item.name,
+        description: item.description || '',
+        final_product_id: item.final_product_id || item.final_product?.id || null,
+        base_price: item.base_price,
+        custom_price: item.custom_price || null,
+        use_automatic_price: item.use_automatic_price,
         category_id: item.category_id || (item.category as any)?.id || null,
-        grupo_tipo_id: item.grupo_tipo_id || (item.grupoTipo as any)?.id || null,
-        tipo_id: item.tipo_id || (item.tipo as any)?.id || null,
-        tiempo_preparacion: item.tiempo_preparacion || null,
-        imagen_url: item.imagen_url || '',
+        variant_group_id: item.variant_group_id || (item.variant_group as any)?.id || null,
+        variant_id: item.variant_id || (item.variant as any)?.id || null,
+        preparation_time: item.preparation_time || null,
+        image_url: item.image_url || '',
       }
     : {
-        nombre: '',
-        descripcion: '',
-        producto_final_id: null,
-        precio_base: 0,
-        precio_especifico: null,
-        usar_precio_automatico: true,
+        name: '',
+        description: '',
+        final_product_id: null,
+        base_price: 0,
+        custom_price: null,
+        use_automatic_price: true,
         category_id: null,
-        grupo_tipo_id: null,
-        tipo_id: null,
-        tiempo_preparacion: null,
-        imagen_url: '',
+        variant_group_id: null,
+        variant_id: null,
+        preparation_time: null,
+        image_url: '',
       };
   
   console.log('[Productos] FormData después de asignar:', formData.value);
@@ -367,10 +367,10 @@ const openDialog = (item?: ItemMenu) => {
 const save = async () => {
   console.log('[Productos] Intentando guardar:', formData.value);
   
-  if (!formData.value.nombre || !formData.value.category_id || !formData.value.producto_final_id) {
+  if (!formData.value.name || !formData.value.category_id || !formData.value.final_product_id) {
     console.log('[Productos] Validación fallida:', {
-      nombre: formData.value.nombre,
-      producto_final_id: formData.value.producto_final_id,
+      name: formData.value.name,
+      final_product_id: formData.value.final_product_id,
       category_id: formData.value.category_id
     });
     showMessage('Completa producto base, nombre y categoría', 'error');
@@ -381,11 +381,11 @@ const save = async () => {
   try {
     if (editing.value) {
       console.log('[Productos] Actualizando producto:', editing.value.id);
-      await itemsMenuService.update(editing.value.id, formData.value);
+      await menuItemsService.update(editing.value.id, formData.value);
       showMessage('Producto actualizado');
     } else {
       console.log('[Productos] Creando nuevo producto');
-      await itemsMenuService.create(formData.value);
+      await menuItemsService.create(formData.value);
       showMessage('Producto creado');
     }
     dialog.value = false;
@@ -399,10 +399,10 @@ const save = async () => {
   }
 };
 
-const deleteItem = async (item: ItemMenu) => {
-  if (!confirm(`¿Eliminar "${item.nombre}"?`)) return;
+const deleteItem = async (item: MenuItem) => {
+  if (!confirm(`¿Eliminar "${item.name}"?`)) return;
   try {
-    await itemsMenuService.delete(item.id);
+    await menuItemsService.delete(item.id);
     showMessage('Producto eliminado');
     loadData();
   } catch (error) {
@@ -410,11 +410,11 @@ const deleteItem = async (item: ItemMenu) => {
   }
 };
 
-const toggleDisponibilidad = async (item: ItemMenu) => {
+const toggleAvailability = async (item: MenuItem) => {
   try {
-    await itemsMenuService.toggleDisponibilidad(item.id);
-    item.disponible = !item.disponible;
-    showMessage(item.disponible ? 'Producto disponible' : 'Producto no disponible');
+    await menuItemsService.toggleAvailability(item.id);
+    item.available = !item.available;
+    showMessage(item.available ? 'Producto disponible' : 'Producto no disponible');
   } catch (error) {
     showMessage('Error al cambiar disponibilidad', 'error');
   }

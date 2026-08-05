@@ -7,7 +7,7 @@
           <v-icon size="40" class="mr-3" color="primary">mdi-cash-multiple</v-icon>
           <div>
             <h1 class="text-h3">Gestión de Gastos</h1>
-            <p class="text-body-1 text-grey">Controla y administra todos los gastos del negocio</p>
+            <p class="text-body-1 text-grey">Controla y administra todos los expenses del negocio</p>
           </div>
         </div>
       </v-col>
@@ -58,7 +58,7 @@
                 <v-card color="error" variant="tonal" class="h-100">
                   <v-card-text class="text-center py-6">
                     <v-icon size="40" class="mb-2">mdi-cash-remove</v-icon>
-                    <div class="text-h3 font-weight-bold">${{ Number(resumen.total_gastos || 0).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</div>
+                    <div class="text-h3 font-weight-bold">${{ Number(resumen.total_expenses || 0).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</div>
                     <div class="text-subtitle-1 font-weight-bold mt-2">Total Gastos</div>
                   </v-card-text>
                 </v-card>
@@ -66,20 +66,20 @@
               <v-col cols="12" md="9">
                 <v-row>
                   <v-col
-                    v-for="(item, idx) in resumen.por_categoria.slice(0, 6)"
-                    :key="`${item.tipo}-${item.categoria}-${idx}`"
+                    v-for="(item, idx) in resumen.by_category.slice(0, 6)"
+                    :key="`${item.type}-${item.category}-${idx}`"
                     cols="12"
                     sm="6"
                     md="4">
                     <v-card class="h-100">
                       <v-card-text>
-                        <v-chip :color="getCategoryColor(item.tipo)" size="x-small" class="mb-2">
-                          {{ getTipoLabel(item.tipo) }}
+                        <v-chip :color="getCategoryColor(item.type)" size="x-small" class="mb-2">
+                          {{ getTipoLabel(item.type) }}
                         </v-chip>
                         <div class="text-h5 font-weight-bold">${{ Number(item.total || 0).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</div>
-                        <div class="text-subtitle-2 mt-1">{{ item.categoria }}</div>
+                        <div class="text-subtitle-2 mt-1">{{ item.category }}</div>
                         <div class="text-caption text-grey">
-                          {{ item.cantidad }} registro(s)
+                          {{ item.count }} registro(s)
                         </div>
                       </v-card-text>
                     </v-card>
@@ -95,7 +95,7 @@
       <v-col cols="12">
         <v-card>
           <v-tabs v-model="tab" bg-color="primary" class="mb-4">
-            <v-tab value="gastos">
+            <v-tab value="expenses">
               <v-icon start>mdi-receipt</v-icon>
               Registro de Gastos
             </v-tab>
@@ -108,9 +108,9 @@
           <v-card-text>
             <v-window v-model="tab">
               <!-- Tab: Gastos -->
-              <v-window-item value="gastos">
+              <v-window-item value="expenses">
                 <div class="d-flex justify-space-between align-center mb-4">
-                  <v-btn color="success" size="large" @click="openGastoDialog()">
+                  <v-btn color="success" size="large" @click="openExpenseDialog()">
                     <v-icon start>mdi-plus</v-icon>
                     Registrar Gasto
                   </v-btn>
@@ -121,30 +121,30 @@
                 </div>
 
                 <v-data-table
-                  :headers="gastosHeaders"
-                  :items="gastos"
-                  :loading="loadingGastos"
+                  :headers="expensesHeaders"
+                  :items="expenses"
+                  :loading="loadingExpenses"
                   class="elevation-0">
-                  <template #item.fecha_gasto="{ item }">
-                    {{ formatDate(item.fecha_gasto) }}
+                  <template #item.expense_date="{ item }">
+                    {{ formatDate(item.expense_date) }}
                   </template>
 
                   <template #item.category="{ item }">
                     <v-chip
                       size="small"
-                      :color="getCategoryColor(item.category?.tipo)">
-                      {{ item.category?.nombre || 'Sin categoría' }}
+                      :color="getCategoryColor(item.category?.type)">
+                      {{ item.category?.name || 'Sin categoría' }}
                     </v-chip>
                   </template>
 
-                  <template #item.monto="{ item }">
+                  <template #item.amount="{ item }">
                     <strong class="text-error">
-                      ${{ Number(item.monto || 0).toFixed(2) }}
+                      ${{ Number(item.amount || 0).toFixed(2) }}
                     </strong>
                   </template>
 
-                  <template #item.numero_factura="{ item }">
-                    <span v-if="item.numero_factura">{{ item.numero_factura }}</span>
+                  <template #item.invoice_number="{ item }">
+                    <span v-if="item.invoice_number">{{ item.invoice_number }}</span>
                     <span v-else class="text-grey">-</span>
                   </template>
 
@@ -153,13 +153,13 @@
                       icon="mdi-pencil"
                       size="small"
                       variant="text"
-                      @click="openGastoDialog(item)" />
+                      @click="openExpenseDialog(item)" />
                     <v-btn
                       icon="mdi-delete"
                       size="small"
                       variant="text"
                       color="error"
-                      @click="deleteGasto(item)" />
+                      @click="deleteExpense(item)" />
                   </template>
                 </v-data-table>
               </v-window-item>
@@ -167,8 +167,8 @@
               <!-- Tab: Categorías -->
               <v-window-item value="categorias">
                 <v-alert type="info" variant="tonal" density="compact" class="mb-4">
-                  <strong>Gestión de Categorías:</strong> Aquí puedes crear, editar y eliminar las categorías de gastos. 
-                  Cada categoría tiene un tipo que determina cómo se clasifica el gasto en los reportes.
+                  <strong>Gestión de Categorías:</strong> Aquí puedes crear, editar y eliminar las categorías de expenses. 
+                  Cada categoría tiene un tipo que determina cómo se clasifica el expense en los reportes.
                 </v-alert>
 
                 <v-btn color="primary" class="mb-4" @click="openCategoriaDialog()">
@@ -181,15 +181,15 @@
                   :items="categorias"
                   :loading="loadingCategorias"
                   class="elevation-0">
-                  <template #item.tipo="{ item }">
-                    <v-chip size="small" :color="getCategoryColor(item.tipo)">
-                      {{ getTipoLabel(item.tipo) }}
+                  <template #item.type="{ item }">
+                    <v-chip size="small" :color="getCategoryColor(item.type)">
+                      {{ getTipoLabel(item.type) }}
                     </v-chip>
                   </template>
 
-                  <template #item.activa="{ item }">
-                    <v-icon :color="item.activa ? 'success' : 'error'">
-                      {{ item.activa ? 'mdi-check-circle' : 'mdi-close-circle' }}
+                  <template #item.active="{ item }">
+                    <v-icon :color="item.active ? 'success' : 'error'">
+                      {{ item.active ? 'mdi-check-circle' : 'mdi-close-circle' }}
                     </v-icon>
                   </template>
 
@@ -215,19 +215,19 @@
     </v-row>
 
     <!-- Dialog: Gasto -->
-    <v-dialog v-model="gastoDialog" max-width="700px" persistent>
+    <v-dialog v-model="expenseDialog" max-width="700px" persistent>
       <v-card>
         <v-card-title>
-          {{ editingGasto ? 'Editar Gasto' : 'Registrar Nuevo Gasto' }}
+          {{ editingExpense ? 'Editar Gasto' : 'Registrar Nuevo Gasto' }}
         </v-card-title>
         <v-card-text>
-          <v-form ref="gastoForm">
+          <v-form ref="expenseForm">
             <v-row>
               <v-col cols="12" md="6">
                 <v-select
-                  v-model="gastoFormData.expense_category_id"
+                  v-model="expenseFormData.expense_category_id"
                   :items="categorias"
-                  item-title="nombre"
+                  item-title="name"
                   item-value="id"
                   label="Categoría *"
                   variant="outlined"
@@ -236,8 +236,8 @@
                   <template #item="{ props, item }">
                     <v-list-item v-bind="props">
                       <template #append>
-                        <v-chip :color="getCategoryColor(item.raw.tipo)" size="x-small">
-                          {{ getTipoLabel(item.raw.tipo) }}
+                        <v-chip :color="getCategoryColor(item.raw.type)" size="x-small">
+                          {{ getTipoLabel(item.raw.type) }}
                         </v-chip>
                       </template>
                     </v-list-item>
@@ -247,7 +247,7 @@
 
               <v-col cols="12" md="6">
                 <v-text-field
-                  v-model="gastoFormData.fecha_gasto"
+                  v-model="expenseFormData.expense_date"
                   label="Fecha del Gasto *"
                   type="date"
                   variant="outlined"
@@ -259,7 +259,7 @@
 
               <v-col cols="12" md="6">
                 <v-text-field
-                  v-model.number="gastoFormData.monto"
+                  v-model.number="expenseFormData.amount"
                   label="Monto *"
                   type="number"
                   prefix="$"
@@ -272,7 +272,7 @@
 
               <v-col cols="12">
                 <v-text-field
-                  v-model="gastoFormData.concepto"
+                  v-model="expenseFormData.concept"
                   label="Concepto / Descripción"
                   placeholder="Opcional - Se usará el nombre de la categoría si está vacío"
                   variant="outlined"
@@ -283,7 +283,7 @@
 
               <v-col cols="12" md="6">
                 <v-text-field
-                  v-model="gastoFormData.proveedor"
+                  v-model="expenseFormData.supplier_name"
                   label="Proveedor"
                   placeholder="Opcional"
                   variant="outlined"
@@ -292,7 +292,7 @@
 
               <v-col cols="12" md="6">
                 <v-text-field
-                  v-model="gastoFormData.numero_factura"
+                  v-model="expenseFormData.invoice_number"
                   label="Número de Factura"
                   placeholder="Opcional"
                   variant="outlined"
@@ -303,14 +303,14 @@
             <v-divider class="my-4" />
             
             <v-alert v-if="esCompraInventario" type="info" density="compact" class="mb-3">
-              <strong>💡 Compra de Inventario:</strong> Asocia este gasto a un producto para actualizar su stock automáticamente
+              <strong>💡 Compra de Inventario:</strong> Asocia este expense a un producto para actualizar su stock automáticamente
             </v-alert>
 
             <v-row v-if="esCompraInventario">
               <v-col cols="12" md="6">
                 <v-autocomplete
-                  v-model="gastoFormData.product_id"
-                  :items="productos"
+                  v-model="expenseFormData.product_id"
+                  :items="products"
                   item-title="name"
                   item-value="id"
                   label="Producto (Opcional)"
@@ -333,29 +333,29 @@
 
               <v-col cols="12" md="6">
                 <v-text-field
-                  v-if="gastoFormData.product_id"
-                  v-model.number="gastoFormData.cantidad_comprada"
+                  v-if="expenseFormData.product_id"
+                  v-model.number="expenseFormData.quantity_purchased"
                   label="Cantidad Comprada *"
                   type="number"
                   step="0.01"
                   min="0"
-                  :suffix="productoSeleccionado?.unidad || ''"
+                  :suffix="selectedProduct?.unit || ''"
                   variant="outlined"
                   density="comfortable"
-                  :rules="gastoFormData.product_id ? [rules.required, rules.positive] : []"
+                  :rules="expenseFormData.product_id ? [rules.required, rules.positive] : []"
                   hint="Se sumará al stock actual"
                   persistent-hint />
               </v-col>
 
-              <v-col v-if="gastoFormData.product_id && gastoFormData.cantidad_comprada && gastoFormData.monto" cols="12">
+              <v-col v-if="expenseFormData.product_id && expenseFormData.quantity_purchased && expenseFormData.amount" cols="12">
                 <v-card color="success" variant="tonal" class="pa-3">
                   <div class="text-caption">Costo unitario calculado:</div>
                   <div class="text-h6">
-                    ${{ (gastoFormData.monto / gastoFormData.cantidad_comprada).toFixed(2) }} / {{ productoSeleccionado?.unidad }}
+                    ${{ (expenseFormData.amount / expenseFormData.quantity_purchased).toFixed(2) }} / {{ selectedProduct?.unit }}
                   </div>
                   <div class="text-caption mt-1">
-                    Stock actual: {{ productoSeleccionado?.stock_actual || 0 }} → 
-                    Nuevo stock: {{ Number(productoSeleccionado?.stock_actual || 0) + Number(gastoFormData.cantidad_comprada) }}
+                    Stock actual: {{ selectedProduct?.current_stock || 0 }} →
+                    Nuevo stock: {{ Number(selectedProduct?.current_stock || 0) + Number(expenseFormData.quantity_purchased) }}
                   </div>
                 </v-card>
               </v-col>
@@ -364,7 +364,7 @@
             <v-row>
               <v-col cols="12">
                 <v-textarea
-                  v-model="gastoFormData.notas"
+                  v-model="expenseFormData.notes"
                   label="Notas Adicionales"
                   placeholder="Opcional"
                   rows="2"
@@ -376,8 +376,8 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="gastoDialog = false">Cancelar</v-btn>
-          <v-btn color="primary" :loading="saving" @click="saveGasto()">
+          <v-btn @click="expenseDialog = false">Cancelar</v-btn>
+          <v-btn color="primary" :loading="saving" @click="saveExpense()">
             Guardar
           </v-btn>
         </v-card-actions>
@@ -393,7 +393,7 @@
         <v-card-text>
           <v-form ref="categoriaForm">
             <v-text-field
-              v-model="categoriaFormData.nombre"
+              v-model="categoriaFormData.name"
               label="Nombre"
               variant="outlined"
               density="comfortable"
@@ -401,8 +401,8 @@
               class="mb-3" />
 
             <v-select
-              v-model="categoriaFormData.tipo"
-              :items="tiposGasto"
+              v-model="categoriaFormData.type"
+              :items="expenseTypeOptions"
               label="Tipo de Gasto"
               variant="outlined"
               density="comfortable"
@@ -410,7 +410,7 @@
               class="mb-3" />
 
             <v-textarea
-              v-model="categoriaFormData.descripcion"
+              v-model="categoriaFormData.description"
               label="Descripción"
               rows="2"
               variant="outlined"
@@ -418,7 +418,7 @@
               class="mb-3" />
 
             <v-switch
-              v-model="categoriaFormData.activa"
+              v-model="categoriaFormData.active"
               label="Categoría Activa"
               color="primary" />
           </v-form>
@@ -442,25 +442,25 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { gastosService, type Expense, type ExpenseCategory } from '@/services/gastosService'
-import { productosService, type Product } from '@/services/productosService'
+import { expensesService, type Expense, type ExpenseCategory, type ExpenseSummary } from '@/services/expensesService'
+import { expenseCategoryTypeLabels, label } from '@/utils/labels'
+import { productsService, type Product } from '@/services/productsService'
 
-const tab = ref('gastos')
-const loading = ref(false)
-const loadingGastos = ref(false)
+const tab = ref('expenses')
+const loadingExpenses = ref(false)
 const loadingCategorias = ref(false)
 const loadingResumen = ref(false)
 const saving = ref(false)
 
-const gastoDialog = ref(false)
+const expenseDialog = ref(false)
 const categoriaDialog = ref(false)
-const editingGasto = ref<Expense | null>(null)
+const editingExpense = ref<Expense | null>(null)
 const editingCategoria = ref<ExpenseCategory | null>(null)
 
-const gastos = ref<Expense[]>([])
+const expenses = ref<Expense[]>([])
 const categorias = ref<ExpenseCategory[]>([])
-const productos = ref<Product[]>([])
-const resumen = ref<any>(null)
+const products = ref<Product[]>([])
+const resumen = ref<ExpenseSummary | null>(null)
 
 const fechaInicio = ref('')
 const fechaFin = ref('')
@@ -469,57 +469,57 @@ const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref('success')
 
-const gastoForm = ref<any>(null)
+const expenseForm = ref<any>(null)
 const categoriaForm = ref<any>(null)
 
-const gastosHeaders = [
-  { title: 'Fecha', key: 'fecha_gasto', sortable: true },
+const expensesHeaders = [
+  { title: 'Fecha', key: 'expense_date', sortable: true },
   { title: 'Categoría', key: 'category', sortable: false },
-  { title: 'Concepto', key: 'concepto', sortable: false },
-  { title: 'Monto', key: 'monto', sortable: true },
-  { title: 'Factura', key: 'numero_factura', sortable: false },
+  { title: 'Concepto', key: 'concept', sortable: false },
+  { title: 'Monto', key: 'amount', sortable: true },
+  { title: 'Factura', key: 'invoice_number', sortable: false },
   { title: 'Acciones', key: 'actions', sortable: false, align: 'end' as const },
 ]
 
 const categoriasHeaders = [
-  { title: 'Nombre', key: 'nombre', sortable: true },
-  { title: 'Tipo', key: 'tipo', sortable: true },
-  { title: 'Descripción', key: 'descripcion', sortable: false },
-  { title: 'Activa', key: 'activa', sortable: true },
+  { title: 'Nombre', key: 'name', sortable: true },
+  { title: 'Tipo', key: 'type', sortable: true },
+  { title: 'Descripción', key: 'description', sortable: false },
+  { title: 'Activa', key: 'active', sortable: true },
   { title: 'Acciones', key: 'actions', sortable: false, align: 'end' as const },
 ]
 
-const tiposGasto = [
-  { value: 'compra_inventario', title: 'Compra de Inventario / Materia Prima' },
-  { value: 'gasto_variable', title: 'Gasto Variable (ej: empaques, domicilio)' },
-  { value: 'gasto_fijo', title: 'Gasto Fijo (ej: arriendo, servicios)' },
-  { value: 'gasto_administrativo', title: 'Gasto Administrativo' },
-  { value: 'nomina', title: 'Nómina' },
-  { value: 'impuestos', title: 'Impuestos' },
+const expenseTypeOptions = [
+  { value: 'inventory_purchase', title: 'Compra de Inventario / Materia Prima' },
+  { value: 'variable_expense', title: 'Gasto Variable (ej: empaques, domicilio)' },
+  { value: 'fixed_expense', title: 'Gasto Fijo (ej: arriendo, servicios)' },
+  { value: 'administrative_expense', title: 'Gasto Administrativo' },
+  { value: 'payroll', title: 'Nómina' },
+  { value: 'taxes', title: 'Impuestos' },
 ]
 
 const toLocalDateInput = (date: Date) => {
   const offsetMs = date.getTimezoneOffset() * 60 * 1000
-  return new Date(date.getTime() - offsetMs).toISOString().split('T')[0]
+  return new Date(date.getTime() - offsetMs).toISOString().split('T')[0] ?? ''
 }
 
-const gastoFormData = ref<Partial<Expense>>({
+const expenseFormData = ref<Partial<Expense>>({
   expense_category_id: undefined,
-  concepto: '',
-  monto: 0,
-  fecha_gasto: toLocalDateInput(new Date()),
-  numero_factura: '',
-  proveedor: '',
+  concept: '',
+  amount: 0,
+  expense_date: toLocalDateInput(new Date()),
+  invoice_number: '',
+  supplier_name: '',
   product_id: undefined,
-  cantidad_comprada: undefined,
-  notas: '',
+  quantity_purchased: undefined,
+  notes: '',
 })
 
 const categoriaFormData = ref<Partial<ExpenseCategory>>({
-  nombre: '',
-  descripcion: '',
-  tipo: 'gasto_fijo',
-  activa: true,
+  name: '',
+  description: '',
+  type: 'fixed_expense',
+  active: true,
 })
 
 const rules = {
@@ -527,25 +527,25 @@ const rules = {
   positive: (v: any) => (v && v > 0) || 'Debe ser mayor a 0',
 }
 
-const loadGastos = async () => {
-  loadingGastos.value = true
+const loadExpenses = async () => {
+  loadingExpenses.value = true
   try {
-    gastos.value = await gastosService.getExpenses({
-      fecha_inicio: fechaInicio.value || undefined,
-      fecha_fin: fechaFin.value || undefined,
+    expenses.value = await expensesService.getExpenses({
+      start_date: fechaInicio.value || undefined,
+      end_date: fechaFin.value || undefined,
     })
   } catch (error) {
     console.error('[Gastos] Error al cargar:', error)
     showMessage('Error al cargar gastos', 'error')
   } finally {
-    loadingGastos.value = false
+    loadingExpenses.value = false
   }
 }
 
 const loadCategorias = async () => {
   loadingCategorias.value = true
   try {
-    categorias.value = await gastosService.getCategories()
+    categorias.value = await expensesService.getCategories()
     console.log('[Gastos] Categorías cargadas:', categorias.value)
   } catch (error) {
     console.error('[Gastos] Error al cargar categorías:', error)
@@ -555,10 +555,10 @@ const loadCategorias = async () => {
   }
 }
 
-const loadProductos = async () => {
+const loadProducts = async () => {
   try {
-    productos.value = await productosService.getAll()
-    console.log('[Gastos] Productos cargados:', productos.value.length)
+    products.value = await productsService.getAll()
+    console.log('[Gastos] Productos cargados:', products.value.length)
   } catch (error) {
     console.error('[Gastos] Error al cargar productos:', error)
     showMessage('Error al cargar productos', 'error')
@@ -568,9 +568,9 @@ const loadProductos = async () => {
 const loadResumen = async () => {
   loadingResumen.value = true
   try {
-    resumen.value = await gastosService.getResumenGastos({
-      fecha_inicio: fechaInicio.value || undefined,
-      fecha_fin: fechaFin.value || undefined,
+    resumen.value = await expensesService.getExpenseSummary({
+      start_date: fechaInicio.value || undefined,
+      end_date: fechaFin.value || undefined,
     })
   } catch (error) {
     console.error('[Gastos] Error al cargar resumen:', error)
@@ -580,41 +580,41 @@ const loadResumen = async () => {
   }
 }
 
-const openGastoDialog = (gasto?: Expense) => {
-  editingGasto.value = gasto || null
-  if (gasto) {
-    gastoFormData.value = { ...gasto }
+const openExpenseDialog = (expense?: Expense) => {
+  editingExpense.value = expense || null
+  if (expense) {
+    expenseFormData.value = { ...expense }
   } else {
-    gastoFormData.value = {
+    expenseFormData.value = {
       expense_category_id: undefined,
-      concepto: '',
-      monto: 0,
-      fecha_gasto: toLocalDateInput(new Date()),
-      numero_factura: '',
-      proveedor: '',
+      concept: '',
+      amount: 0,
+      expense_date: toLocalDateInput(new Date()),
+      invoice_number: '',
+      supplier_name: '',
       product_id: undefined,
-      cantidad_comprada: undefined,
-      notas: '',
+      quantity_purchased: undefined,
+      notes: '',
     }
   }
-  gastoDialog.value = true
+  expenseDialog.value = true
 }
 
-const saveGasto = async () => {
-  const { valid } = await gastoForm.value.validate()
+const saveExpense = async () => {
+  const { valid } = await expenseForm.value.validate()
   if (!valid) return
 
   saving.value = true
   try {
-    if (editingGasto.value?.id) {
-      await gastosService.updateExpense(editingGasto.value.id, gastoFormData.value)
+    if (editingExpense.value?.id) {
+      await expensesService.updateExpense(editingExpense.value.id, expenseFormData.value)
       showMessage('Gasto actualizado exitosamente', 'success')
     } else {
-      await gastosService.createExpense(gastoFormData.value)
+      await expensesService.createExpense(expenseFormData.value)
       showMessage('Gasto registrado exitosamente', 'success')
     }
-    gastoDialog.value = false
-    loadGastos()
+    expenseDialog.value = false
+    loadExpenses()
     loadResumen()
   } catch (error) {
     console.error('[Gastos] Error al guardar:', error)
@@ -624,13 +624,13 @@ const saveGasto = async () => {
   }
 }
 
-const deleteGasto = async (gasto: Expense) => {
-  if (!confirm(`¿Está seguro de eliminar el gasto "${gasto.concepto}"?`)) return
+const deleteExpense = async (expense: Expense) => {
+  if (!confirm(`¿Está seguro de eliminar el gasto "${expense.concept}"?`)) return
 
   try {
-    await gastosService.deleteExpense(gasto.id)
+    await expensesService.deleteExpense(expense.id)
     showMessage('Gasto eliminado exitosamente', 'success')
-    loadGastos()
+    loadExpenses()
     loadResumen()
   } catch (error) {
     console.error('[Gastos] Error al eliminar:', error)
@@ -644,10 +644,10 @@ const openCategoriaDialog = (categoria?: ExpenseCategory) => {
     categoriaFormData.value = { ...categoria }
   } else {
     categoriaFormData.value = {
-      nombre: '',
-      descripcion: '',
-      tipo: 'gasto_fijo',
-      activa: true,
+      name: '',
+      description: '',
+      type: 'fixed_expense',
+      active: true,
     }
   }
   categoriaDialog.value = true
@@ -660,10 +660,10 @@ const saveCategoria = async () => {
   saving.value = true
   try {
     if (editingCategoria.value?.id) {
-      await gastosService.updateCategory(editingCategoria.value.id, categoriaFormData.value)
+      await expensesService.updateCategory(editingCategoria.value.id, categoriaFormData.value)
       showMessage('Categoría actualizada exitosamente', 'success')
     } else {
-      await gastosService.createCategory(categoriaFormData.value)
+      await expensesService.createCategory(categoriaFormData.value)
       showMessage('Categoría creada exitosamente', 'success')
     }
     categoriaDialog.value = false
@@ -677,10 +677,10 @@ const saveCategoria = async () => {
 }
 
 const deleteCategoria = async (categoria: ExpenseCategory) => {
-  if (!confirm(`¿Está seguro de eliminar la categoría "${categoria.nombre}"?`)) return
+  if (!confirm(`¿Está seguro de eliminar la categoría "${categoria.name}"?`)) return
 
   try {
-    await gastosService.deleteCategory(categoria.id)
+    await expensesService.deleteCategory(categoria.id)
     showMessage('Categoría eliminada exitosamente', 'success')
     loadCategorias()
   } catch (error) {
@@ -691,40 +691,30 @@ const deleteCategoria = async (categoria: ExpenseCategory) => {
 
 // Computed: Verificar si la categoría seleccionada es de compra de inventario
 const esCompraInventario = computed(() => {
-  if (!gastoFormData.value.expense_category_id) return false
-  const categoria = categorias.value.find(c => c.id === gastoFormData.value.expense_category_id)
-  return categoria?.tipo === 'compra_inventario'
+  if (!expenseFormData.value.expense_category_id) return false
+  const categoria = categorias.value.find(c => c.id === expenseFormData.value.expense_category_id)
+  return categoria?.type === 'inventory_purchase'
 })
 
 // Computed: Obtener el producto seleccionado
-const productoSeleccionado = computed(() => {
-  if (!gastoFormData.value.product_id) return null
-  return productos.value.find(p => p.id === gastoFormData.value.product_id)
+const selectedProduct = computed(() => {
+  if (!expenseFormData.value.product_id) return null
+  return products.value.find(p => p.id === expenseFormData.value.product_id)
 })
 
 const getCategoryColor = (tipo?: string) => {
   const colors: Record<string, string> = {
-    compra_inventario: 'green',
-    gasto_variable: 'orange',
-    gasto_fijo: 'blue',
-    gasto_administrativo: 'purple',
-    nomina: 'indigo',
-    impuestos: 'red',
+    inventory_purchase: 'green',
+    variable_expense: 'orange',
+    fixed_expense: 'blue',
+    administrative_expense: 'purple',
+    payroll: 'indigo',
+    taxes: 'red',
   }
   return colors[tipo || ''] || 'grey'
 }
 
-const getTipoLabel = (tipo: string) => {
-  const labels: Record<string, string> = {
-    compra_inventario: 'Compra Inventario',
-    gasto_variable: 'Variable',
-    gasto_fijo: 'Fijo',
-    gasto_administrativo: 'Administrativo',
-    nomina: 'Nómina',
-    impuestos: 'Impuestos',
-  }
-  return labels[tipo] || tipo
-}
+const getTipoLabel = (tipo: string) => label(expenseCategoryTypeLabels, tipo)
 
 const formatDate = (date: string) => {
   if (!date) return '-'
@@ -746,7 +736,6 @@ const showMessage = (text: string, color: 'success' | 'error' | 'warning') => {
 
 onMounted(() => {
   // Establecer rango de fechas por defecto (último mes)
-  const hoy = new Date()
   const haceUnMes = new Date()
   const finRango = new Date()
   haceUnMes.setMonth(haceUnMes.getMonth() - 1)
@@ -756,8 +745,8 @@ onMounted(() => {
   fechaFin.value = toLocalDateInput(finRango)
 
   loadCategorias()
-  loadGastos()
+  loadExpenses()
   loadResumen()
-  loadProductos()
+  loadProducts()
 })
 </script>

@@ -51,24 +51,24 @@
             :loading="loading"
             :search="search"
             class="elevation-0">
-            <template #item.tipo_documento="{ item }">
+            <template #item.document_type="{ item }">
               <v-chip size="small" color="primary" variant="outlined">
-                {{ item.tipo_documento }}
+                {{ item.document_type }}
               </v-chip>
             </template>
 
-            <template #item.tipo_persona="{ item }">
-              <v-chip 
-                size="small" 
-                :color="item.tipo_persona === 'juridica' ? 'purple' : 'blue'"
+            <template #item.person_type="{ item }">
+              <v-chip
+                size="small"
+                :color="item.person_type === 'legal' ? 'purple' : 'blue'"
                 variant="tonal">
-                {{ item.tipo_persona === 'juridica' ? 'Jurídica' : 'Natural' }}
+                {{ item.person_type === 'legal' ? 'Jurídica' : 'Natural' }}
               </v-chip>
             </template>
 
-            <template #item.cliente_frecuente="{ item }">
-              <v-icon :color="item.cliente_frecuente ? 'success' : 'grey'">
-                {{ item.cliente_frecuente ? 'mdi-star' : 'mdi-star-outline' }}
+            <template #item.frequent_customer="{ item }">
+              <v-icon :color="item.frequent_customer ? 'success' : 'grey'">
+                {{ item.frequent_customer ? 'mdi-star' : 'mdi-star-outline' }}
               </v-icon>
             </template>
 
@@ -105,7 +105,7 @@
             <v-row>
               <v-col cols="12" md="4">
                 <v-select
-                  v-model="formData.tipo_documento"
+                  v-model="formData.document_type"
                   :items="tiposDocumento"
                   label="Tipo de Documento *"
                   variant="outlined"
@@ -115,7 +115,7 @@
 
               <v-col cols="12" md="8">
                 <v-text-field
-                  v-model="formData.numero_documento"
+                  v-model="formData.document_number"
                   label="Número de Documento *"
                   variant="outlined"
                   density="comfortable"
@@ -124,7 +124,7 @@
 
               <v-col cols="12">
                 <v-text-field
-                  v-model="formData.nombre"
+                  v-model="formData.name"
                   label="Nombre / Razón Social *"
                   variant="outlined"
                   density="comfortable"
@@ -142,7 +142,7 @@
 
               <v-col cols="12" md="6">
                 <v-text-field
-                  v-model="formData.telefono"
+                  v-model="formData.phone"
                   label="Teléfono"
                   variant="outlined"
                   density="comfortable" />
@@ -150,7 +150,7 @@
 
               <v-col cols="12">
                 <v-text-field
-                  v-model="formData.direccion"
+                  v-model="formData.address"
                   label="Dirección"
                   variant="outlined"
                   density="comfortable" />
@@ -158,7 +158,7 @@
 
               <v-col cols="12" md="4">
                 <v-select
-                  v-model="formData.tipo_persona"
+                  v-model="formData.person_type"
                   :items="tiposPersona"
                   label="Tipo de Persona"
                   variant="outlined"
@@ -167,7 +167,7 @@
 
               <v-col cols="12" md="8">
                 <v-switch
-                  v-model="formData.cliente_frecuente"
+                  v-model="formData.frequent_customer"
                   label="Marcar como Cliente Frecuente"
                   color="success" />
               </v-col>
@@ -192,24 +192,24 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { facturacionService } from '@/services/facturacionService'
+import { billingService, type Customer, type PersonType } from '@/services/billingService'
 
-interface Cliente {
+interface ClienteForm {
   id?: number
-  tipo_documento: string
-  numero_documento: string
-  nombre: string
+  document_type: string
+  document_number: string
+  name: string
   email?: string
-  telefono?: string
-  direccion?: string
-  tipo_persona: 'natural' | 'juridica'
-  cliente_frecuente: boolean
+  phone?: string
+  address?: string
+  person_type: PersonType
+  frequent_customer: boolean
 }
 
-const clientes = ref<Cliente[]>([])
+const clientes = ref<Customer[]>([])
 const loading = ref(false)
 const dialog = ref(false)
-const editing = ref<Cliente | null>(null)
+const editing = ref<Customer | null>(null)
 const saving = ref(false)
 const search = ref('')
 
@@ -220,13 +220,13 @@ const snackbarColor = ref('success')
 const form = ref<any>(null)
 
 const headers = [
-  { title: 'Tipo Doc', key: 'tipo_documento', sortable: true },
-  { title: 'Documento', key: 'numero_documento', sortable: true },
-  { title: 'Nombre / Razón Social', key: 'nombre', sortable: true },
+  { title: 'Tipo Doc', key: 'document_type', sortable: true },
+  { title: 'Documento', key: 'document_number', sortable: true },
+  { title: 'Nombre / Razón Social', key: 'name', sortable: true },
   { title: 'Email', key: 'email', sortable: false },
-  { title: 'Teléfono', key: 'telefono', sortable: false },
-  { title: 'Tipo', key: 'tipo_persona', sortable: true },
-  { title: 'Frecuente', key: 'cliente_frecuente', sortable: true },
+  { title: 'Teléfono', key: 'phone', sortable: false },
+  { title: 'Tipo', key: 'person_type', sortable: true },
+  { title: 'Frecuente', key: 'frequent_customer', sortable: true },
   { title: 'Acciones', key: 'actions', sortable: false, align: 'end' as const },
 ]
 
@@ -239,19 +239,21 @@ const tiposDocumento = [
 
 const tiposPersona = [
   { value: 'natural', title: 'Persona Natural' },
-  { value: 'juridica', title: 'Persona Jurídica' },
+  { value: 'legal', title: 'Persona Jurídica' },
 ]
 
-const formData = ref<Cliente>({
-  tipo_documento: 'CC',
-  numero_documento: '',
-  nombre: '',
+const emptyForm = (): ClienteForm => ({
+  document_type: 'CC',
+  document_number: '',
+  name: '',
   email: '',
-  telefono: '',
-  direccion: '',
-  tipo_persona: 'natural',
-  cliente_frecuente: false,
+  phone: '',
+  address: '',
+  person_type: 'natural',
+  frequent_customer: false,
 })
+
+const formData = ref<ClienteForm>(emptyForm())
 
 const rules = {
   required: (v: any) => !!v || 'Este campo es requerido',
@@ -259,19 +261,19 @@ const rules = {
 
 const filteredClientes = computed(() => {
   if (!search.value) return clientes.value
-  
+
   const searchLower = search.value.toLowerCase()
   return clientes.value.filter(
     c =>
-      c.nombre?.toLowerCase().includes(searchLower) ||
-      c.numero_documento?.toLowerCase().includes(searchLower)
+      c.name?.toLowerCase().includes(searchLower) ||
+      c.document_number?.toLowerCase().includes(searchLower)
   )
 })
 
 const loadClientes = async () => {
   loading.value = true
   try {
-    clientes.value = await facturacionService.getAll()
+    clientes.value = await billingService.getCustomers()
   } catch (error) {
     console.error('[Clientes] Error al cargar:', error)
     showMessage('Error al cargar clientes', 'error')
@@ -280,21 +282,22 @@ const loadClientes = async () => {
   }
 }
 
-const openDialog = (cliente?: Cliente) => {
+const openDialog = (cliente?: Customer) => {
   editing.value = cliente || null
   if (cliente) {
-    formData.value = { ...cliente }
-  } else {
     formData.value = {
-      tipo_documento: 'CC',
-      numero_documento: '',
-      nombre: '',
-      email: '',
-      telefono: '',
-      direccion: '',
-      tipo_persona: 'natural',
-      cliente_frecuente: false,
+      id: cliente.id,
+      document_type: cliente.document_type,
+      document_number: cliente.document_number,
+      name: cliente.name,
+      email: cliente.email || '',
+      phone: cliente.phone || '',
+      address: cliente.address || '',
+      person_type: cliente.person_type || 'natural',
+      frequent_customer: cliente.frequent_customer ?? false,
     }
+  } else {
+    formData.value = emptyForm()
   }
   dialog.value = true
 }
@@ -306,10 +309,10 @@ const save = async () => {
   saving.value = true
   try {
     if (editing.value?.id) {
-      await facturacionService.update(editing.value.id, formData.value)
+      await billingService.updateCustomer(editing.value.id, formData.value)
       showMessage('Cliente actualizado exitosamente', 'success')
     } else {
-      await facturacionService.create(formData.value)
+      await billingService.createCustomer(formData.value)
       showMessage('Cliente creado exitosamente', 'success')
     }
     dialog.value = false
@@ -322,11 +325,11 @@ const save = async () => {
   }
 }
 
-const deleteCliente = async (cliente: Cliente) => {
-  if (!confirm(`¿Está seguro de eliminar el cliente "${cliente.nombre}"?`)) return
+const deleteCliente = async (cliente: Customer) => {
+  if (!confirm(`¿Está seguro de eliminar el cliente "${cliente.name}"?`)) return
 
   try {
-    await facturacionService.delete(cliente.id!)
+    await billingService.deleteCustomer(cliente.id)
     showMessage('Cliente eliminado exitosamente', 'success')
     loadClientes()
   } catch (error) {

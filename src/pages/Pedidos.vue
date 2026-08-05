@@ -15,9 +15,9 @@
               Pedido Rápido
             </v-btn>
             <v-btn-toggle v-model="filterPago" color="primary" mandatory>
-              <v-btn value="todos">Todos</v-btn>
-              <v-btn value="pendiente">Pendientes</v-btn>
-              <v-btn value="pagado">Pagados</v-btn>
+              <v-btn value="all">Todos</v-btn>
+              <v-btn value="pending">Pendientes</v-btn>
+              <v-btn value="paid">Pagados</v-btn>
             </v-btn-toggle>
           </div>
         </div>
@@ -67,12 +67,12 @@
             item-value="id"
             show-expand
           >
-            <template #item.mesa="{ item }">
+            <template #item.dining_table="{ item }">
               <div class="d-flex align-center">
                 <v-avatar color="primary" size="32" class="mr-2">
-                  <span class="text-white text-caption">{{ item.mesa?.numero || '?' }}</span>
+                  <span class="text-white text-caption">{{ item.dining_table?.number || '?' }}</span>
                 </v-avatar>
-                <span>{{ item.mesa?.nombre || 'Sin mesa' }}</span>
+                <span>{{ item.dining_table?.display_name || 'Sin mesa' }}</span>
               </div>
             </template>
             
@@ -82,9 +82,9 @@
               </v-chip>
             </template>
             
-            <template #item.estado_pago="{ item }">
-              <v-chip :color="getPagoColor(item.estado_pago)" size="small">
-                {{ item.estado_pago.toUpperCase() }}
+            <template #item.payment_status="{ item }">
+              <v-chip :color="getPagoColor(item.payment_status)" size="small">
+                {{ getPagoText(item.payment_status).toUpperCase() }}
               </v-chip>
             </template>
             
@@ -92,8 +92,8 @@
               <span class="font-weight-bold text-success">
                 ${{ Number(item.total || 0).toFixed(2) }}
               </span>
-              <div v-if="Number(item.saldo_pendiente) > 0" class="text-error text-caption">
-                Debe: ${{ Number(item.saldo_pendiente || 0).toFixed(2) }}
+              <div v-if="Number(item.pending_balance) > 0" class="text-error text-caption">
+                Debe: ${{ Number(item.pending_balance || 0).toFixed(2) }}
               </div>
             </template>
             
@@ -102,7 +102,7 @@
             </template>
             
             <template #item.actions="{ item }">
-              <v-menu v-if="item.estado_pago !== 'pagado'">
+              <v-menu v-if="item.payment_status !== 'paid'">
                 <template #activator="{ props }">
                   <v-btn icon size="small" variant="text" v-bind="props">
                     <v-icon>mdi-dots-vertical</v-icon>
@@ -115,7 +115,7 @@
                     </template>
                     <v-list-item-title>Marcar como pagado</v-list-item-title>
                   </v-list-item>
-                  <v-list-item @click="openDescuentoDialog(item)">
+                  <v-list-item @click="openDiscountDialog(item)">
                     <template #prepend>
                       <v-icon color="warning">mdi-percent</v-icon>
                     </template>
@@ -162,14 +162,14 @@
                           <tr v-for="orderItem in item.items" :key="orderItem.id">
                             <td>{{ orderItem.quantity }}</td>
                             <td>
-                              {{ orderItem.nombre }}
-                              <span v-if="orderItem.tipo" class="text-grey"> ({{ orderItem.tipo }})</span>
+                              {{ orderItem.product_name }}
+                              <span v-if="orderItem.variant" class="text-grey"> ({{ orderItem.variant }})</span>
                             </td>
                             <td>${{ Number(orderItem.unit_price || 0).toFixed(2) }}</td>
                             <td class="font-weight-bold">${{ Number(orderItem.total_price || 0).toFixed(2) }}</td>
                             <td>
                               <v-btn
-                                v-if="item.estado_pago !== 'pagado'"
+                                v-if="item.payment_status !== 'paid'"
                                 icon
                                 size="x-small"
                                 variant="text"
@@ -189,22 +189,22 @@
                             <span>Subtotal:</span>
                             <span>${{ Number(item.subtotal || 0).toFixed(2) }}</span>
                           </div>
-                          <div v-if="item.descuento_porcentaje > 0 || item.descuento_monto > 0" class="d-flex justify-space-between mb-2 text-warning">
+                          <div v-if="item.discount_percentage > 0 || item.discount_amount > 0" class="d-flex justify-space-between mb-2 text-warning">
                             <span>Descuento:</span>
-                            <span>-${{ (Number(item.subtotal || 0) * Number(item.descuento_porcentaje || 0) / 100 + Number(item.descuento_monto || 0)).toFixed(2) }}</span>
+                            <span>-${{ (Number(item.subtotal || 0) * Number(item.discount_percentage || 0) / 100 + Number(item.discount_amount || 0)).toFixed(2) }}</span>
                           </div>
                           <v-divider class="my-2" />
                           <div class="d-flex justify-space-between font-weight-bold">
                             <span>Total:</span>
                             <span class="text-success">${{ Number(item.total || 0).toFixed(2) }}</span>
                           </div>
-                          <div v-if="Number(item.monto_pagado) > 0 && item.estado_pago !== 'pagado'" class="d-flex justify-space-between mt-2">
+                          <div v-if="Number(item.amount_paid) > 0 && item.payment_status !== 'paid'" class="d-flex justify-space-between mt-2">
                             <span>Pagado:</span>
-                            <span>${{ Number(item.monto_pagado || 0).toFixed(2) }}</span>
+                            <span>${{ Number(item.amount_paid || 0).toFixed(2) }}</span>
                           </div>
-                          <div v-if="Number(item.saldo_pendiente) > 0" class="d-flex justify-space-between text-error font-weight-bold">
+                          <div v-if="Number(item.pending_balance) > 0" class="d-flex justify-space-between text-error font-weight-bold">
                             <span>Pendiente:</span>
-                            <span>${{ Number(item.saldo_pendiente || 0).toFixed(2) }}</span>
+                            <span>${{ Number(item.pending_balance || 0).toFixed(2) }}</span>
                           </div>
                         </v-card-text>
                       </v-card>
@@ -223,30 +223,30 @@
     </v-row>
 
     <!-- Dialog Descuento -->
-    <v-dialog v-model="descuentoDialog" max-width="400">
+    <v-dialog v-model="discountDialog" max-width="400">
       <v-card>
         <v-card-title>Aplicar Descuento</v-card-title>
         <v-card-text>
-          <v-radio-group v-model="descuentoTipo" inline>
-            <v-radio label="Porcentaje" value="porcentaje" />
-            <v-radio label="Monto fijo" value="monto" />
+          <v-radio-group v-model="discountType" inline>
+            <v-radio label="Porcentaje" value="percentage" />
+            <v-radio label="Monto fijo" value="amount" />
           </v-radio-group>
           <v-text-field
-            v-model.number="descuentoValor"
-            :label="descuentoTipo === 'porcentaje' ? 'Porcentaje (%)' : 'Monto ($)'"
+            v-model.number="discountValue"
+            :label="discountType === 'percentage' ? 'Porcentaje (%)' : 'Monto ($)'"
             type="number"
             min="0"
-            :max="descuentoTipo === 'porcentaje' ? 100 : undefined"
+            :max="discountType === 'percentage' ? 100 : undefined"
           />
           <v-text-field
-            v-model="descuentoMotivo"
+            v-model="discountReason"
             label="Motivo (opcional)"
           />
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="descuentoDialog = false">Cancelar</v-btn>
-          <v-btn color="warning" :loading="saving" @click="aplicarDescuento">Aplicar</v-btn>
+          <v-btn @click="discountDialog = false">Cancelar</v-btn>
+          <v-btn color="warning" :loading="saving" @click="applyDiscount">Aplicar</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -257,14 +257,14 @@
         <v-card-title>Registrar Pago Parcial</v-card-title>
         <v-card-text>
           <p class="mb-4">
-            Saldo pendiente: <strong class="text-error">${{ Number(selectedOrder?.saldo_pendiente || 0).toFixed(2) }}</strong>
+            Saldo pendiente: <strong class="text-error">${{ Number(selectedOrder?.pending_balance || 0).toFixed(2) }}</strong>
           </p>
           <v-text-field
-            v-model.number="pagoMonto"
+            v-model.number="paymentAmount"
             label="Monto a pagar"
             type="number"
             min="0"
-            :max="selectedOrder?.saldo_pendiente"
+            :max="selectedOrder?.pending_balance"
             prefix="$"
           />
         </v-card-text>
@@ -281,7 +281,7 @@
       <v-card>
         <v-card-title>Editar Item</v-card-title>
         <v-card-text>
-          <p class="mb-4 font-weight-bold">{{ selectedItem?.nombre }}</p>
+          <p class="mb-4 font-weight-bold">{{ selectedItem?.product_name }}</p>
           <v-text-field
             v-model.number="editItemData.quantity"
             label="Cantidad"
@@ -297,7 +297,7 @@
             prefix="$"
           />
           <v-text-field
-            v-model.number="editItemData.descuento"
+            v-model.number="editItemData.discount"
             label="Descuento"
             type="number"
             min="0"
@@ -379,27 +379,28 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { ordersService, type Order, type OrderItem } from '@/services/ordersService';
+import { orderStatusLabels, paymentStatusLabels, paymentStatusColors, label } from '@/utils/labels';
 
 const orders = ref<Order[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 const search = ref('');
-const filterPago = ref('todos');
+const filterPago = ref('all');
 const soloHoy = ref(true);
 
 const selectedOrder = ref<Order | null>(null);
 const selectedItem = ref<OrderItem | null>(null);
 
-const descuentoDialog = ref(false);
-const descuentoTipo = ref<'porcentaje' | 'monto'>('porcentaje');
-const descuentoValor = ref(0);
-const descuentoMotivo = ref('');
+const discountDialog = ref(false);
+const discountType = ref<'percentage' | 'amount'>('percentage');
+const discountValue = ref(0);
+const discountReason = ref('');
 
 const pagoDialog = ref(false);
-const pagoMonto = ref(0);
+const paymentAmount = ref(0);
 
 const editItemDialog = ref(false);
-const editItemData = ref({ quantity: 1, unit_price: 0, descuento: 0 });
+const editItemData = ref({ quantity: 1, unit_price: 0, discount: 0 });
 
 const pedidoRapidoDialog = ref(false);
 const pedidoRapidoData = ref({
@@ -414,21 +415,21 @@ const snackbarText = ref('');
 const snackbarColor = ref('success');
 
 const headers = [
-  { title: 'Mesa', key: 'mesa' },
+  { title: 'Mesa', key: 'dining_table' },
   { title: 'Cliente', key: 'customer_name' },
   { title: 'Estado', key: 'status' },
-  { title: 'Pago', key: 'estado_pago' },
+  { title: 'Pago', key: 'payment_status' },
   { title: 'Total', key: 'total' },
   { title: 'Fecha', key: 'created_at' },
   { title: '', key: 'actions', sortable: false },
 ];
 
 const filteredOrders = computed(() => {
-  if (filterPago.value === 'todos') return orders.value;
-  if (filterPago.value === 'pendiente') {
-    return orders.value.filter(o => o.estado_pago !== 'pagado');
+  if (filterPago.value === 'all') return orders.value;
+  if (filterPago.value === 'pending') {
+    return orders.value.filter(o => o.payment_status !== 'paid');
   }
-  return orders.value.filter(o => o.estado_pago === 'pagado');
+  return orders.value.filter(o => o.payment_status === 'paid');
 });
 
 const showMessage = (text: string, color = 'success') => {
@@ -441,7 +442,7 @@ const loadOrders = async () => {
   loading.value = true;
   try {
     orders.value = await ordersService.getAll({
-      hoy: soloHoy.value,
+      today: soloHoy.value,
     });
   } catch (error) {
     showMessage('Error al cargar pedidos', 'error');
@@ -463,25 +464,11 @@ const getStatusColor = (status: string) => {
   return colors[status] || 'grey';
 };
 
-const getStatusText = (status: string) => {
-  const texts: Record<string, string> = {
-    pending: 'Pendiente',
-    preparing: 'Preparando',
-    ready: 'Listo',
-    delivered: 'Entregado',
-    cancelled: 'Cancelado',
-  };
-  return texts[status] || status;
-};
+const getStatusText = (status: string) => label(orderStatusLabels, status) || status;
 
-const getPagoColor = (estado: string) => {
-  const colors: Record<string, string> = {
-    pendiente: 'error',
-    parcial: 'warning',
-    pagado: 'success',
-  };
-  return colors[estado] || 'grey';
-};
+const getPagoColor = (estado: string) => paymentStatusColors[estado] || 'grey';
+
+const getPagoText = (estado: string) => label(paymentStatusLabels, estado) || estado;
 
 const formatDate = (dateString: string) => {
   const date = new Date(dateString);
@@ -496,7 +483,7 @@ const formatDate = (dateString: string) => {
 const marcarPagado = async (order: Order) => {
   if (!confirm('¿Marcar este pedido como pagado?')) return;
   try {
-    await ordersService.marcarPagado(order.id);
+    await ordersService.markPaid(order.id);
     showMessage('Pedido marcado como pagado');
     loadOrders();
   } catch (error) {
@@ -504,26 +491,26 @@ const marcarPagado = async (order: Order) => {
   }
 };
 
-const openDescuentoDialog = (order: Order) => {
+const openDiscountDialog = (order: Order) => {
   selectedOrder.value = order;
-  descuentoTipo.value = 'porcentaje';
-  descuentoValor.value = 0;
-  descuentoMotivo.value = '';
-  descuentoDialog.value = true;
+  discountType.value = 'percentage';
+  discountValue.value = 0;
+  discountReason.value = '';
+  discountDialog.value = true;
 };
 
-const aplicarDescuento = async () => {
-  if (!selectedOrder.value || descuentoValor.value <= 0) return;
+const applyDiscount = async () => {
+  if (!selectedOrder.value || discountValue.value <= 0) return;
   saving.value = true;
   try {
-    await ordersService.aplicarDescuento(
+    await ordersService.applyDiscount(
       selectedOrder.value.id,
-      descuentoTipo.value,
-      descuentoValor.value,
-      descuentoMotivo.value || undefined,
+      discountType.value,
+      discountValue.value,
+      discountReason.value || undefined,
     );
     showMessage('Descuento aplicado');
-    descuentoDialog.value = false;
+    discountDialog.value = false;
     loadOrders();
   } catch (error) {
     showMessage('Error al aplicar descuento', 'error');
@@ -534,15 +521,15 @@ const aplicarDescuento = async () => {
 
 const openPagoDialog = (order: Order) => {
   selectedOrder.value = order;
-  pagoMonto.value = order.saldo_pendiente;
+  paymentAmount.value = order.pending_balance;
   pagoDialog.value = true;
 };
 
 const registrarPago = async () => {
-  if (!selectedOrder.value || pagoMonto.value <= 0) return;
+  if (!selectedOrder.value || paymentAmount.value <= 0) return;
   saving.value = true;
   try {
-    await ordersService.pagoParcial(selectedOrder.value.id, pagoMonto.value);
+    await ordersService.recordPartialPayment(selectedOrder.value.id, paymentAmount.value);
     showMessage('Pago registrado');
     pagoDialog.value = false;
     loadOrders();
@@ -556,7 +543,7 @@ const registrarPago = async () => {
 const cancelarPedido = async (order: Order) => {
   if (!confirm('¿Cancelar este pedido?')) return;
   try {
-    await ordersService.cancelar(order.id);
+    await ordersService.cancel(order.id);
     showMessage('Pedido cancelado');
     loadOrders();
   } catch (error) {
@@ -570,7 +557,7 @@ const openEditItemDialog = (order: Order, item: OrderItem) => {
   editItemData.value = {
     quantity: item.quantity,
     unit_price: item.unit_price,
-    descuento: item.descuento,
+    discount: item.discount,
   };
   editItemDialog.value = true;
 };
@@ -643,9 +630,9 @@ const crearPedidoRapido = async () => {
       customer_name: pedidoRapidoData.value.customer_name || 'Pedido Rápido',
       notes: pedidoRapidoData.value.notas || 'Pedido rápido - Detalles pendientes',
       items: [], // Sin items específicos
-      total_manual: pedidoRapidoData.value.total,
-      es_pedido_rapido: true,
-      estado_pago: pedidoRapidoData.value.marcar_pagado ? 'pagado' : 'pendiente',
+      manual_total: pedidoRapidoData.value.total,
+      is_quick_order: true,
+      payment_status: pedidoRapidoData.value.marcar_pagado ? 'paid' : 'pending',
     };
 
     await ordersService.create(pedidoData);

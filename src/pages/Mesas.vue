@@ -19,43 +19,43 @@
 
     <v-row>
       <v-col
-        v-for="mesa in mesas"
-        :key="mesa.id"
+        v-for="table in tables"
+        :key="table.id"
         cols="6"
         sm="4"
         md="3"
         lg="2"
       >
         <v-card
-          :color="getCardColor(mesa)"
-          :variant="mesa.estado === 'disponible' ? 'outlined' : 'flat'"
+          :color="getCardColor(table)"
+          :variant="table.status === 'available' ? 'outlined' : 'flat'"
           class="text-center pa-4"
-          @click="openDialog(mesa)"
+          @click="openDialog(table)"
         >
           <v-card-text>
-            <div class="text-h3 font-weight-bold" :class="getTextColor(mesa)">
-              {{ mesa.numero }}
+            <div class="text-h3 font-weight-bold" :class="getTextColor(table)">
+              {{ table.number }}
             </div>
-            <div class="text-caption" :class="getTextColor(mesa)">
-              {{ mesa.pseudonimo || `Mesa ${mesa.numero}` }}
+            <div class="text-caption" :class="getTextColor(table)">
+              {{ table.nickname || `Mesa ${table.number}` }}
             </div>
             <v-chip
-              :color="getEstadoColor(mesa.estado)"
+              :color="getStatusColor(table.status)"
               size="x-small"
               class="mt-2"
             >
-              {{ mesa.estado.toUpperCase() }}
+              {{ getStatusLabel(table.status).toUpperCase() }}
             </v-chip>
-            <div class="text-caption mt-1" :class="getTextColor(mesa)">
-              👥 {{ mesa.capacidad }} personas
+            <div class="text-caption mt-1" :class="getTextColor(table)">
+              👥 {{ table.capacity }} personas
             </div>
           </v-card-text>
           <v-card-actions class="justify-center">
             <v-btn
-              v-if="mesa.estado === 'ocupada'"
+              v-if="table.status === 'occupied'"
               size="small"
               variant="text"
-              @click.stop="liberarMesa(mesa)"
+              @click.stop="releaseTable(table)"
             >
               Liberar
             </v-btn>
@@ -63,7 +63,7 @@
               icon
               size="small"
               variant="text"
-              @click.stop="openDialog(mesa)"
+              @click.stop="openDialog(table)"
             >
               <v-icon size="small">mdi-pencil</v-icon>
             </v-btn>
@@ -81,7 +81,7 @@
             <v-row>
               <v-col cols="6">
                 <v-text-field
-                  v-model.number="formData.numero"
+                  v-model.number="formData.number"
                   label="Número de mesa"
                   type="number"
                   min="1"
@@ -91,7 +91,7 @@
               </v-col>
               <v-col cols="6">
                 <v-text-field
-                  v-model.number="formData.capacidad"
+                  v-model.number="formData.capacity"
                   label="Capacidad"
                   type="number"
                   min="1"
@@ -100,19 +100,21 @@
               </v-col>
             </v-row>
             <v-text-field
-              v-model="formData.pseudonimo"
+              v-model="formData.nickname"
               label="Nombre personalizado (opcional)"
               hint="Ej: Terraza 1, VIP, Barra"
             />
             <v-select
               v-if="editing"
-              v-model="formData.estado"
-              :items="estados"
+              v-model="formData.status"
+              :items="statusOptions"
+              item-title="title"
+              item-value="value"
               label="Estado"
             />
             <v-switch
               v-if="editing"
-              v-model="formData.activa"
+              v-model="formData.active"
               label="Mesa activa"
               color="success"
             />
@@ -123,7 +125,7 @@
             v-if="editing"
             color="error"
             variant="text"
-            @click="deleteMesa"
+            @click="deleteTable"
           >
             Eliminar
           </v-btn>
@@ -142,23 +144,28 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { mesasService, type Mesa } from '@/services/mesasService';
+import { tablesService, type DiningTable, type DiningTableStatus } from '@/services/tablesService';
+import { tableStatusLabels, label } from '@/utils/labels';
 
-const mesas = ref<Mesa[]>([]);
+const tables = ref<DiningTable[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 const dialog = ref(false);
-const editing = ref<Mesa | null>(null);
+const editing = ref<DiningTable | null>(null);
 
 const formData = ref({
-  numero: 1,
-  pseudonimo: '',
-  capacidad: 4,
-  estado: 'disponible',
-  activa: true,
+  number: 1,
+  nickname: '',
+  capacity: 4,
+  status: 'available' as DiningTableStatus,
+  active: true,
 });
 
-const estados = ['disponible', 'ocupada', 'reservada'];
+const statusOptions = [
+  { value: 'available', title: 'Disponible' },
+  { value: 'occupied', title: 'Ocupada' },
+  { value: 'reserved', title: 'Reservada' },
+];
 
 const snackbar = ref(false);
 const snackbarText = ref('');
@@ -170,10 +177,10 @@ const showMessage = (text: string, color = 'success') => {
   snackbar.value = true;
 };
 
-const loadMesas = async () => {
+const loadTables = async () => {
   loading.value = true;
   try {
-    mesas.value = await mesasService.getAll();
+    tables.value = await tablesService.getAll();
   } catch (error) {
     showMessage('Error al cargar mesas', 'error');
   } finally {
@@ -181,56 +188,58 @@ const loadMesas = async () => {
   }
 };
 
-const getCardColor = (mesa: Mesa) => {
-  if (mesa.estado === 'ocupada') return 'warning';
-  if (mesa.estado === 'reservada') return 'info';
+const getCardColor = (table: DiningTable) => {
+  if (table.status === 'occupied') return 'warning';
+  if (table.status === 'reserved') return 'info';
   return undefined;
 };
 
-const getTextColor = (mesa: Mesa) => {
-  if (mesa.estado === 'disponible') return 'text-grey-darken-2';
+const getTextColor = (table: DiningTable) => {
+  if (table.status === 'available') return 'text-grey-darken-2';
   return 'text-white';
 };
 
-const getEstadoColor = (estado: string) => {
-  if (estado === 'ocupada') return 'warning';
-  if (estado === 'reservada') return 'info';
+const getStatusColor = (status: string) => {
+  if (status === 'occupied') return 'warning';
+  if (status === 'reserved') return 'info';
   return 'success';
 };
 
-const openDialog = (mesa?: Mesa) => {
-  editing.value = mesa || null;
-  formData.value = mesa
+const getStatusLabel = (status: string) => label(tableStatusLabels, status);
+
+const openDialog = (table?: DiningTable) => {
+  editing.value = table || null;
+  formData.value = table
     ? {
-        numero: mesa.numero,
-        pseudonimo: mesa.pseudonimo || '',
-        capacidad: mesa.capacidad,
-        estado: mesa.estado,
-        activa: mesa.activa,
+        number: table.number,
+        nickname: table.nickname || '',
+        capacity: table.capacity,
+        status: table.status,
+        active: table.active,
       }
     : {
-        numero: mesas.value.length + 1,
-        pseudonimo: '',
-        capacidad: 4,
-        estado: 'disponible',
-        activa: true,
+        number: tables.value.length + 1,
+        nickname: '',
+        capacity: 4,
+        status: 'available',
+        active: true,
       };
   dialog.value = true;
 };
 
 const save = async () => {
-  if (!formData.value.numero) return;
+  if (!formData.value.number) return;
   saving.value = true;
   try {
     if (editing.value) {
-      await mesasService.update(editing.value.id, formData.value);
+      await tablesService.update(editing.value.id, formData.value);
       showMessage('Mesa actualizada');
     } else {
-      await mesasService.create(formData.value);
+      await tablesService.create(formData.value);
       showMessage('Mesa creada');
     }
     dialog.value = false;
-    loadMesas();
+    loadTables();
   } catch (error) {
     showMessage('Error al guardar', 'error');
   } finally {
@@ -238,31 +247,30 @@ const save = async () => {
   }
 };
 
-const deleteMesa = async () => {
+const deleteTable = async () => {
   if (!editing.value) return;
-  if (!confirm(`¿Eliminar mesa ${editing.value.numero}?`)) return;
+  if (!confirm(`¿Eliminar mesa ${editing.value.number}?`)) return;
   try {
-    await mesasService.delete(editing.value.id);
+    await tablesService.delete(editing.value.id);
     showMessage('Mesa eliminada');
     dialog.value = false;
-    loadMesas();
+    loadTables();
   } catch (error) {
     showMessage('Error al eliminar', 'error');
   }
 };
 
-const liberarMesa = async (mesa: Mesa) => {
+const releaseTable = async (table: DiningTable) => {
   try {
-    await mesasService.liberar(mesa.id);
+    await tablesService.release(table.id);
     showMessage('Mesa liberada');
-    loadMesas();
+    loadTables();
   } catch (error) {
     showMessage('Error al liberar mesa', 'error');
   }
 };
 
 onMounted(() => {
-  loadMesas();
+  loadTables();
 });
 </script>
-

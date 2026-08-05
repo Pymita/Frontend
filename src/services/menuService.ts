@@ -1,38 +1,40 @@
 import api from './api';
-import type { GrupoTipo, Tipo } from './tiposService';
+import type { VariantGroup, Variant } from './variantsService';
 
 export interface Category {
   id: number;
   name: string;
   description?: string;
   active: boolean;
-  visible_en_app: boolean;
+  visible_in_app: boolean;
 }
 
-export interface ItemMenu {
+export interface MenuItem {
   id: number;
-  nombre: string;
-  descripcion?: string;
-  producto_final_id: number;
-  producto_final?: {
+  name: string;
+  description?: string;
+  final_product_id: number | null;
+  final_product?: {
     id: number;
     name: string;
-    tipo: string;
+    type: string;
   };
-  precio: number;
-  precio_base: number;
-  precio_especifico?: number;
-  usar_precio_automatico: boolean;
-  imagen_url?: string;
-  tiempo_preparacion?: number;
-  disponible: boolean;
-  activo: boolean;
-  category_id: number;
-  tipo_id?: number;
-  grupo_tipo_id?: number;
+  base_price: number;
+  custom_price?: number | null;
+  use_automatic_price: boolean;
+  final_price?: number;
+  estimated_cost?: number | null;
+  image_url?: string | null;
+  preparation_time?: number | null;
+  available: boolean;
+  active: boolean;
+  sort_order?: number;
+  category_id: number | null;
+  variant_id?: number | null;
+  variant_group_id?: number | null;
   category?: Category;
-  tipo?: Tipo;
-  grupoTipo?: GrupoTipo;
+  variant?: Variant;
+  variant_group?: VariantGroup;
 }
 
 interface ApiResponse<T> {
@@ -42,16 +44,8 @@ interface ApiResponse<T> {
 
 export const categoriesService = {
   async getAll(): Promise<Category[]> {
-    console.log('[categoriesService] Obteniendo categorías...');
-    try {
-      const response = await api.get<ApiResponse<Category[]>>('/categories');
-      console.log('[categoriesService] Respuesta:', response.data);
-      return response.data.data;
-    } catch (error: any) {
-      console.error('[categoriesService] Error:', error);
-      console.error('[categoriesService] Response:', error.response);
-      throw error;
-    }
+    const response = await api.get<ApiResponse<Category[]>>('/categories');
+    return response.data.data;
   },
 
   async getById(id: number): Promise<Category> {
@@ -74,36 +68,34 @@ export const categoriesService = {
   },
 };
 
-export const itemsMenuService = {
-  async getAll(categoryId?: number): Promise<ItemMenu[]> {
+export const menuItemsService = {
+  async getAll(categoryId?: number): Promise<MenuItem[]> {
     const params = categoryId ? { category_id: categoryId } : {};
-    const response = await api.get<ApiResponse<ItemMenu[]>>('/items-menu', { params });
+    const response = await api.get<ApiResponse<MenuItem[]>>('/menu-items', { params });
     return response.data.data;
   },
 
-  async getById(id: number): Promise<ItemMenu> {
-    const response = await api.get<ApiResponse<ItemMenu>>(`/items-menu/${id}`);
+  async getById(id: number): Promise<MenuItem> {
+    const response = await api.get<ApiResponse<MenuItem>>(`/menu-items/${id}`);
     return response.data.data;
   },
 
-  async create(data: Partial<ItemMenu>): Promise<ItemMenu> {
-    const response = await api.post<ApiResponse<ItemMenu>>('/items-menu', data);
+  async create(data: Partial<MenuItem>): Promise<MenuItem> {
+    const response = await api.post<ApiResponse<MenuItem>>('/menu-items', data);
     return response.data.data;
   },
 
-  async update(id: number, data: Partial<ItemMenu>): Promise<ItemMenu> {
-    const response = await api.put<ApiResponse<ItemMenu>>(`/items-menu/${id}`, data);
+  async update(id: number, data: Partial<MenuItem>): Promise<MenuItem> {
+    const response = await api.put<ApiResponse<MenuItem>>(`/menu-items/${id}`, data);
     return response.data.data;
   },
 
   async delete(id: number): Promise<void> {
-    await api.delete(`/items-menu/${id}`);
+    await api.delete(`/menu-items/${id}`);
   },
 
-  async toggleDisponibilidad(id: number): Promise<ItemMenu> {
-    const response = await api.post<ApiResponse<ItemMenu>>(`/items-menu/${id}/toggle-disponibilidad`);
+  async toggleAvailability(id: number): Promise<MenuItem> {
+    const response = await api.post<ApiResponse<MenuItem>>(`/menu-items/${id}/toggle-availability`);
     return response.data.data;
   },
 };
-
-

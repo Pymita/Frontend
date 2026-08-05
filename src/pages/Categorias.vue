@@ -26,14 +26,14 @@
             :loading="loading"
             class="elevation-0"
           >
-            <template #item.productos="{ item }">
+            <template #item.products_count="{ item }">
               <v-chip size="small" color="primary" variant="tonal">
                 {{ getProductCount(item) }} productos
               </v-chip>
             </template>
-            <template #item.visible_en_app="{ item }">
-              <v-chip :color="item.visible_en_app ? 'success' : 'grey'" size="small">
-                {{ item.visible_en_app ? 'Visible' : 'Oculta' }}
+            <template #item.visible_in_app="{ item }">
+              <v-chip :color="item.visible_in_app ? 'success' : 'grey'" size="small">
+                {{ item.visible_in_app ? 'Visible' : 'Oculta' }}
               </v-chip>
             </template>
             <template #item.actions="{ item }">
@@ -73,7 +73,7 @@
             />
 
             <v-switch
-              v-model="formData.visible_en_app"
+              v-model="formData.visible_in_app"
               label="Visible en app móvil"
               color="primary"
               class="mt-4"
@@ -107,10 +107,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { categoriesService, itemsMenuService, type Category, type ItemMenu } from '@/services/menuService';
+import { categoriesService, menuItemsService, type Category, type MenuItem } from '@/services/menuService';
 
 const categorias = ref<Category[]>([]);
-const itemsMenu = ref<ItemMenu[]>([]);
+const itemsMenu = ref<MenuItem[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 
@@ -120,7 +120,7 @@ const editing = ref<Category | null>(null);
 const formData = ref({
   name: '',
   description: '',
-  visible_en_app: true,
+  visible_in_app: true,
 });
 
 const snackbar = ref(false);
@@ -130,8 +130,8 @@ const snackbarColor = ref('success');
 const headers = [
   { title: 'Nombre', key: 'name' },
   { title: 'Descripción', key: 'description' },
-  { title: 'Productos', key: 'productos' },
-  { title: 'App Móvil', key: 'visible_en_app' },
+  { title: 'Productos', key: 'products_count' },
+  { title: 'App Móvil', key: 'visible_in_app' },
   { title: 'Acciones', key: 'actions', sortable: false },
 ];
 
@@ -151,7 +151,7 @@ const loadData = async () => {
     console.log('[Categorias] Cargando datos...');
     const [categoriasData, itemsData] = await Promise.all([
       categoriesService.getAll(),
-      itemsMenuService.getAll(),
+      menuItemsService.getAll(),
     ]);
     console.log('[Categorias] Categorías cargadas:', categoriasData.length);
     categorias.value = categoriasData;
@@ -170,12 +170,12 @@ const openDialog = (categoria?: Category) => {
     ? {
         name: categoria.name,
         description: categoria.description || '',
-        visible_en_app: categoria.visible_en_app ?? true,
+        visible_in_app: categoria.visible_in_app ?? true,
       }
     : {
         name: '',
         description: '',
-        visible_en_app: true,
+        visible_in_app: true,
       };
   dialog.value = true;
 };
@@ -186,7 +186,7 @@ const closeDialog = () => {
   formData.value = {
     name: '',
     description: '',
-    visible_en_app: true,
+    visible_in_app: true,
   };
 };
 

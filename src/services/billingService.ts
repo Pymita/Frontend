@@ -1,17 +1,25 @@
 import api from './api'
 
+export type PersonType = 'natural' | 'legal'
+
 export interface Customer {
   id: number
   document_type: string
   document_number: string
   name: string
+  trade_name?: string
   email?: string
   phone?: string
   address?: string
   city_dane_code?: string
+  city?: string
   department?: string
+  postal_code?: string
+  person_type?: PersonType
   tax_regime?: string
   tax_responsibilities?: string[]
+  frequent_customer?: boolean
+  notes?: string
   created_at: string
   updated_at: string
 }
@@ -19,22 +27,29 @@ export interface Customer {
 export interface CompanySetting {
   id: number
   nit: string
-  razon_social: string
-  nombre_comercial?: string
+  legal_name: string
+  trade_name?: string
   address: string
   city_dane_code: string
+  city?: string
   department: string
+  postal_code?: string
   phone?: string
   email: string
   tax_regime: string
   tax_responsibilities: string[]
-  economic_activity_ciiu?: string
-  billing_resolution_number?: string
-  billing_resolution_date?: string
-  billing_prefix?: string
-  billing_start_number?: number
-  billing_end_number?: number
-  billing_valid_until?: string
+  ciiu_economic_activity?: string
+  activity_description?: string
+  invoicing_resolution?: string
+  resolution_date?: string
+  invoice_prefix?: string
+  range_from?: number
+  range_to?: number
+  current_sequence?: number
+  valid_from?: string
+  valid_until?: string
+  einvoice_provider?: string
+  einvoicing_enabled?: boolean
   created_at: string
   updated_at: string
 }
@@ -44,7 +59,7 @@ interface ApiResponse<T> {
   message?: string
 }
 
-export const facturacionService = {
+export const billingService = {
   // ===== Clientes =====
   async getCustomers(): Promise<Customer[]> {
     const response = await api.get<ApiResponse<Customer[]>>('/customers')
@@ -83,6 +98,8 @@ export const facturacionService = {
   },
 
   // ===== Configuración de la Empresa =====
+  // Nota: los endpoints /company-settings aún no existen en el backend (feature futura).
+  // Se conservan con manejo de 404 -> null.
   async getCompanySettings(): Promise<CompanySetting | null> {
     try {
       const response = await api.get<ApiResponse<CompanySetting>>('/company-settings')

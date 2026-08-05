@@ -3,6 +3,8 @@
  * Facilita las importaciones con un solo punto de entrada
  */
 
+import type { ValidationErrors } from './auth'
+
 // Auth types
 export type {
   User,
@@ -37,16 +39,7 @@ export type {
 } from './api'
 
 // Store types
-export type {
-  AuthStore,
-  ProductStore,
-  OrderStore,
-  Product,
-  Category,
-  Order,
-  OrderItem,
-  OrderStatus
-} from './stores'
+export type { AuthStore } from './stores'
 
 // Utility types
 export type Nullable<T> = T | null

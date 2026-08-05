@@ -28,31 +28,31 @@
         <v-card>
           <v-data-table
             :headers="headers"
-            :items="recetas"
+            :items="recipes"
             :loading="loading"
             class="elevation-0"
           >
-            <template #item.producto="{ item }">
+            <template #item.product="{ item }">
               <div>
-                <div class="font-weight-bold">{{ item.producto?.name }}</div>
-                <div class="text-caption text-grey">{{ item.nombre }}</div>
+                <div class="font-weight-bold">{{ item.product?.name }}</div>
+                <div class="text-caption text-grey">{{ item.name }}</div>
               </div>
             </template>
-            <template #item.tipo="{ item }">
-              <v-chip v-if="item.tipo" size="small" variant="tonal">{{ item.tipo.nombre }}</v-chip>
+            <template #item.variant="{ item }">
+              <v-chip v-if="item.variant" size="small" variant="tonal">{{ item.variant.name }}</v-chip>
               <span v-else class="text-grey">Base</span>
             </template>
             <template #item.rendimiento="{ item }">
-              {{ item.cantidad_producida }} {{ item.unidad_producida }}
+              {{ item.yield_quantity }} {{ item.yield_unit }}
             </template>
-            <template #item.items="{ item }">
+            <template #item.ingredients="{ item }">
               <v-chip size="small" color="primary">
-                {{ item.items?.length || 0 }} ingredientes
+                {{ item.ingredients?.length || 0 }} ingredientes
               </v-chip>
             </template>
-            <template #item.costo_total="{ item }">
-              <span v-if="item.costo_total" class="font-weight-bold text-success">
-                ${{ Number(item.costo_total).toFixed(2) }}
+            <template #item.total_cost="{ item }">
+              <span v-if="item.total_cost" class="font-weight-bold text-success">
+                ${{ Number(item.total_cost).toFixed(2) }}
               </span>
               <span v-else class="text-grey">-</span>
             </template>
@@ -60,7 +60,7 @@
               <v-btn icon size="small" variant="text" @click="openDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
-              <v-btn icon size="small" variant="text" color="error" @click="deleteReceta(item)">
+              <v-btn icon size="small" variant="text" color="error" @click="deleteRecipe(item)">
                 <v-icon size="small">mdi-delete</v-icon>
               </v-btn>
             </template>
@@ -86,8 +86,8 @@
             <v-row>
               <v-col cols="12" md="6">
                 <v-autocomplete
-                  v-model="formData.producto_id"
-                  :items="productosDisponibles"
+                  v-model="formData.product_id"
+                  :items="availableProducts"
                   item-title="name"
                   item-value="id"
                   label="Producto"
@@ -95,11 +95,11 @@
                   required
                 />
               </v-col>
-              <v-col cols="12" md="6" v-if="requiereTipoReceta">
+              <v-col cols="12" md="6" v-if="requiresRecipeVariant">
                 <v-autocomplete
-                  v-model="formData.tipo_id"
-                  :items="tiposPorProductoSeleccionado"
-                  item-title="nombre"
+                  v-model="formData.variant_id"
+                  :items="variantsForSelectedProduct"
+                  item-title="name"
                   item-value="id"
                   label="Variante / Tipo *"
                   :rules="[v => !!v || 'Tipo requerido para este producto']"
@@ -108,7 +108,7 @@
               </v-col>
               <v-col cols="12" md="6">
                 <v-text-field
-                  v-model="formData.nombre"
+                  v-model="formData.name"
                   label="Nombre de la receta"
                   :rules="[v => !!v || 'Nombre requerido']"
                   required
@@ -117,7 +117,7 @@
             </v-row>
 
             <v-textarea
-              v-model="formData.descripcion"
+              v-model="formData.description"
               label="Descripción"
               rows="2"
             />
@@ -125,7 +125,7 @@
             <v-row>
               <v-col cols="12" md="4">
                 <v-text-field
-                  v-model.number="formData.cantidad_producida"
+                  v-model.number="formData.yield_quantity"
                   label="Rendimiento de la receta"
                   hint="Ej: 1 pizza, 2 litros de salsa, 50 unidades"
                   persistent-hint
@@ -138,7 +138,7 @@
               </v-col>
               <v-col cols="12" md="4">
                 <v-text-field
-                  v-model="formData.unidad_producida"
+                  v-model="formData.yield_unit"
                   label="Unidad producida"
                   hint="Ej: unidad, litro, kg, pizza"
                   persistent-hint
@@ -148,7 +148,7 @@
               </v-col>
               <v-col cols="12" md="4">
                 <v-text-field
-                  v-model.number="formData.tiempo_preparacion"
+                  v-model.number="formData.preparation_time"
                   label="Tiempo prep. (horas)"
                   type="number"
                   step="0.1"
@@ -158,7 +158,7 @@
             </v-row>
 
             <v-textarea
-              v-model="formData.instrucciones"
+              v-model="formData.instructions"
               label="Instrucciones de preparación"
               rows="3"
             />
@@ -189,7 +189,7 @@
               Ambos terminan convertidos al consumo real por unidad.
             </v-alert>
 
-            <v-list v-else class="pa-0">
+            <v-list v-if="ingredientes.length > 0" class="pa-0">
               <v-list-item
                 v-for="(ing, index) in ingredientes"
                 :key="index"
@@ -198,20 +198,20 @@
                 <v-row align="center">
                   <v-col cols="12" md="4">
                     <v-autocomplete
-                      v-model="ing.producto_id"
+                      v-model="ing.product_id"
                       :items="materiasPrimas"
                       item-title="name"
                       item-value="id"
                       label="Ingrediente"
                       density="compact"
                       hide-details
-                      @update:model-value="updateIngredienteCosto(ing)"
+                      @update:model-value="updateIngredientCost(ing)"
                     >
                       <template #item="{ props, item }">
                         <v-list-item v-bind="props">
                           <template #append>
                             <span class="text-caption text-grey">
-                              {{ item.raw.unidad }}
+                              {{ item.raw.unit }}
                             </span>
                           </template>
                         </v-list-item>
@@ -232,7 +232,7 @@
                   </v-col>
                   <v-col cols="6" md="2">
                     <v-text-field
-                      v-model.number="ing.cantidad"
+                      v-model.number="ing.quantity"
                       :label="ing.entry_mode === 'per_yield' ? 'Cantidad que rinde' : 'Cantidad para este lote'"
                       :hint="ing.entry_mode === 'per_yield' ? 'Ej: 1 tarro' : 'Ej: 10 ml si la receta produce 1 pizza'"
                       persistent-hint
@@ -244,7 +244,7 @@
                   </v-col>
                   <v-col cols="6" md="2">
                     <v-text-field
-                      v-model="ing.unidad"
+                      v-model="ing.unit"
                       label="Unidad ingrediente"
                       hint="Debe coincidir con el inventario"
                       persistent-hint
@@ -254,7 +254,7 @@
                   <v-col v-if="ing.entry_mode === 'per_yield'" cols="12" md="3">
                     <v-text-field
                       v-model.number="ing.rinde_cantidad"
-                      :label="`Rinde cuantas ${formData.unidad_producida || 'unidades'}`"
+                      :label="`Rinde cuantas ${formData.yield_unit || 'unidades'}`"
                       hint="Ej: 50 pizzas"
                       persistent-hint
                       type="number"
@@ -266,16 +266,16 @@
                   <v-col cols="12" md="3">
                     <div class="text-caption text-grey">Consumo calculado para el lote</div>
                     <div class="font-weight-bold">
-                      {{ getBatchQuantity(ing).toFixed(4) }} {{ ing.unidad || 'unid.' }}
+                      {{ getBatchQuantity(ing).toFixed(4) }} {{ ing.unit || 'unid.' }}
                     </div>
                     <div class="text-caption text-grey">
-                      Por cada {{ formData.unidad_producida || 'unidad' }}:
-                      {{ getQuantityPerProducedUnit(ing).toFixed(4) }} {{ ing.unidad || 'unid.' }}
+                      Por cada {{ formData.yield_unit || 'unidad' }}:
+                      {{ getQuantityPerProducedUnit(ing).toFixed(4) }} {{ ing.unit || 'unid.' }}
                     </div>
                   </v-col>
                   <v-col cols="6" md="2">
                     <v-text-field
-                      v-model.number="ing.desperdicio_porcentaje"
+                      v-model.number="ing.waste_percentage"
                       label="Desperdicio %"
                       type="number"
                       step="0.1"
@@ -288,7 +288,7 @@
                   <v-col cols="8" md="2">
                     <div class="text-caption text-grey">Costo lote</div>
                     <div class="font-weight-bold text-success">
-                      ${{ calcularCostoIngrediente(ing).toFixed(2) }}
+                      ${{ calcIngredientCost(ing).toFixed(2) }}
                     </div>
                   </v-col>
                   <v-col cols="4" md="1" class="text-right">
@@ -313,12 +313,12 @@
                 <v-row>
                   <v-col cols="6">
                     <div class="text-h6">Costo Total</div>
-                    <div class="text-h4 text-success">${{ Number(costoTotal).toFixed(2) }}</div>
+                    <div class="text-h4 text-success">${{ Number(totalCost).toFixed(2) }}</div>
                   </v-col>
                   <v-col cols="6">
                     <div class="text-h6">Costo por Unidad</div>
                     <div class="text-h4 text-primary">
-                      ${{ Number(costoPorUnidad).toFixed(2) }}/{{ formData.unidad_producida || 'unidad' }}
+                      ${{ Number(costPerUnit).toFixed(2) }}/{{ formData.yield_unit || 'unidad' }}
                     </div>
                   </v-col>
                 </v-row>
@@ -344,42 +344,42 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { recetasService, type Receta, type RecetaItemPayload, type RecetaPayload } from '@/services/recetasService';
-import { productosService, type Product } from '@/services/productosService';
-import { itemsMenuService, type ItemMenu } from '@/services/menuService';
+import { recipesService, type Recipe, type RecipeIngredientPayload, type RecipePayload } from '@/services/recipesService';
+import { productsService, type Product } from '@/services/productsService';
+import { menuItemsService, type MenuItem } from '@/services/menuService';
 
 const route = useRoute();
 
 type IngredientEntryMode = 'batch' | 'per_yield';
 interface RecipeIngredientForm {
   id?: number;
-  producto_id: number | null;
-  cantidad: number;
-  unidad: string;
-  costo_unitario?: number;
-  desperdicio_porcentaje: number;
+  product_id: number | null;
+  quantity: number;
+  unit: string;
+  unit_cost?: number;
+  waste_percentage: number;
   entry_mode: IngredientEntryMode;
   rinde_cantidad?: number | null;
 }
 
-const recetas = ref<Receta[]>([]);
-const productos = ref<Product[]>([]);
-const itemsMenu = ref<ItemMenu[]>([]);
+const recipes = ref<Recipe[]>([]);
+const products = ref<Product[]>([]);
+const itemsMenu = ref<MenuItem[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 
 const dialog = ref(false);
-const editing = ref<Receta | null>(null);
+const editing = ref<Recipe | null>(null);
 
 const formData = ref({
-  producto_id: null as number | null,
-  tipo_id: null as number | null,
-  nombre: '',
-  descripcion: '',
-  cantidad_producida: 1,
-  unidad_producida: '',
-  tiempo_preparacion: null as number | null,
-  instrucciones: '',
+  product_id: null as number | null,
+  variant_id: null as number | null,
+  name: '',
+  description: '',
+  yield_quantity: 1,
+  yield_unit: '',
+  preparation_time: null as number | null,
+  instructions: '',
 });
 
 const ingredientes = ref<RecipeIngredientForm[]>([]);
@@ -389,11 +389,11 @@ const snackbarText = ref('');
 const snackbarColor = ref('success');
 
 const headers = [
-  { title: 'Producto', key: 'producto' },
-  { title: 'Variante', key: 'tipo' },
+  { title: 'Producto', key: 'product' },
+  { title: 'Variante', key: 'variant' },
   { title: 'Rendimiento', key: 'rendimiento' },
-  { title: 'Ingredientes', key: 'items' },
-  { title: 'Costo Total', key: 'costo_total' },
+  { title: 'Ingredientes', key: 'ingredients' },
+  { title: 'Costo Total', key: 'total_cost' },
   { title: 'Acciones', key: 'actions', sortable: false },
 ];
 
@@ -402,50 +402,50 @@ const ingredientEntryModes = [
   { title: 'Esta cantidad rinde varias unidades', value: 'per_yield' },
 ];
 
-const productosDisponibles = computed(() => {
-  return productos.value.filter(p => p.tipo === 'intermedio' || p.tipo === 'final');
+const availableProducts = computed(() => {
+  return products.value.filter(p => p.type === 'intermediate' || p.type === 'final');
 });
 
-const tiposPorProductoSeleccionado = computed(() => {
-  if (!formData.value.producto_id) return [];
+const variantsForSelectedProduct = computed(() => {
+  if (!formData.value.product_id) return [];
 
-  const unique = new Map<number, { id: number; nombre: string }>();
+  const unique = new Map<number, { id: number; name: string }>();
   itemsMenu.value
-    .filter((i) => i.producto_final_id === formData.value.producto_id && i.tipo_id && i.tipo)
+    .filter((i) => i.final_product_id === formData.value.product_id && i.variant_id && i.variant)
     .forEach((i) => {
-      unique.set(i.tipo!.id, { id: i.tipo!.id, nombre: i.tipo!.nombre });
+      unique.set(i.variant!.id, { id: i.variant!.id, name: i.variant!.name });
     });
 
   return Array.from(unique.values());
 });
 
-const requiereTipoReceta = computed(() => tiposPorProductoSeleccionado.value.length > 0);
+const requiresRecipeVariant = computed(() => variantsForSelectedProduct.value.length > 0);
 
 const materiasPrimas = computed(() => {
-  return productos.value.filter(p => p.tipo === 'materia_prima' || p.tipo === 'intermedio');
+  return products.value.filter(p => p.type === 'raw_material' || p.type === 'intermediate');
 });
 
 const selectedRecipeProductUnit = computed(() => {
-  return productos.value.find((product) => product.id === formData.value.producto_id)?.unidad || 'unit';
+  return products.value.find((product) => product.id === formData.value.product_id)?.unit || 'unit';
 });
 
-const costoTotal = computed(() => {
-  return ingredientes.value.reduce((sum, ing) => sum + calcularCostoIngrediente(ing), 0);
+const totalCost = computed(() => {
+  return ingredientes.value.reduce((sum, ing) => sum + calcIngredientCost(ing), 0);
 });
 
-const costoPorUnidad = computed(() => {
-  if (!formData.value.cantidad_producida || formData.value.cantidad_producida === 0) return 0;
-  return costoTotal.value / formData.value.cantidad_producida;
+const costPerUnit = computed(() => {
+  if (!formData.value.yield_quantity || formData.value.yield_quantity === 0) return 0;
+  return totalCost.value / formData.value.yield_quantity;
 });
 
 const getBatchQuantity = (ing: RecipeIngredientForm) => {
-  const quantity = Number(ing.cantidad || 0);
+  const quantity = Number(ing.quantity || 0);
 
   if (ing.entry_mode !== 'per_yield') {
     return quantity;
   }
 
-  const recipeYield = Number(formData.value.cantidad_producida || 0);
+  const recipeYield = Number(formData.value.yield_quantity || 0);
   const equivalentYield = Number(ing.rinde_cantidad || 0);
   if (recipeYield <= 0 || equivalentYield <= 0) {
     return 0;
@@ -463,31 +463,31 @@ const getEntryModeHint = (ing: RecipeIngredientForm) => {
 };
 
 const getQuantityWithWaste = (ing: RecipeIngredientForm) => {
-  const wasteMultiplier = 1 + Number(ing.desperdicio_porcentaje || 0) / 100;
+  const wasteMultiplier = 1 + Number(ing.waste_percentage || 0) / 100;
   return getBatchQuantity(ing) * wasteMultiplier;
 };
 
 const getQuantityPerProducedUnit = (ing: RecipeIngredientForm) => {
-  const recipeYield = Number(formData.value.cantidad_producida || 0);
+  const recipeYield = Number(formData.value.yield_quantity || 0);
   if (recipeYield <= 0) return 0;
 
   return getQuantityWithWaste(ing) / recipeYield;
 };
 
-const calcularCostoIngrediente = (ing: RecipeIngredientForm) => {
-  if (!ing.producto_id || !ing.cantidad) return 0;
-  
-  const producto = productos.value.find(p => p.id === ing.producto_id);
-  if (!producto || !producto.costo_unitario) return 0;
-  
-  return Number(producto.costo_unitario) * getQuantityWithWaste(ing);
+const calcIngredientCost = (ing: RecipeIngredientForm) => {
+  if (!ing.product_id || !ing.quantity) return 0;
+
+  const product = products.value.find(p => p.id === ing.product_id);
+  if (!product || !product.unit_cost) return 0;
+
+  return Number(product.unit_cost) * getQuantityWithWaste(ing);
 };
 
-const updateIngredienteCosto = (ing: RecipeIngredientForm) => {
-  const producto = productos.value.find(p => p.id === ing.producto_id);
-  if (producto) {
-    ing.unidad = producto.unidad;
-    ing.costo_unitario = producto.costo_unitario;
+const updateIngredientCost = (ing: RecipeIngredientForm) => {
+  const product = products.value.find(p => p.id === ing.product_id);
+  if (product) {
+    ing.unit = product.unit;
+    ing.unit_cost = product.unit_cost ?? undefined;
   }
 };
 
@@ -501,36 +501,36 @@ const loadData = async () => {
   loading.value = true;
   try {
     console.log('[Recetas] Cargando datos...');
-    const [recetasData, productosData, itemsMenuData] = await Promise.all([
-      recetasService.getAll(),
-      productosService.getAll(),
-      itemsMenuService.getAll(),
+    const [recipesData, productsData, itemsMenuData] = await Promise.all([
+      recipesService.getAll(),
+      productsService.getAll(),
+      menuItemsService.getAll(),
     ]);
-    console.log('[Recetas] Recetas cargadas:', recetasData.length);
-    console.log('[Recetas] Productos cargados:', productosData.length);
-    recetas.value = recetasData;
-    productos.value = productosData;
+    console.log('[Recetas] Recetas cargadas:', recipesData.length);
+    console.log('[Recetas] Productos cargados:', productsData.length);
+    recipes.value = recipesData;
+    products.value = productsData;
     itemsMenu.value = itemsMenuData;
 
     // Si viene un producto en la query, abrir dialog
-    if (route.query.producto) {
-      const productoId = parseInt(route.query.producto as string);
-      const tipoId = route.query.tipo ? parseInt(route.query.tipo as string) : null;
-      const receta = recetasData.find(r =>
-        r.producto_id === productoId && (tipoId ? r.tipo_id === tipoId : true)
+    if (route.query.product) {
+      const productId = parseInt(route.query.product as string);
+      const variantId = route.query.variant ? parseInt(route.query.variant as string) : null;
+      const recipe = recipesData.find(r =>
+        r.product_id === productId && (variantId ? r.variant_id === variantId : true)
       );
-      if (receta) {
-        openDialog(receta);
+      if (recipe) {
+        openDialog(recipe);
       } else {
-        const producto = productosData.find(p => p.id === productoId);
-        if (producto) {
+        const product = productsData.find(p => p.id === productId);
+        if (product) {
           openDialog();
-          formData.value.producto_id = productoId;
-          if (tipoId) {
-            formData.value.tipo_id = tipoId;
+          formData.value.product_id = productId;
+          if (variantId) {
+            formData.value.variant_id = variantId;
           }
-          formData.value.nombre = `Receta de ${producto.name}`;
-          formData.value.unidad_producida = producto.unidad;
+          formData.value.name = `Receta de ${product.name}`;
+          formData.value.yield_unit = product.unit;
         }
       }
     }
@@ -543,40 +543,40 @@ const loadData = async () => {
   }
 };
 
-const openDialog = (receta?: Receta) => {
-  editing.value = receta || null;
+const openDialog = (recipe?: Recipe) => {
+  editing.value = recipe || null;
   
-  if (receta) {
+  if (recipe) {
     formData.value = {
-      producto_id: receta.producto_id,
-      tipo_id: receta.tipo_id || null,
-      nombre: receta.nombre,
-      descripcion: receta.descripcion || '',
-      cantidad_producida: receta.cantidad_producida,
-      unidad_producida: receta.unidad_producida,
-      tiempo_preparacion: receta.tiempo_preparacion || null,
-      instrucciones: receta.instrucciones || '',
+      product_id: recipe.product_id,
+      variant_id: recipe.variant_id || null,
+      name: recipe.name,
+      description: recipe.description || '',
+      yield_quantity: recipe.yield_quantity,
+      yield_unit: recipe.yield_unit,
+      preparation_time: recipe.preparation_time || null,
+      instructions: recipe.instructions || '',
     };
-    ingredientes.value = (receta.items || []).map(item => ({
+    ingredientes.value = (recipe.ingredients || []).map(item => ({
       id: item.id,
-      producto_id: item.producto_id,
-      cantidad: item.cantidad,
-      unidad: item.unidad,
-      costo_unitario: item.costo_unitario,
-      desperdicio_porcentaje: item.desperdicio_porcentaje || 0,
+      product_id: item.product_id,
+      quantity: item.quantity,
+      unit: item.unit,
+      unit_cost: item.unit_cost,
+      waste_percentage: item.waste_percentage || 0,
       entry_mode: 'batch',
       rinde_cantidad: null,
     }));
   } else {
     formData.value = {
-      producto_id: null,
-      tipo_id: null,
-      nombre: '',
-      descripcion: '',
-      cantidad_producida: 1,
-      unidad_producida: '',
-      tiempo_preparacion: null,
-      instrucciones: '',
+      product_id: null,
+      variant_id: null,
+      name: '',
+      description: '',
+      yield_quantity: 1,
+      yield_unit: '',
+      preparation_time: null,
+      instructions: '',
     };
     ingredientes.value = [];
   }
@@ -592,11 +592,11 @@ const closeDialog = () => {
 
 const addIngrediente = () => {
   ingredientes.value.push({
-    producto_id: null,
-    cantidad: 1,
-    unidad: '',
-    costo_unitario: 0,
-    desperdicio_porcentaje: 0,
+    product_id: null,
+    quantity: 1,
+    unit: '',
+    unit_cost: 0,
+    waste_percentage: 0,
     entry_mode: 'batch',
     rinde_cantidad: null,
   });
@@ -607,48 +607,48 @@ const removeIngrediente = (index: number) => {
 };
 
 const save = async () => {
-  if (!formData.value.producto_id || !formData.value.nombre || ingredientes.value.length === 0) {
+  if (!formData.value.product_id || !formData.value.name || ingredientes.value.length === 0) {
     showMessage('Completa todos los campos requeridos y agrega al menos un ingrediente', 'error');
     return;
   }
 
-  if (requiereTipoReceta.value && !formData.value.tipo_id) {
+  if (requiresRecipeVariant.value && !formData.value.variant_id) {
     showMessage('Este producto tiene variantes. Selecciona el tipo para la receta.', 'error');
     return;
   }
   
   saving.value = true;
   try {
-    const items: RecetaItemPayload[] = ingredientes.value
-      .filter((ingredient) => ingredient.producto_id)
+    const ingredients: RecipeIngredientPayload[] = ingredientes.value
+      .filter((ingredient) => ingredient.product_id)
       .map((ingredient) => {
       return {
         id: ingredient.id,
-        producto_id: ingredient.producto_id!,
-        unidad: ingredient.unidad,
-        costo_unitario: ingredient.costo_unitario,
-        cantidad: getBatchQuantity(ingredient),
-        desperdicio_porcentaje: Number(ingredient.desperdicio_porcentaje || 0),
+        product_id: ingredient.product_id!,
+        unit: ingredient.unit,
+        unit_cost: ingredient.unit_cost,
+        quantity: getBatchQuantity(ingredient),
+        waste_percentage: Number(ingredient.waste_percentage || 0),
       };
     });
 
-    const data: RecetaPayload = {
-      producto_id: formData.value.producto_id,
-      tipo_id: formData.value.tipo_id,
-      nombre: formData.value.nombre,
-      descripcion: formData.value.descripcion,
-      cantidad_producida: formData.value.cantidad_producida || 1,
-      unidad_producida: formData.value.unidad_producida || selectedRecipeProductUnit.value,
-      tiempo_preparacion: formData.value.tiempo_preparacion || undefined,
-      instrucciones: formData.value.instrucciones,
-      items,
+    const data: RecipePayload = {
+      product_id: formData.value.product_id,
+      variant_id: formData.value.variant_id,
+      name: formData.value.name,
+      description: formData.value.description,
+      yield_quantity: formData.value.yield_quantity || 1,
+      yield_unit: formData.value.yield_unit || selectedRecipeProductUnit.value,
+      preparation_time: formData.value.preparation_time || undefined,
+      instructions: formData.value.instructions,
+      ingredients,
     };
     
     if (editing.value) {
-      await recetasService.update(editing.value.id, data);
+      await recipesService.update(editing.value.id, data);
       showMessage('Receta actualizada');
     } else {
-      await recetasService.create(data);
+      await recipesService.create(data);
       showMessage('Receta creada');
     }
     
@@ -661,10 +661,10 @@ const save = async () => {
   }
 };
 
-const deleteReceta = async (receta: Receta) => {
-  if (!confirm(`¿Eliminar la receta "${receta.nombre}"?`)) return;
+const deleteRecipe = async (recipe: Recipe) => {
+  if (!confirm(`¿Eliminar la receta "${recipe.name}"?`)) return;
   try {
-    await recetasService.delete(receta.id);
+    await recipesService.delete(recipe.id);
     showMessage('Receta eliminada');
     loadData();
   } catch (error) {
@@ -673,12 +673,12 @@ const deleteReceta = async (receta: Receta) => {
 };
 
 watch(
-  () => formData.value.producto_id,
+  () => formData.value.product_id,
   (productId) => {
-    formData.value.tipo_id = null;
-    const selectedProduct = productos.value.find((product) => product.id === productId);
-    if (selectedProduct && !formData.value.unidad_producida) {
-      formData.value.unidad_producida = selectedProduct.unidad;
+    formData.value.variant_id = null;
+    const selectedProduct = products.value.find((product) => product.id === productId);
+    if (selectedProduct && !formData.value.yield_unit) {
+      formData.value.yield_unit = selectedProduct.unit;
     }
   }
 );

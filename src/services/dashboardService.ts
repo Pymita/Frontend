@@ -1,12 +1,12 @@
 import api from './api';
 
 export interface DashboardStats {
-  pedidos_hoy: number;
-  ventas_hoy: number;
-  pedidos_mes: number;
-  ventas_mes: number;
-  productos_activos: number;
-  stock_bajo: number;
+  orders_today: number;
+  sales_today: number;
+  orders_month: number;
+  sales_month: number;
+  active_products: number;
+  low_stock: number;
 }
 
 export interface TopProduct {
@@ -17,9 +17,9 @@ export interface TopProduct {
 export interface LowStockProduct {
   id: number;
   name: string;
-  stock: number;
-  stock_minimo: number;
-  unidad: string;
+  current_stock: number;
+  minimum_stock: number;
+  unit: string;
 }
 
 export interface SalesWeekDay {
