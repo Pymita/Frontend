@@ -5,9 +5,9 @@
 
 // ===== Pedidos =====
 export const paymentStatusLabels: Record<string, string> = {
-  pending: 'Pendiente',
+  pending: 'Por pagar',
   paid: 'Pagado',
-  partial: 'Parcial',
+  partial: 'Pago parcial',
 }
 
 export const paymentStatusColors: Record<string, string> = {
@@ -53,6 +53,14 @@ export const expenseCategoryTypeLabels: Record<string, string> = {
   administrative_expense: 'Administrativo',
   payroll: 'Nómina',
   taxes: 'Impuestos',
+}
+
+export const orderPaymentMethodLabels: Record<string, string> = {
+  cash: 'Efectivo',
+  credit_card: 'Tarjeta crédito',
+  debit_card: 'Tarjeta débito',
+  transfer: 'Transferencia',
+  other: 'Otro',
 }
 
 export const expensePaymentMethodLabels: Record<string, string> = {

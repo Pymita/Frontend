@@ -3,12 +3,30 @@ import api from './api';
 export type PaymentStatus = 'pending' | 'paid' | 'partial';
 export type OrderItemStatus = 'pending' | 'preparing' | 'ready' | 'delivered';
 
+export type OrderPaymentMethod = 'cash' | 'credit_card' | 'debit_card' | 'transfer' | 'other';
+
+export interface OrderPayment {
+  id: number;
+  amount: number;
+  payment_method: OrderPaymentMethod;
+  items: { order_item_id: number; quantity: number }[] | null;
+  created_at: string;
+}
+
+export interface PartialPaymentPayload {
+  amount?: number;
+  items?: { order_item_id: number; quantity: number }[];
+  payment_method?: OrderPaymentMethod;
+}
+
 export interface OrderItem {
   id: number;
   menu_item_id?: number | null;
   variant_id?: number | null;
   product_name: string;
   quantity: number;
+  paid_quantity: number;
+  unpaid_quantity: number;
   unit_price: number;
   original_price?: number;
   discount: number;
@@ -39,6 +57,7 @@ export interface Order {
   pending_balance: number;
   notes?: string;
   items: OrderItem[];
+  payments?: OrderPayment[] | null;
   created_at: string;
   paid_at?: string;
 }
@@ -86,13 +105,15 @@ export const ordersService = {
     return response.data.data;
   },
 
-  async markPaid(id: number): Promise<Order> {
-    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/pay`);
+  async markPaid(id: number, paymentMethod?: OrderPaymentMethod): Promise<Order> {
+    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/pay`, {
+      ...(paymentMethod ? { payment_method: paymentMethod } : {}),
+    });
     return response.data.data;
   },
 
-  async recordPartialPayment(id: number, amount: number): Promise<Order> {
-    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/partial-payment`, { amount });
+  async recordPartialPayment(id: number, payload: PartialPaymentPayload): Promise<Order> {
+    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/partial-payment`, payload);
     return response.data.data;
   },
 
