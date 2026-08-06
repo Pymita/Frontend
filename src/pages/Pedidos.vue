@@ -33,7 +33,7 @@
                 <v-text-field
                   v-model="search"
                   prepend-inner-icon="mdi-magnify"
-                  label="Buscar por mesa o cliente"
+                  label="Buscar mesa (número o nombre)"
                   single-line
                   hide-details
                   clearable
@@ -62,7 +62,6 @@
             :headers="headers"
             :items="filteredOrders"
             :loading="loading"
-            :search="search"
             class="elevation-0"
             item-value="id"
             show-expand
@@ -570,11 +569,31 @@ const headers = [
 ];
 
 const filteredOrders = computed(() => {
-  if (filterPago.value === 'all') return orders.value;
+  let result = orders.value;
+
   if (filterPago.value === 'pending') {
-    return orders.value.filter(o => o.payment_status !== 'paid');
+    result = result.filter(o => o.payment_status !== 'paid');
+  } else if (filterPago.value === 'paid') {
+    result = result.filter(o => o.payment_status === 'paid');
   }
-  return orders.value.filter(o => o.payment_status === 'paid');
+
+  // Búsqueda por mesa (contiene, sin distinguir mayúsculas): "3" encuentra
+  // "Mesa 3" y "Mesa 13"; "terra" encuentra "Terraza 1". También por # de pedido.
+  const query = (search.value || '').trim().toLowerCase();
+  if (query) {
+    result = result.filter(o => {
+      const table = o.dining_table;
+      const haystack = [
+        table?.display_name ?? '',
+        table ? `mesa ${table.number}` : 'sin mesa',
+        `#${o.id}`,
+        String(o.id),
+      ].join(' ').toLowerCase();
+      return haystack.includes(query);
+    });
+  }
+
+  return result;
 });
 
 const showMessage = (text: string, color = 'success') => {

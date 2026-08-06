@@ -364,7 +364,7 @@
                 inset
                 label="Publicar en el menú de venta"
                 :hint="editing?.in_menu
-                  ? 'Este producto ya está en el menú; aquí actualizas sus datos de venta'
+                  ? 'Este producto está en el menú; apágalo para retirarlo de la venta'
                   : 'Crea el ítem del menú de una vez, visible en la app y en Pedidos'"
                 persistent-hint
                 class="mb-2"
@@ -841,9 +841,26 @@ const save = async () => {
         : null,
     };
     
+    // Apagar el switch en un producto publicado lo retira del menú.
+    const unpublishing =
+      editing.value?.in_menu &&
+      editing.value.menu_item &&
+      formData.value.type === 'final' &&
+      !publishToMenu.value;
+
+    if (unpublishing && !confirm(`"${formData.value.name}" saldrá del menú de venta. ¿Continuar?`)) {
+      saving.value = false;
+      return;
+    }
+
     if (editing.value) {
       await productsService.update(editing.value.id, dataToSend);
-      showMessage('Producto actualizado');
+      if (unpublishing && editing.value.menu_item) {
+        await menuItemsService.delete(editing.value.menu_item.id);
+        showMessage('Producto actualizado y retirado del menú');
+      } else {
+        showMessage('Producto actualizado');
+      }
     } else {
       await productsService.create(dataToSend);
       showMessage('Producto creado');
