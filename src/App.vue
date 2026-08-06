@@ -109,10 +109,13 @@ const allMenuItems: MenuItem[] = [
   { title: 'Categorías', icon: 'mdi-shape', route: '/categorias', feature: 'menu' },
   { title: 'Productos', icon: 'mdi-package-variant', route: '/productos-base', feature: 'inventory' },
   { title: 'Recetas', icon: 'mdi-food-variant', route: '/recetas', feature: 'inventory' },
+  { title: 'Kardex', icon: 'mdi-clipboard-text-clock', route: '/kardex', feature: 'inventory' },
   { title: 'Tipos de Producto', icon: 'mdi-tag-multiple', route: '/tipos-producto', requiresAdmin: true },
   { title: 'Clientes', icon: 'mdi-account-multiple', route: '/clientes', feature: 'customers' },
   { title: 'Gastos', icon: 'mdi-cash-multiple', route: '/gastos', feature: 'expenses' },
+  { title: 'Finanzas', icon: 'mdi-finance', route: '/finanzas', requiresAdmin: true },
   { title: 'Empleados', icon: 'mdi-account-cog', route: '/empleados', requiresAdmin: true },
+  { title: 'Configuración', icon: 'mdi-cog', route: '/configuracion', requiresAdmin: true },
   { title: 'Plataforma', icon: 'mdi-domain', route: '/plataforma', superAdminOnly: true },
 ]
 

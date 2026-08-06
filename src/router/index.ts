@@ -13,6 +13,9 @@ const Clientes = () => import('../pages/Clientes.vue')
 const Gastos = () => import('../pages/Gastos.vue')
 const Plataforma = () => import('../pages/Plataforma.vue')
 const Empleados = () => import('../pages/Empleados.vue')
+const Kardex = () => import('../pages/Kardex.vue')
+const Finanzas = () => import('../pages/Finanzas.vue')
+const Configuracion = () => import('../pages/Configuracion.vue')
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -93,6 +96,24 @@ export const routes: RouteRecordRaw[] = [
     name: 'Gastos',
     component: Gastos,
     meta: { requiresAuth: true, feature: 'expenses' }
+  },
+  {
+    path: '/kardex',
+    name: 'Kardex',
+    component: Kardex,
+    meta: { requiresAuth: true, feature: 'inventory' }
+  },
+  {
+    path: '/finanzas',
+    name: 'Finanzas',
+    component: Finanzas,
+    meta: { requiresAuth: true, requiresAdmin: true }
+  },
+  {
+    path: '/configuracion',
+    name: 'Configuracion',
+    component: Configuracion,
+    meta: { requiresAuth: true, requiresAdmin: true }
   },
   {
     path: '/empleados',
