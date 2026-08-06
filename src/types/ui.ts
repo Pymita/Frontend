@@ -7,6 +7,9 @@ export interface MenuItem {
   icon: string
   route: string
   requiresAdmin?: boolean
+  superAdminOnly?: boolean
+  /** Función requerida para verla (empleados; los admins tienen todas) */
+  feature?: string
   disabled?: boolean
 }
 

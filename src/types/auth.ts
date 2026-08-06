@@ -2,7 +2,24 @@
  * Tipos relacionados con autenticación y usuarios
  */
 
-export type UserRole = 'admin' | 'employee'
+export type UserRole = 'super_admin' | 'admin' | 'employee'
+
+/** Funciones que se pueden habilitar por empleado (espejo de User::FEATURES del backend) */
+export type Feature = 'orders' | 'menu' | 'inventory' | 'customers' | 'expenses' | 'reports'
+
+export const ALL_FEATURES: Feature[] = ['orders', 'menu', 'inventory', 'customers', 'expenses', 'reports']
+
+/** Acceso por defecto de un empleado sin permisos explícitos (espejo del backend) */
+export const DEFAULT_EMPLOYEE_FEATURES: Feature[] = ['orders', 'menu', 'inventory', 'customers', 'reports']
+
+export interface CompanySummary {
+  id: number
+  name: string
+  slug: string
+  subscription_status?: SubscriptionStatus | null
+}
+
+export type SubscriptionStatus = 'trial' | 'active' | 'grace' | 'suspended'
 
 export interface User {
   id: number
@@ -15,6 +32,15 @@ export interface User {
   email_verified_at?: string
   created_at?: string
   updated_at?: string
+  company?: CompanySummary | null
+  features?: Feature[]
+}
+
+/** Acceso efectivo: usa features del backend o cae al comportamiento por rol */
+export function effectiveFeatures(user: Pick<User, 'role' | 'features'> | null): Feature[] {
+  if (!user) return []
+  if (user.features) return user.features
+  return user.role === 'employee' ? DEFAULT_EMPLOYEE_FEATURES : ALL_FEATURES
 }
 
 export interface LoginCredentials {

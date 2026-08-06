@@ -13,7 +13,7 @@
           <v-icon color="white" size="40">mdi-bread-slice</v-icon>
         </v-list-item-avatar>
         <v-list-item-title class="text-h6 text-white">
-          Sabores del Trigo
+          {{ companyName }}
         </v-list-item-title>
       </v-list-item>
 
@@ -60,6 +60,9 @@
         <v-chip-text v-if="currentUser?.role === 'admin'" class="ml-2" color="warning" size="x-small">
           Admin
         </v-chip-text>
+        <v-chip-text v-else-if="isSuperAdmin" class="ml-2" color="error" size="x-small">
+          Plataforma
+        </v-chip-text>
       </v-chip>
     </v-app-bar>
 
@@ -79,6 +82,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
+import { effectiveFeatures } from './types/auth'
 import type { MenuItem } from './types'
 
 const route = useRoute()
@@ -91,25 +95,44 @@ const loading = ref<boolean>(false)
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const currentUser = computed(() => authStore.user)
 const isAdmin = computed(() => authStore.isAdmin)
+const isSuperAdmin = computed(() => currentUser.value?.role === 'super_admin')
+// Company of the logged-in session (multi-tenant backend).
+const companyName = computed(() =>
+  isSuperAdmin.value ? 'Plataforma' : (currentUser.value?.company?.name || 'Sabores del Trigo')
+)
 
 const allMenuItems: MenuItem[] = [
-  { title: 'Dashboard', icon: 'mdi-view-dashboard', route: '/dashboard' },
-  { title: 'Pedidos', icon: 'mdi-receipt', route: '/pedidos' },
-  { title: 'Mesas', icon: 'mdi-table-chair', route: '/mesas' },
-  { title: 'Plano del Salón', icon: 'mdi-floor-plan', route: '/plano' },
-  { title: 'Menú (Venta)', icon: 'mdi-silverware-fork-knife', route: '/productos' },
-  { title: 'Categorías', icon: 'mdi-shape', route: '/categorias' },
-  { title: 'Productos Base', icon: 'mdi-package-variant', route: '/productos-base' },
-  { title: 'Recetas', icon: 'mdi-food-variant', route: '/recetas' },
+  { title: 'Dashboard', icon: 'mdi-view-dashboard', route: '/dashboard', feature: 'reports' },
+  { title: 'Pedidos', icon: 'mdi-receipt', route: '/pedidos', feature: 'orders' },
+  { title: 'Mesas', icon: 'mdi-table-chair', route: '/mesas', feature: 'orders' },
+  { title: 'Plano del Salón', icon: 'mdi-floor-plan', route: '/plano', feature: 'orders' },
+  { title: 'Categorías', icon: 'mdi-shape', route: '/categorias', feature: 'menu' },
+  { title: 'Productos', icon: 'mdi-package-variant', route: '/productos-base', feature: 'inventory' },
+  { title: 'Recetas', icon: 'mdi-food-variant', route: '/recetas', feature: 'inventory' },
   { title: 'Tipos de Producto', icon: 'mdi-tag-multiple', route: '/tipos-producto', requiresAdmin: true },
-  { title: 'Clientes', icon: 'mdi-account-multiple', route: '/clientes' },
-  { title: 'Gastos', icon: 'mdi-cash-multiple', route: '/gastos', requiresAdmin: true },
+  { title: 'Clientes', icon: 'mdi-account-multiple', route: '/clientes', feature: 'customers' },
+  { title: 'Gastos', icon: 'mdi-cash-multiple', route: '/gastos', feature: 'expenses' },
+  { title: 'Empleados', icon: 'mdi-account-cog', route: '/empleados', requiresAdmin: true },
+  { title: 'Plataforma', icon: 'mdi-domain', route: '/plataforma', superAdminOnly: true },
 ]
 
 const availableMenuItems = computed((): MenuItem[] => {
+  // Platform staff only sees the platform panel.
+  if (isSuperAdmin.value) {
+    return allMenuItems.filter((item: MenuItem) => item.superAdminOnly)
+  }
+
+  const features = effectiveFeatures(currentUser.value)
+
   return allMenuItems.filter((item: MenuItem) => {
+    if (item.superAdminOnly) {
+      return false
+    }
     if (item.requiresAdmin) {
       return isAdmin.value
+    }
+    if (item.feature && !isAdmin.value) {
+      return features.includes(item.feature as any)
     }
     return true
   })
