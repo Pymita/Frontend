@@ -2,7 +2,7 @@
  * Tipos del panel de plataforma (solo super admins)
  */
 
-import type { SubscriptionStatus } from './auth'
+import type { BusinessType, Feature, SubscriptionStatus } from './auth'
 
 export interface PlatformSubscription {
   id: number
@@ -19,6 +19,10 @@ export interface PlatformCompany {
   id: number
   name: string
   slug: string
+  business_type: BusinessType
+  /** Lista efectiva (preset del tipo o personalizada) */
+  modules: Feature[]
+  modules_customized: boolean
   email: string | null
   phone: string | null
   active: boolean
@@ -56,6 +60,7 @@ export interface PlatformCompanyDetail extends PlatformCompany {
 export interface CreateCompanyPayload {
   name: string
   slug?: string
+  business_type?: BusinessType
   email?: string
   phone?: string
   admin: {

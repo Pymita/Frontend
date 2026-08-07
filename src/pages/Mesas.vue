@@ -108,6 +108,7 @@
               hint="Ej: Terraza 1, VIP, Barra"
             />
             <v-select
+              v-if="hasTimeBilling"
               v-model="formData.table_type"
               :items="[
                 { value: 'dining', title: 'Mesa normal' },
@@ -118,7 +119,7 @@
               label="Tipo de mesa"
               class="mt-2"
             />
-            <v-row v-if="formData.table_type === 'billiard'" dense>
+            <v-row v-if="hasTimeBilling && formData.table_type === 'billiard'" dense>
               <v-col cols="6">
                 <v-text-field
                   v-model.number="formData.hourly_rate"
@@ -182,9 +183,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { tablesService, type DiningTable, type DiningTableStatus } from '@/services/tablesService';
 import { tableStatusLabels, label } from '@/utils/labels';
+import { useAuthStore } from '@/stores/auth';
+import { effectiveFeatures } from '@/types/auth';
+
+// El cobro por tiempo es un módulo: un restaurante no ofrece mesas de billar.
+const authStore = useAuthStore();
+const hasTimeBilling = computed(() => effectiveFeatures(authStore.user).includes('time_billing'));
 
 const tables = ref<DiningTable[]>([]);
 const loading = ref(true);

@@ -72,7 +72,7 @@ export const routes: RouteRecordRaw[] = [
     path: '/recetas',
     name: 'Recetas',
     component: Recetas,
-    meta: { requiresAuth: true, feature: 'inventory' }
+    meta: { requiresAuth: true, feature: 'recipes' }
   },
   {
     path: '/pedidos',
@@ -169,13 +169,16 @@ export const setupRouterGuards = (router: any) => {
     } else if (isSuperAdmin && requiresAuth && !requiresSuperAdmin) {
       // Platform staff has no company: tenant pages make no sense for them.
       next('/plataforma')
-    } else if (feature && !isAdmin && !features.includes(feature)) {
+    } else if (feature && !features.includes(feature)) {
+      // Aplica también al admin: sus funciones ya están limitadas a los
+      // módulos de su empresa.
       // Employee without this feature: send them to their first allowed page.
       const featureHome: Record<string, string> = {
         orders: '/pedidos',
         reports: '/dashboard',
         menu: '/categorias',
         inventory: '/productos-base',
+        recipes: '/recetas',
         customers: '/clientes',
         expenses: '/gastos',
       }

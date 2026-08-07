@@ -5,12 +5,40 @@
 export type UserRole = 'super_admin' | 'admin' | 'employee'
 
 /** Funciones que se pueden habilitar por empleado (espejo de User::FEATURES del backend) */
-export type Feature = 'orders' | 'menu' | 'inventory' | 'customers' | 'expenses' | 'reports'
+export type Feature =
+  | 'orders'
+  | 'menu'
+  | 'inventory'
+  | 'recipes'
+  | 'time_billing'
+  | 'customers'
+  | 'expenses'
+  | 'reports'
 
-export const ALL_FEATURES: Feature[] = ['orders', 'menu', 'inventory', 'customers', 'expenses', 'reports']
+export const ALL_FEATURES: Feature[] = [
+  'orders',
+  'menu',
+  'inventory',
+  'recipes',
+  'time_billing',
+  'customers',
+  'expenses',
+  'reports',
+]
 
 /** Acceso por defecto de un empleado sin permisos explícitos (espejo del backend) */
-export const DEFAULT_EMPLOYEE_FEATURES: Feature[] = ['orders', 'menu', 'inventory', 'customers', 'reports']
+export const DEFAULT_EMPLOYEE_FEATURES: Feature[] = [
+  'orders',
+  'time_billing',
+  'menu',
+  'inventory',
+  'recipes',
+  'customers',
+  'reports',
+]
+
+/** Tipo de negocio: solo siembra los módulos, no se usa para decidir en runtime */
+export type BusinessType = 'restaurant' | 'billiard' | 'store' | 'other'
 
 export interface CompanySubscriptionInfo {
   status: SubscriptionStatus
@@ -24,6 +52,9 @@ export interface CompanySummary {
   id: number
   name: string
   slug: string
+  business_type?: BusinessType
+  /** Módulos activos de la empresa (el backend ya los intersecta en features) */
+  modules?: Feature[]
   subscription?: CompanySubscriptionInfo | null
   subscription_status?: SubscriptionStatus | null
 }

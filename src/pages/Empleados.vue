@@ -173,7 +173,12 @@ const authStore = useAuthStore()
 const loading = ref(false)
 const saving = ref(false)
 const users = ref<CompanyUser[]>([])
-const allFeatures = ALL_FEATURES
+// Solo las funciones que la empresa tiene: conceder recetas en un billar
+// no serviría de nada (el backend las intersecta igual).
+const allFeatures = computed(() => {
+  const companyModules = authStore.user?.company?.modules
+  return companyModules?.length ? ALL_FEATURES.filter(f => companyModules.includes(f)) : ALL_FEATURES
+})
 
 const headers = [
   { title: 'Nombre', key: 'name' },
@@ -187,8 +192,10 @@ const headers = [
 
 const featureLabels: Record<Feature, string> = {
   orders: 'Pedidos y mesas',
+  time_billing: 'Cobro por tiempo (billar)',
   menu: 'Menú y categorías',
-  inventory: 'Productos y recetas',
+  inventory: 'Productos e inventario',
+  recipes: 'Recetas y costeo',
   customers: 'Clientes',
   expenses: 'Gastos',
   reports: 'Dashboard',
@@ -254,7 +261,7 @@ const openDialog = (user?: CompanyUser) => {
         phone: '',
         role: 'employee',
         active: true,
-        permissions: ['orders', 'menu', 'inventory', 'customers', 'reports'],
+        permissions: allFeatures.value.filter(f => f !== 'expenses'),
       }
   dialog.value = true
 }

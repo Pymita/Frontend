@@ -149,7 +149,7 @@ const allMenuItems: MenuItem[] = [
   { title: 'Menú', icon: 'mdi-book-open-variant', route: '/menu', feature: 'menu' },
   { title: 'Categorías', icon: 'mdi-shape', route: '/categorias', feature: 'menu' },
   { title: 'Productos', icon: 'mdi-package-variant', route: '/productos-base', feature: 'inventory' },
-  { title: 'Recetas', icon: 'mdi-food-variant', route: '/recetas', feature: 'inventory' },
+  { title: 'Recetas', icon: 'mdi-food-variant', route: '/recetas', feature: 'recipes' },
   { title: 'Kardex', icon: 'mdi-clipboard-text-clock', route: '/kardex', feature: 'inventory' },
   { title: 'Tipos de Producto', icon: 'mdi-tag-multiple', route: '/tipos-producto', requiresAdmin: true },
   { title: 'Clientes', icon: 'mdi-account-multiple', route: '/clientes', feature: 'customers' },
@@ -172,10 +172,12 @@ const availableMenuItems = computed((): MenuItem[] => {
     if (item.superAdminOnly) {
       return false
     }
-    if (item.requiresAdmin) {
-      return isAdmin.value
+    if (item.requiresAdmin && !isAdmin.value) {
+      return false
     }
-    if (item.feature && !isAdmin.value) {
+    // La verificación aplica también al admin: sus funciones ya vienen
+    // limitadas a los módulos que su empresa tiene contratados.
+    if (item.feature) {
       return features.includes(item.feature as any)
     }
     return true

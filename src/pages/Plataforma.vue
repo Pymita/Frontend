@@ -32,6 +32,9 @@
                 <div class="text-caption text-grey">{{ item.slug }}</div>
               </div>
             </template>
+            <template #item.business_type="{ item }">
+              <v-chip size="small" variant="tonal">{{ businessTypeLabel(item.business_type) }}</v-chip>
+            </template>
             <template #item.users_count="{ item }">
               <v-chip size="small" color="primary" variant="tonal">
                 {{ item.users_count }} usuarios
@@ -104,7 +107,17 @@
               :rules="[(v: string) => !!v || 'Nombre requerido']"
               required
             />
-            <v-row dense class="mt-1">
+            <v-select
+              v-model="createData.business_type"
+              :items="businessTypeOptions"
+              item-title="title"
+              item-value="value"
+              label="Tipo de negocio"
+              class="mt-2"
+              :hint="`Activará: ${presetModules(createData.business_type).map(featureLabel).join(', ')}`"
+              persistent-hint
+            />
+            <v-row dense class="mt-3">
               <v-col cols="6">
                 <v-text-field v-model="createData.email" label="Email (opcional)" type="email" />
               </v-col>
@@ -219,6 +232,33 @@
                   <v-text-field v-model="editData.phone" label="Teléfono" />
                 </v-col>
               </v-row>
+
+              <v-select
+                v-model="editData.business_type"
+                :items="businessTypeOptions"
+                item-title="title"
+                item-value="value"
+                label="Tipo de negocio"
+                hint="Cambiarlo re-sugiere los módulos del vertical"
+                persistent-hint
+              />
+
+              <p class="text-subtitle-2 mt-4 mb-1">Módulos activos</p>
+              <p class="text-caption text-grey mb-2">
+                Desmarca todos para volver a los del tipo de negocio
+                ({{ presetModules(editData.business_type).map(featureLabel).join(', ') }}).
+              </p>
+              <v-row dense>
+                <v-col v-for="feature in allFeatures" :key="feature" cols="6" md="4">
+                  <v-checkbox
+                    v-model="editData.modules"
+                    :label="featureLabel(feature)"
+                    :value="feature"
+                    density="compact"
+                    hide-details
+                  />
+                </v-col>
+              </v-row>
               <div class="d-flex justify-end mt-2">
                 <v-btn variant="text" class="mr-2" @click="editingDetail = false">Cancelar</v-btn>
                 <v-btn color="primary" :loading="saving" @click="saveDetail">Guardar cambios</v-btn>
@@ -229,6 +269,27 @@
               <v-col cols="6">
                 <div class="text-caption text-grey">Slug</div>
                 <div>{{ detail.slug }}</div>
+              </v-col>
+              <v-col cols="6">
+                <div class="text-caption text-grey">Tipo de negocio</div>
+                <div>
+                  {{ businessTypeLabel(detail.business_type) }}
+                  <v-chip v-if="detail.modules_customized" size="x-small" class="ml-1" color="info" variant="tonal">
+                    módulos personalizados
+                  </v-chip>
+                </div>
+              </v-col>
+              <v-col cols="12">
+                <div class="text-caption text-grey">Módulos activos</div>
+                <v-chip
+                  v-for="feature in detail.modules"
+                  :key="feature"
+                  size="x-small"
+                  class="mr-1 mb-1"
+                  variant="outlined"
+                >
+                  {{ featureLabel(feature) }}
+                </v-chip>
               </v-col>
               <v-col cols="6">
                 <div class="text-caption text-grey">Creada</div>
@@ -438,7 +499,7 @@
 import { onMounted, ref } from 'vue'
 import platformService from '../services/platformService'
 import type { PlatformCompany, PlatformCompanyDetail } from '../types/platform'
-import type { SubscriptionStatus } from '../types/auth'
+import { ALL_FEATURES, type BusinessType, type Feature, type SubscriptionStatus } from '../types/auth'
 import { PASSWORD_HINT, passwordRules } from '../utils/validation'
 
 const loading = ref(false)
@@ -447,6 +508,7 @@ const companies = ref<PlatformCompany[]>([])
 
 const headers = [
   { title: 'Empresa', key: 'name' },
+  { title: 'Tipo', key: 'business_type' },
   { title: 'Usuarios', key: 'users_count', sortable: false },
   { title: 'Estado', key: 'active' },
   { title: 'Suscripción', key: 'subscription', sortable: false },
@@ -519,9 +581,45 @@ const emptyCreateData = () => ({
   name: '',
   email: '',
   phone: '',
+  business_type: 'restaurant' as BusinessType,
   admin: { name: '', email: '', password: '' },
   trial_days: 15,
 })
+
+// --- Tipos de negocio y módulos ---
+const allFeatures = ALL_FEATURES
+
+const businessTypeOptions = [
+  { value: 'restaurant', title: 'Restaurante' },
+  { value: 'billiard', title: 'Billar' },
+  { value: 'store', title: 'Tienda' },
+  { value: 'other', title: 'Otro (todo activo)' },
+]
+
+// Espejo de Company::BUSINESS_TYPES del backend: sirve solo para mostrar
+// qué activará cada tipo; la lista real la calcula el servidor.
+const BUSINESS_TYPE_PRESETS: Record<BusinessType, Feature[]> = {
+  restaurant: ['orders', 'menu', 'inventory', 'recipes', 'customers', 'expenses', 'reports'],
+  billiard: ['orders', 'menu', 'inventory', 'time_billing', 'customers', 'expenses', 'reports'],
+  store: ['menu', 'inventory', 'customers', 'expenses', 'reports'],
+  other: ALL_FEATURES,
+}
+
+const featureLabels: Record<Feature, string> = {
+  orders: 'Pedidos y mesas',
+  time_billing: 'Cobro por tiempo',
+  menu: 'Menú',
+  inventory: 'Inventario',
+  recipes: 'Recetas',
+  customers: 'Clientes',
+  expenses: 'Gastos',
+  reports: 'Reportes',
+}
+
+const featureLabel = (feature: Feature): string => featureLabels[feature] || feature
+const presetModules = (type: BusinessType): Feature[] => BUSINESS_TYPE_PRESETS[type] ?? []
+const businessTypeLabel = (type: BusinessType): string =>
+  businessTypeOptions.find(o => o.value === type)?.title ?? type
 const createData = ref(emptyCreateData())
 
 const openCreateDialog = () => {
@@ -556,7 +654,14 @@ const loadingDetail = ref(false)
 const editingDetail = ref(false)
 const detail = ref<PlatformCompanyDetail | null>(null)
 const editFormRef = ref()
-const editData = ref({ name: '', slug: '', email: '', phone: '' })
+const editData = ref({
+  name: '',
+  slug: '',
+  email: '',
+  phone: '',
+  business_type: 'restaurant' as BusinessType,
+  modules: [] as Feature[],
+})
 
 const openDetailDialog = async (company: PlatformCompany) => {
   detailDialog.value = true
@@ -580,6 +685,9 @@ const startEditDetail = () => {
     slug: detail.value.slug,
     email: detail.value.email || '',
     phone: detail.value.phone || '',
+    business_type: detail.value.business_type,
+    // Solo se mandan si están personalizados; si no, la lista sigue el preset.
+    modules: detail.value.modules_customized ? [...detail.value.modules] : [],
   }
   editingDetail.value = true
 }
@@ -596,6 +704,9 @@ const saveDetail = async () => {
       slug: editData.value.slug,
       email: editData.value.email || null,
       phone: editData.value.phone || null,
+      business_type: editData.value.business_type,
+      // Lista vacía = volver al preset del tipo de negocio.
+      modules: editData.value.modules,
     })
     notify('Empresa actualizada exitosamente')
     editingDetail.value = false
