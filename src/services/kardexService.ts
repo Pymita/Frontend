@@ -59,8 +59,48 @@ export interface KardexReport {
 export interface BalanceReport {
   as_of: string
   assets: { cash: number; accounts_receivable: number; inventory: number; total: number }
-  liabilities: { accounts_payable: number; total: number }
+  liabilities: { accounts_payable: number; loans: number; total: number }
   equity: number
+}
+
+export type MovementKind =
+  | 'income'
+  | 'expense'
+  | 'owner_contribution'
+  | 'owner_withdrawal'
+  | 'loan_received'
+  | 'loan_payment'
+
+export interface FinancialMovement {
+  id: number
+  kind: MovementKind
+  kind_label: string
+  concept: string
+  amount: number
+  occurred_at: string
+  payment_method: string
+  notes: string | null
+  /** Cómo pega en cada reporte (+/-) */
+  cash_effect: number
+  profit_effect: number
+  debt_effect: number
+  user: string | null
+}
+
+export interface MovementKindOption {
+  value: MovementKind
+  label: string
+  affects_profit: boolean
+  affects_debt: boolean
+}
+
+export interface MovementPayload {
+  kind: MovementKind
+  concept: string
+  amount: number
+  occurred_at: string
+  payment_method?: string
+  notes?: string | null
 }
 
 export interface IncomeStatement {
@@ -72,6 +112,10 @@ export interface IncomeStatement {
   gross_margin: number
   operating_expenses: number
   expenses_by_category: { category: string; total: number }[]
+  other_income: number
+  other_expenses: number
+  /** Movió caja pero no es resultado: aportes, retiros, préstamos */
+  non_operating: { concept: string; kind_label: string; cash_effect: number; occurred_at: string }[]
   net_profit: number
   net_margin: number
 }
@@ -149,6 +193,28 @@ class KardexService {
   async balance(): Promise<BalanceReport> {
     const response = await api.get<ApiEnvelope<BalanceReport>>('/reports/balance')
     return response.data.data
+  }
+
+  async movements(from?: string, to?: string): Promise<{ movements: FinancialMovement[]; kinds: MovementKindOption[] }> {
+    const response = await api.get<ApiEnvelope<{ movements: FinancialMovement[]; kinds: MovementKindOption[] }>>(
+      '/financial-movements',
+      { params: cleanFilters({ from, to } as any) },
+    )
+    return response.data.data
+  }
+
+  async createMovement(payload: MovementPayload): Promise<FinancialMovement> {
+    const response = await api.post<ApiEnvelope<FinancialMovement>>('/financial-movements', payload)
+    return response.data.data
+  }
+
+  async updateMovement(id: number, payload: Partial<MovementPayload>): Promise<FinancialMovement> {
+    const response = await api.put<ApiEnvelope<FinancialMovement>>(`/financial-movements/${id}`, payload)
+    return response.data.data
+  }
+
+  async deleteMovement(id: number): Promise<void> {
+    await api.delete(`/financial-movements/${id}`)
   }
 
   async incomeStatement(from: string, to: string): Promise<IncomeStatement> {
