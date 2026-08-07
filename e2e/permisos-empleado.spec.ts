@@ -2,46 +2,55 @@ import { expect, test } from '@playwright/test'
 import { ADMIN, API, apiLogin, loginUI, sidebarItem } from './helpers'
 
 /**
- * Un empleado con permiso solo de "Pedidos y mesas" no debe ver las
- * demás secciones ni poder entrar a ellas por URL.
+ * Acceso por permisos: quien solo toma pedidos usa la app y no entra a la
+ * web; quien tiene alguna sección de gestión entra, pero solo ve la suya.
  *
  * Patrón: preparar por API (rápido), verificar por interfaz (lo real).
  */
-test('empleado con permiso solo de pedidos no ve las otras secciones', async ({ page, request }) => {
-  // --- Preparación por API: crear el empleado restringido ---
+/** Crea un empleado con los permisos dados y devuelve sus credenciales. */
+async function createEmployee(request: any, slug: string, permissions: string[]) {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const credentials = { email: `${slug}@e2e.test`, password: 'secreto123' }
 
   const response = await request.post(`${API}/users`, {
     headers: { Authorization: `Bearer ${token}` },
-    data: {
-      name: 'Mesero Restringido',
-      email: 'mesero.restringido@e2e.test',
-      password: 'secreto123',
-      role: 'employee',
-      permissions: ['orders'],
-    },
+    data: { name: slug, role: 'employee', permissions, ...credentials },
   })
   expect(response.status()).toBe(201)
 
-  // --- Verificación por interfaz ---
-  await loginUI(page, 'mesero.restringido@e2e.test', 'secreto123')
+  return credentials
+}
 
-  // Ve solo lo de pedidos:
+test('un mesero (solo pedidos) no puede entrar a la web de gestión', async ({ page, request }) => {
+  const waiter = await createEmployee(request, 'mesero.restringido', ['orders'])
+
+  await page.goto('/login')
+  await page.getByLabel('Email').fill(waiter.email)
+  await page.getByLabel('Contraseña', { exact: true }).fill(waiter.password)
+  await page.getByRole('button', { name: /iniciar/i }).click()
+
+  // La web lo rechaza y le explica que su cuenta es para la app.
+  await expect(page.getByText(/app de meseros/i)).toBeVisible()
+  await expect(page).toHaveURL(/\/login/)
+})
+
+test('empleado con acceso limitado solo ve sus secciones', async ({ page, request }) => {
+  // Con al menos una sección de gestión sí entra a la web.
+  const cashier = await createEmployee(request, 'cajero.limitado', ['orders', 'reports'])
+
+  await loginUI(page, cashier.email, cashier.password)
+
   await expect(sidebarItem(page, 'Pedidos')).toBeVisible()
-  await expect(sidebarItem(page, 'Mesas')).toBeVisible()
-  await expect(sidebarItem(page, 'Plano del Salón')).toBeVisible()
+  await expect(sidebarItem(page, 'Dashboard')).toBeVisible()
 
-  // No ve el resto:
-  for (const hidden of ['Dashboard', 'Categorías', 'Productos', 'Recetas', 'Kardex', 'Clientes', 'Gastos', 'Finanzas', 'Empleados', 'Configuración']) {
+  // No ve lo que no le habilitaron:
+  for (const hidden of ['Categorías', 'Productos', 'Recetas', 'Kardex', 'Clientes', 'Gastos', 'Finanzas', 'Empleados', 'Configuración']) {
     await expect(sidebarItem(page, hidden)).toHaveCount(0)
   }
 
-  // Y aunque escriba la URL a mano, lo devuelve a su página permitida:
+  // Y aunque escriba la URL a mano, lo devuelve a una página permitida:
   await page.goto('/gastos')
-  await expect(page).toHaveURL(/\/pedidos/)
-
-  await page.goto('/dashboard')
-  await expect(page).toHaveURL(/\/pedidos/)
+  await expect(page).not.toHaveURL(/\/gastos/)
 })
 
 test('admin ve todas las secciones incluidas las administrativas', async ({ page }) => {

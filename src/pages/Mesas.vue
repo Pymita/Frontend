@@ -9,10 +9,16 @@
               Gestiona las mesas del restaurante
             </p>
           </div>
-          <v-btn color="primary" size="large" @click="openDialog()">
-            <v-icon start>mdi-plus</v-icon>
-            Nueva Mesa
-          </v-btn>
+          <div class="d-flex ga-2">
+            <v-btn variant="tonal" size="large" @click="bulkDialog = true">
+              <v-icon start>mdi-table-plus</v-icon>
+              Crear varias
+            </v-btn>
+            <v-btn color="primary" size="large" @click="openDialog()">
+              <v-icon start>mdi-plus</v-icon>
+              Nueva Mesa
+            </v-btn>
+          </div>
         </div>
       </v-col>
     </v-row>
@@ -176,6 +182,83 @@
       </v-card>
     </v-dialog>
 
+    <!-- Dialog: crear varias mesas -->
+    <v-dialog v-model="bulkDialog" max-width="480" persistent>
+      <v-card>
+        <v-card-title>Crear varias mesas</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 text-grey-darken-1 mb-4">
+            Se numeran seguidas a partir de la última que tengas. Después puedes
+            renombrar las que quieras.
+          </p>
+          <v-row dense>
+            <v-col cols="6">
+              <v-text-field
+                v-model.number="bulkData.quantity"
+                label="¿Cuántas mesas?"
+                type="number"
+                min="1"
+                max="100"
+                autofocus
+              />
+            </v-col>
+            <v-col cols="6">
+              <v-text-field
+                v-model.number="bulkData.capacity"
+                label="Capacidad de cada una"
+                type="number"
+                min="1"
+                max="20"
+              />
+            </v-col>
+          </v-row>
+          <v-select
+            v-if="hasTimeBilling"
+            v-model="bulkData.table_type"
+            :items="[
+              { value: 'dining', title: 'Mesas normales' },
+              { value: 'billiard', title: 'Mesas de billar (cobro por tiempo)' },
+            ]"
+            item-title="title"
+            item-value="value"
+            label="Tipo de mesa"
+          />
+          <v-row v-if="hasTimeBilling && bulkData.table_type === 'billiard'" dense>
+            <v-col cols="6">
+              <v-text-field
+                v-model.number="bulkData.hourly_rate"
+                label="Tarifa por hora"
+                type="number"
+                prefix="$"
+              />
+            </v-col>
+            <v-col cols="6">
+              <v-select
+                v-model.number="bulkData.billing_increment_minutes"
+                :items="[
+                  { value: 1, title: 'Por minuto' },
+                  { value: 15, title: 'Fracción de 15 min' },
+                  { value: 30, title: 'Fracción de 30 min' },
+                  { value: 60, title: 'Hora completa' },
+                ]"
+                item-title="title"
+                item-value="value"
+                label="Cobro por fracción de"
+              />
+            </v-col>
+          </v-row>
+          <v-text-field v-model="bulkData.zone" label="Zona (opcional)" hint="Ej: Terraza, Segundo piso" />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="bulkDialog = false">Cancelar</v-btn>
+          <v-btn color="primary" :loading="saving" @click="saveBulk">
+            Crear {{ bulkData.quantity || 0 }} mesas
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="3000">
       {{ snackbarText }}
     </v-snackbar>
@@ -197,6 +280,16 @@ const tables = ref<DiningTable[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 const dialog = ref(false);
+const bulkDialog = ref(false);
+
+const bulkData = ref({
+  quantity: 10,
+  capacity: 4,
+  table_type: 'dining' as 'dining' | 'billiard',
+  hourly_rate: null as number | null,
+  billing_increment_minutes: 15,
+  zone: '',
+});
 const editing = ref<DiningTable | null>(null);
 
 const formData = ref({
@@ -297,6 +390,29 @@ const save = async () => {
     loadTables();
   } catch (error) {
     showMessage('Error al guardar', 'error');
+  } finally {
+    saving.value = false;
+  }
+};
+
+const saveBulk = async () => {
+  if (!bulkData.value.quantity || bulkData.value.quantity < 1) {
+    showMessage('Indica cuántas mesas quieres crear', 'error');
+    return;
+  }
+
+  saving.value = true;
+  try {
+    const created = await tablesService.createBulk({
+      ...bulkData.value,
+      zone: bulkData.value.zone || null,
+      hourly_rate: bulkData.value.table_type === 'billiard' ? bulkData.value.hourly_rate : null,
+    });
+    showMessage(`${created.length} mesas creadas`);
+    bulkDialog.value = false;
+    loadTables();
+  } catch (error: any) {
+    showMessage(error.response?.data?.message || 'Error al crear las mesas', 'error');
   } finally {
     saving.value = false;
   }

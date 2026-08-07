@@ -61,6 +61,7 @@ export interface CreateCompanyPayload {
   name: string
   slug?: string
   business_type?: BusinessType
+  modules?: Feature[]
   email?: string
   phone?: string
   admin: {

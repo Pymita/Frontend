@@ -62,6 +62,19 @@ export const tablesService = {
     return response.data.data;
   },
 
+  /** Crea varias mesas numeradas de forma consecutiva */
+  async createBulk(data: {
+    quantity: number;
+    capacity?: number;
+    table_type?: 'dining' | 'billiard';
+    hourly_rate?: number | null;
+    billing_increment_minutes?: number;
+    zone?: string | null;
+  }): Promise<DiningTable[]> {
+    const response = await api.post<ApiResponse<DiningTable[]>>('/tables/bulk', data);
+    return response.data.data;
+  },
+
   async update(id: number, data: Partial<DiningTable>): Promise<DiningTable> {
     const response = await api.put<ApiResponse<DiningTable>>(`/tables/${id}`, data);
     return response.data.data;

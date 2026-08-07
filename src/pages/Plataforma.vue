@@ -114,9 +114,23 @@
               item-value="value"
               label="Tipo de negocio"
               class="mt-2"
-              :hint="`Activará: ${presetModules(createData.business_type).map(featureLabel).join(', ')}`"
+              hint="Marca los módulos que necesita; puedes ajustarlos"
               persistent-hint
+              @update:model-value="createData.modules = [...presetModules($event)]"
             />
+
+            <p class="text-subtitle-2 mt-4 mb-1">Módulos activos</p>
+            <v-row dense>
+              <v-col v-for="feature in allFeatures" :key="feature" cols="6" md="4">
+                <v-checkbox
+                  v-model="createData.modules"
+                  :label="featureLabel(feature)"
+                  :value="feature"
+                  density="compact"
+                  hide-details
+                />
+              </v-col>
+            </v-row>
             <v-row dense class="mt-3">
               <v-col cols="6">
                 <v-text-field v-model="createData.email" label="Email (opcional)" type="email" />
@@ -582,6 +596,7 @@ const emptyCreateData = () => ({
   email: '',
   phone: '',
   business_type: 'restaurant' as BusinessType,
+  modules: [...BUSINESS_TYPE_PRESETS.restaurant] as Feature[],
   admin: { name: '', email: '', password: '' },
   trial_days: 15,
 })
@@ -617,6 +632,16 @@ const featureLabels: Record<Feature, string> = {
 }
 
 const featureLabel = (feature: Feature): string => featureLabels[feature] || feature
+
+/**
+ * Si la selección es idéntica al preset del tipo de negocio, se envía vacío:
+ * así la empresa sigue heredando futuros cambios del preset en vez de quedar
+ * congelada con una lista propia.
+ */
+const modulesToSend = (type: BusinessType, selected: Feature[]): Feature[] => {
+  const preset = [...presetModules(type)].sort().join(',')
+  return [...selected].sort().join(',') === preset ? [] : selected
+}
 const presetModules = (type: BusinessType): Feature[] => BUSINESS_TYPE_PRESETS[type] ?? []
 const businessTypeLabel = (type: BusinessType): string =>
   businessTypeOptions.find(o => o.value === type)?.title ?? type
@@ -635,6 +660,7 @@ const saveCompany = async () => {
   try {
     await platformService.createCompany({
       ...createData.value,
+      modules: modulesToSend(createData.value.business_type, createData.value.modules),
       email: createData.value.email || undefined,
       phone: createData.value.phone || undefined,
     })
@@ -686,8 +712,9 @@ const startEditDetail = () => {
     email: detail.value.email || '',
     phone: detail.value.phone || '',
     business_type: detail.value.business_type,
-    // Solo se mandan si están personalizados; si no, la lista sigue el preset.
-    modules: detail.value.modules_customized ? [...detail.value.modules] : [],
+    // Siempre se muestran los módulos efectivos (antes, si seguían el preset,
+    // los checkboxes salían todos vacíos).
+    modules: [...detail.value.modules],
   }
   editingDetail.value = true
 }
@@ -705,8 +732,7 @@ const saveDetail = async () => {
       email: editData.value.email || null,
       phone: editData.value.phone || null,
       business_type: editData.value.business_type,
-      // Lista vacía = volver al preset del tipo de negocio.
-      modules: editData.value.modules,
+      modules: modulesToSend(editData.value.business_type, editData.value.modules),
     })
     notify('Empresa actualizada exitosamente')
     editingDetail.value = false

@@ -12,7 +12,10 @@ class AuthService {
    * Realizar login
    */
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
-    const response = await api.post<LoginResponse>('/auth/login', credentials)
+    const response = await api.post<LoginResponse>('/auth/login', {
+      ...credentials,
+      device: 'web',
+    })
     
     // Guardar token y datos del usuario en localStorage
     localStorage.setItem('auth_token', response.data.token)
@@ -26,7 +29,9 @@ class AuthService {
    */
   async logout(): Promise<void> {
     try {
-      await api.post('/auth/logout')
+      // Timeout corto: si el servidor no responde, igual se limpia la
+      // sesión local en vez de dejar al usuario mirando un spinner.
+      await api.post('/auth/logout', null, { timeout: 3000 })
     } catch (error) {
       console.error('Error durante logout:', error)
     } finally {

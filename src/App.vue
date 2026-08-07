@@ -75,7 +75,6 @@
         variant="tonal"
         density="compact"
         class="ma-3 mb-0"
-        :closable="subscriptionStatus === 'trial'"
       >
         {{ subscriptionNotice }}
       </v-alert>
@@ -84,8 +83,11 @@
     </v-main>
 
     <!-- Loading overlay -->
-    <v-overlay v-model="loading" class="align-center justify-center">
-      <v-progress-circular color="primary" indeterminate size="64"></v-progress-circular>
+    <v-overlay v-model="loading" persistent class="align-center justify-center">
+      <div class="text-center">
+        <v-progress-circular color="primary" indeterminate size="64" />
+        <p class="text-body-2 text-white mt-3">Cerrando sesión...</p>
+      </div>
     </v-overlay>
   </v-app>
 </template>

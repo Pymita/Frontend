@@ -4,9 +4,11 @@
       <v-col cols="12">
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
-            <h1 class="text-h4">Gestión de Productos Base</h1>
+            <h1 class="text-h4">{{ hasRecipes ? 'Gestión de Productos Base' : 'Productos' }}</h1>
             <p class="text-body-1 text-grey-darken-1">
-              Materias primas, productos intermedios y finales
+              {{ hasRecipes
+                ? 'Materias primas, productos intermedios y finales'
+                : 'Lo que vendes y su inventario' }}
             </p>
           </div>
           <v-btn color="primary" size="large" @click="openDialog()">
@@ -24,7 +26,7 @@
           <v-card-text>
             <v-row align="center">
               <v-col cols="12" md="3">
-                <v-tabs v-model="tipoFilter" color="primary" density="compact">
+                <v-tabs v-if="hasRecipes" v-model="tipoFilter" color="primary" density="compact">
                   <v-tab value="">Todos</v-tab>
                   <v-tab value="raw_material">Materias Primas</v-tab>
                   <v-tab value="intermediate">Intermedios</v-tab>
@@ -261,7 +263,7 @@
             />
             
             <v-row>
-              <v-col cols="12" md="6">
+              <v-col v-if="hasRecipes" cols="12" md="6">
                 <v-select
                   v-model="formData.type"
                   :items="productTypeOptions"
@@ -514,6 +516,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { useAuthStore } from '@/stores/auth';
+import { effectiveFeatures } from '@/types/auth';
+
+// Un billar vende cervezas: no tiene materias primas ni productos
+// intermedios, así que esa clasificación no debe aparecer.
+const authStore = useAuthStore();
+const hasRecipes = computed(() => effectiveFeatures(authStore.user).includes('recipes'));
 import ImageUploader from '@/components/ImageUploader.vue';
 import { resolveImageUrl } from '@/utils/images';
 import { useRouter } from 'vue-router';
@@ -580,7 +589,7 @@ const headers = [
   { title: 'SKU', key: 'sku' },
   { title: 'Cód. barras', key: 'barcode' },
   { title: 'Nombre', key: 'name' },
-  { title: 'Tipo', key: 'type' },
+  ...(hasRecipes.value ? [{ title: 'Tipo', key: 'type' }] : []),
   { title: 'Stock Actual', key: 'current_stock' },
   { title: 'Stock Mínimo', key: 'minimum_stock' },
   { title: 'Unidad', key: 'unit' },
@@ -807,7 +816,7 @@ const openDialog = (product?: Product, forceMenu = false) => {
         sku: '',
         barcode: '',
         image_url: null,
-        type: 'raw_material',
+        type: hasRecipes.value ? 'raw_material' : 'final',
         unit: '',
         tracks_stock: true,
         unit_cost: 0,
