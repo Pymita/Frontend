@@ -15,6 +15,17 @@ Web app (Vue 3 + TypeScript + Vuetify + Pinia) for the management SaaS.
    (`toLocaleString('es-CO')`). Do not use `toFixed(2)` for sale amounts.
 4. **UI copy in Spanish**; variable names and comments in English.
 
+## Commits
+
+**Commit every feature or fix once it is implemented and tested** — never leave
+finished, verified work uncommitted, and never commit failing work.
+
+- **Author: Valentina. Never add a `Co-Authored-By` trailer for Claude or any
+  other AI tool.**
+- Message in English, conventional-commit style (`feat:`, `fix:`, `docs:`,
+  `test:`), explaining *why* when the change is not obvious.
+- One commit per coherent change; push the repos that changed.
+
 ## Verify
 
 ```bash
