@@ -8,6 +8,7 @@ export interface Product {
   description?: string;
   sku: string;
   barcode?: string | null;
+  image_url?: string | null;
   type: ProductType;
   unit: string;
   tracks_stock?: boolean;

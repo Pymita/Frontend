@@ -29,7 +29,10 @@
             <template #item.name="{ item }">
               <span :style="{ paddingLeft: `${((item.depth ?? 1) - 1) * 24}px` }">
                 <span v-if="(item.depth ?? 1) > 1" class="text-grey mr-1">└</span>
-                <span v-if="item.icon" class="mr-1">{{ item.icon }}</span>
+                <v-avatar v-if="item.image_url" size="24" rounded="sm" class="mr-1">
+                  <v-img :src="resolveImageUrl(item.image_url)" cover />
+                </v-avatar>
+                <span v-else-if="item.icon" class="mr-1">{{ item.icon }}</span>
                 {{ item.name }}
               </span>
             </template>
@@ -105,25 +108,17 @@
               persistent-hint
             />
 
-            <v-row dense class="mt-2">
-              <v-col cols="4">
-                <v-text-field
-                  v-model="formData.icon"
-                  label="Emoji"
-                  maxlength="4"
-                  hint="Ej: 🍺 🍕 🥤"
-                  persistent-hint
-                />
-              </v-col>
-              <v-col cols="8">
-                <v-text-field
-                  v-model="formData.image_url"
-                  label="Imagen (URL, opcional)"
-                  hint="Si la pones, se muestra en vez del emoji"
-                  persistent-hint
-                />
-              </v-col>
-            </v-row>
+            <v-divider class="my-4" />
+
+            <EmojiPicker v-model="formData.icon" label="Emoji de la categoría" />
+
+            <div class="mt-4">
+              <ImageUploader
+                v-model="formData.image_url"
+                folder="categories"
+                label="Imagen (opcional, reemplaza al emoji)"
+              />
+            </div>
             
             <v-textarea
               v-model="formData.description"
@@ -168,7 +163,10 @@
 
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue';
+import EmojiPicker from '@/components/EmojiPicker.vue';
+import ImageUploader from '@/components/ImageUploader.vue';
 import { categoriesService, menuItemsService, type Category, type MenuItem } from '@/services/menuService';
+import { resolveImageUrl } from '@/utils/images';
 
 const categorias = ref<Category[]>([]);
 const itemsMenu = ref<MenuItem[]>([]);
@@ -182,8 +180,8 @@ const emptyForm = () => ({
   name: '',
   description: '',
   parent_id: null as number | null,
-  icon: '',
-  image_url: '',
+  icon: null as string | null,
+  image_url: null as string | null,
   visible_in_app: true,
 });
 
@@ -248,8 +246,8 @@ const openDialog = (categoria?: Category, parentId: number | null = null) => {
         name: categoria.name,
         description: categoria.description || '',
         parent_id: categoria.parent_id ?? null,
-        icon: categoria.icon || '',
-        image_url: categoria.image_url || '',
+        icon: categoria.icon || null,
+        image_url: categoria.image_url || null,
         visible_in_app: categoria.visible_in_app ?? true,
       }
     : { ...emptyForm(), parent_id: parentId };

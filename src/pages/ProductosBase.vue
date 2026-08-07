@@ -80,6 +80,12 @@
             :search="search"
             class="elevation-0"
           >
+            <template #item.image_url="{ item }">
+              <v-avatar v-if="item.image_url" size="36" rounded="lg">
+                <v-img :src="resolveImageUrl(item.image_url)" cover />
+              </v-avatar>
+              <v-icon v-else color="grey-lighten-1" size="small">mdi-image-outline</v-icon>
+            </template>
             <template #item.type="{ item }">
               <v-chip :color="getTipoColor(item.type)" size="small">
                 {{ getTipoLabel(item.type) }}
@@ -245,6 +251,13 @@
               v-model="formData.description"
               label="Descripción"
               rows="2"
+            />
+
+            <ImageUploader
+              v-model="formData.image_url"
+              folder="products"
+              label="Foto del producto"
+              class="mb-2"
             />
             
             <v-row>
@@ -501,6 +514,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import ImageUploader from '@/components/ImageUploader.vue';
+import { resolveImageUrl } from '@/utils/images';
 import { useRouter } from 'vue-router';
 import { productsService, productCategoriesService, type Product, type Category, type ProductPayload } from '@/services/productsService';
 import { menuItemsService } from '@/services/menuService';
@@ -539,6 +554,7 @@ const formData = ref({
   description: '',
   sku: '',
   barcode: '',
+  image_url: null as string | null,
   type: 'raw_material' as 'raw_material' | 'intermediate' | 'final',
   unit: '',
   tracks_stock: true,
@@ -560,6 +576,7 @@ const productTypeOptions = [
 ];
 
 const headers = [
+  { title: '', key: 'image_url', sortable: false, width: 56 },
   { title: 'SKU', key: 'sku' },
   { title: 'Cód. barras', key: 'barcode' },
   { title: 'Nombre', key: 'name' },
@@ -774,6 +791,7 @@ const openDialog = (product?: Product, forceMenu = false) => {
         description: product.description || '',
         sku: product.sku,
         barcode: product.barcode || '',
+        image_url: product.image_url || null,
         type: product.type,
         unit: product.unit,
         tracks_stock: product.tracks_stock ?? true,
@@ -788,6 +806,7 @@ const openDialog = (product?: Product, forceMenu = false) => {
         description: '',
         sku: '',
         barcode: '',
+        image_url: null,
         type: 'raw_material',
         unit: '',
         tracks_stock: true,

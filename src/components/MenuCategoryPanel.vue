@@ -3,7 +3,7 @@
     <v-expansion-panel-title>
       <div class="d-flex align-center ga-3">
         <v-avatar v-if="category.image_url" size="32" rounded="lg">
-          <v-img :src="category.image_url" :alt="category.name" />
+          <v-img :src="resolveImageUrl(category.image_url)" :alt="category.name" />
         </v-avatar>
         <span v-else-if="category.icon" class="text-h6">{{ category.icon }}</span>
         <v-icon v-else color="grey">mdi-folder-outline</v-icon>
@@ -21,7 +21,7 @@
         <v-list-item v-for="item in category.items" :key="item.id" class="px-2">
           <template #prepend>
             <v-avatar v-if="item.image_url" size="40" rounded="lg" class="mr-3">
-              <v-img :src="item.image_url" :alt="item.name" />
+              <v-img :src="resolveImageUrl(item.image_url)" :alt="item.name" />
             </v-avatar>
           </template>
           <v-list-item-title>{{ item.name }}</v-list-item-title>
@@ -52,6 +52,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { MenuCategoryNode } from '@/services/menuService'
+import { resolveImageUrl } from '@/utils/images'
 
 // Componente recursivo: se referencia a sí mismo por nombre de archivo.
 defineOptions({ name: 'MenuCategoryPanel' })
