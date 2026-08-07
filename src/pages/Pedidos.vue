@@ -1,7 +1,7 @@
 <template>
   <v-container fluid>
     <v-row>
-      <v-col cols="12">
+      <v-col cols="15">
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
             <h1 class="text-h4">Pedidos</h1>
@@ -9,7 +9,7 @@
               Gestiona los pedidos del día
             </p>
           </div>
-          <div class="d-flex gap-3 align-center">
+          <div class="d-flex justify-space-between">
             <v-btn color="success" size="large" @click="openPedidoRapidoDialog">
               <v-icon start>mdi-cash-fast</v-icon>
               Pedido Rápido

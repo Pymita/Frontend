@@ -68,6 +68,18 @@
 
     <!-- Main Content -->
     <v-main>
+      <!-- Aviso de suscripción: prueba por vencer, pago vencido o cuenta bloqueada -->
+      <v-alert
+        v-if="subscriptionNotice"
+        :type="subscriptionAlertType"
+        variant="tonal"
+        density="compact"
+        class="ma-3 mb-0"
+        :closable="subscriptionStatus === 'trial'"
+      >
+        {{ subscriptionNotice }}
+      </v-alert>
+
       <router-view :key="route.fullPath" />
     </v-main>
 
@@ -79,10 +91,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { effectiveFeatures } from './types/auth'
+import { SUBSCRIPTION_BLOCKED_EVENT } from './services/api'
 import type { MenuItem } from './types'
 
 const route = useRoute()
@@ -100,6 +113,33 @@ const isSuperAdmin = computed(() => currentUser.value?.role === 'super_admin')
 const companyName = computed(() =>
   isSuperAdmin.value ? 'Plataforma' : (currentUser.value?.company?.name || 'Sabores del Trigo')
 )
+
+// --- Aviso de suscripción ---
+const blockedMessage = ref<string | null>(null)
+
+const subscriptionStatus = computed(() => currentUser.value?.company?.subscription?.status)
+
+const subscriptionNotice = computed(() => {
+  if (blockedMessage.value) return blockedMessage.value
+  if (isSuperAdmin.value) return null
+
+  const subscription = currentUser.value?.company?.subscription
+  if (!subscription || subscription.status === 'active') return null
+
+  return subscription.notice
+})
+
+const subscriptionAlertType = computed(() => {
+  if (blockedMessage.value || subscriptionStatus.value === 'suspended') return 'error'
+  if (subscriptionStatus.value === 'grace') return 'warning'
+  return 'info'
+})
+
+// El backend responde 402 cuando la cuenta quedó en solo lectura.
+const onSubscriptionBlocked = (event: Event) => {
+  blockedMessage.value =
+    (event as CustomEvent).detail || 'Tu cuenta está en modo solo lectura por falta de pago'
+}
 
 const allMenuItems: MenuItem[] = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', route: '/dashboard', feature: 'reports' },
@@ -167,6 +207,11 @@ const logout = async (): Promise<void> => {
 onMounted(() => {
   // Inicializar el store con datos del localStorage
   authStore.initializeAuth()
+  window.addEventListener(SUBSCRIPTION_BLOCKED_EVENT, onSubscriptionBlocked)
+})
+
+onUnmounted(() => {
+  window.removeEventListener(SUBSCRIPTION_BLOCKED_EVENT, onSubscriptionBlocked)
 })
 </script>
 

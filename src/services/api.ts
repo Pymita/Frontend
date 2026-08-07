@@ -28,9 +28,21 @@ api.interceptors.request.use(
 )
 
 // Interceptor para manejar respuestas y errores
+// Evento global para que la app muestre el bloqueo por suscripción.
+export const SUBSCRIPTION_BLOCKED_EVENT = 'subscription-blocked'
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // 402: suscripción suspendida, la cuenta quedó en solo lectura.
+    if (error.response?.status === 402) {
+      window.dispatchEvent(
+        new CustomEvent(SUBSCRIPTION_BLOCKED_EVENT, {
+          detail: error.response.data?.message,
+        }),
+      )
+    }
+
     if (error.response?.status === 401) {
       // Token inválido o expirado
       localStorage.removeItem('auth_token')

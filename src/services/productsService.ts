@@ -7,6 +7,7 @@ export interface Product {
   name: string;
   description?: string;
   sku: string;
+  barcode?: string | null;
   type: ProductType;
   unit: string;
   tracks_stock?: boolean;

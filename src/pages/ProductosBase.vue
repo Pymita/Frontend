@@ -221,13 +221,22 @@
                   required
                 />
               </v-col>
-              <v-col cols="12" md="4">
+              <v-col cols="12" md="2">
                 <v-text-field
                   v-model="formData.sku"
-                  label="Código SKU (Opcional)"
+                  label="SKU (opcional)"
                   :hint="!formData.sku?.trim() ? `Se generará: ${skuPreview}` : 'Código interno del producto'"
                   persistent-hint
-                  placeholder="Dejar vacío para generar automático"
+                  placeholder="Automático"
+                />
+              </v-col>
+              <v-col cols="12" md="2">
+                <v-text-field
+                  v-model="formData.barcode"
+                  label="Código de barras"
+                  hint="Escanéalo o escríbelo"
+                  persistent-hint
+                  placeholder="Opcional"
                 />
               </v-col>
             </v-row>
@@ -529,6 +538,7 @@ const formData = ref({
   name: '',
   description: '',
   sku: '',
+  barcode: '',
   type: 'raw_material' as 'raw_material' | 'intermediate' | 'final',
   unit: '',
   tracks_stock: true,
@@ -551,6 +561,7 @@ const productTypeOptions = [
 
 const headers = [
   { title: 'SKU', key: 'sku' },
+  { title: 'Cód. barras', key: 'barcode' },
   { title: 'Nombre', key: 'name' },
   { title: 'Tipo', key: 'type' },
   { title: 'Stock Actual', key: 'current_stock' },
@@ -624,28 +635,13 @@ const calcularNuevoStock = computed(() => {
 });
 
 // Función para generar SKU automáticamente
-const generarSKU = (nombre: string, tipo: string): string => {
-  // Limpiar nombre: quitar acentos, espacios, caracteres especiales
-  const nombreLimpio = nombre
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // Quitar acentos
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '') // Solo letras y números
-    .substring(0, 8); // Máximo 8 caracteres
-  
-  // Prefijo según tipo
-  const prefijo = tipo === 'raw_material' ? 'MP' : tipo === 'intermediate' ? 'INT' : 'FIN';
-  
-  // Timestamp corto para garantizar unicidad
-  const timestamp = Date.now().toString().slice(-6);
-  
-  return `${nombreLimpio}-${prefijo}-${timestamp}`;
-};
-
-// Vista previa del SKU que se generará
+// El backend genera SKUs secuenciales por empresa (MP-0001, FIN-0001...).
 const skuPreview = computed(() => {
-  if (!formData.value.name?.trim()) return 'Ingresa un nombre primero';
-  return generarSKU(formData.value.name, formData.value.type);
+  const prefijo =
+    formData.value.type === 'raw_material' ? 'MP'
+    : formData.value.type === 'intermediate' ? 'INT'
+    : 'FIN';
+  return `${prefijo}-000N`;
 });
 
 const openStockDialog = (product: Product) => {
@@ -777,6 +773,7 @@ const openDialog = (product?: Product, forceMenu = false) => {
         name: product.name,
         description: product.description || '',
         sku: product.sku,
+        barcode: product.barcode || '',
         type: product.type,
         unit: product.unit,
         tracks_stock: product.tracks_stock ?? true,
@@ -790,6 +787,7 @@ const openDialog = (product?: Product, forceMenu = false) => {
         name: '',
         description: '',
         sku: '',
+        barcode: '',
         type: 'raw_material',
         unit: '',
         tracks_stock: true,
@@ -829,10 +827,9 @@ const save = async () => {
             },
           }
         : {}),
-      // Generar SKU automáticamente si está vacío
-      sku: formData.value.sku?.trim()
-        ? formData.value.sku
-        : generarSKU(formData.value.name, formData.value.type),
+      // SKU vacío: lo genera el backend (secuencial por empresa).
+      sku: formData.value.sku?.trim() || undefined,
+      barcode: formData.value.barcode?.trim() || null,
       current_stock: formData.value.tracks_stock && formData.value.current_stock
         ? parseFloat(String(formData.value.current_stock).replace(',', '.'))
         : null,

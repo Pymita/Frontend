@@ -258,7 +258,8 @@ const chartOptions = {
     tooltip: {
       callbacks: {
         label: function(context: any) {
-          return `Ventas: $${context.parsed.y.toFixed(2)}`
+          // Pesos colombianos: sin decimales y con separador de miles.
+          return `Ventas: $${Number(context.parsed.y).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`
         }
       }
     }
@@ -268,7 +269,7 @@ const chartOptions = {
       beginAtZero: true,
       ticks: {
         callback: function(value: any) {
-          return '$' + value
+          return '$' + Number(value).toLocaleString('es-CO', { maximumFractionDigits: 0 })
         }
       }
     }

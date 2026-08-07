@@ -12,10 +12,19 @@ export const ALL_FEATURES: Feature[] = ['orders', 'menu', 'inventory', 'customer
 /** Acceso por defecto de un empleado sin permisos explícitos (espejo del backend) */
 export const DEFAULT_EMPLOYEE_FEATURES: Feature[] = ['orders', 'menu', 'inventory', 'customers', 'reports']
 
+export interface CompanySubscriptionInfo {
+  status: SubscriptionStatus
+  /** Días que faltan para el próximo corte (0 = hoy o ya bloqueada) */
+  days_until_block: number
+  /** Mensaje listo para mostrar en el banner */
+  notice: string | null
+}
+
 export interface CompanySummary {
   id: number
   name: string
   slug: string
+  subscription?: CompanySubscriptionInfo | null
   subscription_status?: SubscriptionStatus | null
 }
 
