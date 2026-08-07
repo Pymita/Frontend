@@ -10,7 +10,7 @@
             </p>
           </div>
           <div class="d-flex justify-space-between">
-            <v-btn color="success" size="large" @click="openPedidoRapidoDialog">
+            <v-btn class="mr-2" color="success" size="large" @click="openPedidoRapidoDialog">
               <v-icon start>mdi-cash-fast</v-icon>
               Pedido Rápido
             </v-btn>
