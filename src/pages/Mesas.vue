@@ -47,7 +47,10 @@
               {{ getStatusLabel(table.status).toUpperCase() }}
             </v-chip>
             <div class="text-caption mt-1" :class="getTextColor(table)">
-              👥 {{ table.capacity }} personas
+              <template v-if="table.table_type === 'billiard'">
+                🎱 ${{ Number(table.hourly_rate ?? 0).toLocaleString('es-CO') }}/hora
+              </template>
+              <template v-else>👥 {{ table.capacity }} personas</template>
             </div>
           </v-card-text>
           <v-card-actions class="justify-center">
@@ -105,6 +108,42 @@
               hint="Ej: Terraza 1, VIP, Barra"
             />
             <v-select
+              v-model="formData.table_type"
+              :items="[
+                { value: 'dining', title: 'Mesa normal' },
+                { value: 'billiard', title: 'Mesa de billar (cobro por tiempo)' },
+              ]"
+              item-title="title"
+              item-value="value"
+              label="Tipo de mesa"
+              class="mt-2"
+            />
+            <v-row v-if="formData.table_type === 'billiard'" dense>
+              <v-col cols="6">
+                <v-text-field
+                  v-model.number="formData.hourly_rate"
+                  label="Tarifa por hora"
+                  type="number"
+                  prefix="$"
+                  :rules="[v => (v !== null && v >= 0) || 'Tarifa requerida']"
+                />
+              </v-col>
+              <v-col cols="6">
+                <v-select
+                  v-model.number="formData.billing_increment_minutes"
+                  :items="[
+                    { value: 1, title: 'Por minuto' },
+                    { value: 15, title: 'Fracción de 15 min' },
+                    { value: 30, title: 'Fracción de 30 min' },
+                    { value: 60, title: 'Hora completa' },
+                  ]"
+                  item-title="title"
+                  item-value="value"
+                  label="Cobro por fracción de"
+                />
+              </v-col>
+            </v-row>
+            <v-select
               v-if="editing"
               v-model="formData.status"
               :items="statusOptions"
@@ -157,6 +196,9 @@ const formData = ref({
   number: 1,
   nickname: '',
   capacity: 4,
+  table_type: 'dining' as 'dining' | 'billiard',
+  hourly_rate: null as number | null,
+  billing_increment_minutes: 15,
   status: 'available' as DiningTableStatus,
   active: true,
 });
@@ -214,6 +256,9 @@ const openDialog = (table?: DiningTable) => {
         number: table.number,
         nickname: table.nickname || '',
         capacity: table.capacity,
+        table_type: table.table_type ?? 'dining',
+        hourly_rate: table.hourly_rate ?? null,
+        billing_increment_minutes: table.billing_increment_minutes ?? 15,
         status: table.status,
         active: table.active,
       }
@@ -221,6 +266,9 @@ const openDialog = (table?: DiningTable) => {
         number: tables.value.length + 1,
         nickname: '',
         capacity: 4,
+        table_type: 'dining',
+        hourly_rate: null,
+        billing_increment_minutes: 15,
         status: 'available',
         active: true,
       };

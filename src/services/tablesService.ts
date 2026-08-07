@@ -10,6 +10,9 @@ export interface DiningTable {
   capacity: number;
   status: DiningTableStatus;
   active: boolean;
+  table_type?: 'dining' | 'billiard';
+  hourly_rate?: number | null;
+  billing_increment_minutes?: number;
   pos_x: number | null;
   pos_y: number | null;
   shape: DiningTableShape;
@@ -19,6 +22,9 @@ export interface DiningTable {
     total: string | number;
     payment_status: string;
     customer_name?: string;
+    time_started_at?: string | null;
+    time_ended_at?: string | null;
+    time_rate?: number | null;
   } | null;
 }
 

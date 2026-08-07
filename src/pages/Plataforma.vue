@@ -134,7 +134,9 @@
                   v-model="createData.admin.password"
                   label="Contraseña inicial"
                   type="password"
-                  :rules="[(v: string) => (v && v.length >= 8) || 'Mínimo 8 caracteres']"
+                  :rules="passwordRules"
+                  :hint="PASSWORD_HINT"
+                  persistent-hint
                 />
               </v-col>
             </v-row>
@@ -437,6 +439,7 @@ import { onMounted, ref } from 'vue'
 import platformService from '../services/platformService'
 import type { PlatformCompany, PlatformCompanyDetail } from '../types/platform'
 import type { SubscriptionStatus } from '../types/auth'
+import { PASSWORD_HINT, passwordRules } from '../utils/validation'
 
 const loading = ref(false)
 const saving = ref(false)

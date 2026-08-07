@@ -92,7 +92,9 @@
                   v-model="formData.password"
                   :label="editing ? 'Nueva contraseña (opcional)' : 'Contraseña'"
                   type="password"
-                  :rules="passwordRules"
+                  :rules="currentPasswordRules"
+                  :hint="PASSWORD_HINT"
+                  persistent-hint
                 />
               </v-col>
               <v-col cols="6">
@@ -165,6 +167,7 @@ import { computed, onMounted, ref } from 'vue'
 import usersService, { type CompanyUser } from '../services/usersService'
 import { ALL_FEATURES, type Feature } from '../types/auth'
 import { useAuthStore } from '../stores/auth'
+import { PASSWORD_HINT, optionalPasswordRules, passwordRules } from '../utils/validation'
 
 const authStore = useAuthStore()
 const loading = ref(false)
@@ -230,9 +233,7 @@ const formData = ref({
 
 const isSelf = computed(() => editing.value?.id === authStore.user?.id)
 
-const passwordRules = computed(() => editing.value
-  ? [(v: string) => !v || v.length >= 8 || 'Mínimo 8 caracteres']
-  : [(v: string) => (v && v.length >= 8) || 'Mínimo 8 caracteres'])
+const currentPasswordRules = computed(() => editing.value ? optionalPasswordRules : passwordRules)
 
 const openDialog = (user?: CompanyUser) => {
   editing.value = user ?? null

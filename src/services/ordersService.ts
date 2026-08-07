@@ -37,6 +37,17 @@ export interface OrderItem {
   variant?: string | null;
 }
 
+export interface OrderTime {
+  started_at: string;
+  ended_at: string | null;
+  running: boolean;
+  rate: number;
+  increment_minutes: number;
+  minutes_billed: number | null;
+  amount: number;
+  current_amount: number;
+}
+
 export interface Order {
   id: number;
   dining_table: {
@@ -56,6 +67,7 @@ export interface Order {
   amount_paid: number;
   pending_balance: number;
   notes?: string;
+  time?: OrderTime | null;
   items: OrderItem[];
   payments?: OrderPayment[] | null;
   created_at: string;
@@ -119,6 +131,18 @@ export const ordersService = {
 
   async cancel(id: number): Promise<Order> {
     const response = await api.post<ApiResponse<Order>>(`/orders/${id}/cancel`);
+    return response.data.data;
+  },
+
+  /** Billar: detener el tiempo sin cerrar el pedido */
+  async stopTime(id: number): Promise<Order> {
+    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/stop-time`);
+    return response.data.data;
+  },
+
+  /** Billar: corregir las horas (solo admin) */
+  async updateTime(id: number, payload: { time_started_at: string; time_ended_at?: string | null }): Promise<Order> {
+    const response = await api.put<ApiResponse<Order>>(`/orders/${id}/time`, payload);
     return response.data.data;
   },
 

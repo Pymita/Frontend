@@ -39,6 +39,18 @@
       Tienes cambios sin guardar en el plano.
     </v-alert>
 
+    <v-alert
+      v-if="!editMode && unplacedTables.length"
+      type="warning"
+      variant="tonal"
+      density="compact"
+      class="mb-3"
+    >
+      {{ unplacedTables.length === 1 ? 'Hay 1 mesa sin ubicar' : `Hay ${unplacedTables.length} mesas sin ubicar` }}
+      ({{ unplacedTables.map(displayName).join(', ') }}).
+      <template v-if="authStore.isAdmin"> Activa "Editar plano" para colocarlas.</template>
+    </v-alert>
+
     <v-card :loading="loading">
       <div class="plan-wrapper">
         <svg
@@ -85,8 +97,10 @@
               :stroke="strokeFor(table)"
               stroke-width="3"
             />
-            <text text-anchor="middle" dy="-2" class="table-number">{{ table.number }}</text>
-            <text text-anchor="middle" dy="16" class="table-name">{{ table.nickname || `${table.capacity} pers.` }}</text>
+            <text text-anchor="middle" dy="-2" class="table-number">{{ table.table_type === 'billiard' ? '🎱' + table.number : table.number }}</text>
+            <text text-anchor="middle" dy="16" class="table-name">
+              {{ billiardTimerLabel(table) || table.nickname || (table.table_type === 'billiard' ? 'Billar' : `${table.capacity} pers.`) }}
+            </text>
           </g>
         </svg>
       </div>
@@ -189,7 +203,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { tablesService } from '@/services/tablesService';
 import type { DiningTable, DiningTableShape, DiningTableStatus } from '@/services/tablesService';
@@ -225,6 +239,22 @@ const selectedTable = computed(() =>
 );
 
 const displayName = (table: DiningTable) => table.nickname || `Mesa ${table.number}`;
+
+// --- Billar: tiempo transcurrido en vivo sobre el plano ---
+const nowTick = ref(Date.now());
+const tickInterval = setInterval(() => { nowTick.value = Date.now(); }, 15_000);
+onUnmounted(() => clearInterval(tickInterval));
+
+const billiardTimerLabel = (table: DiningTable): string | null => {
+  const order = table.latest_active_order;
+  if (table.table_type !== 'billiard' || !order?.time_started_at || order.time_ended_at) {
+    return null;
+  }
+
+  const minutes = Math.max(0, Math.floor((nowTick.value - new Date(order.time_started_at).getTime()) / 60000));
+  const hours = Math.floor(minutes / 60);
+  return `⏱ ${hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`}`;
+};
 const shapeWidth = (table: DiningTable) => (table.shape === 'rect' ? 132 : 84);
 const shapeHeight = (table: DiningTable) => (table.shape === 'rect' ? 76 : 84);
 

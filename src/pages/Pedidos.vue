@@ -184,6 +184,32 @@
                     <v-col cols="12" md="4">
                       <v-card variant="tonal">
                         <v-card-text>
+                          <template v-if="item.time">
+                            <div class="d-flex justify-space-between mb-1 align-center">
+                              <span>
+                                🎱 Tiempo
+                                <v-chip v-if="item.time.running" size="x-small" color="success" class="ml-1">
+                                  {{ elapsedLabel(item.time) }}
+                                </v-chip>
+                                <span v-else class="text-caption text-grey">({{ item.time.minutes_billed }} min)</span>
+                              </span>
+                              <span class="font-weight-medium">
+                                ${{ Number(item.time.running ? liveTimeAmount(item.time) : item.time.amount).toFixed(2) }}
+                              </span>
+                            </div>
+                            <v-btn
+                              v-if="item.time.running && item.payment_status !== 'paid'"
+                              size="x-small"
+                              color="warning"
+                              variant="tonal"
+                              block
+                              class="mb-2"
+                              @click="stopTime(item)"
+                            >
+                              <v-icon start size="small">mdi-timer-stop</v-icon>
+                              Detener tiempo
+                            </v-btn>
+                          </template>
                           <div class="d-flex justify-space-between mb-2">
                             <span>Subtotal:</span>
                             <span>${{ Number(item.subtotal || 0).toFixed(2) }}</span>
@@ -451,7 +477,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import {
   ordersService,
   type Order,
@@ -600,6 +626,35 @@ const showMessage = (text: string, color = 'success') => {
   snackbarText.value = text;
   snackbarColor.value = color;
   snackbar.value = true;
+};
+
+// --- Billar: reloj en vivo para los tiempos en curso ---
+const nowTick = ref(Date.now());
+const tickInterval = setInterval(() => { nowTick.value = Date.now(); }, 15_000);
+onUnmounted(() => clearInterval(tickInterval));
+
+const elapsedLabel = (time: { started_at: string }): string => {
+  const minutes = Math.max(0, Math.floor((nowTick.value - new Date(time.started_at).getTime()) / 60000));
+  const hours = Math.floor(minutes / 60);
+  return hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+};
+
+// Estimación en vivo con la misma regla del backend: fracción hacia arriba, mínimo una.
+const liveTimeAmount = (time: { started_at: string; rate: number; increment_minutes: number }): number => {
+  const elapsed = (nowTick.value - new Date(time.started_at).getTime()) / 60000;
+  const increment = Math.max(1, time.increment_minutes || 15);
+  const billed = Math.max(increment, Math.ceil(elapsed / increment) * increment);
+  return Math.round((time.rate * billed) / 60 * 100) / 100;
+};
+
+const stopTime = async (order: Order) => {
+  try {
+    await ordersService.stopTime(order.id);
+    showMessage('Tiempo detenido y agregado a la cuenta');
+    await loadOrders();
+  } catch (error: any) {
+    showMessage(error.response?.data?.message || 'Error al detener el tiempo', 'error');
+  }
 };
 
 const loadOrders = async () => {
