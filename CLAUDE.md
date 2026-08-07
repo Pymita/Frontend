@@ -1,28 +1,28 @@
 # Frontend — Sabores del Trigo
 
-App web (Vue 3 + TypeScript + Vuetify + Pinia) del SaaS de gestión.
-**Guía completa del proyecto: `docs/DESARROLLO.md` (repo `Docs`).**
+Web app (Vue 3 + TypeScript + Vuetify + Pinia) for the management SaaS.
+**Full project guide: `docs/DEVELOPMENT.md` (repo `Docs`).**
 
-## Reglas no negociables
+## Non-negotiable rules
 
-1. **Esconder no es seguridad:** el menú y las rutas filtran por permisos
-   (`effectiveFeatures`), pero quien decide es el backend. Si algo debe
-   bloquearse, se bloquea allá también.
-2. **Reusar servicios y tipos existentes** (`src/services`, `src/types`) antes de
-   crear nuevos. Las reglas compartidas con el backend (contraseñas, funciones)
-   viven en un solo lugar: `src/utils/validation.ts`, `src/types/auth.ts`.
-3. **Moneda:** pesos colombianos, sin decimales y con separador de miles
-   (`toLocaleString('es-CO')`). No usar `toFixed(2)` para montos de venta.
-4. **Textos de UI en español**; nombres de variables y comentarios en inglés.
+1. **Hiding is not security:** the sidebar and routes filter by permissions
+   (`effectiveFeatures`), but the backend is the authority. Anything that must be
+   blocked has to be blocked there too.
+2. **Reuse existing services and types** (`src/services`, `src/types`) before
+   creating new ones. Rules shared with the backend (passwords, features) live in
+   a single place: `src/utils/validation.ts`, `src/types/auth.ts`.
+3. **Currency:** Colombian pesos — no decimals, thousand separators
+   (`toLocaleString('es-CO')`). Do not use `toFixed(2)` for sale amounts.
+4. **UI copy in Spanish**; variable names and comments in English.
 
-## Verificar
+## Verify
 
 ```bash
-npx vue-tsc --noEmit -p tsconfig.app.json   # tipos
-npm run test:e2e                            # Playwright (base aislada)
-npm run test:e2e:ui                         # modo visual
-npx playwright codegen http://localhost:5173  # grabar un test nuevo
+npx vue-tsc --noEmit -p tsconfig.app.json     # types
+npm run test:e2e                              # Playwright (isolated database)
+npm run test:e2e:ui                           # visual mode
+npx playwright codegen http://localhost:5173  # record a new test
 ```
 
-**Todo lo visual se prueba con Playwright**, con el patrón *preparar por API,
-verificar por interfaz*. Nunca se prueba contra la base de desarrollo.
+**Anything visual is tested with Playwright**, using the *arrange via API, assert
+through the UI* pattern. Never test against the development database.
