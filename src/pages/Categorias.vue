@@ -26,17 +26,46 @@
             :loading="loading"
             class="elevation-0"
           >
+            <template #item.name="{ item }">
+              <span :style="{ paddingLeft: `${((item.depth ?? 1) - 1) * 24}px` }">
+                <span v-if="(item.depth ?? 1) > 1" class="text-grey mr-1">└</span>
+                <span v-if="item.icon" class="mr-1">{{ item.icon }}</span>
+                {{ item.name }}
+              </span>
+            </template>
             <template #item.products_count="{ item }">
               <v-chip size="small" color="primary" variant="tonal">
                 {{ getProductCount(item) }} productos
               </v-chip>
             </template>
             <template #item.visible_in_app="{ item }">
-              <v-chip :color="item.visible_in_app ? 'success' : 'grey'" size="small">
-                {{ item.visible_in_app ? 'Visible' : 'Oculta' }}
+              <v-chip :color="item.visible_effective ? 'success' : 'grey'" size="small">
+                {{ item.visible_effective ? 'Visible' : 'Oculta' }}
               </v-chip>
+              <v-tooltip
+                v-if="item.visible_in_app && !item.visible_effective"
+                text="Está oculta porque una categoría superior lo está"
+              >
+                <template #activator="{ props }">
+                  <v-icon v-bind="props" size="x-small" class="ml-1">mdi-information-outline</v-icon>
+                </template>
+              </v-tooltip>
             </template>
             <template #item.actions="{ item }">
+              <v-tooltip text="Agregar subcategoría">
+                <template #activator="{ props }">
+                  <v-btn
+                    v-bind="props"
+                    icon
+                    size="small"
+                    variant="text"
+                    :disabled="(item.depth ?? 1) >= 3"
+                    @click="openDialog(undefined, item.id)"
+                  >
+                    <v-icon size="small">mdi-file-tree</v-icon>
+                  </v-btn>
+                </template>
+              </v-tooltip>
               <v-btn icon size="small" variant="text" @click="openDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
@@ -63,6 +92,38 @@
               hint="Ej: Pizzería, Panadería, Bebidas, Postres"
               persistent-hint
             />
+
+            <v-select
+              v-model="formData.parent_id"
+              :items="parentOptions"
+              item-title="path"
+              item-value="id"
+              label="Categoría superior"
+              clearable
+              class="mt-4"
+              hint="Déjala vacía para una categoría principal, o elígela para anidarla (ej. Cervezas dentro de Bebidas)"
+              persistent-hint
+            />
+
+            <v-row dense class="mt-2">
+              <v-col cols="4">
+                <v-text-field
+                  v-model="formData.icon"
+                  label="Emoji"
+                  maxlength="4"
+                  hint="Ej: 🍺 🍕 🥤"
+                  persistent-hint
+                />
+              </v-col>
+              <v-col cols="8">
+                <v-text-field
+                  v-model="formData.image_url"
+                  label="Imagen (URL, opcional)"
+                  hint="Si la pones, se muestra en vez del emoji"
+                  persistent-hint
+                />
+              </v-col>
+            </v-row>
             
             <v-textarea
               v-model="formData.description"
@@ -106,7 +167,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { categoriesService, menuItemsService, type Category, type MenuItem } from '@/services/menuService';
 
 const categorias = ref<Category[]>([]);
@@ -117,11 +178,27 @@ const saving = ref(false);
 const dialog = ref(false);
 const editing = ref<Category | null>(null);
 
-const formData = ref({
+const emptyForm = () => ({
   name: '',
   description: '',
+  parent_id: null as number | null,
+  icon: '',
+  image_url: '',
   visible_in_app: true,
 });
+
+const formData = ref(emptyForm());
+
+// Opciones de categoría superior: no puede ser ella misma, su propia rama
+// ni una del último nivel permitido.
+const parentOptions = computed(() =>
+  categorias.value.filter((c) => {
+    if (editing.value && (c.id === editing.value.id || c.path?.startsWith(`${editing.value.path} ›`))) {
+      return false;
+    }
+    return (c.depth ?? 1) < 3;
+  }),
+);
 
 const snackbar = ref(false);
 const snackbarText = ref('');
@@ -164,30 +241,25 @@ const loadData = async () => {
   }
 };
 
-const openDialog = (categoria?: Category) => {
+const openDialog = (categoria?: Category, parentId: number | null = null) => {
   editing.value = categoria || null;
   formData.value = categoria
     ? {
         name: categoria.name,
         description: categoria.description || '',
+        parent_id: categoria.parent_id ?? null,
+        icon: categoria.icon || '',
+        image_url: categoria.image_url || '',
         visible_in_app: categoria.visible_in_app ?? true,
       }
-    : {
-        name: '',
-        description: '',
-        visible_in_app: true,
-      };
+    : { ...emptyForm(), parent_id: parentId };
   dialog.value = true;
 };
 
 const closeDialog = () => {
   dialog.value = false;
   editing.value = null;
-  formData.value = {
-    name: '',
-    description: '',
-    visible_in_app: true,
-  };
+  formData.value = emptyForm();
 };
 
 const save = async () => {
@@ -198,11 +270,17 @@ const save = async () => {
   
   saving.value = true;
   try {
+    const payload = {
+      ...formData.value,
+      icon: formData.value.icon || null,
+      image_url: formData.value.image_url || null,
+    };
+
     if (editing.value) {
-      await categoriesService.update(editing.value.id, formData.value);
+      await categoriesService.update(editing.value.id, payload);
       showMessage('Categoría actualizada');
     } else {
-      await categoriesService.create(formData.value);
+      await categoriesService.create(payload);
       showMessage('Categoría creada');
     }
     

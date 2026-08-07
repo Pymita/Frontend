@@ -106,6 +106,7 @@ const allMenuItems: MenuItem[] = [
   { title: 'Pedidos', icon: 'mdi-receipt', route: '/pedidos', feature: 'orders' },
   { title: 'Mesas', icon: 'mdi-table-chair', route: '/mesas', feature: 'orders' },
   { title: 'Plano del Salón', icon: 'mdi-floor-plan', route: '/plano', feature: 'orders' },
+  { title: 'Menú', icon: 'mdi-book-open-variant', route: '/menu', feature: 'menu' },
   { title: 'Categorías', icon: 'mdi-shape', route: '/categorias', feature: 'menu' },
   { title: 'Productos', icon: 'mdi-package-variant', route: '/productos-base', feature: 'inventory' },
   { title: 'Recetas', icon: 'mdi-food-variant', route: '/recetas', feature: 'inventory' },

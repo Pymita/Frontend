@@ -3,6 +3,7 @@ import { effectiveFeatures } from '../types/auth'
 const Dashboard = () => import('../pages/Dashboard.vue')
 const Login = () => import('../pages/Login.vue')
 const Categorias = () => import('../pages/Categorias.vue')
+const Menu = () => import('../pages/Menu.vue')
 const TiposProducto = () => import('../pages/TiposProducto.vue')
 const ProductosBase = () => import('../pages/ProductosBase.vue')
 const Recetas = () => import('../pages/Recetas.vue')
@@ -42,6 +43,12 @@ export const routes: RouteRecordRaw[] = [
     name: 'Dashboard',
     component: Dashboard,
     meta: { requiresAuth: true, feature: 'reports' }
+  },
+  {
+    path: '/menu',
+    name: 'Menu',
+    component: Menu,
+    meta: { requiresAuth: true, feature: 'menu' }
   },
   {
     path: '/categorias',

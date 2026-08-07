@@ -5,8 +5,45 @@ export interface Category {
   id: number;
   name: string;
   description?: string;
+  parent_id: number | null;
+  /** Emoji corto que acompaña al nombre */
+  icon?: string | null;
+  image_url?: string | null;
+  sort_order?: number;
   active: boolean;
   visible_in_app: boolean;
+  /** Visibilidad real: false si alguna categoría padre está oculta */
+  visible_effective?: boolean;
+  /** 1 = raíz, 2 = subcategoría, 3 = sub-subcategoría */
+  depth?: number;
+  /** Ruta completa, ej. "Bebidas › Cervezas › Nacionales" */
+  path?: string;
+  root_id?: number;
+}
+
+/** Categoría con su subárbol (endpoint ?tree=1) */
+export interface CategoryNode extends Category {
+  children: CategoryNode[];
+}
+
+/** Menú público agrupado en árbol (lo que ven meseros en app/tablet) */
+export interface MenuCategoryNode {
+  id: number;
+  name: string;
+  description?: string | null;
+  icon?: string | null;
+  image_url?: string | null;
+  items: {
+    id: number;
+    name: string;
+    description?: string | null;
+    price: number;
+    image_url?: string | null;
+    variant?: string | null;
+    variant_group_id?: number | null;
+    variant_group_name?: string | null;
+  }[];
+  children: MenuCategoryNode[];
 }
 
 export interface MenuItem {
@@ -45,6 +82,18 @@ interface ApiResponse<T> {
 export const categoriesService = {
   async getAll(): Promise<Category[]> {
     const response = await api.get<ApiResponse<Category[]>>('/categories');
+    return response.data.data;
+  },
+
+  /** Árbol anidado de categorías */
+  async getTree(): Promise<CategoryNode[]> {
+    const response = await api.get<ApiResponse<CategoryNode[]>>('/categories', { params: { tree: 1 } });
+    return response.data.data;
+  },
+
+  /** Menú tal como lo ven los meseros (app móvil / tablet) */
+  async getMenuPreview(): Promise<MenuCategoryNode[]> {
+    const response = await api.get<ApiResponse<MenuCategoryNode[]>>('/menu/categories');
     return response.data.data;
   },
 
