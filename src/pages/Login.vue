@@ -5,8 +5,8 @@
         <v-card width="400" elevation="10" class="pa-6">
           <div class="text-center mb-6">
             <v-icon size="60" color="primary" class="mb-4">mdi-bread-slice</v-icon>
-            <h1 class="text-h4 text-primary mb-2">Sabores del Trigo</h1>
-            <p class="text-body-1 text-grey-darken-1">Sistema de Gestión</p>
+            <h1 class="text-h4 text-primary mb-2">{{ APP_NAME }}</h1>
+            <p class="text-body-1 text-grey-darken-1">{{ APP_TAGLINE }}</p>
           </div>
 
           <v-form @submit.prevent="login">
@@ -69,6 +69,7 @@
 </template>
 
 <script setup lang="ts">
+import { APP_NAME, APP_TAGLINE } from '@/utils/branding';
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useForm } from 'vee-validate'

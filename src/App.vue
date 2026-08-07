@@ -95,6 +95,7 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { effectiveFeatures } from './types/auth'
+import { APP_NAME } from './utils/branding'
 import { SUBSCRIPTION_BLOCKED_EVENT } from './services/api'
 import type { MenuItem } from './types'
 
@@ -111,7 +112,7 @@ const isAdmin = computed(() => authStore.isAdmin)
 const isSuperAdmin = computed(() => currentUser.value?.role === 'super_admin')
 // Company of the logged-in session (multi-tenant backend).
 const companyName = computed(() =>
-  isSuperAdmin.value ? 'Plataforma' : (currentUser.value?.company?.name || 'Sabores del Trigo')
+  isSuperAdmin.value ? 'Plataforma' : (currentUser.value?.company?.name || APP_NAME)
 )
 
 // --- Aviso de suscripción ---
@@ -186,7 +187,7 @@ const availableMenuItems = computed((): MenuItem[] => {
 
 const pageTitle = computed((): string => {
   const item = allMenuItems.find((item: MenuItem) => item.route === route.path)
-  return item?.title || 'Sabores del Trigo'
+  return item?.title || APP_NAME
 })
 
 const logout = async (): Promise<void> => {
