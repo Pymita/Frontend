@@ -266,6 +266,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors';
 import { computed, ref, onMounted } from 'vue';
 import { tablesService, type DiningTable, type DiningTableStatus } from '@/services/tablesService';
 import { tableStatusLabels, label } from '@/utils/labels';
@@ -324,7 +325,7 @@ const loadTables = async () => {
   try {
     tables.value = await tablesService.getAll();
   } catch (error) {
-    showMessage('Error al cargar mesas', 'error');
+    showMessage(errorMessage(error, 'Error al cargar mesas'), 'error');
   } finally {
     loading.value = false;
   }
@@ -389,7 +390,7 @@ const save = async () => {
     dialog.value = false;
     loadTables();
   } catch (error) {
-    showMessage('Error al guardar', 'error');
+    showMessage(errorMessage(error, 'Error al guardar'), 'error');
   } finally {
     saving.value = false;
   }
@@ -427,7 +428,7 @@ const deleteTable = async () => {
     dialog.value = false;
     loadTables();
   } catch (error) {
-    showMessage('Error al eliminar', 'error');
+    showMessage(errorMessage(error, 'Error al eliminar'), 'error');
   }
 };
 
@@ -437,7 +438,7 @@ const releaseTable = async (table: DiningTable) => {
     showMessage('Mesa liberada');
     loadTables();
   } catch (error) {
-    showMessage('Error al liberar mesa', 'error');
+    showMessage(errorMessage(error, 'Error al liberar mesa'), 'error');
   }
 };
 

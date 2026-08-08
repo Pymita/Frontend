@@ -441,6 +441,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors';
 import { ref, computed, onMounted } from 'vue'
 import { expensesService, type Expense, type ExpenseCategory, type ExpenseSummary } from '@/services/expensesService'
 import { expenseCategoryTypeLabels, label } from '@/utils/labels'
@@ -536,7 +537,7 @@ const loadExpenses = async () => {
     })
   } catch (error) {
     console.error('[Gastos] Error al cargar:', error)
-    showMessage('Error al cargar gastos', 'error')
+    showMessage(errorMessage(error, 'Error al cargar gastos'), 'error')
   } finally {
     loadingExpenses.value = false
   }
@@ -549,7 +550,7 @@ const loadCategorias = async () => {
     console.log('[Gastos] Categorías cargadas:', categorias.value)
   } catch (error) {
     console.error('[Gastos] Error al cargar categorías:', error)
-    showMessage('Error al cargar categorías', 'error')
+    showMessage(errorMessage(error, 'Error al cargar categorías'), 'error')
   } finally {
     loadingCategorias.value = false
   }
@@ -561,7 +562,7 @@ const loadProducts = async () => {
     console.log('[Gastos] Productos cargados:', products.value.length)
   } catch (error) {
     console.error('[Gastos] Error al cargar productos:', error)
-    showMessage('Error al cargar productos', 'error')
+    showMessage(errorMessage(error, 'Error al cargar productos'), 'error')
   }
 }
 
@@ -574,7 +575,7 @@ const loadResumen = async () => {
     })
   } catch (error) {
     console.error('[Gastos] Error al cargar resumen:', error)
-    showMessage('Error al cargar resumen', 'error')
+    showMessage(errorMessage(error, 'Error al cargar resumen'), 'error')
   } finally {
     loadingResumen.value = false
   }
@@ -618,7 +619,7 @@ const saveExpense = async () => {
     loadResumen()
   } catch (error) {
     console.error('[Gastos] Error al guardar:', error)
-    showMessage('Error al guardar gasto', 'error')
+    showMessage(errorMessage(error, 'Error al guardar gasto'), 'error')
   } finally {
     saving.value = false
   }
@@ -634,7 +635,7 @@ const deleteExpense = async (expense: Expense) => {
     loadResumen()
   } catch (error) {
     console.error('[Gastos] Error al eliminar:', error)
-    showMessage('Error al eliminar gasto', 'error')
+    showMessage(errorMessage(error, 'Error al eliminar gasto'), 'error')
   }
 }
 
@@ -670,7 +671,7 @@ const saveCategoria = async () => {
     loadCategorias()
   } catch (error) {
     console.error('[Gastos] Error al guardar categoría:', error)
-    showMessage('Error al guardar categoría', 'error')
+    showMessage(errorMessage(error, 'Error al guardar categoría'), 'error')
   } finally {
     saving.value = false
   }
@@ -685,7 +686,7 @@ const deleteCategoria = async (categoria: ExpenseCategory) => {
     loadCategorias()
   } catch (error) {
     console.error('[Gastos] Error al eliminar categoría:', error)
-    showMessage('Error al eliminar categoría', 'error')
+    showMessage(errorMessage(error, 'Error al eliminar categoría'), 'error')
   }
 }
 

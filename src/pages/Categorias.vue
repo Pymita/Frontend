@@ -162,6 +162,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors';
 import { computed, ref, onMounted } from 'vue';
 import EmojiPicker from '@/components/EmojiPicker.vue';
 import ImageUploader from '@/components/ImageUploader.vue';
@@ -233,7 +234,7 @@ const loadData = async () => {
     itemsMenu.value = itemsData;
   } catch (error: any) {
     console.error('[Categorias] Error al cargar datos:', error);
-    showMessage('Error al cargar datos: ' + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'Error al cargar datos: ') + (error.response?.data?.message || error.message), 'error');
   } finally {
     loading.value = false;
   }
@@ -286,7 +287,7 @@ const save = async () => {
     loadData();
   } catch (error: any) {
     console.error('[Categorias] Error al guardar:', error);
-    showMessage('Error al guardar: ' + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'Error al guardar: ') + (error.response?.data?.message || error.message), 'error');
   } finally {
     saving.value = false;
   }
@@ -311,7 +312,7 @@ const deleteCategoria = async (categoria: Category) => {
     loadData();
   } catch (error: any) {
     console.error('[Categorias] Error al eliminar:', error);
-    showMessage('Error al eliminar: ' + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'Error al eliminar: ') + (error.response?.data?.message || error.message), 'error');
   }
 };
 

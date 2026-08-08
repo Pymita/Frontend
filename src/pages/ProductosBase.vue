@@ -515,6 +515,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors';
 import { ref, computed, onMounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { effectiveFeatures } from '@/types/auth';
@@ -712,7 +713,7 @@ const updateStock = async () => {
     stockAjuste.value = 0;
     loadData();
   } catch (error) {
-    showMessage('Error al actualizar stock', 'error');
+    showMessage(errorMessage(error, 'Error al actualizar stock'), 'error');
   } finally {
     saving.value = false;
   }
@@ -780,7 +781,7 @@ const loadData = async () => {
   } catch (error: any) {
     console.error('[ProductosBase] Error al cargar datos:', error);
     console.error('[ProductosBase] Error response:', error.response);
-    showMessage('Error al cargar datos: ' + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'Error al cargar datos: ') + (error.response?.data?.message || error.message), 'error');
   } finally {
     loading.value = false;
   }
@@ -907,7 +908,7 @@ const deleteProduct = async (product: Product) => {
     showMessage('Producto eliminado');
     loadData();
   } catch (error) {
-    showMessage('Error al eliminar', 'error');
+    showMessage(errorMessage(error, 'Error al eliminar'), 'error');
   }
 };
 

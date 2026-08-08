@@ -342,6 +342,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors';
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { recipesService, type Recipe, type RecipeIngredientPayload, type RecipePayload } from '@/services/recipesService';
@@ -537,7 +538,7 @@ const loadData = async () => {
   } catch (error: any) {
     console.error('[Recetas] Error al cargar datos:', error);
     console.error('[Recetas] Error response:', error.response);
-    showMessage('Error al cargar datos: ' + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'Error al cargar datos: ') + (error.response?.data?.message || error.message), 'error');
   } finally {
     loading.value = false;
   }
@@ -655,7 +656,7 @@ const save = async () => {
     closeDialog();
     loadData();
   } catch (error) {
-    showMessage('Error al guardar', 'error');
+    showMessage(errorMessage(error, 'Error al guardar'), 'error');
   } finally {
     saving.value = false;
   }
@@ -668,7 +669,7 @@ const deleteRecipe = async (recipe: Recipe) => {
     showMessage('Receta eliminada');
     loadData();
   } catch (error) {
-    showMessage('Error al eliminar', 'error');
+    showMessage(errorMessage(error, 'Error al eliminar'), 'error');
   }
 };
 

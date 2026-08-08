@@ -477,6 +477,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors';
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import {
   ordersService,
@@ -664,7 +665,7 @@ const loadOrders = async () => {
       today: soloHoy.value,
     });
   } catch (error) {
-    showMessage('Error al cargar pedidos', 'error');
+    showMessage(errorMessage(error, 'Error al cargar pedidos'), 'error');
   } finally {
     loading.value = false;
   }
@@ -706,7 +707,7 @@ const marcarPagado = async (order: Order) => {
     showMessage('Pedido marcado como pagado');
     loadOrders();
   } catch (error) {
-    showMessage('Error al marcar como pagado', 'error');
+    showMessage(errorMessage(error, 'Error al marcar como pagado'), 'error');
   }
 };
 
@@ -732,7 +733,7 @@ const applyDiscount = async () => {
     discountDialog.value = false;
     loadOrders();
   } catch (error) {
-    showMessage('Error al aplicar descuento', 'error');
+    showMessage(errorMessage(error, 'Error al aplicar descuento'), 'error');
   } finally {
     saving.value = false;
   }
@@ -786,7 +787,7 @@ const cancelarPedido = async (order: Order) => {
     showMessage('Pedido cancelado');
     loadOrders();
   } catch (error) {
-    showMessage('Error al cancelar', 'error');
+    showMessage(errorMessage(error, 'Error al cancelar'), 'error');
   }
 };
 
@@ -814,7 +815,7 @@ const guardarItem = async () => {
     editItemDialog.value = false;
     loadOrders();
   } catch (error) {
-    showMessage('Error al actualizar', 'error');
+    showMessage(errorMessage(error, 'Error al actualizar'), 'error');
   } finally {
     saving.value = false;
   }
@@ -830,7 +831,7 @@ const eliminarItem = async () => {
     editItemDialog.value = false;
     loadOrders();
   } catch (error) {
-    showMessage('Error al eliminar', 'error');
+    showMessage(errorMessage(error, 'Error al eliminar'), 'error');
   } finally {
     saving.value = false;
   }
@@ -880,7 +881,7 @@ const crearPedidoRapido = async () => {
     loadOrders();
   } catch (error: any) {
     console.error('[Pedidos] Error al crear pedido rápido:', error);
-    showMessage('Error al crear pedido: ' + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'Error al crear pedido: ') + (error.response?.data?.message || error.message), 'error');
   } finally {
     saving.value = false;
   }

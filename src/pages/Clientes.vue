@@ -191,6 +191,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors';
 import { ref, computed, onMounted } from 'vue'
 import { billingService, type Customer, type PersonType } from '@/services/billingService'
 
@@ -276,7 +277,7 @@ const loadClientes = async () => {
     clientes.value = await billingService.getCustomers()
   } catch (error) {
     console.error('[Clientes] Error al cargar:', error)
-    showMessage('Error al cargar clientes', 'error')
+    showMessage(errorMessage(error, 'Error al cargar clientes'), 'error')
   } finally {
     loading.value = false
   }
@@ -319,7 +320,7 @@ const save = async () => {
     loadClientes()
   } catch (error) {
     console.error('[Clientes] Error al guardar:', error)
-    showMessage('Error al guardar cliente', 'error')
+    showMessage(errorMessage(error, 'Error al guardar cliente'), 'error')
   } finally {
     saving.value = false
   }
@@ -334,7 +335,7 @@ const deleteCliente = async (cliente: Customer) => {
     loadClientes()
   } catch (error) {
     console.error('[Clientes] Error al eliminar:', error)
-    showMessage('Error al eliminar cliente', 'error')
+    showMessage(errorMessage(error, 'Error al eliminar cliente'), 'error')
   }
 }
 
