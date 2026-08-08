@@ -47,7 +47,7 @@
                 <v-select
                   v-model="filterCategoria"
                   :items="categorias"
-                  item-title="name"
+                  :item-title="(c: any) => c.path || c.name"
                   item-value="id"
                   label="Categoría"
                   clearable
@@ -174,7 +174,7 @@
               <span v-else class="text-grey">-</span>
             </template>
             <template #item.actions="{ item }">
-              <v-tooltip v-if="item.type !== 'raw_material'" text="Gestionar receta">
+              <v-tooltip v-if="hasRecipes && item.type !== 'raw_material'" text="Gestionar receta">
                 <template #activator="{ props }">
                   <v-btn
                     v-bind="props"
@@ -211,7 +211,7 @@
     </v-row>
 
     <!-- Dialog Producto -->
-    <v-dialog v-model="dialog" max-width="700" persistent>
+    <v-dialog v-model="dialog" max-width="900" persistent>
       <v-card>
         <v-card-title>{{ editing ? 'Editar Producto' : 'Nuevo Producto' }}</v-card-title>
         <v-card-text>
@@ -221,7 +221,7 @@
 
           <v-form ref="form" @submit.prevent="save">
             <v-row>
-              <v-col cols="12" md="8">
+              <v-col cols="12" md="6">
                 <v-text-field
                   v-model="formData.name"
                   label="Nombre del producto *"
@@ -229,16 +229,16 @@
                   required
                 />
               </v-col>
-              <v-col cols="12" md="2">
+              <v-col cols="12" sm="6" md="3">
                 <v-text-field
                   v-model="formData.sku"
                   label="SKU (opcional)"
-                  :hint="!formData.sku?.trim() ? `Se generará: ${skuPreview}` : 'Código interno del producto'"
+                  :hint="!formData.sku?.trim() ? `Se generará: ${skuPreview}` : 'Código interno'"
                   persistent-hint
                   placeholder="Automático"
                 />
               </v-col>
-              <v-col cols="12" md="2">
+              <v-col cols="12" sm="6" md="3">
                 <v-text-field
                   v-model="formData.barcode"
                   label="Código de barras"
@@ -276,7 +276,7 @@
                 <v-select
                   v-model="formData.category_id"
                   :items="categorias"
-                  item-title="name"
+                  :item-title="(c: any) => c.path || c.name"
                   item-value="id"
                   label="Categoría"
                 />
@@ -294,28 +294,28 @@
                   required
                 />
               </v-col>
-              <v-col cols="12" md="6">
+              <v-col v-if="formData.type !== 'intermediate'" cols="12" md="3">
                 <v-text-field
-                  v-if="formData.type === 'raw_material'"
                   v-model.number="formData.unit_cost"
-                  label="Costo unitario"
+                  label="Precio de costo"
                   type="number"
                   step="0.01"
                   min="0"
                   prefix="$"
-                  hint="¿Cuánto cuesta comprar una unidad?"
+                  hint="¿Cuánto te cuesta a ti?"
                   persistent-hint
                   :rules="[v => v >= 0 || 'Costo inválido']"
                 />
+              </v-col>
+              <v-col v-if="formData.type === 'final'" cols="12" md="3">
                 <v-text-field
-                  v-if="formData.type === 'final'"
                   v-model.number="formData.sale_price"
                   label="Precio de venta *"
                   type="number"
                   step="100"
                   min="0"
                   prefix="$"
-                  hint="¿A qué precio lo vendes?"
+                  :hint="marginHint"
                   persistent-hint
                   :rules="[v => v > 0 || 'Precio de venta requerido']"
                   required
@@ -508,7 +508,7 @@
       </v-card>
     </v-dialog>
 
-    <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="3000">
+    <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="snackbarColor === 'error' ? 9000 : 3000" closable>
       {{ snackbarText }}
     </v-snackbar>
   </v-container>
@@ -663,6 +663,19 @@ const calcularNuevoStock = computed(() => {
 
 // Función para generar SKU automáticamente
 // El backend genera SKUs secuenciales por empresa (MP-0001, FIN-0001...).
+/** Muestra la ganancia al poner el precio: evita vender a pérdida. */
+const marginHint = computed(() => {
+  const cost = Number(formData.value.unit_cost) || 0
+  const price = Number(formData.value.sale_price) || 0
+
+  if (!cost || !price) return '¿A qué precio lo vendes?'
+  if (price <= cost) return '⚠️ Estás vendiendo por debajo del costo'
+
+  const profit = price - cost
+  const margin = Math.round((profit / price) * 100)
+  return `Ganas $${profit.toLocaleString('es-CO')} por unidad (${margin}%)`
+})
+
 const skuPreview = computed(() => {
   const prefijo =
     formData.value.type === 'raw_material' ? 'MP'

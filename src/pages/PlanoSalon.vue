@@ -196,7 +196,7 @@
       </v-card>
     </v-dialog>
 
-    <v-snackbar v-model="snackbar.open" :color="snackbar.color" timeout="3000">
+    <v-snackbar v-model="snackbar.open" :color="snackbar.color" :timeout="snackbar.color === 'error' ? 9000 : 3000" closable>
       {{ snackbar.text }}
     </v-snackbar>
   </v-container>

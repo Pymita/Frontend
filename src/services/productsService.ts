@@ -52,6 +52,10 @@ export interface Category {
   id: number;
   name: string;
   description?: string;
+  parent_id?: number | null;
+  /** Ruta completa, ej. "Bebidas › Cervezas › Nacionales" */
+  path?: string;
+  depth?: number;
 }
 
 class ProductsService {
