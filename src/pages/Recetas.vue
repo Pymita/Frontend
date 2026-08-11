@@ -9,10 +9,9 @@
               Define los ingredientes y cantidades de cada producto
             </p>
           </div>
-          <v-btn color="primary" size="large" @click="openDialog()">
-            <v-icon start>mdi-plus</v-icon>
+          <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
             Nueva Receta
-          </v-btn>
+          </LockableButton>
         </div>
       </v-col>
     </v-row>
@@ -57,10 +56,10 @@
               <span v-else class="text-grey">-</span>
             </template>
             <template #item.actions="{ item }">
-              <v-btn icon size="small" variant="text" @click="openDialog(item)">
+              <v-btn icon size="small" variant="text" :disabled="isReadOnly" @click="openDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
-              <v-btn icon size="small" variant="text" color="error" @click="deleteRecipe(item)">
+              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" @click="deleteRecipe(item)">
                 <v-icon size="small">mdi-delete</v-icon>
               </v-btn>
             </template>
@@ -348,6 +347,11 @@ import { useRoute } from 'vue-router';
 import { recipesService, type Recipe, type RecipeIngredientPayload, type RecipePayload } from '@/services/recipesService';
 import { productsService, type Product } from '@/services/productsService';
 import { menuItemsService, type MenuItem } from '@/services/menuService';
+import LockableButton from '../components/LockableButton.vue'
+import { useReadOnly } from '../composables/useReadOnly'
+
+// Suscripción vencida: las acciones que escriben quedan en gris.
+const isReadOnly = useReadOnly()
 
 const route = useRoute();
 

@@ -16,10 +16,9 @@
           <div class="d-flex align-center mb-3">
             <h2 class="text-h6">Tipos de Documento</h2>
             <v-spacer />
-            <v-btn color="primary" size="small" @click="openDocDialog()">
-              <v-icon start size="small">mdi-plus</v-icon>
+            <LockableButton icon="mdi-plus" color="primary" size="small" @click="openDocDialog()">
               Nuevo
-            </v-btn>
+            </LockableButton>
           </div>
           <v-table density="compact">
             <thead>
@@ -42,7 +41,7 @@
                   </v-chip>
                 </td>
                 <td class="text-right">
-                  <v-btn icon size="x-small" variant="text" @click="openDocDialog(dt)">
+                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" @click="openDocDialog(dt)">
                     <v-icon size="small">mdi-pencil</v-icon>
                   </v-btn>
                   <v-btn
@@ -71,10 +70,9 @@
           <div class="d-flex align-center mb-3">
             <h2 class="text-h6">Impuestos</h2>
             <v-spacer />
-            <v-btn color="primary" size="small" @click="openTaxDialog()">
-              <v-icon start size="small">mdi-plus</v-icon>
+            <LockableButton icon="mdi-plus" color="primary" size="small" @click="openTaxDialog()">
               Nuevo
-            </v-btn>
+            </LockableButton>
           </div>
           <v-table density="compact">
             <thead>
@@ -95,10 +93,10 @@
                   </v-chip>
                 </td>
                 <td class="text-right">
-                  <v-btn icon size="x-small" variant="text" @click="openTaxDialog(tax)">
+                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" @click="openTaxDialog(tax)">
                     <v-icon size="small">mdi-pencil</v-icon>
                   </v-btn>
-                  <v-btn icon size="x-small" variant="text" color="error" @click="deleteTax(tax)">
+                  <v-btn icon size="x-small" variant="text" color="error" :disabled="isReadOnly" @click="deleteTax(tax)">
                     <v-icon size="small">mdi-delete</v-icon>
                   </v-btn>
                 </td>
@@ -196,6 +194,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import kardexService, { type DocumentType, type Tax } from '../services/kardexService'
+import LockableButton from '../components/LockableButton.vue'
+import { useReadOnly } from '../composables/useReadOnly'
+
+// Suscripción vencida: las acciones que escriben quedan en gris.
+const isReadOnly = useReadOnly()
 
 const SYSTEM_CODES = ['SI', 'FC', 'FV', 'AJ']
 const isSystemCode = (code: string) => SYSTEM_CODES.includes(code)

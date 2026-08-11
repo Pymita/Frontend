@@ -24,8 +24,23 @@
         >
           Guardar plano
         </v-btn>
+        <!-- Cuenta vencida: el interruptor queda a la vista pero apagado. -->
+        <v-tooltip v-if="authStore.isAdmin && authStore.isReadOnly" location="bottom" max-width="320">
+          <template #activator="{ props: activator }">
+            <span v-bind="activator" class="d-inline-flex">
+              <v-switch
+                disabled
+                label="Editar plano"
+                hide-details
+                density="compact"
+              />
+            </span>
+          </template>
+          <div class="font-weight-medium">Tu suscripción está vencida</div>
+          <div class="text-caption">Renueva el pago para volver a editar el plano del salón.</div>
+        </v-tooltip>
         <v-switch
-          v-if="authStore.isAdmin"
+          v-else-if="authStore.isAdmin"
           v-model="editMode"
           color="primary"
           label="Editar plano"

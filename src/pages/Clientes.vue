@@ -11,10 +11,9 @@
               <p class="text-body-1 text-grey">Gestiona la base de datos de clientes para facturación</p>
             </div>
           </div>
-          <v-btn color="primary" size="large" @click="openDialog()">
-            <v-icon start>mdi-plus</v-icon>
+          <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
             Nuevo Cliente
-          </v-btn>
+          </LockableButton>
         </div>
       </v-col>
     </v-row>
@@ -77,12 +76,14 @@
                 icon="mdi-pencil"
                 size="small"
                 variant="text"
+                :disabled="isReadOnly"
                 @click="openDialog(item)" />
               <v-btn
                 icon="mdi-delete"
                 size="small"
                 variant="text"
                 color="error"
+                :disabled="isReadOnly"
                 @click="deleteCliente(item)" />
             </template>
           </v-data-table>
@@ -194,6 +195,11 @@
 import { errorMessage } from '@/utils/errors';
 import { ref, computed, onMounted } from 'vue'
 import { billingService, type Customer, type PersonType } from '@/services/billingService'
+import LockableButton from '../components/LockableButton.vue'
+import { useReadOnly } from '../composables/useReadOnly'
+
+// Suscripción vencida: las acciones que escriben quedan en gris.
+const isReadOnly = useReadOnly()
 
 interface ClienteForm {
   id?: number

@@ -10,14 +10,12 @@
             </p>
           </div>
           <div class="d-flex ga-2">
-            <v-btn variant="tonal" size="large" @click="bulkDialog = true">
-              <v-icon start>mdi-table-plus</v-icon>
+            <LockableButton icon="mdi-table-plus" variant="tonal" size="large" @click="bulkDialog = true">
               Crear varias
-            </v-btn>
-            <v-btn color="primary" size="large" @click="openDialog()">
-              <v-icon start>mdi-plus</v-icon>
+            </LockableButton>
+            <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
               Nueva Mesa
-            </v-btn>
+            </LockableButton>
           </div>
         </div>
       </v-col>
@@ -36,7 +34,7 @@
           :color="getCardColor(table)"
           :variant="table.status === 'available' ? 'outlined' : 'flat'"
           class="text-center pa-4"
-          @click="openDialog(table)"
+          @click="isReadOnly || openDialog(table)"
         >
           <v-card-text>
             <div class="text-h3 font-weight-bold" :class="getTextColor(table)">
@@ -72,6 +70,7 @@
               icon
               size="small"
               variant="text"
+              :disabled="isReadOnly"
               @click.stop="openDialog(table)"
             >
               <v-icon size="small">mdi-pencil</v-icon>
@@ -272,6 +271,11 @@ import { tablesService, type DiningTable, type DiningTableStatus } from '@/servi
 import { tableStatusLabels, label } from '@/utils/labels';
 import { useAuthStore } from '@/stores/auth';
 import { effectiveFeatures } from '@/types/auth';
+import LockableButton from '../components/LockableButton.vue'
+import { useReadOnly } from '../composables/useReadOnly'
+
+// Suscripción vencida: las acciones que escriben quedan en gris.
+const isReadOnly = useReadOnly()
 
 // El cobro por tiempo es un módulo: un restaurante no ofrece mesas de billar.
 const authStore = useAuthStore();

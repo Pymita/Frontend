@@ -22,6 +22,28 @@ export const useAuthStore = defineStore('auth', () => {
     return user.value?.active === true
   })
 
+  // Suscripción suspendida: la cuenta puede consultar pero no escribir.
+  // El backend responde 402 a cualquier escritura; la interfaz esconde
+  // las acciones para no ofrecer algo que va a fallar.
+  const blockedMessage = ref<string | null>(null)
+
+  const isReadOnly = computed((): boolean => {
+    if (user.value?.role === 'super_admin') return false
+    return blockedMessage.value !== null
+      || user.value?.company?.subscription?.status === 'suspended'
+  })
+
+  const readOnlyMessage = computed((): string | null => {
+    if (blockedMessage.value) return blockedMessage.value
+    const subscription = user.value?.company?.subscription
+    return subscription?.status === 'suspended' ? subscription.notice : null
+  })
+
+  /** El backend contestó 402: la cuenta acaba de quedar en solo lectura. */
+  const markBlocked = (message?: string | null): void => {
+    blockedMessage.value = message || 'Tu cuenta está en modo solo lectura por falta de pago'
+  }
+
   // Actions
   const login = async (credentials: LoginCredentials): Promise<void> => {
     isLoading.value = true
@@ -75,6 +97,7 @@ export const useAuthStore = defineStore('auth', () => {
   const clearAuth = (): void => {
     user.value = null
     token.value = null
+    blockedMessage.value = null
   }
 
   const initializeAuth = (): void => {
@@ -98,6 +121,8 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     isAdmin,
     isActive,
+    isReadOnly,
+    readOnlyMessage,
     
     // Actions
     login,
@@ -105,6 +130,7 @@ export const useAuthStore = defineStore('auth', () => {
     getCurrentUser,
     setUser,
     setToken,
+    markBlocked,
     clearAuth,
     initializeAuth
   }

@@ -9,10 +9,9 @@
               Gestiona las categorías del menú (aparecen en la app móvil)
             </p>
           </div>
-          <v-btn color="primary" size="large" @click="openDialog()">
-            <v-icon start>mdi-plus</v-icon>
+          <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
             Nueva Categoría
-          </v-btn>
+          </LockableButton>
         </div>
       </v-col>
     </v-row>
@@ -69,10 +68,10 @@
                   </v-btn>
                 </template>
               </v-tooltip>
-              <v-btn icon size="small" variant="text" @click="openDialog(item)">
+              <v-btn icon size="small" variant="text" :disabled="isReadOnly" @click="openDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
-              <v-btn icon size="small" variant="text" color="error" @click="deleteCategoria(item)">
+              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" @click="deleteCategoria(item)">
                 <v-icon size="small">mdi-delete</v-icon>
               </v-btn>
             </template>
@@ -168,6 +167,11 @@ import EmojiPicker from '@/components/EmojiPicker.vue';
 import ImageUploader from '@/components/ImageUploader.vue';
 import { categoriesService, menuItemsService, type Category, type MenuItem } from '@/services/menuService';
 import { resolveImageUrl } from '@/utils/images';
+import LockableButton from '../components/LockableButton.vue'
+import { useReadOnly } from '../composables/useReadOnly'
+
+// Suscripción vencida: las acciones que escriben quedan en gris.
+const isReadOnly = useReadOnly()
 
 const categorias = ref<Category[]>([]);
 const itemsMenu = ref<MenuItem[]>([]);

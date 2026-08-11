@@ -15,10 +15,9 @@
         <v-card>
           <v-card-title class="d-flex justify-space-between align-center">
             <span>Grupos</span>
-            <v-btn color="primary" size="small" @click="openGrupoDialog()">
-              <v-icon start>mdi-plus</v-icon>
+            <LockableButton icon="mdi-plus" color="primary" size="small" @click="openGrupoDialog()">
               Nuevo
-            </v-btn>
+            </LockableButton>
           </v-card-title>
           <v-divider />
           <v-list v-if="grupos.length > 0">
@@ -59,15 +58,15 @@
                 {{ selectedGrupo.name }}
               </v-chip>
             </span>
-            <v-btn
+            <LockableButton
+              icon="mdi-plus"
               color="primary"
               size="small"
               :disabled="!selectedGrupo"
               @click="openTipoDialog()"
             >
-              <v-icon start>mdi-plus</v-icon>
               Nuevo Tipo
-            </v-btn>
+            </LockableButton>
           </v-card-title>
           <v-divider />
           
@@ -93,10 +92,10 @@
               </v-chip>
             </template>
             <template #item.actions="{ item }">
-              <v-btn icon size="small" variant="text" @click="openTipoDialog(item)">
+              <v-btn icon size="small" variant="text" :disabled="isReadOnly" @click="openTipoDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
-              <v-btn icon size="small" variant="text" color="error" @click="deleteTipo(item)">
+              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" @click="deleteTipo(item)">
                 <v-icon size="small">mdi-delete</v-icon>
               </v-btn>
             </template>
@@ -204,6 +203,11 @@
 import { errorMessage } from '@/utils/errors';
 import { ref, onMounted, watch } from 'vue';
 import { variantGroupsService, variantsService, type VariantGroup, type Variant } from '@/services/variantsService';
+import LockableButton from '../components/LockableButton.vue'
+import { useReadOnly } from '../composables/useReadOnly'
+
+// Suscripción vencida: las acciones que escriben quedan en gris.
+const isReadOnly = useReadOnly()
 
 const grupos = ref<VariantGroup[]>([]);
 const tipos = ref<Variant[]>([]);

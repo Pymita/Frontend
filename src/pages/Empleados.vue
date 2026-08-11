@@ -9,10 +9,9 @@
               Crea las cuentas de tu equipo y decide a qué funciones tiene acceso cada uno
             </p>
           </div>
-          <v-btn color="primary" size="large" @click="openDialog()">
-            <v-icon start>mdi-account-plus</v-icon>
+          <LockableButton icon="mdi-account-plus" color="primary" size="large" @click="openDialog()">
             Nuevo Empleado
-          </v-btn>
+          </LockableButton>
         </div>
       </v-col>
     </v-row>
@@ -56,7 +55,7 @@
               {{ item.last_login_at ? formatDate(item.last_login_at) : 'Nunca' }}
             </template>
             <template #item.actions="{ item }">
-              <v-btn icon size="small" variant="text" @click="openDialog(item)">
+              <v-btn icon size="small" variant="text" :disabled="isReadOnly" @click="openDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
             </template>
@@ -168,6 +167,11 @@ import usersService, { type CompanyUser } from '../services/usersService'
 import { ALL_FEATURES, type Feature } from '../types/auth'
 import { useAuthStore } from '../stores/auth'
 import { PASSWORD_HINT, optionalPasswordRules, passwordRules } from '../utils/validation'
+import LockableButton from '../components/LockableButton.vue'
+import { useReadOnly } from '../composables/useReadOnly'
+
+// Suscripción vencida: las acciones que escriben quedan en gris.
+const isReadOnly = useReadOnly()
 
 const authStore = useAuthStore()
 const loading = ref(false)

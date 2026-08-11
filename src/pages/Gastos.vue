@@ -110,10 +110,9 @@
               <!-- Tab: Gastos -->
               <v-window-item value="expenses">
                 <div class="d-flex justify-space-between align-center mb-4">
-                  <v-btn color="success" size="large" @click="openExpenseDialog()">
-                    <v-icon start>mdi-plus</v-icon>
+                  <LockableButton icon="mdi-plus" color="success" size="large" @click="openExpenseDialog()">
                     Registrar Gasto
-                  </v-btn>
+                  </LockableButton>
                   <v-btn color="primary" variant="outlined" @click="tab = 'categorias'">
                     <v-icon start>mdi-shape</v-icon>
                     Gestionar Categorías
@@ -153,12 +152,14 @@
                       icon="mdi-pencil"
                       size="small"
                       variant="text"
+                      :disabled="isReadOnly"
                       @click="openExpenseDialog(item)" />
                     <v-btn
                       icon="mdi-delete"
                       size="small"
                       variant="text"
                       color="error"
+                      :disabled="isReadOnly"
                       @click="deleteExpense(item)" />
                   </template>
                 </v-data-table>
@@ -171,10 +172,9 @@
                   Cada categoría tiene un tipo que determina cómo se clasifica el expense en los reportes.
                 </v-alert>
 
-                <v-btn color="primary" class="mb-4" @click="openCategoriaDialog()">
-                  <v-icon start>mdi-plus</v-icon>
+                <LockableButton icon="mdi-plus" color="primary" class="mb-4" @click="openCategoriaDialog()">
                   Nueva Categoría
-                </v-btn>
+                </LockableButton>
 
                 <v-data-table
                   :headers="categoriasHeaders"
@@ -198,6 +198,7 @@
                       icon="mdi-pencil"
                       size="small"
                       variant="text"
+                      :disabled="isReadOnly"
                       @click="openCategoriaDialog(item)" />
                     <v-btn
                       icon="mdi-delete"
@@ -446,6 +447,11 @@ import { ref, computed, onMounted } from 'vue'
 import { expensesService, type Expense, type ExpenseCategory, type ExpenseSummary } from '@/services/expensesService'
 import { expenseCategoryTypeLabels, label } from '@/utils/labels'
 import { productsService, type Product } from '@/services/productsService'
+import LockableButton from '../components/LockableButton.vue'
+import { useReadOnly } from '../composables/useReadOnly'
+
+// Suscripción vencida: las acciones que escriben quedan en gris.
+const isReadOnly = useReadOnly()
 
 const tab = ref('expenses')
 const loadingExpenses = ref(false)

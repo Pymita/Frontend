@@ -10,10 +10,9 @@
             </p>
           </div>
           <div class="d-flex justify-space-between">
-            <v-btn class="mr-2" color="success" size="large" @click="openPedidoRapidoDialog">
-              <v-icon start>mdi-cash-fast</v-icon>
+            <LockableButton icon="mdi-cash-fast" class="mr-2" color="success" size="large" @click="openPedidoRapidoDialog">
               Pedido Rápido
-            </v-btn>
+            </LockableButton>
             <v-btn-toggle v-model="filterPago" color="primary" mandatory>
               <v-btn value="all">Todos</v-btn>
               <v-btn value="pending">Pendientes</v-btn>
@@ -537,6 +536,7 @@ import {
   orderPaymentMethodLabels,
   label,
 } from '@/utils/labels';
+import LockableButton from '../components/LockableButton.vue'
 
 const orders = ref<Order[]>([]);
 const loading = ref(true);

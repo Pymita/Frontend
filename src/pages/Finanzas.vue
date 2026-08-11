@@ -144,10 +144,9 @@
           <div class="d-flex align-center mb-1">
             <h2 class="text-h6">Movimientos manuales</h2>
             <v-spacer />
-            <v-btn color="primary" size="small" @click="openMovementDialog()">
-              <v-icon start size="small">mdi-plus</v-icon>
+            <LockableButton icon="mdi-plus" color="primary" size="small" @click="openMovementDialog()">
               Registrar movimiento
-            </v-btn>
+            </LockableButton>
           </div>
           <p class="text-caption text-grey mb-3">
             Plata que entra o sale sin ser una venta ni una compra: aportes tuyos,
@@ -179,10 +178,10 @@
                 </td>
                 <td class="text-caption text-grey">{{ effectLabel(movement) }}</td>
                 <td class="text-right">
-                  <v-btn icon size="x-small" variant="text" @click="openMovementDialog(movement)">
+                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" @click="openMovementDialog(movement)">
                     <v-icon size="small">mdi-pencil</v-icon>
                   </v-btn>
-                  <v-btn icon size="x-small" variant="text" color="error" @click="removeMovement(movement)">
+                  <v-btn icon size="x-small" variant="text" color="error" :disabled="isReadOnly" @click="removeMovement(movement)">
                     <v-icon size="small">mdi-delete</v-icon>
                   </v-btn>
                 </td>
@@ -275,6 +274,11 @@ import kardexService, {
   type MovementKind,
   type MovementKindOption,
 } from '../services/kardexService'
+import LockableButton from '../components/LockableButton.vue'
+import { useReadOnly } from '../composables/useReadOnly'
+
+// Suscripción vencida: las acciones que escriben quedan en gris.
+const isReadOnly = useReadOnly()
 
 const loadingIncome = ref(false)
 const income = ref<IncomeStatement | null>(null)

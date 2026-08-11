@@ -11,10 +11,9 @@
                 : 'Lo que vendes y su inventario' }}
             </p>
           </div>
-          <v-btn color="primary" size="large" @click="openDialog()">
-            <v-icon start>mdi-plus</v-icon>
+          <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
             Nuevo Producto
-          </v-btn>
+          </LockableButton>
         </div>
       </v-col>
     </v-row>
@@ -191,7 +190,7 @@
 
               <v-tooltip text="Editar producto">
                 <template #activator="{ props }">
-                  <v-btn v-bind="props" icon size="small" variant="text" @click="openDialog(item)">
+                  <v-btn v-bind="props" icon size="small" variant="text" :disabled="isReadOnly" @click="openDialog(item)">
                     <v-icon size="small">mdi-pencil</v-icon>
                   </v-btn>
                 </template>
@@ -199,7 +198,7 @@
 
               <v-tooltip text="Eliminar producto">
                 <template #activator="{ props }">
-                  <v-btn v-bind="props" icon size="small" variant="text" color="error" @click="deleteProduct(item)">
+                  <v-btn v-bind="props" icon size="small" variant="text" color="error" :disabled="isReadOnly" @click="deleteProduct(item)">
                     <v-icon size="small">mdi-delete</v-icon>
                   </v-btn>
                 </template>
@@ -531,6 +530,11 @@ import { productsService, productCategoriesService, type Product, type Category,
 import { menuItemsService } from '@/services/menuService';
 import { variantGroupsService, type VariantGroup } from '@/services/variantsService';
 import { productTypeLabels, label } from '@/utils/labels';
+import LockableButton from '../components/LockableButton.vue'
+import { useReadOnly } from '../composables/useReadOnly'
+
+// Suscripción vencida: las acciones que escriben quedan en gris.
+const isReadOnly = useReadOnly()
 
 const router = useRouter();
 

@@ -118,13 +118,11 @@ const companyName = computed(() =>
 )
 
 // --- Aviso de suscripción ---
-const blockedMessage = ref<string | null>(null)
-
 const subscriptionStatus = computed(() => currentUser.value?.company?.subscription?.status)
 
 const subscriptionNotice = computed(() => {
-  if (blockedMessage.value) return blockedMessage.value
   if (isSuperAdmin.value) return null
+  if (authStore.readOnlyMessage) return authStore.readOnlyMessage
 
   const subscription = currentUser.value?.company?.subscription
   if (!subscription || subscription.status === 'active') return null
@@ -133,15 +131,15 @@ const subscriptionNotice = computed(() => {
 })
 
 const subscriptionAlertType = computed(() => {
-  if (blockedMessage.value || subscriptionStatus.value === 'suspended') return 'error'
+  if (authStore.isReadOnly) return 'error'
   if (subscriptionStatus.value === 'grace') return 'warning'
   return 'info'
 })
 
-// El backend responde 402 cuando la cuenta quedó en solo lectura.
+// El backend responde 402 cuando la cuenta quedó en solo lectura: se marca
+// en el store para que además desaparezcan las acciones que escriben.
 const onSubscriptionBlocked = (event: Event) => {
-  blockedMessage.value =
-    (event as CustomEvent).detail || 'Tu cuenta está en modo solo lectura por falta de pago'
+  authStore.markBlocked((event as CustomEvent).detail)
 }
 
 const allMenuItems: MenuItem[] = [
