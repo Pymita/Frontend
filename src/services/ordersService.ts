@@ -41,6 +41,10 @@ export interface OrderTime {
   started_at: string;
   ended_at: string | null;
   running: boolean;
+  /** Minutos acordados; null = el reloj cuenta hacia adelante */
+  planned_minutes: number | null;
+  /** Minutos restantes (negativo si se pasaron del acordado) */
+  remaining_minutes: number | null;
   rate: number;
   increment_minutes: number;
   minutes_billed: number | null;
@@ -131,6 +135,12 @@ export const ordersService = {
 
   async cancel(id: number): Promise<Order> {
     const response = await api.post<ApiResponse<Order>>(`/orders/${id}/cancel`);
+    return response.data.data;
+  },
+
+  /** Revertir un cobro (solo admin): exige motivo y queda en las notas */
+  async revertPayment(id: number, reason: string): Promise<Order> {
+    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/revert-payment`, { reason });
     return response.data.data;
   },
 

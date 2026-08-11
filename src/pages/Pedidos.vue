@@ -101,33 +101,39 @@
             </template>
             
             <template #item.actions="{ item }">
-              <v-menu v-if="item.payment_status !== 'paid'">
+              <v-menu>
                 <template #activator="{ props }">
                   <v-btn icon size="small" variant="text" v-bind="props">
                     <v-icon>mdi-dots-vertical</v-icon>
                   </v-btn>
                 </template>
                 <v-list density="compact">
-                  <v-list-item @click="marcarPagado(item)">
+                  <v-list-item v-if="item.payment_status === 'paid' && isAdmin" @click="openRevertDialog(item)">
+                    <template #prepend>
+                      <v-icon color="error">mdi-undo-variant</v-icon>
+                    </template>
+                    <v-list-item-title>Revertir cobro</v-list-item-title>
+                  </v-list-item>
+                  <v-list-item v-if="item.payment_status !== 'paid'" @click="marcarPagado(item)">
                     <template #prepend>
                       <v-icon color="success">mdi-cash-check</v-icon>
                     </template>
                     <v-list-item-title>Marcar como pagado</v-list-item-title>
                   </v-list-item>
-                  <v-list-item @click="openDiscountDialog(item)">
+                  <v-list-item v-if="item.payment_status !== 'paid'" @click="openDiscountDialog(item)">
                     <template #prepend>
                       <v-icon color="warning">mdi-percent</v-icon>
                     </template>
                     <v-list-item-title>Aplicar descuento</v-list-item-title>
                   </v-list-item>
-                  <v-list-item @click="openPagoDialog(item)">
+                  <v-list-item v-if="item.payment_status !== 'paid'" @click="openPagoDialog(item)">
                     <template #prepend>
                       <v-icon color="info">mdi-cash-plus</v-icon>
                     </template>
                     <v-list-item-title>Registrar pago parcial</v-list-item-title>
                   </v-list-item>
                   <v-divider />
-                  <v-list-item @click="cancelarPedido(item)">
+                  <v-list-item v-if="item.payment_status !== 'paid'" @click="cancelarPedido(item)">
                     <template #prepend>
                       <v-icon color="error">mdi-cancel</v-icon>
                     </template>
@@ -135,7 +141,13 @@
                   </v-list-item>
                 </v-list>
               </v-menu>
-              <v-chip v-else color="success" size="small" variant="flat">
+              <v-chip
+                v-if="item.payment_status === 'paid'"
+                color="success"
+                size="small"
+                variant="flat"
+                class="ml-1"
+              >
                 <v-icon start size="small">mdi-check</v-icon>
                 Pagado
               </v-chip>
@@ -188,7 +200,12 @@
                             <div class="d-flex justify-space-between mb-1 align-center">
                               <span>
                                 🎱 Tiempo
-                                <v-chip v-if="item.time.running" size="x-small" color="success" class="ml-1">
+                                <v-chip
+                                  v-if="item.time.running"
+                                  size="x-small"
+                                  :color="isOvertime(item.time) ? 'error' : 'success'"
+                                  class="ml-1"
+                                >
                                   {{ elapsedLabel(item.time) }}
                                 </v-chip>
                                 <span v-else class="text-caption text-grey">({{ item.time.minutes_billed }} min)</span>
@@ -246,6 +263,32 @@
         </v-card>
       </v-col>
     </v-row>
+
+    <!-- Dialog: revertir cobro -->
+    <v-dialog v-model="revertDialog" max-width="480" persistent>
+      <v-card>
+        <v-card-title>Revertir cobro</v-card-title>
+        <v-card-text>
+          <v-alert type="warning" variant="tonal" density="compact" class="mb-3">
+            El pedido volverá a quedar pendiente de pago y se borrarán los pagos
+            registrados. Queda anotado quién lo hizo y por qué.
+          </v-alert>
+          <v-text-field
+            v-model="revertReason"
+            label="¿Por qué se revierte? *"
+            placeholder="Ej: se cobró en la mesa equivocada"
+            autofocus
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="revertDialog = false">Cancelar</v-btn>
+          <v-btn color="error" :loading="saving" :disabled="!revertReason.trim()" @click="revertPayment">
+            Revertir cobro
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Dialog Descuento -->
     <v-dialog v-model="discountDialog" max-width="400">
@@ -478,6 +521,7 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/errors';
+import { useAuthStore } from '@/stores/auth';
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import {
   ordersService,
@@ -630,14 +674,39 @@ const showMessage = (text: string, color = 'success') => {
 };
 
 // --- Billar: reloj en vivo para los tiempos en curso ---
+const authStore = useAuthStore();
+// Revertir un cobro es una acción sensible: solo el admin.
+const isAdmin = computed(() => authStore.isAdmin);
+
 const nowTick = ref(Date.now());
 const tickInterval = setInterval(() => { nowTick.value = Date.now(); }, 15_000);
 onUnmounted(() => clearInterval(tickInterval));
 
-const elapsedLabel = (time: { started_at: string }): string => {
-  const minutes = Math.max(0, Math.floor((nowTick.value - new Date(time.started_at).getTime()) / 60000));
+const formatMinutes = (minutes: number): string => {
   const hours = Math.floor(minutes / 60);
   return hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+};
+
+/**
+ * Con tiempo acordado muestra lo que falta (o de cuánto se pasaron);
+ * sin acuerdo, el tiempo transcurrido.
+ */
+const elapsedLabel = (time: { started_at: string; planned_minutes?: number | null }): string => {
+  const elapsed = Math.max(0, Math.floor((nowTick.value - new Date(time.started_at).getTime()) / 60000));
+
+  if (!time.planned_minutes) return formatMinutes(elapsed);
+
+  const remaining = time.planned_minutes - elapsed;
+  return remaining >= 0
+    ? `faltan ${formatMinutes(remaining)}`
+    : `+${formatMinutes(Math.abs(remaining))} de más`;
+};
+
+/** Se pasaron del tiempo que acordaron. */
+const isOvertime = (time: { started_at: string; planned_minutes?: number | null }): boolean => {
+  if (!time.planned_minutes) return false;
+  const elapsed = (nowTick.value - new Date(time.started_at).getTime()) / 60000;
+  return elapsed > time.planned_minutes;
 };
 
 // Estimación en vivo con la misma regla del backend: fracción hacia arriba, mínimo una.
@@ -646,6 +715,33 @@ const liveTimeAmount = (time: { started_at: string; rate: number; increment_minu
   const increment = Math.max(1, time.increment_minutes || 15);
   const billed = Math.max(increment, Math.ceil(elapsed / increment) * increment);
   return Math.round((time.rate * billed) / 60 * 100) / 100;
+};
+
+// --- Revertir un cobro (solo admin) ---
+const revertDialog = ref(false);
+const revertReason = ref('');
+const revertingOrder = ref<Order | null>(null);
+
+const openRevertDialog = (order: Order) => {
+  revertingOrder.value = order;
+  revertReason.value = '';
+  revertDialog.value = true;
+};
+
+const revertPayment = async () => {
+  if (!revertingOrder.value || !revertReason.value.trim()) return;
+
+  saving.value = true;
+  try {
+    await ordersService.revertPayment(revertingOrder.value.id, revertReason.value.trim());
+    showMessage('Cobro revertido: el pedido quedó pendiente de pago');
+    revertDialog.value = false;
+    await loadOrders();
+  } catch (error: any) {
+    showMessage(errorMessage(error, 'No se pudo revertir el cobro'), 'error');
+  } finally {
+    saving.value = false;
+  }
 };
 
 const stopTime = async (order: Order) => {
