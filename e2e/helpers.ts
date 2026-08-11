@@ -38,3 +38,14 @@ export async function loginUI(page: Page, email: string, password: string): Prom
 export function sidebarItem(page: Page, title: string) {
   return page.locator('.v-navigation-drawer').getByText(title, { exact: true })
 }
+
+/**
+ * Campo de formulario de Vuetify por su etiqueta.
+ *
+ * `getByRole('combobox', { name })` solo funciona con v-autocomplete: en un
+ * v-select el rol vive en el contenedor y la etiqueta no le da nombre
+ * accesible, así que se busca el input por su label.
+ */
+export function field(page: Page, label: string) {
+  return page.locator(`.v-input:has(label:text-is("${label}"))`)
+}

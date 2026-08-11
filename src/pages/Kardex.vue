@@ -120,7 +120,7 @@
                 <th>Fecha</th>
                 <th>Doc.</th>
                 <th>Referencia</th>
-                <th v-if="!filters.product_id">Producto</th>
+                <th v-if="showProductColumn">Producto</th>
                 <th class="text-right">Entrada</th>
                 <th class="text-right">Salida</th>
                 <th class="text-right">Costo unit.</th>
@@ -133,10 +133,10 @@
             </thead>
             <tbody>
               <tr v-if="report?.opening_balance" class="bg-grey-lighten-4 font-weight-medium">
-                <td>{{ filters.from }}</td>
+                <td>{{ loadedFilters.from }}</td>
                 <td>—</td>
                 <td>SALDO ANTERIOR</td>
-                <td v-if="!filters.product_id"></td>
+                <td v-if="showProductColumn"></td>
                 <td colspan="4"></td>
                 <td class="text-right">{{ report.opening_balance.quantity }}</td>
                 <td class="text-right">{{ money(report.opening_balance.unit_cost) }}</td>
@@ -160,7 +160,7 @@
                   </v-tooltip>
                 </td>
                 <td>{{ m.reference || '—' }}</td>
-                <td v-if="!filters.product_id">{{ m.product.name }}</td>
+                <td v-if="showProductColumn">{{ m.product.name }}</td>
                 <td class="text-right text-success">
                   {{ m.movement_type === 'in' ? m.quantity : '' }}
                 </td>
@@ -182,7 +182,7 @@
             </tbody>
             <tfoot v-if="report && report.movements.length > 0">
               <tr class="font-weight-bold bg-grey-lighten-4">
-                <td :colspan="filters.product_id ? 3 : 4">Totales del periodo</td>
+                <td :colspan="showProductColumn ? 4 : 3">Totales del periodo</td>
                 <td class="text-right text-success">{{ report.totals.in_quantity }}</td>
                 <td class="text-right text-error">{{ report.totals.out_quantity }}</td>
                 <td></td>
@@ -204,7 +204,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import kardexService, { type DocumentType, type KardexFilters, type KardexReport } from '../services/kardexService'
 import { productsService } from '../services/productsService'
 
@@ -215,6 +215,13 @@ const products = ref<{ id: number; name: string }[]>([])
 const documentTypes = ref<DocumentType[]>([])
 
 const filters = ref<KardexFilters>({})
+
+// Filtros con los que se armó la tabla que se está viendo. Las columnas
+// dependen de ESTO y no de filters: si no, al elegir un producto la
+// columna Producto desaparecía mientras las filas seguían siendo de todos.
+const loadedFilters = ref<KardexFilters>({})
+
+const showProductColumn = computed(() => !loadedFilters.value.product_id)
 
 const snackbar = ref({ show: false, text: '', color: 'error' })
 const notify = (text: string, color = 'error') => {
@@ -229,8 +236,10 @@ const formatDate = (iso: string): string =>
 
 const load = async () => {
   loading.value = true
+  const applied = { ...filters.value }
   try {
-    report.value = await kardexService.report(filters.value)
+    report.value = await kardexService.report(applied)
+    loadedFilters.value = applied
   } catch (error: any) {
     notify(error.response?.data?.message || 'Error al cargar el kardex')
   } finally {
@@ -248,6 +257,19 @@ const exportExcel = async () => {
     exporting.value = false
   }
 }
+
+// Cambiar un filtro consulta solo. Se espera un momento porque las fechas
+// se escriben de a poco y no vale la pena una consulta por tecla.
+let reloadTimer: ReturnType<typeof setTimeout> | undefined
+
+watch(
+  filters,
+  () => {
+    clearTimeout(reloadTimer)
+    reloadTimer = setTimeout(load, 300)
+  },
+  { deep: true },
+)
 
 onMounted(async () => {
   try {
