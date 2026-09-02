@@ -52,6 +52,41 @@ export interface OrderTime {
   current_amount: number;
 }
 
+/** Datos de la factura sencilla (tirilla POS), no la e-factura DIAN. */
+export interface OrderReceipt {
+  business: {
+    name: string | null
+    legal_name: string | null
+    nit: string | null
+    address: string | null
+    city: string | null
+    phone: string | null
+  }
+  resolution: {
+    number: string
+    date: string | null
+    prefix: string | null
+    range_from: number | null
+    range_to: number | null
+  } | null
+  invoice_number: string | null
+  paid_at: string | null
+  created_at: string
+  is_paid: boolean
+  dining_table: string | null
+  waiter: string | null
+  customer: { name: string | null; document: string | null }
+  items: { quantity: number; name: string; unit_price: number; total: number; tax_rate: number }[]
+  subtotal: number
+  discount: number
+  delivery_fee: number
+  tip: number
+  included_vat: number
+  total: number
+  payment_methods: string[]
+  time_amount: number | null
+}
+
 export interface Order {
   id: number;
   dining_table: {
@@ -123,10 +158,21 @@ export const ordersService = {
     return response.data.data;
   },
 
-  async markPaid(id: number, paymentMethod?: OrderPaymentMethod): Promise<Order> {
+  async markPaid(
+    id: number,
+    payload: { payment_method?: OrderPaymentMethod; tip?: number; customer_id?: number | null } = {},
+  ): Promise<Order> {
     const response = await api.post<ApiResponse<Order>>(`/orders/${id}/pay`, {
-      ...(paymentMethod ? { payment_method: paymentMethod } : {}),
+      ...(payload.payment_method ? { payment_method: payload.payment_method } : {}),
+      ...(payload.tip ? { tip: payload.tip } : {}),
+      ...(payload.customer_id ? { customer_id: payload.customer_id } : {}),
     });
+    return response.data.data;
+  },
+
+  /** Factura sencilla (tirilla POS) del pedido. */
+  async receipt(id: number): Promise<OrderReceipt> {
+    const response = await api.get<ApiResponse<OrderReceipt>>(`/orders/${id}/receipt`);
     return response.data.data;
   },
 

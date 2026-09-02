@@ -117,11 +117,17 @@
                     </template>
                     <v-list-item-title>Revertir cobro</v-list-item-title>
                   </v-list-item>
-                  <v-list-item v-if="item.payment_status !== 'paid'" @click="marcarPagado(item)">
+                  <v-list-item v-if="item.payment_status !== 'paid'" @click="openPayDialog(item)">
                     <template #prepend>
                       <v-icon color="success">mdi-cash-check</v-icon>
                     </template>
-                    <v-list-item-title>Marcar como pagado</v-list-item-title>
+                    <v-list-item-title>Cobrar pedido</v-list-item-title>
+                  </v-list-item>
+                  <v-list-item v-if="item.payment_status === 'paid'" @click="printReceipt(item)">
+                    <template #prepend>
+                      <v-icon color="primary">mdi-receipt-text</v-icon>
+                    </template>
+                    <v-list-item-title>Imprimir factura</v-list-item-title>
                   </v-list-item>
                   <v-list-item v-if="item.payment_status !== 'paid' && isAdmin" @click="openDiscountDialog(item)">
                     <template #prepend>
@@ -289,6 +295,52 @@
           <v-btn color="error" :loading="saving" :disabled="!revertReason.trim()" @click="revertPayment">
             Revertir cobro
           </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Dialog Cobrar: método de pago, propina y cliente en un solo paso -->
+    <v-dialog v-model="payDialog" max-width="440" persistent>
+      <v-card v-if="selectedOrder">
+        <v-card-title>Cobrar Pedido #{{ selectedOrder.id }}</v-card-title>
+        <v-card-text>
+          <v-select
+            v-model="payMethod"
+            :items="payMethodOptions"
+            label="Método de pago"
+            class="mb-1"
+          />
+          <v-text-field
+            v-model.number="payTip"
+            label="Propina (opcional)"
+            type="number"
+            min="0"
+            prefix="$"
+            hint="Va aparte del total: no lleva descuentos ni impuestos"
+            persistent-hint
+            class="mb-1"
+          />
+          <v-autocomplete
+            v-model="payCustomerId"
+            :items="customers"
+            :item-title="(c: any) => `${c.name} (${c.document_number})`"
+            item-value="id"
+            label="Cliente (opcional)"
+            hint="Se registra en la venta y sale en la factura"
+            persistent-hint
+            clearable
+          />
+          <v-card flat color="grey-lighten-4" class="pa-3 mt-3 d-flex justify-space-between">
+            <span>Total a cobrar:</span>
+            <strong class="text-success">
+              ${{ (Number(selectedOrder.pending_balance ?? selectedOrder.total) + (payTip || 0)).toLocaleString('es-CO') }}
+            </strong>
+          </v-card>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="payDialog = false">Cancelar</v-btn>
+          <v-btn color="success" :loading="saving" @click="confirmarCobro">Cobrar</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -536,6 +588,7 @@ import {
   type OrderPaymentMethod,
   type PartialPaymentPayload,
 } from '@/services/ordersService';
+import { billingService, type Customer } from '@/services/billingService';
 import {
   orderStatusLabels,
   paymentStatusLabels,
@@ -804,15 +857,122 @@ const formatDate = (dateString: string) => {
   });
 };
 
-const marcarPagado = async (order: Order) => {
-  if (!confirm('¿Marcar este pedido como pagado?')) return;
+// --- Cobro: método, propina y cliente en un solo paso ---
+const payDialog = ref(false);
+const payMethod = ref<'cash' | 'credit_card' | 'debit_card' | 'transfer' | 'other'>('cash');
+const payTip = ref(0);
+const payCustomerId = ref<number | null>(null);
+const customers = ref<Customer[]>([]);
+
+const payMethodOptions = Object.entries(orderPaymentMethodLabels).map(([value, title]) => ({ value, title }));
+
+const openPayDialog = async (order: Order) => {
+  selectedOrder.value = order;
+  payMethod.value = 'cash';
+  payTip.value = 0;
+  payCustomerId.value = null;
+  payDialog.value = true;
+  // El catálogo de clientes se carga una sola vez, al primer cobro.
+  if (customers.value.length === 0) {
+    try {
+      customers.value = await billingService.getCustomers();
+    } catch {
+      // Sin permiso de clientes: el selector queda vacío y el cobro sigue.
+    }
+  }
+};
+
+const confirmarCobro = async () => {
+  if (!selectedOrder.value) return;
+  saving.value = true;
   try {
-    await ordersService.markPaid(order.id);
-    showMessage('Pedido marcado como pagado');
+    await ordersService.markPaid(selectedOrder.value.id, {
+      payment_method: payMethod.value,
+      tip: payTip.value > 0 ? payTip.value : undefined,
+      customer_id: payCustomerId.value ?? undefined,
+    });
+    showMessage('Pedido cobrado');
+    payDialog.value = false;
     loadOrders();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al marcar como pagado'), 'error');
+    showMessage(errorMessage(error, 'Error al cobrar'), 'error');
+  } finally {
+    saving.value = false;
   }
+};
+
+/**
+ * Tirilla POS: comprobante mínimo de la compra (no la e-factura DIAN).
+ * Se imprime en una ventana aparte con ancho de impresora térmica.
+ */
+const printReceipt = async (order: Order) => {
+  try {
+    const r = await ordersService.receipt(order.id);
+    const money = (v: number) => '$' + Number(v || 0).toLocaleString('es-CO');
+    const line = '-'.repeat(38);
+
+    const rows = r.items
+      .map(i => `${String(i.quantity).padEnd(4)}${i.name.slice(0, 22).padEnd(24)}${money(i.total).padStart(10)}`)
+      .join('\n');
+
+    const parts = [
+      center(r.business.name || ''),
+      center(r.business.legal_name || ''),
+      r.business.nit ? center(`NIT ${r.business.nit}`) : '',
+      center([r.business.address, r.business.city].filter(Boolean).join(' - ')),
+      r.business.phone ? center(`Tel. ${r.business.phone}`) : '',
+      line,
+      r.resolution ? `Resol. DIAN ${r.resolution.number}${r.resolution.date ? ' de ' + r.resolution.date : ''}` : '',
+      r.resolution?.range_from
+        ? `Autoriza de ${r.resolution.prefix ?? ''}${r.resolution.range_from} a ${r.resolution.prefix ?? ''}${r.resolution.range_to}`
+        : '',
+      r.invoice_number ? `FACTURA DE VENTA: ${r.invoice_number}` : `PEDIDO #${order.id}`,
+      line,
+      `CLIENTE : ${r.customer.name || 'Consumidor final'}`,
+      r.customer.document ? `CC/NIT  : ${r.customer.document}` : '',
+      `FECHA   : ${new Date(r.paid_at || r.created_at).toLocaleString('es-CO')}`,
+      r.dining_table ? `MESA    : ${r.dining_table}` : '',
+      r.waiter ? `ATENDIO : ${r.waiter}` : '',
+      line,
+      'CANT ARTICULO                    VALOR',
+      line,
+      rows,
+      line,
+      `SUBTOTAL :${money(r.subtotal).padStart(26)}`,
+      r.discount > 0 ? `DESCUENTO:${('-' + money(r.discount).slice(1)).padStart(26)}` : '',
+      r.included_vat > 0 ? `IVA INCL.:${money(r.included_vat).padStart(26)}` : '',
+      r.delivery_fee > 0 ? `DOMICILIO:${money(r.delivery_fee).padStart(26)}` : '',
+      r.tip > 0 ? `PROPINA  :${money(r.tip).padStart(26)}` : '',
+      `TOTAL    :${money(r.total).padStart(26)}`,
+      r.payment_methods.length
+        ? `FORMA DE PAGO: ${r.payment_methods.map(m => label(orderPaymentMethodLabels, m)).join(' + ')}`
+        : '',
+      line,
+      center('** GRACIAS POR SU COMPRA **'),
+    ].filter(Boolean).join('\n');
+
+    const win = window.open('', '_blank', 'width=420,height=650');
+    if (!win) {
+      showMessage('El navegador bloqueó la ventana de impresión', 'error');
+      return;
+    }
+    win.document.write(
+      `<html><head><title>${r.invoice_number || 'Pedido #' + order.id}</title>` +
+      '<style>body{font-family:monospace;font-size:12px;white-space:pre;width:80mm;margin:0 auto;padding:8px}</style>' +
+      `</head><body>${parts.replace(/</g, '&lt;')}</body></html>`,
+    );
+    win.document.close();
+    win.focus();
+    win.print();
+  } catch (error) {
+    showMessage(errorMessage(error, 'Error al generar la factura'), 'error');
+  }
+};
+
+const center = (text: string): string => {
+  const width = 38;
+  if (!text || text.length >= width) return text;
+  return ' '.repeat(Math.floor((width - text.length) / 2)) + text;
 };
 
 const openDiscountDialog = (order: Order) => {

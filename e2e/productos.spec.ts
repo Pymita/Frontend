@@ -35,13 +35,16 @@ test('los productos creados aparecen con su información en la tabla', async ({ 
   await page.goto('/productos-base')
 
   // La materia prima muestra nombre, categoría y su stock inicial (que
-  // entró por el kardex como saldo inicial SI).
+  // entró por el kardex como saldo inicial SI). El buscador trae cada fila
+  // a la vista aunque la tabla esté paginada por datos de otros tests.
+  await page.getByRole('textbox', { name: 'Buscar' }).fill('Harina E2E')
   const flourRow = page.locator('tr', { hasText: 'Harina E2E' })
   await expect(flourRow).toBeVisible()
   await expect(flourRow).toContainText('Categoría E2E')
   await expect(flourRow).toContainText('40')
 
   // El producto final muestra su precio de venta.
+  await page.getByRole('textbox', { name: 'Buscar' }).fill('Pan Campesino E2E')
   const breadRow = page.locator('tr', { hasText: 'Pan Campesino E2E' })
   await expect(breadRow).toBeVisible()
   await expect(breadRow).toContainText('8.000')

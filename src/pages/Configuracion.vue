@@ -272,7 +272,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import kardexService, { type DocumentType, type Tax } from '../services/kardexService'
 import invoicingService, { type InvoicingResolution, type ResolutionStatus } from '../services/invoicingService'
 import LockableButton from '../components/LockableButton.vue'
@@ -319,11 +319,17 @@ const resolutionForm = ref({
   valid_until: '',
 })
 
+// Si el usuario ya empezó a escribir, la carga asíncrona no debe pisar
+// sus datos (pasa con conexiones lentas y con los tests).
+const resolutionFormTouched = ref(false)
+watch(resolutionForm, () => { resolutionFormTouched.value = true }, { deep: true })
+
 const loadResolution = async () => {
   try {
     const [data, status] = await Promise.all([invoicingService.resolution(), invoicingService.status()])
     resolution.value = data
     resolutionStatus.value = status
+    if (resolutionFormTouched.value) return
     resolutionForm.value = {
       invoicing_resolution: data.invoicing_resolution || '',
       invoice_prefix: data.invoice_prefix || '',
