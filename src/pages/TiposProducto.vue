@@ -152,7 +152,16 @@
               label="Descripción"
               rows="2"
             />
-            <v-row>
+            <!-- Atajo para variantes tipo "sabor": mismo precio base sin
+                 tener que entender multiplicadores. -->
+            <v-checkbox
+              v-model="samePrice"
+              label="No cambia el precio (ej: sabor de jugo)"
+              density="compact"
+              hide-details
+              class="mb-2"
+            />
+            <v-row v-if="!samePrice">
               <v-col cols="6">
                 <v-text-field
                   v-model.number="tipoFormData.price_difference"
@@ -323,6 +332,10 @@ const deleteGrupo = async (grupo: VariantGroup) => {
   }
 };
 
+// Marcado por defecto: la mayoría de variantes (sabores, elecciones) no
+// cambian el precio; quien sí lo cambia desmarca y ve los dos campos.
+const samePrice = ref(true);
+
 const openTipoDialog = (tipo?: Variant) => {
   editingTipo.value = tipo || null;
   tipoFormData.value = tipo
@@ -340,6 +353,9 @@ const openTipoDialog = (tipo?: Variant) => {
         price_multiplier: 1,
         sort_order: 0,
       };
+  samePrice.value = tipo
+    ? Number(tipo.price_multiplier || 1) === 1 && Number(tipo.price_difference || 0) === 0
+    : true;
   tipoDialog.value = true;
 };
 
@@ -347,7 +363,12 @@ const saveTipo = async () => {
   if (!tipoFormData.value.name || !selectedGrupo.value) return;
   saving.value = true;
   try {
-    const data = { ...tipoFormData.value, variant_group_id: selectedGrupo.value.id };
+    const data = {
+      ...tipoFormData.value,
+      // "No cambia el precio": neutraliza multiplicador y diferencia.
+      ...(samePrice.value ? { price_multiplier: 1, price_difference: 0 } : {}),
+      variant_group_id: selectedGrupo.value.id,
+    };
     if (editingTipo.value) {
       await variantsService.update(editingTipo.value.id, data);
       showMessage('Tipo actualizado');
