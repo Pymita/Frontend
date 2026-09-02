@@ -1,0 +1,53 @@
+# Publica el panel en GitHub Pages (staging) en cada push a main.
+#
+# Requisitos, una sola vez, en el repo de GitHub:
+#   - Settings > Pages > Source: "GitHub Actions".
+#   - Settings > Secrets and variables > Actions > Variables:
+#       STAGING_API_URL = https://<tu-servicio>.onrender.com/api
+name: Deploy staging (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build
+        env:
+          # La app vive bajo /Frontend/ (página de proyecto de GitHub Pages).
+          VITE_BASE: /Frontend/
+          VITE_API_BASE_URL: ${{ vars.STAGING_API_URL }}
+        run: npm run build
+      # SPA fallback: Pages devuelve 404.html en rutas desconocidas; siendo
+      # una copia del index, el router de Vue resuelve la ruta al cargar.
+      - run: cp dist/index.html dist/404.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

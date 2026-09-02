@@ -45,7 +45,9 @@ const vuetify = createVuetify({
 })
 
 const router = createRouter({
-  history: createWebHistory(),
+  // BASE_URL sale de `base` en vite: '/' en local y '/Frontend/' en
+  // GitHub Pages (la app vive bajo un subdirectorio del dominio).
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes,
 })
 

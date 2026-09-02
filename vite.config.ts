@@ -5,6 +5,8 @@ import path from 'path'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // GitHub Pages sirve bajo /Frontend/: el workflow exporta VITE_BASE.
+  base: process.env.VITE_BASE || '/',
   plugins: [
     vue(),
     vuetify({
