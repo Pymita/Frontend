@@ -322,6 +322,19 @@
               </v-col>
             </v-row>
 
+            <v-row>
+              <v-col cols="12" md="6">
+                <v-select
+                  v-model="formData.tax_id"
+                  :items="taxOptions"
+                  label="Impuesto *"
+                  hint="Se configura el catálogo en Configuración"
+                  persistent-hint
+                  :rules="[v => v !== null && v !== undefined || 'Selecciona el impuesto (hay opción Exento)']"
+                />
+              </v-col>
+            </v-row>
+
             <v-divider class="my-4" />
             <h4 class="mb-3">Control de Inventario</h4>
 
@@ -336,20 +349,46 @@
             />
             
             <v-row v-if="formData.tracks_stock">
-              <v-col cols="12" md="6">
+              <!-- Creación: el saldo inicial entra al kardex (SI) con su
+                   fecha real, que puede ser anterior a hoy. -->
+              <template v-if="!editing">
+                <v-col cols="12" md="4">
+                  <v-text-field
+                    v-model="formData.current_stock"
+                    label="Saldo inicial"
+                    type="text"
+                    inputmode="decimal"
+                    :suffix="formData.unit || ''"
+                    @blur="formatStockField('current_stock')"
+                    @keypress="allowDecimalInput"
+                    hint="Inventario con el que arranca. Ej: 10,5"
+                    persistent-hint
+                  />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-text-field
+                    v-model="formData.initial_stock_date"
+                    label="Fecha del saldo inicial"
+                    type="date"
+                    :max="today"
+                    hint="Si el inventario existe desde antes, pon la fecha real: así queda en el kardex"
+                    persistent-hint
+                  />
+                </v-col>
+              </template>
+              <!-- Edición: el stock es consecuencia del kardex; se cambia
+                   solo con el botón Ajustar Stock, que pide motivo. -->
+              <v-col v-else cols="12" md="4">
                 <v-text-field
-                  v-model="formData.current_stock"
+                  :model-value="`${editing.current_stock ?? 0} ${editing.unit}`"
                   label="Stock actual"
-                  type="text"
-                  inputmode="decimal"
-                  :suffix="formData.unit || ''"
-                  @blur="formatStockField('current_stock')"
-                  @keypress="allowDecimalInput"
-                  hint="Ej: 10,5 o 10.5"
+                  readonly
+                  disabled
+                  hint="Se mueve con pedidos o con Ajustar Stock (queda en el kardex)"
                   persistent-hint
                 />
               </v-col>
-              <v-col cols="12" md="6">
+              <v-col cols="12" md="4">
                 <v-text-field
                   v-model="formData.minimum_stock"
                   label="Stock mínimo (alerta)"
@@ -486,10 +525,11 @@
 
           <v-textarea
             v-model="stockMotivo"
-            label="Motivo (opcional)"
+            label="Motivo del ajuste *"
+            hint="Queda registrado en el kardex. Ej: Merma, conteo físico, daño"
+            persistent-hint
             rows="2"
             class="mt-2"
-            hint="Ej: Compra, Consumo en producción, Merma, etc."
           />
         </v-card-text>
         <v-card-actions>
@@ -528,6 +568,7 @@ import { resolveImageUrl } from '@/utils/images';
 import { useRouter } from 'vue-router';
 import { productsService, productCategoriesService, type Product, type Category, type ProductPayload } from '@/services/productsService';
 import { menuItemsService } from '@/services/menuService';
+import kardexService from '@/services/kardexService';
 import { variantGroupsService, type VariantGroup } from '@/services/variantsService';
 import { productTypeLabels, label } from '@/utils/labels';
 import LockableButton from '../components/LockableButton.vue'
@@ -563,6 +604,9 @@ const menuForm = ref({
   preparation_time: null as number | null,
 });
 
+// Hoy en local (el input date usa YYYY-MM-DD).
+const today = new Date().toLocaleDateString('sv-SE');
+
 const formData = ref({
   name: '',
   description: '',
@@ -574,10 +618,18 @@ const formData = ref({
   tracks_stock: true,
   unit_cost: 0,
   sale_price: null as number | null,
+  tax_id: null as number | null,
   category_id: null as number | null,
   current_stock: null as string | number | null,
+  initial_stock_date: today,
   minimum_stock: null as string | number | null,
 });
+
+// Catálogo de impuestos de la empresa para el selector del producto.
+const taxes = ref<{ id: number; name: string; rate: number }[]>([]);
+const taxOptions = computed(() =>
+  taxes.value.map(tax => ({ title: `${tax.name} (${Number(tax.rate)}%)`, value: tax.id })),
+);
 
 const snackbar = ref(false);
 const snackbarText = ref('');
@@ -701,36 +753,42 @@ const openStockDialog = (product: Product) => {
 
 const updateStock = async () => {
   if (!stockProduct.value) return;
-  
+
+  // Convertir coma a punto y parsear
+  const ajusteStr = String(stockAjuste.value).replace(',', '.');
+  const ajuste = parseFloat(ajusteStr);
+
+  if (isNaN(ajuste) || ajuste === 0) {
+    showMessage('Por favor ingresa un número válido distinto de cero', 'error');
+    return;
+  }
+
+  const nuevoStock = Number(stockProduct.value.current_stock || 0) + ajuste;
+
+  if (nuevoStock < 0) {
+    showMessage('El stock no puede ser negativo', 'error');
+    return;
+  }
+
+  // El ajuste queda en el kardex: el motivo es parte del registro.
+  if (!stockMotivo.value.trim()) {
+    showMessage('Indica el motivo del ajuste: queda registrado en el kardex', 'error');
+    return;
+  }
+
   saving.value = true;
   try {
-    // Convertir coma a punto y parsear
-    const ajusteStr = String(stockAjuste.value).replace(',', '.');
-    const ajuste = parseFloat(ajusteStr);
-    
-    if (isNaN(ajuste)) {
-      showMessage('Por favor ingresa un número válido', 'error');
-      saving.value = false;
-      return;
-    }
-    
-    const nuevoStock = Number(stockProduct.value.current_stock || 0) + ajuste;
-    
-    if (nuevoStock < 0) {
-      showMessage('El stock no puede ser negativo', 'error');
-      saving.value = false;
-      return;
-    }
-    
-    await productsService.update(stockProduct.value.id, {
-      current_stock: nuevoStock,
+    await productsService.adjustStock(stockProduct.value.id, {
+      quantity_change: ajuste,
+      notes: stockMotivo.value.trim(),
     });
-    showMessage(`Stock actualizado: ${nuevoStock.toFixed(2)} ${stockProduct.value.unit}`);
+    showMessage(`Ajuste registrado en el kardex: ${nuevoStock.toFixed(2)} ${stockProduct.value.unit}`);
     stockDialog.value = false;
     stockAjuste.value = 0;
+    stockMotivo.value = '';
     loadData();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al actualizar stock'), 'error');
+    showMessage(errorMessage(error, 'Error al registrar el ajuste'), 'error');
   } finally {
     saving.value = false;
   }
@@ -785,11 +843,13 @@ const loadData = async () => {
   loading.value = true;
   try {
     console.log('[ProductosBase] Cargando datos...');
-    const [productsData, categoriasData, groupsData] = await Promise.all([
+    const [productsData, categoriasData, groupsData, taxesData] = await Promise.all([
       productsService.getAll(),
       productCategoriesService.getAll(),
       variantGroupsService.getAll(),
+      kardexService.taxes(),
     ]);
+    taxes.value = taxesData;
     console.log('[ProductosBase] Productos cargados:', productsData.length);
     console.log('[ProductosBase] Categorías cargadas:', categoriasData.length);
     products.value = productsData;
@@ -824,8 +884,10 @@ const openDialog = (product?: Product, forceMenu = false) => {
         tracks_stock: product.tracks_stock ?? true,
         unit_cost: product.unit_cost || 0,
         sale_price: product.sale_price || null,
+        tax_id: product.tax_id ?? null,
         category_id: product.category_id || null,
         current_stock: product.current_stock || null,
+        initial_stock_date: today,
         minimum_stock: product.minimum_stock || null,
       }
     : {
@@ -839,8 +901,10 @@ const openDialog = (product?: Product, forceMenu = false) => {
         tracks_stock: true,
         unit_cost: 0,
         sale_price: null,
+        tax_id: null,
         category_id: null,
         current_stock: null,
+        initial_stock_date: today,
         minimum_stock: null,
       };
   dialog.value = true;
@@ -857,12 +921,21 @@ const save = async () => {
     showMessage('El precio de venta es obligatorio para productos finales', 'error');
     return;
   }
-  
+
+  // Todo producto lleva un impuesto asociado (existe la opción Exento).
+  if (formData.value.tax_id === null || formData.value.tax_id === undefined) {
+    showMessage('Selecciona el impuesto del producto', 'error');
+    return;
+  }
+
   saving.value = true;
   try {
-    // Preparar datos: convertir comas a puntos y parsear
+    // Preparar datos: convertir comas a puntos y parsear.
+    // current_stock sale del spread: como texto no es parte del payload y
+    // en edición ni siquiera debe viajar (el stock lo gobierna el kardex).
+    const { current_stock: _rawStock, ...formRest } = formData.value;
     const dataToSend: ProductPayload = {
-      ...formData.value,
+      ...formRest,
       // Publicación en el menú (solo productos finales, opcional)
       ...(formData.value.type === 'final' && publishToMenu.value
         ? {
@@ -876,13 +949,23 @@ const save = async () => {
       // SKU vacío: lo genera el backend (secuencial por empresa).
       sku: formData.value.sku?.trim() || undefined,
       barcode: formData.value.barcode?.trim() || null,
-      current_stock: formData.value.tracks_stock && formData.value.current_stock
-        ? parseFloat(String(formData.value.current_stock).replace(',', '.'))
-        : null,
       minimum_stock: formData.value.tracks_stock && formData.value.minimum_stock
         ? parseFloat(String(formData.value.minimum_stock).replace(',', '.'))
         : null,
     };
+
+    if (editing.value) {
+      // El stock nunca viaja en la edición: solo se mueve por pedidos o
+      // por el botón Ajustar Stock (que lo deja en el kardex).
+      delete dataToSend.initial_stock_date;
+    } else {
+      dataToSend.current_stock = formData.value.tracks_stock && formData.value.current_stock
+        ? parseFloat(String(formData.value.current_stock).replace(',', '.'))
+        : null;
+      dataToSend.initial_stock_date = formData.value.tracks_stock && formData.value.current_stock
+        ? formData.value.initial_stock_date
+        : undefined;
+    }
     
     // Apagar el switch en un producto publicado lo retira del menú.
     const unpublishing =

@@ -40,9 +40,9 @@ async function createProductWithMovements(request: any, suffix: string) {
   }
 
   // Bajar el stock del primero deja una salida por ajuste en su kardex.
-  const adjust = await request.put(`${API}/products/${ids[0]}`, {
+  const adjust = await request.post(`${API}/products/${ids[0]}/stock-adjustment`, {
     headers: auth,
-    data: { current_stock: 4 },
+    data: { quantity_change: -6, notes: 'Merma E2E' },
   })
   expect(adjust.ok()).toBeTruthy()
 

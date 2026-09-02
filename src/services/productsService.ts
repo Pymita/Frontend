@@ -14,6 +14,9 @@ export interface Product {
   tracks_stock?: boolean;
   unit_cost?: number | null;
   sale_price?: number | null;
+  /** Configured tax this product uses; tax_rate is its snapshot */
+  tax_id?: number | null;
+  tax_rate?: number | null;
   category_id?: number | null;
   category?: {
     id: number;
@@ -46,6 +49,15 @@ export interface ProductMenuPayload {
 
 export interface ProductPayload extends Partial<Product> {
   menu?: ProductMenuPayload | null;
+  /** Real date of the initial balance (backdatable, shows in the kardex) */
+  initial_stock_date?: string | null;
+}
+
+export interface StockAdjustmentPayload {
+  quantity_change: number;
+  unit_cost?: number | null;
+  /** Reason, recorded in the kardex entry */
+  notes: string;
 }
 
 export interface Category {
@@ -74,6 +86,12 @@ class ProductsService {
 
   async create(data: ProductPayload): Promise<Product> {
     const response = await api.post('/products', data);
+    return response.data.data;
+  }
+
+  /** Única vía manual de mover stock: queda como ajuste (AJ) en el kardex. */
+  async adjustStock(id: number, data: StockAdjustmentPayload): Promise<Product> {
+    const response = await api.post(`/products/${id}/stock-adjustment`, data);
     return response.data.data;
   }
 
