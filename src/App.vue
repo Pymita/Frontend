@@ -159,6 +159,7 @@ const onSubscriptionBlocked = (event: Event) => {
 const allMenuItems: MenuItem[] = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', route: '/dashboard', feature: 'reports' },
   { title: 'Pedidos', icon: 'mdi-receipt', route: '/pedidos', feature: 'orders' },
+  { title: 'Ventas', icon: 'mdi-cash-register', route: '/ventas', feature: 'reports' },
   { title: 'Mesas', icon: 'mdi-table-chair', route: '/mesas', feature: 'orders' },
   { title: 'Plano del Salón', icon: 'mdi-floor-plan', route: '/plano', feature: 'orders' },
   { title: 'Menú', icon: 'mdi-book-open-variant', route: '/menu', feature: 'menu' },

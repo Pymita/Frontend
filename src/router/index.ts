@@ -8,6 +8,7 @@ const TiposProducto = () => import('../pages/TiposProducto.vue')
 const ProductosBase = () => import('../pages/ProductosBase.vue')
 const Recetas = () => import('../pages/Recetas.vue')
 const Pedidos = () => import('../pages/Pedidos.vue')
+const Ventas = () => import('../pages/Ventas.vue')
 const Mesas = () => import('../pages/Mesas.vue')
 const PlanoSalon = () => import('../pages/PlanoSalon.vue')
 const Clientes = () => import('../pages/Clientes.vue')
@@ -79,6 +80,12 @@ export const routes: RouteRecordRaw[] = [
     name: 'Pedidos',
     component: Pedidos,
     meta: { requiresAuth: true, feature: 'orders' }
+  },
+  {
+    path: '/ventas',
+    name: 'Ventas',
+    component: Ventas,
+    meta: { requiresAuth: true, feature: 'reports' }
   },
   {
     path: '/mesas',
