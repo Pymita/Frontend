@@ -277,7 +277,10 @@
                   :items="categorias"
                   :item-title="(c: any) => c.path || c.name"
                   item-value="id"
-                  label="Categoría"
+                  label="Categoría (opcional)"
+                  hint="Solo es obligatoria para publicar el producto en el menú"
+                  persistent-hint
+                  clearable
                 />
               </v-col>
             </v-row>
