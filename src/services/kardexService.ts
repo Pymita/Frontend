@@ -157,6 +157,23 @@ class KardexService {
     return response.data.data
   }
 
+  /**
+   * Movimiento manual del kardex (devolución de ventas, compra suelta...).
+   * Los documentos automáticos (SI, FV, NC) no se aceptan.
+   */
+  async createKardexMovement(payload: {
+    product_id: number
+    document_type_id: number
+    movement_type: 'in' | 'out'
+    quantity: number
+    unit_cost?: number | null
+    reference?: string | null
+    notes: string
+  }): Promise<KardexMovement> {
+    const response = await api.post<ApiEnvelope<KardexMovement>>('/kardex/movements', payload)
+    return response.data.data
+  }
+
   async createDocumentType(payload: Pick<DocumentType, 'code' | 'name' | 'direction'>): Promise<DocumentType> {
     const response = await api.post<ApiEnvelope<DocumentType>>('/document-types', payload)
     return response.data.data

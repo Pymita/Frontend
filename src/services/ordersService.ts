@@ -61,6 +61,8 @@ export interface Order {
   } | null;
   dining_table_id?: number | null;
   customer_name: string;
+  /** Mesero que tomó el pedido (null en pedidos antiguos o del sistema) */
+  waiter?: string | null;
   status: 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
   payment_status: PaymentStatus;
   subtotal: number;

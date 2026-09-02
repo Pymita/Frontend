@@ -9,19 +9,105 @@
               Movimientos de inventario con costos y saldos (promedio ponderado)
             </p>
           </div>
-          <v-btn
-            color="success"
-            size="large"
-            :loading="exporting"
-            :disabled="!report || report.movements.length === 0"
-            @click="exportExcel"
-          >
-            <v-icon start>mdi-microsoft-excel</v-icon>
-            Descargar Excel
-          </v-btn>
+          <div class="d-flex ga-2">
+            <LockableButton icon="mdi-plus" color="primary" size="large" @click="openMovementDialog">
+              Registrar Movimiento
+            </LockableButton>
+            <v-btn
+              color="success"
+              size="large"
+              :loading="exporting"
+              :disabled="!report || report.movements.length === 0"
+              @click="exportExcel"
+            >
+              <v-icon start>mdi-microsoft-excel</v-icon>
+              Descargar Excel
+            </v-btn>
+          </div>
         </div>
       </v-col>
     </v-row>
+
+    <!-- Movimiento manual: devolución de ventas, compra suelta, etc.
+         Los documentos automáticos (SI, FV, NC) no aparecen: esos los
+         genera el sistema con las ventas y los saldos iniciales. -->
+    <v-dialog v-model="movementDialog" max-width="560" persistent>
+      <v-card>
+        <v-card-title>Registrar Movimiento de Inventario</v-card-title>
+        <v-card-text>
+          <v-autocomplete
+            v-model="movementForm.product_id"
+            :items="products"
+            item-title="name"
+            item-value="id"
+            label="Producto *"
+            class="mb-2"
+          />
+          <v-row dense>
+            <v-col cols="7">
+              <v-select
+                v-model="movementForm.document_type_id"
+                :items="manualDocumentTypes"
+                :item-title="(t: any) => `${t.code} — ${t.name}`"
+                item-value="id"
+                label="Tipo de documento *"
+              />
+            </v-col>
+            <v-col cols="5">
+              <v-select
+                v-model="movementForm.movement_type"
+                :items="movementTypeOptions"
+                label="Dirección *"
+                :disabled="movementTypeOptions.length === 1"
+              />
+            </v-col>
+          </v-row>
+          <v-row dense>
+            <v-col cols="6">
+              <v-text-field
+                v-model.number="movementForm.quantity"
+                label="Cantidad *"
+                type="number"
+                min="0"
+                step="0.01"
+              />
+            </v-col>
+            <v-col v-if="movementForm.movement_type === 'in'" cols="6">
+              <v-text-field
+                v-model.number="movementForm.unit_cost"
+                label="Costo unitario"
+                type="number"
+                min="0"
+                prefix="$"
+                hint="Vacío: entra al costo promedio actual"
+                persistent-hint
+              />
+            </v-col>
+          </v-row>
+          <v-text-field
+            v-model="movementForm.reference"
+            label="Referencia"
+            hint="Ej: la factura POS-105 que se devuelve"
+            persistent-hint
+            class="mb-2"
+          />
+          <v-textarea
+            v-model="movementForm.notes"
+            label="Motivo *"
+            hint="Queda registrado en el kardex junto al movimiento"
+            persistent-hint
+            rows="2"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="movementDialog = false">Cancelar</v-btn>
+          <v-btn color="primary" :loading="savingMovement" @click="saveMovement">
+            Registrar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Filtros -->
     <v-row>
@@ -207,6 +293,22 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import kardexService, { type DocumentType, type KardexFilters, type KardexReport } from '../services/kardexService'
 import { productsService } from '../services/productsService'
+import LockableButton from '../components/LockableButton.vue'
+
+// Documentos que el sistema genera solo: no se pueden registrar a mano.
+const AUTOMATIC_CODES = ['SI', 'FV', 'NC']
+
+const movementDialog = ref(false)
+const savingMovement = ref(false)
+const movementForm = ref({
+  product_id: null as number | null,
+  document_type_id: null as number | null,
+  movement_type: 'in' as 'in' | 'out',
+  quantity: 0,
+  unit_cost: null as number | null,
+  reference: '',
+  notes: '',
+})
 
 const loading = ref(false)
 const exporting = ref(false)
@@ -224,6 +326,67 @@ const loadedFilters = ref<KardexFilters>({})
 const showProductColumn = computed(() => !loadedFilters.value.product_id)
 
 const snackbar = ref({ show: false, text: '', color: 'error' })
+const manualDocumentTypes = computed(() =>
+  documentTypes.value.filter(t => t.active && !AUTOMATIC_CODES.includes(t.code)),
+)
+
+// La dirección se acota a lo que el documento elegido permite.
+const movementTypeOptions = computed(() => {
+  const doc = documentTypes.value.find(t => t.id === movementForm.value.document_type_id)
+  const options = [
+    { value: 'in', title: 'Entrada' },
+    { value: 'out', title: 'Salida' },
+  ]
+  if (!doc || doc.direction === 'both') return options
+  return options.filter(o => o.value === doc.direction)
+})
+
+watch(movementTypeOptions, options => {
+  const only = options.length === 1 ? options[0] : null
+  if (only) movementForm.value.movement_type = only.value as 'in' | 'out'
+})
+
+const openMovementDialog = () => {
+  movementForm.value = {
+    // Con un producto ya filtrado, el movimiento seguramente es para él.
+    product_id: filters.value.product_id ?? null,
+    document_type_id: null,
+    movement_type: 'in',
+    quantity: 0,
+    unit_cost: null,
+    reference: '',
+    notes: '',
+  }
+  movementDialog.value = true
+}
+
+const saveMovement = async () => {
+  const form = movementForm.value
+  if (!form.product_id || !form.document_type_id || !form.quantity || form.quantity <= 0 || !form.notes.trim()) {
+    notify('Completa producto, documento, cantidad y motivo')
+    return
+  }
+  savingMovement.value = true
+  try {
+    await kardexService.createKardexMovement({
+      product_id: form.product_id,
+      document_type_id: form.document_type_id,
+      movement_type: form.movement_type,
+      quantity: form.quantity,
+      unit_cost: form.movement_type === 'in' ? form.unit_cost : undefined,
+      reference: form.reference.trim() || undefined,
+      notes: form.notes.trim(),
+    })
+    notify('Movimiento registrado en el kardex', 'success')
+    movementDialog.value = false
+    load()
+  } catch (error: any) {
+    notify(error.response?.data?.message || 'Error al registrar el movimiento')
+  } finally {
+    savingMovement.value = false
+  }
+}
+
 const notify = (text: string, color = 'error') => {
   snackbar.value = { show: true, text, color }
 }

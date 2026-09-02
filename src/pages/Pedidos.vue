@@ -95,6 +95,10 @@
               </div>
             </template>
             
+            <template #item.waiter="{ item }">
+              {{ item.waiter || '—' }}
+            </template>
+
             <template #item.created_at="{ item }">
               {{ formatDate(item.created_at) }}
             </template>
@@ -119,7 +123,7 @@
                     </template>
                     <v-list-item-title>Marcar como pagado</v-list-item-title>
                   </v-list-item>
-                  <v-list-item v-if="item.payment_status !== 'paid'" @click="openDiscountDialog(item)">
+                  <v-list-item v-if="item.payment_status !== 'paid' && isAdmin" @click="openDiscountDialog(item)">
                     <template #prepend>
                       <v-icon color="warning">mdi-percent</v-icon>
                     </template>
@@ -430,22 +434,25 @@
             type="number"
             min="1"
           />
-          <v-text-field
-            v-model.number="editItemData.unit_price"
-            label="Precio unitario"
-            type="number"
-            min="0"
-            step="0.01"
-            prefix="$"
-          />
-          <v-text-field
-            v-model.number="editItemData.discount"
-            label="Descuento"
-            type="number"
-            min="0"
-            step="0.01"
-            prefix="$"
-          />
+          <!-- Cambiar precio o descontar es ajustar el cobro: solo admin. -->
+          <template v-if="isAdmin">
+            <v-text-field
+              v-model.number="editItemData.unit_price"
+              label="Precio unitario"
+              type="number"
+              min="0"
+              step="0.01"
+              prefix="$"
+            />
+            <v-text-field
+              v-model.number="editItemData.discount"
+              label="Descuento"
+              type="number"
+              min="0"
+              step="0.01"
+              prefix="$"
+            />
+          </template>
         </v-card-text>
         <v-card-actions>
           <v-btn color="error" variant="text" @click="eliminarItem">Eliminar</v-btn>
@@ -631,7 +638,8 @@ const snackbarColor = ref('success');
 
 const headers = [
   { title: 'Mesa', key: 'dining_table' },
-  { title: 'Cliente', key: 'customer_name' },
+  // Quién atiende la mesa es lo operativo; el cliente casi nunca se llena.
+  { title: 'Mesero', key: 'waiter' },
   { title: 'Estado', key: 'status' },
   { title: 'Pago', key: 'payment_status' },
   { title: 'Total', key: 'total' },
@@ -902,10 +910,14 @@ const guardarItem = async () => {
   if (!selectedOrder.value || !selectedItem.value) return;
   saving.value = true;
   try {
+    // Los empleados solo tocan la cantidad; el cobro es cosa del admin.
+    const payload = isAdmin.value
+      ? editItemData.value
+      : { quantity: editItemData.value.quantity };
     await ordersService.updateItem(
       selectedOrder.value.id,
       selectedItem.value.id,
-      editItemData.value,
+      payload,
     );
     showMessage('Item actualizado');
     editItemDialog.value = false;
