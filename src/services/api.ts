@@ -4,7 +4,9 @@ import type { ApiRequestConfig } from '../types'
 // Crear instancia de Axios con configuración base
 const config: ApiRequestConfig = {
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001/api',
-  timeout: 10000,
+  // Holgado a propósito: el backend de staging (Render gratuito) se duerme
+  // y su arranque en frío tarda 30-50s; 10s mataba la primera petición.
+  timeout: 60000,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
