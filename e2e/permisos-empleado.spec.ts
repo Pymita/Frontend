@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, loginUI, sidebarItem } from './helpers'
+import { ADMIN, API, COMPANY_SLUG, apiLogin, loginUI, sidebarItem } from './helpers'
 
 /**
  * Acceso por permisos: quien solo toma pedidos usa la app y no entra a la
@@ -10,7 +10,8 @@ import { ADMIN, API, apiLogin, loginUI, sidebarItem } from './helpers'
 /** Crea un empleado con los permisos dados y devuelve sus credenciales. */
 async function createEmployee(request: any, slug: string, permissions: string[]) {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
-  const credentials = { email: `${slug}@e2e.test`, password: 'secreto123' }
+  // Los empleados son del negocio: usuario interno, sin correo personal.
+  const credentials = { username: slug, password: 'secreto123' }
 
   const response = await request.post(`${API}/users`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -25,7 +26,8 @@ test('un mesero (solo pedidos) no puede entrar a la web de gestión', async ({ p
   const waiter = await createEmployee(request, 'mesero.restringido', ['orders'])
 
   await page.goto('/login')
-  await page.getByLabel('Email').fill(waiter.email)
+  await page.getByLabel('Correo o usuario').fill(waiter.username)
+  await page.getByLabel('Código del negocio').fill(COMPANY_SLUG)
   await page.getByLabel('Contraseña', { exact: true }).fill(waiter.password)
   await page.getByRole('button', { name: /iniciar/i }).click()
 
@@ -38,7 +40,7 @@ test('empleado con acceso limitado solo ve sus secciones', async ({ page, reques
   // Con al menos una sección de gestión sí entra a la web.
   const cashier = await createEmployee(request, 'cajero.limitado', ['orders', 'reports'])
 
-  await loginUI(page, cashier.email, cashier.password)
+  await loginUI(page, cashier.username, cashier.password)
 
   await expect(sidebarItem(page, 'Pedidos')).toBeVisible()
   await expect(sidebarItem(page, 'Dashboard')).toBeVisible()

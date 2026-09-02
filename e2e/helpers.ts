@@ -5,6 +5,9 @@ export const API = 'http://127.0.0.1:8010/api'
 /** Credenciales que crean los seeders (base e2e recién sembrada). */
 export const ADMIN = { email: 'admin@saboresdeltrigo.com', password: 'admin123' }
 
+/** Slug de la empresa sembrada: los empleados entran con usuario + negocio. */
+export const COMPANY_SLUG = 'sabores-del-trigo'
+
 /**
  * Login por API: para PREPARAR datos rápido (crear empleados, productos)
  * sin pasar por la interfaz. Devuelve el token Bearer.
@@ -24,10 +27,14 @@ export async function apiLogin(
 
 /**
  * Login por interfaz: para los tests que VERIFICAN la experiencia real.
+ * Un login sin '@' es un usuario interno: la web pide además el negocio.
  */
-export async function loginUI(page: Page, email: string, password: string): Promise<void> {
+export async function loginUI(page: Page, login: string, password: string): Promise<void> {
   await page.goto('/login')
-  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Correo o usuario').fill(login)
+  if (!login.includes('@')) {
+    await page.getByLabel('Código del negocio').fill(COMPANY_SLUG)
+  }
   await page.getByLabel('Contraseña', { exact: true }).fill(password)
   await page.getByRole('button', { name: /iniciar|ingresar|entrar|login/i }).click()
   // El login redirige fuera de /login al guardar la sesión.

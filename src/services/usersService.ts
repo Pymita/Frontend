@@ -4,7 +4,10 @@ import type { Feature, UserRole } from '../types/auth'
 export interface CompanyUser {
   id: number
   name: string
-  email: string
+  /** Null for staff accounts that sign in with a username */
+  email: string | null
+  /** Business-owned username, unique per company (employees) */
+  username: string | null
   role: UserRole
   phone: string | null
   active: boolean
@@ -15,7 +18,8 @@ export interface CompanyUser {
 
 export interface CreateUserPayload {
   name: string
-  email: string
+  email?: string
+  username?: string
   password: string
   role: 'admin' | 'employee'
   phone?: string
@@ -24,7 +28,8 @@ export interface CreateUserPayload {
 
 export interface UpdateUserPayload {
   name?: string
-  email?: string
+  email?: string | null
+  username?: string | null
   password?: string
   role?: 'admin' | 'employee'
   phone?: string

@@ -25,6 +25,9 @@
             :loading="loading"
             class="elevation-0"
           >
+            <template #item.login_id="{ item }">
+              {{ item.username || item.email }}
+            </template>
             <template #item.role="{ item }">
               <v-chip :color="item.role === 'admin' ? 'warning' : 'primary'" size="small" variant="tonal">
                 {{ item.role === 'admin' ? 'Admin' : 'Empleado' }}
@@ -78,12 +81,23 @@
                   :rules="[(v: string) => !!v || 'Nombre requerido']"
                 />
               </v-col>
+              <!-- La cuenta del empleado es del negocio: entra con un usuario
+                   interno, no con su correo personal. -->
+              <v-col v-if="formData.role === 'employee'" cols="6">
+                <v-text-field
+                  v-model="formData.username"
+                  label="Usuario de acceso"
+                  hint="Con esto inicia sesión en la app (ej: mesero1)"
+                  persistent-hint
+                  :rules="usernameRules"
+                />
+              </v-col>
               <v-col cols="6">
                 <v-text-field
                   v-model="formData.email"
-                  label="Email de acceso"
+                  :label="formData.role === 'admin' ? 'Email de acceso' : 'Email (opcional)'"
                   type="email"
-                  :rules="[(v: string) => !!v || 'Email requerido']"
+                  :rules="formData.role === 'admin' ? [(v: string) => !!v || 'Email requerido'] : []"
                 />
               </v-col>
               <v-col cols="6">
@@ -186,7 +200,7 @@ const allFeatures = computed(() => {
 
 const headers = [
   { title: 'Nombre', key: 'name' },
-  { title: 'Email', key: 'email' },
+  { title: 'Acceso', key: 'login_id', sortable: false },
   { title: 'Rol', key: 'role' },
   { title: 'Estado', key: 'active' },
   { title: 'Funciones', key: 'features', sortable: false },
@@ -232,9 +246,15 @@ const load = async () => {
 const dialog = ref(false)
 const editing = ref<CompanyUser | null>(null)
 const form = ref()
+const usernameRules = [
+  (v: string) => !!v || 'Usuario requerido',
+  (v: string) => !v || /^[a-zA-Z0-9._-]{3,50}$/.test(v) || 'De 3 a 50 caracteres: letras, números, punto o guion',
+]
+
 const formData = ref({
   name: '',
   email: '',
+  username: '',
   password: '',
   phone: '',
   role: 'employee' as 'admin' | 'employee',
@@ -251,7 +271,8 @@ const openDialog = (user?: CompanyUser) => {
   formData.value = user
     ? {
         name: user.name,
-        email: user.email,
+        email: user.email || '',
+        username: user.username || '',
         password: '',
         phone: user.phone || '',
         role: user.role as 'admin' | 'employee',
@@ -261,6 +282,7 @@ const openDialog = (user?: CompanyUser) => {
     : {
         name: '',
         email: '',
+        username: '',
         password: '',
         phone: '',
         role: 'employee',
@@ -278,7 +300,8 @@ const save = async () => {
   try {
     const base = {
       name: formData.value.name,
-      email: formData.value.email,
+      email: formData.value.email || undefined,
+      username: formData.value.role === 'employee' ? formData.value.username : undefined,
       phone: formData.value.phone || undefined,
       role: formData.value.role,
       permissions: formData.value.role === 'employee' ? formData.value.permissions : undefined,

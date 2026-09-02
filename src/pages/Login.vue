@@ -11,14 +11,28 @@
 
           <v-form @submit.prevent="login">
             <v-text-field
-              v-model="email"
-              v-bind="emailAttrs"
-              label="Email"
-              type="email"
-              prepend-inner-icon="mdi-email"
+              v-model="loginId"
+              v-bind="loginIdAttrs"
+              label="Correo o usuario"
+              prepend-inner-icon="mdi-account"
               variant="outlined"
-              class="mb-3" 
-              :error-messages="errors.email"
+              class="mb-3"
+              :error-messages="errors.login"
+            />
+
+            <!-- Un usuario interno solo existe dentro de su negocio: el
+                 backend necesita el slug para saber en cuál buscar. -->
+            <v-text-field
+              v-if="needsCompany"
+              v-model="company"
+              v-bind="companyAttrs"
+              label="Código del negocio"
+              hint="Pídeselo a tu administrador (ej: sabores-del-trigo)"
+              persistent-hint
+              prepend-inner-icon="mdi-storefront"
+              variant="outlined"
+              class="mb-3"
+              :error-messages="errors.company"
             />
 
             <v-text-field
@@ -81,29 +95,42 @@ import type { LoginCredentials } from '../types'
 const router = useRouter()
 const authStore = useAuthStore()
 
-// Schema de validación con Zod
+// Schema de validación con Zod: correo (admins) o usuario del negocio
+// (empleados); el usuario interno necesita además el código del negocio.
 const loginSchema = toTypedSchema(
   z.object({
-    email: z
+    login: z
       .string()
-      .min(1, 'El email es requerido')
-      .email('El email debe ser válido'),
+      .min(1, 'El correo o usuario es requerido')
+      .refine(
+        value => !value.includes('@') || z.string().email().safeParse(value).success,
+        'El email debe ser válido',
+      ),
+    company: z.string().optional(),
     password: z
       .string()
       .min(6, 'La contraseña debe tener al menos 6 caracteres')
-  })
+  }).refine(
+    values => values.login.includes('@') || !!values.company?.trim(),
+    { message: 'Indica el código del negocio', path: ['company'] },
+  )
 )
 
 const { handleSubmit, defineField, errors } = useForm({
   validationSchema: loginSchema,
   initialValues: {
-    email: '',
+    login: '',
+    company: '',
     password: ''
   }
 })
 
-const [email, emailAttrs] = defineField('email')
+const [loginId, loginIdAttrs] = defineField('login')
+const [company, companyAttrs] = defineField('company')
 const [password, passwordAttrs] = defineField('password')
+
+// El campo de negocio solo aparece cuando se escribe un usuario, no un correo.
+const needsCompany = computed((): boolean => !!loginId.value && !loginId.value.includes('@'))
 
 // Estado local
 const loading = ref<boolean>(false)
@@ -114,9 +141,10 @@ const showPassword = ref<boolean>(false)
 
 const isFormValid = computed((): boolean => {
   const hasNoErrors = Object.keys(errors.value).length === 0
-  const hasEmail = !!(email.value && email.value.trim().length > 0)
+  const hasLogin = !!(loginId.value && loginId.value.trim().length > 0)
   const hasPassword = !!(password.value && password.value.trim().length > 0)
-  return hasNoErrors && hasEmail && hasPassword && !loading.value
+  const hasCompany = !needsCompany.value || !!(company.value && company.value.trim().length > 0)
+  return hasNoErrors && hasLogin && hasPassword && hasCompany && !loading.value
 })
 
 const clearMessages = (): void => {
@@ -129,8 +157,12 @@ const login = handleSubmit(async (values: LoginCredentials): Promise<void> => {
   clearMessages()
 
   try {
-    await authStore.login(values)
-    
+    await authStore.login({
+      login: values.login.trim(),
+      password: values.password,
+      company: values.company?.trim() || undefined,
+    })
+
     const userName = authStore.user?.name || 'Usuario'
     successMessage.value = `¡Bienvenido ${userName}!`
     
@@ -141,8 +173,9 @@ const login = handleSubmit(async (values: LoginCredentials): Promise<void> => {
   } catch (err: any) {
     if (err.response?.status === 422) {
       const serverErrors = err.response.data.errors
-      if (serverErrors?.email) {
-        error.value = serverErrors.email[0]
+      const firstError = serverErrors?.email?.[0] || serverErrors?.login?.[0] || serverErrors?.company?.[0]
+      if (firstError) {
+        error.value = firstError
       } else {
         error.value = 'Credenciales incorrectas'
       }

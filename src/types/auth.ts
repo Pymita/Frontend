@@ -64,7 +64,10 @@ export type SubscriptionStatus = 'trial' | 'active' | 'grace' | 'suspended'
 export interface User {
   id: number
   name: string
-  email: string
+  /** Null for staff accounts that sign in with a username */
+  email: string | null
+  /** Business-owned username, unique per company (employees) */
+  username?: string | null
   role: UserRole
   active: boolean
   phone?: string
@@ -84,8 +87,11 @@ export function effectiveFeatures(user: Pick<User, 'role' | 'features'> | null):
 }
 
 export interface LoginCredentials {
-  email: string
+  /** Email (admins) or business username (employees) */
+  login: string
   password: string
+  /** Company slug, required by the API for username logins */
+  company?: string
 }
 
 export interface LoginResponse {
