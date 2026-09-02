@@ -79,6 +79,19 @@
         {{ subscriptionNotice }}
       </v-alert>
 
+      <!-- Alerta de la resolución de facturación: rango por agotarse o
+           vencer. El umbral lo calcula el backend según el ritmo del local. -->
+      <v-alert
+        v-if="resolutionNotice"
+        :type="resolutionBlocking ? 'error' : 'warning'"
+        variant="tonal"
+        density="compact"
+        class="ma-3 mb-0"
+        closable
+      >
+        {{ resolutionNotice }}
+      </v-alert>
+
       <router-view :key="route.fullPath" />
     </v-main>
 
@@ -93,8 +106,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import invoicingService from './services/invoicingService'
 import { useAuthStore } from './stores/auth'
 import { effectiveFeatures } from './types/auth'
 import { APP_NAME } from './utils/branding'
@@ -207,10 +221,34 @@ const logout = async (): Promise<void> => {
   }
 }
 
+// Alerta del rango de la resolución de facturación (calculada en el backend).
+const resolutionNotice = ref<string | null>(null)
+const resolutionBlocking = ref(false)
+let resolutionCheckedAt = 0
+const RESOLUTION_CHECK_INTERVAL_MS = 10 * 60 * 1000
+
+const checkResolutionStatus = async (force = false) => {
+  if (!authStore.isAuthenticated || authStore.user?.role === 'super_admin') return
+  if (!force && Date.now() - resolutionCheckedAt < RESOLUTION_CHECK_INTERVAL_MS) return
+  resolutionCheckedAt = Date.now()
+  try {
+    const status = await invoicingService.status()
+    resolutionNotice.value = status.warning ? status.message ?? null : null
+    resolutionBlocking.value = !!status.blocking
+  } catch {
+    // Sin permisos o sin red: la alerta simplemente no se muestra.
+  }
+}
+
+// Al navegar se re-verifica como máximo cada 10 minutos: quien pasa el día
+// en la web se entera el mismo día en que el rango entra en zona de alerta.
+watch(() => route.fullPath, () => checkResolutionStatus())
+
 onMounted(() => {
   // Inicializar el store con datos del localStorage
   authStore.initializeAuth()
   window.addEventListener(SUBSCRIPTION_BLOCKED_EVENT, onSubscriptionBlocked)
+  checkResolutionStatus()
 })
 
 onUnmounted(() => {

@@ -110,6 +110,86 @@
       </v-col>
     </v-row>
 
+    <!-- Resolución de facturación DIAN: rango autorizado de consecutivos.
+         Cada venta toma el siguiente número y lo deja como referencia en
+         el kardex; el sistema alerta antes de que el rango se agote. -->
+    <v-row>
+      <v-col cols="12">
+        <v-card class="pa-4">
+          <div class="d-flex align-center mb-1">
+            <h2 class="text-h6">Resolución de Facturación (DIAN)</h2>
+            <v-spacer />
+            <v-chip
+              v-if="resolutionStatus?.configured"
+              :color="resolutionStatus.warning ? (resolutionStatus.blocking ? 'error' : 'warning') : 'success'"
+              size="small"
+              variant="tonal"
+            >
+              {{ resolutionStatus.blocking
+                ? 'Bloqueada'
+                : `Quedan ${resolutionStatus.remaining} consecutivos` }}
+            </v-chip>
+          </div>
+          <p class="text-caption text-grey mb-4">
+            Cada venta toma el siguiente consecutivo del rango y queda como referencia en el kardex.
+            Te avisaremos con tiempo cuando el rango esté por agotarse, según el ritmo de ventas del negocio.
+          </p>
+
+          <v-form @submit.prevent="saveResolution">
+            <v-row dense>
+              <v-col cols="12" md="4">
+                <v-text-field
+                  v-model="resolutionForm.invoicing_resolution"
+                  label="Número de resolución *"
+                  hint="Ej: 18764000001234"
+                  persistent-hint
+                />
+              </v-col>
+              <v-col cols="6" md="2">
+                <v-text-field v-model="resolutionForm.invoice_prefix" label="Prefijo" hint="Ej: POS" persistent-hint />
+              </v-col>
+              <v-col cols="6" md="3">
+                <v-text-field
+                  v-model.number="resolutionForm.range_from"
+                  label="Rango desde *"
+                  type="number"
+                  min="1"
+                />
+              </v-col>
+              <v-col cols="6" md="3">
+                <v-text-field
+                  v-model.number="resolutionForm.range_to"
+                  label="Rango hasta *"
+                  type="number"
+                  min="1"
+                />
+              </v-col>
+              <v-col cols="6" md="3">
+                <v-text-field v-model="resolutionForm.resolution_date" label="Fecha de la resolución" type="date" />
+              </v-col>
+              <v-col cols="6" md="3">
+                <v-text-field v-model="resolutionForm.valid_from" label="Vigente desde" type="date" />
+              </v-col>
+              <v-col cols="6" md="3">
+                <v-text-field v-model="resolutionForm.valid_until" label="Vigente hasta" type="date" />
+              </v-col>
+              <v-col cols="6" md="3" class="d-flex align-center">
+                <LockableButton color="primary" :loading="saving" @click="saveResolution">
+                  Guardar resolución
+                </LockableButton>
+              </v-col>
+            </v-row>
+          </v-form>
+
+          <v-alert v-if="resolutionStatus?.configured" type="info" variant="tonal" density="compact" class="mt-2">
+            Próximo consecutivo:
+            <strong>{{ resolutionForm.invoice_prefix ? resolutionForm.invoice_prefix + '-' : '' }}{{ resolution?.current_sequence }}</strong>
+            · Guardar un rango o número de resolución distinto reinicia el consecutivo al inicio del rango nuevo.
+          </v-alert>
+        </v-card>
+      </v-col>
+    </v-row>
+
     <!-- Dialog tipo de documento -->
     <v-dialog v-model="docDialog" max-width="480" persistent>
       <v-card>
@@ -194,6 +274,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import kardexService, { type DocumentType, type Tax } from '../services/kardexService'
+import invoicingService, { type InvoicingResolution, type ResolutionStatus } from '../services/invoicingService'
 import LockableButton from '../components/LockableButton.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 
@@ -221,6 +302,65 @@ const load = async () => {
     taxes.value = taxList
   } catch {
     notify('Error al cargar los catálogos', 'error')
+  }
+  loadResolution()
+}
+
+// --- Resolución de facturación ---
+const resolution = ref<InvoicingResolution | null>(null)
+const resolutionStatus = ref<ResolutionStatus | null>(null)
+const resolutionForm = ref({
+  invoicing_resolution: '',
+  invoice_prefix: '',
+  range_from: null as number | null,
+  range_to: null as number | null,
+  resolution_date: '',
+  valid_from: '',
+  valid_until: '',
+})
+
+const loadResolution = async () => {
+  try {
+    const [data, status] = await Promise.all([invoicingService.resolution(), invoicingService.status()])
+    resolution.value = data
+    resolutionStatus.value = status
+    resolutionForm.value = {
+      invoicing_resolution: data.invoicing_resolution || '',
+      invoice_prefix: data.invoice_prefix || '',
+      range_from: data.range_from,
+      range_to: data.range_to,
+      resolution_date: data.resolution_date || '',
+      valid_from: data.valid_from || '',
+      valid_until: data.valid_until || '',
+    }
+  } catch {
+    // Empleados sin permiso de admin: la tarjeta queda vacía sin romper la página.
+  }
+}
+
+const saveResolution = async () => {
+  const form = resolutionForm.value
+  if (!form.invoicing_resolution || !form.range_from || !form.range_to) {
+    notify('Completa el número de resolución y el rango', 'error')
+    return
+  }
+  saving.value = true
+  try {
+    resolution.value = await invoicingService.saveResolution({
+      invoicing_resolution: form.invoicing_resolution,
+      invoice_prefix: form.invoice_prefix || null,
+      range_from: form.range_from,
+      range_to: form.range_to,
+      resolution_date: form.resolution_date || null,
+      valid_from: form.valid_from || null,
+      valid_until: form.valid_until || null,
+    })
+    resolutionStatus.value = await invoicingService.status()
+    notify('Resolución guardada')
+  } catch (error: any) {
+    notify(error.response?.data?.message || 'Error al guardar la resolución', 'error')
+  } finally {
+    saving.value = false
   }
 }
 
