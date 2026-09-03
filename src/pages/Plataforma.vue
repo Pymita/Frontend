@@ -9,15 +9,24 @@
               Administra las empresas del sistema y sus suscripciones
             </p>
           </div>
-          <v-btn color="primary" size="large" @click="openCreateDialog">
+          <v-btn v-if="tab === 'companies'" color="primary" size="large" @click="openCreateDialog">
             <v-icon start>mdi-domain-plus</v-icon>
             Nueva Empresa
           </v-btn>
+          <v-btn v-else-if="tab === 'sellers'" color="primary" size="large" @click="openSellerDialog()">
+            <v-icon start>mdi-account-plus</v-icon>
+            Nuevo Vendedor
+          </v-btn>
         </div>
+        <v-tabs v-model="tab" color="primary">
+          <v-tab value="companies">Empresas</v-tab>
+          <v-tab value="sellers">Vendedores</v-tab>
+          <v-tab value="stats">Ventas por vendedor</v-tab>
+        </v-tabs>
       </v-col>
     </v-row>
 
-    <v-row>
+    <v-row v-if="tab === 'companies'">
       <v-col cols="12">
         <v-card>
           <v-data-table
@@ -95,89 +104,220 @@
       </v-col>
     </v-row>
 
+    <!-- Vendedores del SaaS -->
+    <v-row v-else-if="tab === 'sellers'">
+      <v-col cols="12">
+        <v-card>
+          <v-data-table
+            :headers="sellerHeaders"
+            :items="sellers"
+            :loading="loadingSellers"
+            class="elevation-0"
+          >
+            <template #item.active="{ item }">
+              <v-chip :color="item.active ? 'success' : 'grey'" size="small">
+                {{ item.active ? 'Activo' : 'Inactivo' }}
+              </v-chip>
+            </template>
+            <template #item.actions="{ item }">
+              <v-btn icon size="small" variant="text" @click="openSellerDialog(item)">
+                <v-icon size="small">mdi-pencil</v-icon>
+              </v-btn>
+            </template>
+            <template #no-data>
+              <p class="text-grey py-6">Aún no hay vendedores registrados</p>
+            </template>
+          </v-data-table>
+        </v-card>
+      </v-col>
+    </v-row>
+
+    <!-- Ventas por vendedor -->
+    <v-row v-else>
+      <v-col cols="12">
+        <v-card>
+          <v-data-table
+            :headers="statsHeaders"
+            :items="sellerStats"
+            :loading="loadingStats"
+            class="elevation-0"
+          >
+            <template #item.monthly_recurring="{ item }">
+              ${{ item.monthly_recurring.toLocaleString('es-CO') }}
+            </template>
+            <template #item.total_collected="{ item }">
+              <span class="font-weight-bold text-success">
+                ${{ item.total_collected.toLocaleString('es-CO') }}
+              </span>
+            </template>
+            <template #item.last_sale_at="{ item }">
+              {{ item.last_sale_at || '—' }}
+            </template>
+            <template #no-data>
+              <p class="text-grey py-6">Sin ventas asociadas a vendedores todavía</p>
+            </template>
+          </v-data-table>
+        </v-card>
+      </v-col>
+    </v-row>
+
+    <!-- Dialog: crear/editar vendedor -->
+    <v-dialog v-model="sellerDialog" max-width="480" persistent>
+      <v-card>
+        <v-card-title>{{ editingSeller ? 'Editar Vendedor' : 'Nuevo Vendedor' }}</v-card-title>
+        <v-card-text>
+          <v-text-field
+            v-model="sellerForm.name"
+            label="Nombre *"
+            :rules="[(v: string) => !!v || 'Nombre requerido']"
+          />
+          <v-text-field v-model="sellerForm.email" label="Email (opcional)" type="email" />
+          <v-text-field v-model="sellerForm.phone" label="Teléfono (opcional)" />
+          <v-switch
+            v-if="editingSeller"
+            v-model="sellerForm.active"
+            label="Activo"
+            color="success"
+            hide-details
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="sellerDialog = false">Cancelar</v-btn>
+          <v-btn color="primary" :loading="saving" @click="saveSeller">Guardar</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Dialog: crear empresa -->
-    <v-dialog v-model="createDialog" max-width="640" persistent>
+    <!-- Ancho a propósito: dos columnas para que todo el formulario quepa
+         sin scrollear (empresa a la izquierda, admin y acuerdo a la derecha) -->
+    <v-dialog v-model="createDialog" max-width="960" persistent>
       <v-card>
         <v-card-title>Nueva Empresa</v-card-title>
         <v-card-text>
           <v-form ref="createForm" @submit.prevent="saveCompany">
-            <v-text-field
-              v-model="createData.name"
-              label="Nombre de la empresa"
-              :rules="[(v: string) => !!v || 'Nombre requerido']"
-              required
-            />
-            <v-select
-              v-model="createData.business_type"
-              :items="businessTypeOptions"
-              item-title="title"
-              item-value="value"
-              label="Tipo de negocio"
-              class="mt-2"
-              hint="Marca los módulos que necesita; puedes ajustarlos"
-              persistent-hint
-              @update:model-value="createData.modules = [...presetModules($event)]"
-            />
-
-            <p class="text-subtitle-2 mt-4 mb-1">Módulos activos</p>
-            <v-row dense>
-              <v-col v-for="feature in allFeatures" :key="feature" cols="6" md="4">
-                <v-checkbox
-                  v-model="createData.modules"
-                  :label="featureLabel(feature)"
-                  :value="feature"
-                  density="compact"
-                  hide-details
-                />
-              </v-col>
-            </v-row>
-            <v-row dense class="mt-3">
-              <v-col cols="6">
-                <v-text-field v-model="createData.email" label="Email (opcional)" type="email" />
-              </v-col>
-              <v-col cols="6">
-                <v-text-field v-model="createData.phone" label="Teléfono (opcional)" />
-              </v-col>
-            </v-row>
-
-            <v-divider class="my-3" />
-            <p class="text-subtitle-2 mb-2">Administrador de la empresa</p>
-            <v-text-field
-              v-model="createData.admin.name"
-              label="Nombre del administrador"
-              :rules="[(v: string) => !!v || 'Nombre requerido']"
-            />
-            <v-row dense class="mt-1">
-              <v-col cols="6">
+            <v-row>
+              <v-col cols="12" md="6">
+                <p class="text-subtitle-2 mb-2">Empresa</p>
                 <v-text-field
-                  v-model="createData.admin.email"
-                  label="Email de acceso"
-                  type="email"
-                  :rules="[(v: string) => !!v || 'Email requerido']"
+                  v-model="createData.name"
+                  label="Nombre de la empresa"
+                  :rules="[(v: string) => !!v || 'Nombre requerido']"
+                  required
                 />
-              </v-col>
-              <v-col cols="6">
-                <v-text-field
-                  v-model="createData.admin.password"
-                  label="Contraseña inicial"
-                  type="password"
-                  :rules="passwordRules"
-                  :hint="PASSWORD_HINT"
+                <v-select
+                  v-model="createData.business_type"
+                  :items="businessTypeOptions"
+                  item-title="title"
+                  item-value="value"
+                  label="Tipo de negocio"
+                  class="mt-2"
+                  hint="Marca los módulos que necesita; puedes ajustarlos"
                   persistent-hint
+                  @update:model-value="createData.modules = [...presetModules($event)]"
                 />
-              </v-col>
-            </v-row>
 
-            <v-divider class="my-3" />
-            <v-row dense>
-              <v-col cols="6">
+                <p class="text-subtitle-2 mt-4 mb-1">Módulos activos</p>
+                <v-row dense>
+                  <v-col v-for="feature in allFeatures" :key="feature" cols="6">
+                    <v-checkbox
+                      v-model="createData.modules"
+                      :label="featureLabel(feature)"
+                      :value="feature"
+                      density="compact"
+                      hide-details
+                    />
+                  </v-col>
+                </v-row>
+                <v-row dense class="mt-3">
+                  <v-col cols="6">
+                    <v-text-field v-model="createData.email" label="Email (opcional)" type="email" />
+                  </v-col>
+                  <v-col cols="6">
+                    <v-text-field v-model="createData.phone" label="Teléfono (opcional)" />
+                  </v-col>
+                </v-row>
+              </v-col>
+
+              <v-col cols="12" md="6">
+                <p class="text-subtitle-2 mb-2">Administrador de la empresa</p>
                 <v-text-field
-                  v-model.number="createData.trial_days"
-                  label="Días de prueba"
-                  type="number"
-                  hint="La empresa inicia en periodo de prueba"
-                  persistent-hint
+                  v-model="createData.admin.name"
+                  label="Nombre del administrador"
+                  :rules="[(v: string) => !!v || 'Nombre requerido']"
                 />
+                <v-row dense class="mt-1">
+                  <v-col cols="6">
+                    <v-text-field
+                      v-model="createData.admin.email"
+                      label="Email de acceso"
+                      type="email"
+                      :rules="[(v: string) => !!v || 'Email requerido']"
+                    />
+                  </v-col>
+                  <v-col cols="6">
+                    <v-text-field
+                      v-model="createData.admin.password"
+                      label="Contraseña inicial"
+                      type="password"
+                      :rules="passwordRules"
+                      :hint="PASSWORD_HINT"
+                      persistent-hint
+                    />
+                  </v-col>
+                </v-row>
+
+                <v-divider class="my-3" />
+                <p class="text-subtitle-2 mb-2">Acuerdo comercial</p>
+                <v-row dense>
+                  <v-col cols="6">
+                    <v-text-field
+                      v-model.number="createData.monthly_price"
+                      label="Valor mensual (COP)"
+                      type="number"
+                      min="0"
+                      prefix="$"
+                      hint="Los pagos deberán coincidir con este valor"
+                      persistent-hint
+                    />
+                  </v-col>
+                  <v-col cols="6">
+                    <v-select
+                      v-model="createData.seller_id"
+                      :items="sellers"
+                      item-title="name"
+                      item-value="id"
+                      label="Vendedor"
+                      hint="Quién hizo la venta"
+                      persistent-hint
+                      clearable
+                    />
+                  </v-col>
+                  <v-col cols="4">
+                    <v-text-field
+                      v-model.number="createData.max_tables"
+                      label="Mesas incluidas"
+                      type="number"
+                      min="1"
+                    />
+                  </v-col>
+                  <v-col cols="4">
+                    <v-text-field
+                      v-model.number="createData.max_users"
+                      label="Empleados incluidos"
+                      type="number"
+                      min="1"
+                    />
+                  </v-col>
+                  <v-col cols="4">
+                    <v-text-field
+                      v-model.number="createData.trial_days"
+                      label="Días de prueba"
+                      type="number"
+                    />
+                  </v-col>
+                </v-row>
               </v-col>
             </v-row>
           </v-form>
@@ -430,6 +570,27 @@
             </v-col>
             <v-col cols="6">
               <v-text-field
+                v-model.number="subscriptionData.monthly_price"
+                label="Valor mensual (COP)"
+                type="number"
+                min="0"
+                prefix="$"
+                hint="Los pagos deben coincidir con este valor"
+                persistent-hint
+              />
+            </v-col>
+            <v-col cols="6">
+              <v-select
+                v-model="subscriptionData.seller_id"
+                :items="sellers"
+                item-title="name"
+                item-value="id"
+                label="Vendedor"
+                clearable
+              />
+            </v-col>
+            <v-col cols="6">
+              <v-text-field
                 v-model.number="subscriptionData.max_tables"
                 label="Límite de mesas"
                 type="number"
@@ -482,11 +643,31 @@
               <v-text-field v-model="paymentData.reference" label="Referencia (opcional)" />
             </v-col>
           </v-row>
+
+          <!-- Pago distinto al acuerdo: el motivo es obligatorio y queda escrito -->
+          <v-alert
+            v-if="paymentDiffers"
+            type="warning"
+            variant="tonal"
+            density="compact"
+            class="mb-2"
+          >
+            El valor acordado es ${{ expectedPayment!.toLocaleString('es-CO') }} por
+            {{ paymentData.months }} mes(es). Indica el motivo de la diferencia.
+          </v-alert>
+          <v-textarea
+            v-if="paymentDiffers"
+            v-model="paymentData.discrepancy_reason"
+            label="Motivo de la diferencia *"
+            rows="2"
+            class="mb-2"
+          />
+
           <v-btn
             color="success"
             block
             :loading="saving"
-            :disabled="!selectedCompany.subscription || !paymentData.amount"
+            :disabled="!selectedCompany.subscription || !paymentData.amount || (paymentDiffers && !paymentData.discrepancy_reason.trim())"
             @click="savePayment"
           >
             <v-icon start>mdi-cash-check</v-icon>
@@ -510,9 +691,9 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import platformService from '../services/platformService'
-import type { PlatformCompany, PlatformCompanyDetail } from '../types/platform'
+import type { PlatformCompany, PlatformCompanyDetail, PlatformSeller, SellerStats } from '../types/platform'
 import { ALL_FEATURES, type BusinessType, type Feature, type SubscriptionStatus } from '../types/auth'
 import { PASSWORD_HINT, passwordRules } from '../utils/validation'
 
@@ -599,6 +780,11 @@ const emptyCreateData = () => ({
   modules: [...BUSINESS_TYPE_PRESETS.restaurant] as Feature[],
   admin: { name: '', email: '', password: '' },
   trial_days: 15,
+  // Acuerdo comercial: precio, qué incluye y quién vendió.
+  monthly_price: null as number | null,
+  max_tables: 10,
+  max_users: 5,
+  seller_id: null as number | null,
 })
 
 // --- Tipos de negocio y módulos ---
@@ -755,8 +941,22 @@ const subscriptionData = ref({
   grace_days: 7,
   max_tables: 10,
   max_users: 5,
+  monthly_price: null as number | null,
+  seller_id: null as number | null,
 })
-const paymentData = ref({ amount: 0, months: 1, method: 'transfer' as const, reference: '' })
+const paymentData = ref({ amount: 0, months: 1, method: 'transfer' as const, reference: '', discrepancy_reason: '' })
+
+// Pago vs. acuerdo: si el monto no es precio × meses, se exige motivo.
+const expectedPayment = computed(() => {
+  const price = subscriptionData.value.monthly_price
+  return price !== null && price > 0 ? price * (paymentData.value.months || 1) : null
+})
+const paymentDiffers = computed(
+  () =>
+    expectedPayment.value !== null &&
+    paymentData.value.amount > 0 &&
+    Math.abs(paymentData.value.amount - expectedPayment.value) > 0.01,
+)
 
 const openSubscriptionDialog = (company: PlatformCompany) => {
   selectedCompany.value = company
@@ -767,8 +967,10 @@ const openSubscriptionDialog = (company: PlatformCompany) => {
     grace_days: company.subscription?.grace_days ?? 7,
     max_tables: company.subscription?.max_tables ?? 10,
     max_users: company.subscription?.max_users ?? 5,
+    monthly_price: company.subscription?.monthly_price ?? null,
+    seller_id: company.subscription?.seller_id ?? null,
   }
-  paymentData.value = { amount: 0, months: 1, method: 'transfer', reference: '' }
+  paymentData.value = { amount: 0, months: 1, method: 'transfer', reference: '', discrepancy_reason: '' }
   subscriptionDialog.value = true
 }
 
@@ -801,6 +1003,9 @@ const savePayment = async () => {
       months: paymentData.value.months,
       method: paymentData.value.method,
       reference: paymentData.value.reference || undefined,
+      discrepancy_reason: paymentDiffers.value
+        ? paymentData.value.discrepancy_reason.trim()
+        : undefined,
     })
     notify('Pago registrado y periodo extendido')
     subscriptionDialog.value = false
@@ -826,5 +1031,102 @@ const confirmToggle = async (company: PlatformCompany) => {
   }
 }
 
-onMounted(loadCompanies)
+// --- Vendedores del SaaS ---
+const tab = ref<'companies' | 'sellers' | 'stats'>('companies')
+const sellers = ref<PlatformSeller[]>([])
+const loadingSellers = ref(false)
+const sellerStats = ref<SellerStats[]>([])
+const loadingStats = ref(false)
+
+const sellerHeaders = [
+  { title: 'Nombre', key: 'name' },
+  { title: 'Email', key: 'email' },
+  { title: 'Teléfono', key: 'phone' },
+  { title: 'Estado', key: 'active' },
+  { title: '', key: 'actions', sortable: false },
+]
+
+const statsHeaders = [
+  { title: 'Vendedor', key: 'name' },
+  { title: 'Empresas vendidas', key: 'companies_count' },
+  { title: 'Activas', key: 'active_companies' },
+  { title: 'Recurrente mensual', key: 'monthly_recurring' },
+  { title: 'Total recaudado', key: 'total_collected' },
+  { title: 'Última venta', key: 'last_sale_at' },
+]
+
+const loadSellers = async () => {
+  loadingSellers.value = true
+  try {
+    sellers.value = await platformService.listSellers()
+  } catch {
+    notify('Error al cargar los vendedores', 'error')
+  } finally {
+    loadingSellers.value = false
+  }
+}
+
+const loadStats = async () => {
+  loadingStats.value = true
+  try {
+    sellerStats.value = await platformService.sellerStats()
+  } catch {
+    notify('Error al cargar las estadísticas', 'error')
+  } finally {
+    loadingStats.value = false
+  }
+}
+
+// Cada pestaña consulta datos frescos al entrar.
+watch(tab, value => {
+  if (value === 'stats') loadStats()
+  if (value === 'companies') loadCompanies()
+})
+
+const sellerDialog = ref(false)
+const editingSeller = ref<PlatformSeller | null>(null)
+const sellerForm = ref({ name: '', email: '', phone: '', active: true })
+
+const openSellerDialog = (seller?: PlatformSeller) => {
+  editingSeller.value = seller ?? null
+  sellerForm.value = seller
+    ? { name: seller.name, email: seller.email || '', phone: seller.phone || '', active: seller.active }
+    : { name: '', email: '', phone: '', active: true }
+  sellerDialog.value = true
+}
+
+const saveSeller = async () => {
+  if (!sellerForm.value.name.trim()) {
+    notify('El nombre del vendedor es obligatorio', 'error')
+    return
+  }
+  saving.value = true
+  try {
+    const payload = {
+      name: sellerForm.value.name.trim(),
+      email: sellerForm.value.email || null,
+      phone: sellerForm.value.phone || null,
+      active: sellerForm.value.active,
+    }
+    if (editingSeller.value) {
+      await platformService.updateSeller(editingSeller.value.id, payload)
+      notify('Vendedor actualizado')
+    } else {
+      await platformService.createSeller(payload)
+      notify('Vendedor creado')
+    }
+    sellerDialog.value = false
+    await loadSellers()
+  } catch (error: any) {
+    notify(error.response?.data?.message || 'Error al guardar el vendedor', 'error')
+  } finally {
+    saving.value = false
+  }
+}
+
+onMounted(() => {
+  loadCompanies()
+  // La lista alimenta también los selectores de vendedor en los diálogos.
+  loadSellers()
+})
 </script>

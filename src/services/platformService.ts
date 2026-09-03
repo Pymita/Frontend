@@ -3,9 +3,11 @@ import type {
   CreateCompanyPayload,
   PlatformCompany,
   PlatformCompanyDetail,
+  PlatformSeller,
   PlatformSubscription,
   RegisterPaymentPayload,
   SaveSubscriptionPayload,
+  SellerStats,
 } from '../types/platform'
 
 interface ApiEnvelope<T> {
@@ -55,6 +57,27 @@ class PlatformService {
       `/platform/companies/${companyId}/subscription/payments`,
       payload
     )
+    return response.data.data
+  }
+
+  // --- Vendedores del SaaS ---
+  async listSellers(): Promise<PlatformSeller[]> {
+    const response = await api.get<ApiEnvelope<PlatformSeller[]>>('/platform/sellers')
+    return response.data.data
+  }
+
+  async createSeller(payload: Pick<PlatformSeller, 'name'> & Partial<PlatformSeller>): Promise<PlatformSeller> {
+    const response = await api.post<ApiEnvelope<PlatformSeller>>('/platform/sellers', payload)
+    return response.data.data
+  }
+
+  async updateSeller(id: number, payload: Partial<PlatformSeller>): Promise<PlatformSeller> {
+    const response = await api.put<ApiEnvelope<PlatformSeller>>(`/platform/sellers/${id}`, payload)
+    return response.data.data
+  }
+
+  async sellerStats(): Promise<SellerStats[]> {
+    const response = await api.get<ApiEnvelope<SellerStats[]>>('/platform/sellers/stats')
     return response.data.data
   }
 }
