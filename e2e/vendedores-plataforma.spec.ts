@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { API, apiLogin, field, loginUI } from './helpers'
+import { API, apiLogin, loginUI, sidebarItem } from './helpers'
 
 const PLATFORM = { email: 'plataforma@saboresdeltrigo.com', password: 'plataforma123' }
 
@@ -15,8 +15,8 @@ test('vendedor, pago con motivo obligatorio y estadísticas de ventas', async ({
 
   await loginUI(page, PLATFORM.email, PLATFORM.password)
 
-  // --- Crear el vendedor por interfaz ---
-  await page.getByRole('tab', { name: 'Vendedores' }).click()
+  // --- Crear el vendedor por interfaz (sección de la barra lateral) ---
+  await sidebarItem(page, 'Vendedores').click()
   await page.getByRole('button', { name: /Nuevo Vendedor/ }).click()
   await page.getByLabel('Nombre *').fill(`Vendedora E2E ${stamp}`)
   await page.getByRole('button', { name: 'Guardar', exact: true }).click()
@@ -54,14 +54,14 @@ test('vendedor, pago con motivo obligatorio y estadísticas de ventas', async ({
   })
   expect(withReason.status()).toBe(201)
 
-  // --- La pestaña de estadísticas muestra a la vendedora con su recaudo ---
-  await page.getByRole('tab', { name: 'Ventas por vendedor' }).click()
+  // --- La sección de estadísticas muestra a la vendedora con su recaudo ---
+  await sidebarItem(page, 'Ventas por vendedor').click()
   const statsRow = page.locator('tr', { hasText: `Vendedora E2E ${stamp}` })
   await expect(statsRow).toBeVisible()
   await expect(statsRow).toContainText('$100.000')
 
   // --- El diálogo de suscripción avisa la diferencia por interfaz ---
-  await page.getByRole('tab', { name: 'Empresas' }).click()
+  await sidebarItem(page, 'Empresas').click()
   const companyRow = page.locator('tr', { hasText: `Comercial E2E ${stamp}` })
   await companyRow.locator('.mdi-credit-card-outline').click()
   await page.getByLabel('Monto (COP)').fill('120000')

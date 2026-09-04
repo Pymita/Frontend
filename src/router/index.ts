@@ -135,11 +135,25 @@ export const routes: RouteRecordRaw[] = [
     component: Empleados,
     meta: { requiresAuth: true, requiresAdmin: true }
   },
+  // Las secciones de plataforma viven en la barra lateral (el super admin
+  // no tiene otras páginas): misma vista, sección según la ruta.
   {
     path: '/plataforma',
     name: 'Plataforma',
     component: Plataforma,
-    meta: { requiresAuth: true, requiresSuperAdmin: true }
+    meta: { requiresAuth: true, requiresSuperAdmin: true, section: 'companies' }
+  },
+  {
+    path: '/plataforma/vendedores',
+    name: 'PlataformaVendedores',
+    component: Plataforma,
+    meta: { requiresAuth: true, requiresSuperAdmin: true, section: 'sellers' }
+  },
+  {
+    path: '/plataforma/ventas',
+    name: 'PlataformaVentas',
+    component: Plataforma,
+    meta: { requiresAuth: true, requiresSuperAdmin: true, section: 'stats' }
   }
 ]
 

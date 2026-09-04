@@ -173,7 +173,9 @@ const allMenuItems: MenuItem[] = [
   { title: 'Finanzas', icon: 'mdi-finance', route: '/finanzas', requiresAdmin: true },
   { title: 'Empleados', icon: 'mdi-account-cog', route: '/empleados', requiresAdmin: true },
   { title: 'Configuración', icon: 'mdi-cog', route: '/configuracion', requiresAdmin: true },
-  { title: 'Plataforma', icon: 'mdi-domain', route: '/plataforma', superAdminOnly: true },
+  { title: 'Empresas', icon: 'mdi-domain', route: '/plataforma', superAdminOnly: true },
+  { title: 'Vendedores', icon: 'mdi-account-tie', route: '/plataforma/vendedores', superAdminOnly: true },
+  { title: 'Ventas por vendedor', icon: 'mdi-chart-line', route: '/plataforma/ventas', superAdminOnly: true },
 ]
 
 const availableMenuItems = computed((): MenuItem[] => {

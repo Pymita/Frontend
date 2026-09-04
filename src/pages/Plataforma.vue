@@ -4,10 +4,8 @@
       <v-col cols="12">
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
-            <h1 class="text-h4">Plataforma</h1>
-            <p class="text-body-1 text-grey-darken-1">
-              Administra las empresas del sistema y sus suscripciones
-            </p>
+            <h1 class="text-h4">{{ sectionTitle }}</h1>
+            <p class="text-body-1 text-grey-darken-1">{{ sectionSubtitle }}</p>
           </div>
           <v-btn v-if="tab === 'companies'" color="primary" size="large" @click="openCreateDialog">
             <v-icon start>mdi-domain-plus</v-icon>
@@ -18,11 +16,6 @@
             Nuevo Vendedor
           </v-btn>
         </div>
-        <v-tabs v-model="tab" color="primary">
-          <v-tab value="companies">Empresas</v-tab>
-          <v-tab value="sellers">Vendedores</v-tab>
-          <v-tab value="stats">Ventas por vendedor</v-tab>
-        </v-tabs>
       </v-col>
     </v-row>
 
@@ -691,7 +684,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import platformService from '../services/platformService'
 import type { PlatformCompany, PlatformCompanyDetail, PlatformSeller, SellerStats } from '../types/platform'
 import { ALL_FEATURES, type BusinessType, type Feature, type SubscriptionStatus } from '../types/auth'
@@ -1031,8 +1025,20 @@ const confirmToggle = async (company: PlatformCompany) => {
   }
 }
 
-// --- Vendedores del SaaS ---
-const tab = ref<'companies' | 'sellers' | 'stats'>('companies')
+// --- Secciones: viven en la barra lateral, la ruta decide cuál se ve ---
+const route = useRoute()
+const tab = computed(() => (route.meta.section as 'companies' | 'sellers' | 'stats') ?? 'companies')
+
+const sectionTitle = computed(() =>
+  ({ companies: 'Empresas', sellers: 'Vendedores', stats: 'Ventas por Vendedor' })[tab.value],
+)
+const sectionSubtitle = computed(() =>
+  ({
+    companies: 'Administra las empresas del sistema y sus suscripciones',
+    sellers: 'Quiénes venden el sistema; se asocian a cada suscripción',
+    stats: 'Resultados comerciales de cada vendedor',
+  })[tab.value],
+)
 const sellers = ref<PlatformSeller[]>([])
 const loadingSellers = ref(false)
 const sellerStats = ref<SellerStats[]>([])
@@ -1077,12 +1083,6 @@ const loadStats = async () => {
   }
 }
 
-// Cada pestaña consulta datos frescos al entrar.
-watch(tab, value => {
-  if (value === 'stats') loadStats()
-  if (value === 'companies') loadCompanies()
-})
-
 const sellerDialog = ref(false)
 const editingSeller = ref<PlatformSeller | null>(null)
 const sellerForm = ref({ name: '', email: '', phone: '', active: true })
@@ -1124,9 +1124,12 @@ const saveSeller = async () => {
   }
 }
 
+// Cada navegación de la barra remonta la vista (router-view con :key),
+// así que el montaje carga lo que la sección visible necesita. Los
+// vendedores se cargan siempre: alimentan los selectores de los diálogos.
 onMounted(() => {
-  loadCompanies()
-  // La lista alimenta también los selectores de vendedor en los diálogos.
   loadSellers()
+  if (tab.value === 'companies') loadCompanies()
+  if (tab.value === 'stats') loadStats()
 })
 </script>
