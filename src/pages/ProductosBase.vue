@@ -361,14 +361,15 @@
                 <v-col cols="12" md="4">
                   <v-text-field
                     v-model="formData.current_stock"
-                    label="Saldo inicial"
+                    label="Saldo inicial *"
                     type="text"
                     inputmode="decimal"
                     :suffix="formData.unit || ''"
                     @blur="formatStockField('current_stock')"
                     @keypress="allowDecimalInput"
-                    hint="Inventario con el que arranca. Ej: 10,5"
+                    hint="Obligatorio: después el stock solo se mueve por pedidos o ajustes"
                     persistent-hint
+                    :rules="[v => parseStock(v) > 0 || 'Indica el saldo inicial']"
                   />
                 </v-col>
                 <v-col cols="12" md="4">
@@ -813,6 +814,13 @@ const showMessage = (text: string, color = 'success') => {
 };
 
 // Permitir solo números, punto, coma y signo negativo
+// Los campos de stock aceptan coma o punto decimal; esto los vuelve número.
+const parseStock = (value: string | number | null): number => {
+  if (value === null || value === undefined || value === '') return 0;
+  const parsed = parseFloat(String(value).replace(',', '.'));
+  return isNaN(parsed) ? 0 : parsed;
+};
+
 const allowDecimalInput = (event: KeyboardEvent) => {
   const char = event.key;
   const input = event.target as HTMLInputElement;
@@ -937,6 +945,13 @@ const save = async () => {
   // Todo producto lleva un impuesto asociado (existe la opción Exento).
   if (formData.value.tax_id === null || formData.value.tax_id === undefined) {
     showMessage('Selecciona el impuesto del producto', 'error');
+    return;
+  }
+
+  // Con inventario activo, el saldo inicial es obligatorio al crear:
+  // después el stock solo se mueve por pedidos o ajustes del kardex.
+  if (!editing.value && formData.value.tracks_stock && parseStock(formData.value.current_stock) <= 0) {
+    showMessage('Indica el saldo inicial del inventario', 'error');
     return;
   }
 

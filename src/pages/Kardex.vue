@@ -413,18 +413,24 @@ const openMovementDialog = () => {
 
 const saveMovement = async () => {
   const form = movementForm.value
-  if (!form.product_id || !form.document_type_id || !form.quantity || form.quantity <= 0 || !form.notes.trim()) {
-    notify('Completa producto, documento, cantidad y motivo')
-    return
-  }
-  if (!form.moved_at) {
-    notify('Indica la fecha del movimiento')
-    return
-  }
+
+  // Mensaje específico: decir exactamente qué falta evita adivinar.
+  const missing: string[] = []
+  if (!form.product_id) missing.push('el producto (elígelo de la lista, no basta con escribirlo)')
+  if (!form.document_type_id) missing.push('el tipo de documento')
+  if (!form.quantity || form.quantity <= 0) missing.push('la cantidad')
+  if (!form.moved_at) missing.push('la fecha')
+  if (!form.notes.trim()) missing.push('el motivo')
   if (counterpartyRequired.value && !form.counterparty.trim()) {
-    notify(selectedDocCode.value === 'FC' ? 'Indica el proveedor de la compra' : 'Indica el cliente de la devolución')
+    missing.push(selectedDocCode.value === 'FC' ? 'el proveedor de la compra' : 'el cliente de la devolución')
+  }
+
+  if (missing.length > 0) {
+    notify(`Falta ${missing.join(', ')}`)
     return
   }
+  // Solo para que TypeScript sepa que ya no son null (la guarda de arriba cubre).
+  if (!form.product_id || !form.document_type_id) return
   savingMovement.value = true
   try {
     await kardexService.createKardexMovement({
