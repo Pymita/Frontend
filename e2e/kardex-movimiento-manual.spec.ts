@@ -38,6 +38,7 @@ test('una devolución de ventas se registra desde el kardex y aparece como DV', 
   await field(page, 'Tipo de documento *').click()
   await page.getByRole('option', { name: /DV — Devolución de ventas/ }).click()
   await page.getByLabel('Cantidad *').fill('2')
+  await page.getByLabel('Cliente *').fill('Cliente Devolución E2E')
   await page.getByLabel('Referencia').fill('POS-999')
   await page.getByLabel('Motivo *').fill('Cliente devolvió botellas E2E')
   await page.getByRole('button', { name: 'Registrar', exact: true }).click()

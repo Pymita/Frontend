@@ -209,8 +209,8 @@
       </v-col>
     </v-row>
 
-    <!-- Dialog Producto -->
-    <v-dialog v-model="dialog" max-width="900" persistent>
+    <!-- Dialog Producto: ancho a propósito para que quepa sin scrollear -->
+    <v-dialog v-model="dialog" max-width="1100" persistent>
       <v-card>
         <v-card-title>{{ editing ? 'Editar Producto' : 'Nuevo Producto' }}</v-card-title>
         <v-card-text>
@@ -219,8 +219,9 @@
           </v-alert>
 
           <v-form ref="form" @submit.prevent="save">
-            <v-row>
-              <v-col cols="12" md="6">
+            <!-- Lo esencial primero: nombre, categoría y tipo definen el producto -->
+            <v-row dense>
+              <v-col cols="12" :md="hasRecipes ? 4 : 6">
                 <v-text-field
                   v-model="formData.name"
                   label="Nombre del producto *"
@@ -228,41 +229,18 @@
                   required
                 />
               </v-col>
-              <v-col cols="12" sm="6" md="3">
-                <v-text-field
-                  v-model="formData.sku"
-                  label="SKU (opcional)"
-                  :hint="!formData.sku?.trim() ? `Se generará: ${skuPreview}` : 'Código interno'"
-                  persistent-hint
-                  placeholder="Automático"
+              <v-col cols="12" :md="hasRecipes ? 4 : 6">
+                <v-select
+                  v-model="formData.category_id"
+                  :items="categorias"
+                  :item-title="(c: any) => c.path || c.name"
+                  item-value="id"
+                  label="Categoría *"
+                  :rules="[v => !!v || 'Categoría requerida']"
+                  required
                 />
               </v-col>
-              <v-col cols="12" sm="6" md="3">
-                <v-text-field
-                  v-model="formData.barcode"
-                  label="Código de barras"
-                  hint="Escanéalo o escríbelo"
-                  persistent-hint
-                  placeholder="Opcional"
-                />
-              </v-col>
-            </v-row>
-            
-            <v-textarea
-              v-model="formData.description"
-              label="Descripción"
-              rows="2"
-            />
-
-            <ImageUploader
-              v-model="formData.image_url"
-              folder="products"
-              label="Foto del producto"
-              class="mb-2"
-            />
-            
-            <v-row>
-              <v-col v-if="hasRecipes" cols="12" md="6">
+              <v-col v-if="hasRecipes" cols="12" md="4">
                 <v-select
                   v-model="formData.type"
                   :items="productTypeOptions"
@@ -271,32 +249,21 @@
                   required
                 />
               </v-col>
-              <v-col cols="12" md="6">
-                <v-select
-                  v-model="formData.category_id"
-                  :items="categorias"
-                  :item-title="(c: any) => c.path || c.name"
-                  item-value="id"
-                  label="Categoría (opcional)"
-                  hint="Solo es obligatoria para publicar el producto en el menú"
-                  persistent-hint
-                  clearable
-                />
-              </v-col>
             </v-row>
 
-            <v-row>
-              <v-col cols="12" md="6">
-                <v-text-field
+            <v-row dense>
+              <v-col cols="6" md="3">
+                <v-combobox
                   v-model="formData.unit"
+                  :items="UNIT_OPTIONS"
                   label="Unidad de medida *"
-                  hint="Ej: kg, litros, unidad, gramos"
+                  hint="Elige una o escribe la tuya"
                   persistent-hint
                   :rules="[v => !!v || 'Unidad requerida']"
                   required
                 />
               </v-col>
-              <v-col v-if="formData.type !== 'intermediate'" cols="12" md="3">
+              <v-col v-if="formData.type !== 'intermediate'" cols="6" md="3">
                 <v-text-field
                   v-model.number="formData.unit_cost"
                   label="Precio de costo"
@@ -309,7 +276,7 @@
                   :rules="[v => v >= 0 || 'Costo inválido']"
                 />
               </v-col>
-              <v-col v-if="formData.type === 'final'" cols="12" md="3">
+              <v-col v-if="formData.type === 'final'" cols="6" md="3">
                 <v-text-field
                   v-model.number="formData.sale_price"
                   label="Precio de venta *"
@@ -323,17 +290,53 @@
                   required
                 />
               </v-col>
-            </v-row>
-
-            <v-row>
-              <v-col cols="12" md="6">
+              <v-col cols="6" md="3">
                 <v-select
                   v-model="formData.tax_id"
                   :items="taxOptions"
                   label="Impuesto *"
-                  hint="Se configura el catálogo en Configuración"
+                  hint="Catálogo en Configuración"
                   persistent-hint
                   :rules="[v => v !== null && v !== undefined || 'Selecciona el impuesto (hay opción Exento)']"
+                />
+              </v-col>
+            </v-row>
+
+            <v-row dense>
+              <v-col cols="12" md="6">
+                <v-textarea
+                  v-model="formData.description"
+                  label="Descripción"
+                  rows="3"
+                />
+              </v-col>
+              <v-col cols="12" md="6">
+                <ImageUploader
+                  v-model="formData.image_url"
+                  folder="products"
+                  label="Foto del producto"
+                  class="mb-2"
+                />
+              </v-col>
+            </v-row>
+
+            <v-row dense>
+              <v-col cols="6" md="3">
+                <v-text-field
+                  v-model="formData.sku"
+                  label="SKU (opcional)"
+                  :hint="!formData.sku?.trim() ? `Se generará: ${skuPreview}` : 'Código interno'"
+                  persistent-hint
+                  placeholder="Automático"
+                />
+              </v-col>
+              <v-col cols="6" md="3">
+                <v-text-field
+                  v-model="formData.barcode"
+                  label="Código de barras"
+                  hint="Escanéalo o escríbelo"
+                  persistent-hint
+                  placeholder="Opcional"
                 />
               </v-col>
             </v-row>
@@ -609,6 +612,12 @@ const menuForm = ref({
 
 // Hoy en local (el input date usa YYYY-MM-DD).
 const today = new Date().toLocaleDateString('sv-SE');
+
+// Unidades sugeridas; el combobox también acepta texto libre.
+const UNIT_OPTIONS = [
+  'unidad', 'kg', 'gramos', 'libra', 'litro', 'ml', 'botella', 'lata',
+  'paquete', 'caja', 'bolsa', 'porción', 'plato', 'galón', 'arroba',
+];
 
 const formData = ref({
   name: '',

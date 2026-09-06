@@ -63,7 +63,7 @@
             </v-col>
           </v-row>
           <v-row dense>
-            <v-col cols="6">
+            <v-col cols="4">
               <v-text-field
                 v-model.number="movementForm.quantity"
                 label="Cantidad *"
@@ -72,25 +72,45 @@
                 step="0.01"
               />
             </v-col>
-            <v-col v-if="movementForm.movement_type === 'in'" cols="6">
+            <v-col v-if="movementForm.movement_type === 'in'" cols="4">
               <v-text-field
                 v-model.number="movementForm.unit_cost"
                 label="Costo unitario"
                 type="number"
                 min="0"
                 prefix="$"
-                hint="Vacío: entra al costo promedio actual"
+                hint="Sugerido: último costo del producto"
+                persistent-hint
+              />
+            </v-col>
+            <v-col cols="4">
+              <!-- Los documentos no siempre se registran el día que ocurren -->
+              <v-text-field
+                v-model="movementForm.moved_at"
+                label="Fecha del movimiento *"
+                type="date"
+                :max="today"
+              />
+            </v-col>
+          </v-row>
+          <v-row dense>
+            <v-col cols="6">
+              <v-text-field
+                v-model="movementForm.counterparty"
+                :label="counterpartyLabel"
+                :hint="counterpartyRequired ? 'Obligatorio para este documento' : 'Opcional'"
+                persistent-hint
+              />
+            </v-col>
+            <v-col cols="6">
+              <v-text-field
+                v-model="movementForm.reference"
+                label="Referencia"
+                hint="Ej: la factura POS-105 que se devuelve"
                 persistent-hint
               />
             </v-col>
           </v-row>
-          <v-text-field
-            v-model="movementForm.reference"
-            label="Referencia"
-            hint="Ej: la factura POS-105 que se devuelve"
-            persistent-hint
-            class="mb-2"
-          />
           <v-textarea
             v-model="movementForm.notes"
             label="Motivo *"
@@ -245,7 +265,10 @@
                     </template>
                   </v-tooltip>
                 </td>
-                <td>{{ m.reference || '—' }}</td>
+                <td>
+                  {{ m.reference || '—' }}
+                  <div v-if="m.counterparty" class="text-caption text-grey">{{ m.counterparty }}</div>
+                </td>
                 <td v-if="showProductColumn">{{ m.product.name }}</td>
                 <td class="text-right text-success">
                   {{ m.movement_type === 'in' ? m.quantity : '' }}
@@ -300,12 +323,16 @@ const AUTOMATIC_CODES = ['SI', 'FV', 'NC']
 
 const movementDialog = ref(false)
 const savingMovement = ref(false)
+// Hoy en local (los inputs date usan YYYY-MM-DD).
+const today = new Date().toLocaleDateString('sv-SE')
 const movementForm = ref({
   product_id: null as number | null,
   document_type_id: null as number | null,
   movement_type: 'in' as 'in' | 'out',
   quantity: 0,
   unit_cost: null as number | null,
+  moved_at: today,
+  counterparty: '',
   reference: '',
   notes: '',
 })
@@ -313,7 +340,7 @@ const movementForm = ref({
 const loading = ref(false)
 const exporting = ref(false)
 const report = ref<KardexReport | null>(null)
-const products = ref<{ id: number; name: string }[]>([])
+const products = ref<{ id: number; name: string; unit_cost?: number | null }[]>([])
 const documentTypes = ref<DocumentType[]>([])
 
 const filters = ref<KardexFilters>({})
@@ -346,6 +373,28 @@ watch(movementTypeOptions, options => {
   if (only) movementForm.value.movement_type = only.value as 'in' | 'out'
 })
 
+// Compras (FC) y devoluciones (DV) llevan un tercero obligatorio.
+const selectedDocCode = computed(
+  () => documentTypes.value.find(t => t.id === movementForm.value.document_type_id)?.code ?? null,
+)
+const counterpartyRequired = computed(() => selectedDocCode.value === 'FC' || selectedDocCode.value === 'DV')
+const counterpartyLabel = computed(() => {
+  if (selectedDocCode.value === 'FC') return 'Proveedor *'
+  if (selectedDocCode.value === 'DV') return 'Cliente *'
+  return 'Cliente / Proveedor'
+})
+
+// Al elegir producto se sugiere su último costo (editable).
+watch(
+  () => movementForm.value.product_id,
+  productId => {
+    const product = products.value.find(p => p.id === productId)
+    if (product && product.unit_cost != null) {
+      movementForm.value.unit_cost = Number(product.unit_cost)
+    }
+  },
+)
+
 const openMovementDialog = () => {
   movementForm.value = {
     // Con un producto ya filtrado, el movimiento seguramente es para él.
@@ -354,6 +403,8 @@ const openMovementDialog = () => {
     movement_type: 'in',
     quantity: 0,
     unit_cost: null,
+    moved_at: today,
+    counterparty: '',
     reference: '',
     notes: '',
   }
@@ -366,6 +417,14 @@ const saveMovement = async () => {
     notify('Completa producto, documento, cantidad y motivo')
     return
   }
+  if (!form.moved_at) {
+    notify('Indica la fecha del movimiento')
+    return
+  }
+  if (counterpartyRequired.value && !form.counterparty.trim()) {
+    notify(selectedDocCode.value === 'FC' ? 'Indica el proveedor de la compra' : 'Indica el cliente de la devolución')
+    return
+  }
   savingMovement.value = true
   try {
     await kardexService.createKardexMovement({
@@ -374,6 +433,8 @@ const saveMovement = async () => {
       movement_type: form.movement_type,
       quantity: form.quantity,
       unit_cost: form.movement_type === 'in' ? form.unit_cost : undefined,
+      moved_at: form.moved_at,
+      counterparty: form.counterparty.trim() || undefined,
       reference: form.reference.trim() || undefined,
       notes: form.notes.trim(),
     })

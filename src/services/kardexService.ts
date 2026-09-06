@@ -21,6 +21,7 @@ export interface KardexMovement {
   document_code: string
   document_name: string
   reference: string | null
+  counterparty?: string | null
   product: { id: number; name: string; unit: string }
   movement_type: 'in' | 'out'
   quantity: number
@@ -167,6 +168,10 @@ class KardexService {
     movement_type: 'in' | 'out'
     quantity: number
     unit_cost?: number | null
+    /** Fecha real del documento (retro-fechable, nunca futura) */
+    moved_at?: string
+    /** Proveedor (FC) o cliente (DV) del movimiento */
+    counterparty?: string | null
     reference?: string | null
     notes: string
   }): Promise<KardexMovement> {
