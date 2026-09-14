@@ -136,14 +136,23 @@
           </p>
 
           <v-form @submit.prevent="saveResolution">
+            <p class="text-caption text-grey-darken-1 mb-3">
+              Los campos con
+              <span class="text-error font-weight-bold">*</span>
+              son obligatorios.
+            </p>
+
             <v-row dense>
               <v-col cols="12" md="4">
                 <v-text-field
                   v-model="resolutionForm.invoicing_resolution"
-                  label="Número de resolución *"
                   hint="Ej: 18764000001234"
                   persistent-hint
-                />
+                >
+                  <template #label>
+                    Número de resolución <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-text-field>
               </v-col>
               <v-col cols="6" md="2">
                 <v-text-field v-model="resolutionForm.invoice_prefix" label="Prefijo" hint="Ej: POS" persistent-hint />
@@ -151,18 +160,24 @@
               <v-col cols="6" md="3">
                 <v-text-field
                   v-model.number="resolutionForm.range_from"
-                  label="Rango desde *"
                   type="number"
                   min="1"
-                />
+                >
+                  <template #label>
+                    Rango desde <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-text-field>
               </v-col>
               <v-col cols="6" md="3">
                 <v-text-field
                   v-model.number="resolutionForm.range_to"
-                  label="Rango hasta *"
                   type="number"
                   min="1"
-                />
+                >
+                  <template #label>
+                    Rango hasta <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-text-field>
               </v-col>
               <v-col cols="6" md="3">
                 <v-text-field v-model="resolutionForm.resolution_date" label="Fecha de la resolución" type="date" />

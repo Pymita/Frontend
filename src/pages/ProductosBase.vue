@@ -219,15 +219,24 @@
           </v-alert>
 
           <v-form ref="form" @submit.prevent="save">
+            <p class="text-caption text-grey-darken-1 mb-3">
+              Los campos con
+              <span class="text-error font-weight-bold">*</span>
+              son obligatorios.
+            </p>
+
             <!-- Lo esencial primero: nombre, categoría y tipo definen el producto -->
             <v-row dense>
               <v-col cols="12" :md="hasRecipes ? 4 : 6">
                 <v-text-field
                   v-model="formData.name"
-                  label="Nombre del producto *"
                   :rules="[v => !!v || 'Nombre requerido']"
                   required
-                />
+                >
+                  <template #label>
+                    Nombre del producto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-text-field>
               </v-col>
               <v-col cols="12" :md="hasRecipes ? 4 : 6">
                 <v-select
@@ -235,19 +244,25 @@
                   :items="categorias"
                   :item-title="(c: any) => c.path || c.name"
                   item-value="id"
-                  label="Categoría *"
                   :rules="[v => !!v || 'Categoría requerida']"
                   required
-                />
+                >
+                  <template #label>
+                    Categoría <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-select>
               </v-col>
               <v-col v-if="hasRecipes" cols="12" md="4">
                 <v-select
                   v-model="formData.type"
                   :items="productTypeOptions"
-                  label="Tipo de producto"
                   :rules="[v => !!v || 'Tipo requerido']"
                   required
-                />
+                >
+                  <template #label>
+                    Tipo de producto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-select>
               </v-col>
             </v-row>
 
@@ -256,12 +271,15 @@
                 <v-combobox
                   v-model="formData.unit"
                   :items="UNIT_OPTIONS"
-                  label="Unidad de medida *"
                   hint="Elige una o escribe la tuya"
                   persistent-hint
                   :rules="[v => !!v || 'Unidad requerida']"
                   required
-                />
+                >
+                  <template #label>
+                    Unidad de medida <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-combobox>
               </v-col>
               <v-col v-if="formData.type !== 'intermediate'" cols="6" md="3">
                 <v-text-field
@@ -279,7 +297,6 @@
               <v-col v-if="formData.type === 'final'" cols="6" md="3">
                 <v-text-field
                   v-model.number="formData.sale_price"
-                  label="Precio de venta *"
                   type="number"
                   step="100"
                   min="0"
@@ -288,17 +305,24 @@
                   persistent-hint
                   :rules="[v => v > 0 || 'Precio de venta requerido']"
                   required
-                />
+                >
+                  <template #label>
+                    Precio de venta <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-text-field>
               </v-col>
               <v-col cols="6" md="3">
                 <v-select
                   v-model="formData.tax_id"
                   :items="taxOptions"
-                  label="Impuesto *"
                   hint="Catálogo en Configuración"
                   persistent-hint
                   :rules="[v => v !== null && v !== undefined || 'Selecciona el impuesto (hay opción Exento)']"
-                />
+                >
+                  <template #label>
+                    Impuesto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-select>
               </v-col>
             </v-row>
 
@@ -361,7 +385,6 @@
                 <v-col cols="12" md="4">
                   <v-text-field
                     v-model="formData.current_stock"
-                    label="Saldo inicial *"
                     type="text"
                     inputmode="decimal"
                     :suffix="formData.unit || ''"
@@ -370,7 +393,11 @@
                     hint="Obligatorio: después el stock solo se mueve por pedidos o ajustes"
                     persistent-hint
                     :rules="[v => parseStock(v) > 0 || 'Indica el saldo inicial']"
-                  />
+                  >
+                    <template #label>
+                      Saldo inicial <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                    </template>
+                  </v-text-field>
                 </v-col>
                 <v-col cols="12" md="4">
                   <v-text-field
@@ -440,7 +467,7 @@
               />
 
               <v-row v-if="publishToMenu">
-                <v-col cols="12" md="4">
+                <v-col cols="12" md="6">
                   <v-text-field
                     v-model.number="menuForm.base_price"
                     label="Precio en el menú"
@@ -448,28 +475,8 @@
                     step="100"
                     min="0"
                     prefix="$"
-                    :hint="`Si lo dejas vacío se usa el precio de venta ($${formData.sale_price || 0})`"
+                    hint="Viene del precio de venta; cámbialo si en el menú cuesta distinto"
                     persistent-hint
-                  />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-select
-                    v-model="menuForm.variant_group_id"
-                    :items="variantGroups"
-                    item-title="name"
-                    item-value="id"
-                    label="Grupo de variantes (opcional)"
-                    hint="Ej: tamaños de pizza, tipos de pan"
-                    persistent-hint
-                    clearable
-                  />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field
-                    v-model.number="menuForm.preparation_time"
-                    label="Tiempo de preparación (min)"
-                    type="number"
-                    min="0"
                   />
                 </v-col>
               </v-row>
@@ -532,12 +539,15 @@
 
           <v-textarea
             v-model="stockMotivo"
-            label="Motivo del ajuste *"
             hint="Queda registrado en el kardex. Ej: Merma, conteo físico, daño"
             persistent-hint
             rows="2"
             class="mt-2"
-          />
+          >
+            <template #label>
+              Motivo del ajuste <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+            </template>
+          </v-textarea>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
@@ -562,7 +572,7 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/errors';
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { effectiveFeatures } from '@/types/auth';
 
@@ -576,7 +586,6 @@ import { useRouter } from 'vue-router';
 import { productsService, productCategoriesService, type Product, type Category, type ProductPayload } from '@/services/productsService';
 import { menuItemsService } from '@/services/menuService';
 import kardexService from '@/services/kardexService';
-import { variantGroupsService, type VariantGroup } from '@/services/variantsService';
 import { productTypeLabels, label } from '@/utils/labels';
 import LockableButton from '../components/LockableButton.vue'
 import { useReadOnly } from '../composables/useReadOnly'
@@ -588,7 +597,6 @@ const router = useRouter();
 
 const products = ref<Product[]>([]);
 const categorias = ref<Category[]>([]);
-const variantGroups = ref<VariantGroup[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 const search = ref('');
@@ -637,6 +645,21 @@ const formData = ref({
   initial_stock_date: today,
   minimum_stock: null as string | number | null,
 });
+
+// El menú se vende al precio de venta salvo que alguien lo cambie a mano:
+// se sigue copiando mientras el precio del menú no se haya tocado.
+watch(
+  () => formData.value.sale_price,
+  (salePrice, previous) => {
+    const untouched =
+      menuForm.value.base_price === null ||
+      menuForm.value.base_price === previous;
+
+    if (untouched) {
+      menuForm.value.base_price = salePrice;
+    }
+  },
+);
 
 // Catálogo de impuestos de la empresa para el selector del producto.
 const taxes = ref<{ id: number; name: string; rate: number }[]>([]);
@@ -863,10 +886,9 @@ const loadData = async () => {
   loading.value = true;
   try {
     console.log('[ProductosBase] Cargando datos...');
-    const [productsData, categoriasData, groupsData, taxesData] = await Promise.all([
+    const [productsData, categoriasData, taxesData] = await Promise.all([
       productsService.getAll(),
       productCategoriesService.getAll(),
-      variantGroupsService.getAll(),
       kardexService.taxes(),
     ]);
     taxes.value = taxesData;
@@ -874,7 +896,6 @@ const loadData = async () => {
     console.log('[ProductosBase] Categorías cargadas:', categoriasData.length);
     products.value = productsData;
     categorias.value = categoriasData;
-    variantGroups.value = groupsData;
   } catch (error: any) {
     console.error('[ProductosBase] Error al cargar datos:', error);
     console.error('[ProductosBase] Error response:', error.response);
@@ -886,7 +907,8 @@ const loadData = async () => {
 
 const openDialog = (product?: Product, forceMenu = false) => {
   editing.value = product || null;
-  publishToMenu.value = forceMenu || !!product?.in_menu;
+  // Un producto nuevo casi siempre se vende: el menú va activado de entrada.
+  publishToMenu.value = product ? forceMenu || !!product.in_menu : true;
   menuForm.value = {
     base_price: product?.menu_item?.base_price ?? null,
     variant_group_id: product?.menu_item?.variant_group_id ?? null,

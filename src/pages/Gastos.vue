@@ -223,6 +223,12 @@
         </v-card-title>
         <v-card-text>
           <v-form ref="expenseForm">
+            <p class="text-caption text-grey-darken-1 mb-3">
+              Los campos con
+              <span class="text-error font-weight-bold">*</span>
+              son obligatorios.
+            </p>
+
             <v-row>
               <v-col cols="12" md="6">
                 <v-select
@@ -230,10 +236,12 @@
                   :items="categorias"
                   :item-title="(c: any) => c.path || c.name"
                   item-value="id"
-                  label="Categoría *"
                   variant="outlined"
                   density="comfortable"
                   :rules="[rules.required]">
+                  <template #label>
+                    Categoría <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
                   <template #item="{ props, item }">
                     <v-list-item v-bind="props">
                       <template #append>
@@ -249,26 +257,34 @@
               <v-col cols="12" md="6">
                 <v-text-field
                   v-model="expenseFormData.expense_date"
-                  label="Fecha del Gasto *"
                   type="date"
                   variant="outlined"
                   density="comfortable"
                   :rules="[rules.required]"
                   hint="Requerido"
-                  persistent-hint />
+                  persistent-hint
+                >
+                  <template #label>
+                    Fecha del Gasto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-text-field>
               </v-col>
 
               <v-col cols="12" md="6">
                 <v-text-field
                   v-model.number="expenseFormData.amount"
-                  label="Monto *"
                   type="number"
                   prefix="$"
                   variant="outlined"
                   density="comfortable"
                   :rules="[rules.required, rules.positive]"
                   hint="Requerido"
-                  persistent-hint />
+                  persistent-hint
+                >
+                  <template #label>
+                    Monto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-text-field>
               </v-col>
 
               <v-col cols="12">
@@ -336,7 +352,6 @@
                 <v-text-field
                   v-if="expenseFormData.product_id"
                   v-model.number="expenseFormData.quantity_purchased"
-                  label="Cantidad Comprada *"
                   type="number"
                   step="0.01"
                   min="0"
@@ -345,7 +360,12 @@
                   density="comfortable"
                   :rules="expenseFormData.product_id ? [rules.required, rules.positive] : []"
                   hint="Se sumará al stock actual"
-                  persistent-hint />
+                  persistent-hint
+                >
+                  <template #label>
+                    Cantidad Comprada <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-text-field>
               </v-col>
 
               <v-col v-if="expenseFormData.product_id && expenseFormData.quantity_purchased && expenseFormData.amount" cols="12">

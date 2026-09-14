@@ -161,9 +161,12 @@
         <v-card-text>
           <v-text-field
             v-model="sellerForm.name"
-            label="Nombre *"
             :rules="[(v: string) => !!v || 'Nombre requerido']"
-          />
+          >
+            <template #label>
+              Nombre <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+            </template>
+          </v-text-field>
           <v-text-field v-model="sellerForm.email" label="Email (opcional)" type="email" />
           <v-text-field v-model="sellerForm.phone" label="Teléfono (opcional)" />
           <v-switch
@@ -190,6 +193,12 @@
         <v-card-title>Nueva Empresa</v-card-title>
         <v-card-text>
           <v-form ref="createForm" @submit.prevent="saveCompany">
+            <p class="text-caption text-grey-darken-1 mb-3">
+              Los campos con
+              <span class="text-error font-weight-bold">*</span>
+              son obligatorios.
+            </p>
+
             <v-row>
               <v-col cols="12" md="6">
                 <p class="text-subtitle-2 mb-2">Empresa</p>
@@ -651,10 +660,13 @@
           <v-textarea
             v-if="paymentDiffers"
             v-model="paymentData.discrepancy_reason"
-            label="Motivo de la diferencia *"
             rows="2"
             class="mb-2"
-          />
+          >
+            <template #label>
+              Motivo de la diferencia <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+            </template>
+          </v-textarea>
 
           <v-btn
             color="success"

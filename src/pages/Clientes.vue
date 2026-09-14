@@ -103,33 +103,51 @@
           </v-alert>
 
           <v-form ref="form">
+            <p class="text-caption text-grey-darken-1 mb-3">
+              Los campos con
+              <span class="text-error font-weight-bold">*</span>
+              son obligatorios.
+            </p>
+
             <v-row>
               <v-col cols="12" md="4">
                 <v-select
                   v-model="formData.document_type"
                   :items="tiposDocumento"
-                  label="Tipo de Documento *"
                   variant="outlined"
                   density="comfortable"
-                  :rules="[rules.required]" />
+                  :rules="[rules.required]"
+                >
+                  <template #label>
+                    Tipo de Documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-select>
               </v-col>
 
               <v-col cols="12" md="8">
                 <v-text-field
                   v-model="formData.document_number"
-                  label="Número de Documento *"
                   variant="outlined"
                   density="comfortable"
-                  :rules="[rules.required]" />
+                  :rules="[rules.required]"
+                >
+                  <template #label>
+                    Número de Documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-text-field>
               </v-col>
 
               <v-col cols="12">
                 <v-text-field
                   v-model="formData.name"
-                  label="Nombre / Razón Social *"
                   variant="outlined"
                   density="comfortable"
-                  :rules="[rules.required]" />
+                  :rules="[rules.required]"
+                >
+                  <template #label>
+                    Nombre / Razón Social <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-text-field>
               </v-col>
 
               <v-col cols="12" md="6">

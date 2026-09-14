@@ -40,9 +40,12 @@
             :items="products"
             item-title="name"
             item-value="id"
-            label="Producto *"
             class="mb-2"
-          />
+          >
+            <template #label>
+              Producto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+            </template>
+          </v-autocomplete>
           <v-row dense>
             <v-col cols="7">
               <v-select
@@ -50,27 +53,36 @@
                 :items="manualDocumentTypes"
                 :item-title="(t: any) => `${t.code} — ${t.name}`"
                 item-value="id"
-                label="Tipo de documento *"
-              />
+              >
+                <template #label>
+                  Tipo de documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                </template>
+              </v-select>
             </v-col>
             <v-col cols="5">
               <v-select
                 v-model="movementForm.movement_type"
                 :items="movementTypeOptions"
-                label="Dirección *"
                 :disabled="movementTypeOptions.length === 1"
-              />
+              >
+                <template #label>
+                  Dirección <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                </template>
+              </v-select>
             </v-col>
           </v-row>
           <v-row dense>
             <v-col cols="4">
               <v-text-field
                 v-model.number="movementForm.quantity"
-                label="Cantidad *"
                 type="number"
                 min="0"
                 step="0.01"
-              />
+              >
+                <template #label>
+                  Cantidad <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                </template>
+              </v-text-field>
             </v-col>
             <v-col v-if="movementForm.movement_type === 'in'" cols="4">
               <v-text-field
@@ -87,10 +99,13 @@
               <!-- Los documentos no siempre se registran el día que ocurren -->
               <v-text-field
                 v-model="movementForm.moved_at"
-                label="Fecha del movimiento *"
                 type="date"
                 :max="today"
-              />
+              >
+                <template #label>
+                  Fecha del movimiento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                </template>
+              </v-text-field>
             </v-col>
           </v-row>
           <v-row dense>
@@ -113,11 +128,14 @@
           </v-row>
           <v-textarea
             v-model="movementForm.notes"
-            label="Motivo *"
             hint="Queda registrado en el kardex junto al movimiento"
             persistent-hint
             rows="2"
-          />
+          >
+            <template #label>
+              Motivo <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+            </template>
+          </v-textarea>
         </v-card-text>
         <v-card-actions>
           <v-spacer />

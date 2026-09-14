@@ -284,10 +284,13 @@
           </v-alert>
           <v-text-field
             v-model="revertReason"
-            label="¿Por qué se revierte? *"
             placeholder="Ej: se cobró en la mesa equivocada"
             autofocus
-          />
+          >
+            <template #label>
+              ¿Por qué se revierte? <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+            </template>
+          </v-text-field>
         </v-card-text>
         <v-card-actions>
           <v-spacer />

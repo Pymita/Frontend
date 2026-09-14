@@ -75,6 +75,12 @@
         <v-divider />
         <v-card-text style="max-height: 70vh">
           <v-form ref="form">
+            <p class="text-caption text-grey-darken-1 mb-3">
+              Los campos con
+              <span class="text-error font-weight-bold">*</span>
+              son obligatorios.
+            </p>
+
             <!-- Información básica -->
             <h3 class="mb-3">Información General</h3>
             <v-alert type="info" variant="tonal" density="compact" class="mb-4">
@@ -100,10 +106,13 @@
                   :items="variantsForSelectedProduct"
                   item-title="name"
                   item-value="id"
-                  label="Variante / Tipo *"
                   :rules="[v => !!v || 'Tipo requerido para este producto']"
                   required
-                />
+                >
+                  <template #label>
+                    Variante / Tipo <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-autocomplete>
               </v-col>
               <v-col cols="12" md="6">
                 <v-text-field
