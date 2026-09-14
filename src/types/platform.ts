@@ -24,6 +24,8 @@ export interface PlatformCompany {
   name: string
   slug: string
   business_type: BusinessType
+  /** Catálogo base que se copia a clientes nuevos, no un cliente real */
+  is_template: boolean
   /** Lista efectiva (preset del tipo o personalizada) */
   modules: Feature[]
   modules_customized: boolean

@@ -11,9 +11,21 @@
                 : 'Lo que vendes y su inventario' }}
             </p>
           </div>
-          <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
-            Nuevo Producto
-          </LockableButton>
+          <div class="d-flex ga-2">
+            <LockableButton
+              v-if="isAdmin"
+              icon="mdi-file-excel"
+              color="primary"
+              variant="tonal"
+              size="large"
+              @click="importDialog = true"
+            >
+              Importar Excel
+            </LockableButton>
+            <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
+              Nuevo Producto
+            </LockableButton>
+          </div>
         </div>
       </v-col>
     </v-row>
@@ -564,6 +576,8 @@
       </v-card>
     </v-dialog>
 
+    <ProductImportDialog v-model="importDialog" @imported="onImported" />
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="snackbarColor === 'error' ? 9000 : 3000" closable>
       {{ snackbarText }}
     </v-snackbar>
@@ -580,6 +594,15 @@ import { effectiveFeatures } from '@/types/auth';
 // intermedios, así que esa clasificación no debe aparecer.
 const authStore = useAuthStore();
 const hasRecipes = computed(() => effectiveFeatures(authStore.user).includes('recipes'));
+// Importar es de administrador: crea catálogo en bloque.
+const isAdmin = computed(() => authStore.isAdmin);
+
+const importDialog = ref(false);
+
+const onImported = (created: number) => {
+  showMessage(`Se crearon ${created} productos`);
+  loadData();
+};
 import ImageUploader from '@/components/ImageUploader.vue';
 import { resolveImageUrl } from '@/utils/images';
 import { useRouter } from 'vue-router';
@@ -588,6 +611,7 @@ import { menuItemsService } from '@/services/menuService';
 import kardexService from '@/services/kardexService';
 import { productTypeLabels, label } from '@/utils/labels';
 import LockableButton from '../components/LockableButton.vue'
+import ProductImportDialog from '../components/ProductImportDialog.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.

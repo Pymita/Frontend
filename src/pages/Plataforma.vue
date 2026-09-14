@@ -31,6 +31,9 @@
             <template #item.name="{ item }">
               <div>
                 <strong>{{ item.name }}</strong>
+                <v-chip v-if="item.is_template" size="x-small" color="primary" variant="flat" class="ml-2">
+                  Plantilla
+                </v-chip>
                 <div class="text-caption text-grey">{{ item.slug }}</div>
               </div>
             </template>
@@ -63,6 +66,13 @@
               {{ item.subscription?.current_period_end || '—' }}
             </template>
             <template #item.actions="{ item }">
+              <v-tooltip text="Copiar un catálogo base a esta empresa">
+                <template #activator="{ props }">
+                  <v-btn v-bind="props" icon size="small" variant="text" @click="openCopyCatalog(item)">
+                    <v-icon size="small">mdi-content-duplicate</v-icon>
+                  </v-btn>
+                </template>
+              </v-tooltip>
               <v-tooltip text="Ver y editar empresa">
                 <template #activator="{ props }">
                   <v-btn v-bind="props" icon size="small" variant="text" @click="openDetailDialog(item)">
@@ -689,6 +699,12 @@
       </v-card>
     </v-dialog>
 
+    <CopyCatalogDialog
+      v-model="copyCatalogDialog"
+      :company="copyCatalogTarget"
+      @copied="onCatalogCopied"
+    />
+
     <v-snackbar v-model="snackbar.show" :color="snackbar.color" :timeout="snackbar.color === 'error' ? 9000 : 3000" closable>
       {{ snackbar.text }}
     </v-snackbar>
@@ -702,6 +718,7 @@ import platformService from '../services/platformService'
 import type { PlatformCompany, PlatformCompanyDetail, PlatformSeller, SellerStats } from '../types/platform'
 import { ALL_FEATURES, type BusinessType, type Feature, type SubscriptionStatus } from '../types/auth'
 import { PASSWORD_HINT, passwordRules } from '../utils/validation'
+import CopyCatalogDialog from '../components/CopyCatalogDialog.vue'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -732,6 +749,21 @@ const methodOptions = [
 ]
 
 const snackbar = ref({ show: false, text: '', color: 'success' })
+
+// Copiar un catálogo base a una empresa recién creada.
+const copyCatalogDialog = ref(false)
+const copyCatalogTarget = ref<{ id: number; name: string } | null>(null)
+
+const openCopyCatalog = (company: PlatformCompany) => {
+  copyCatalogTarget.value = { id: company.id, name: company.name }
+  copyCatalogDialog.value = true
+}
+
+const onCatalogCopied = (summary: { categories: number; products: number }) => {
+  notify(
+    `Se copiaron ${summary.products} productos y ${summary.categories} categorías a ${copyCatalogTarget.value?.name}.`,
+  )
+}
 
 const notify = (text: string, color: 'success' | 'error' = 'success') => {
   snackbar.value = { show: true, text, color }
