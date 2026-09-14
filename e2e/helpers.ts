@@ -52,7 +52,11 @@ export function sidebarItem(page: Page, title: string) {
  * `getByRole('combobox', { name })` solo funciona con v-autocomplete: en un
  * v-select el rol vive en el contenedor y la etiqueta no le da nombre
  * accesible, así que se busca el input por su label.
+ *
+ * El texto se compara con `getByText(..., { exact: true })` y no con
+ * `:text-is()`: los campos obligatorios llevan el asterisco en un `<span>`
+ * rojo dentro de la etiqueta, y `:text-is()` no cruza los elementos hijos.
  */
 export function field(page: Page, label: string) {
-  return page.locator(`.v-input:has(label:text-is("${label}"))`)
+  return page.locator('.v-input').filter({ has: page.getByText(label, { exact: true }) })
 }

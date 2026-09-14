@@ -10,8 +10,15 @@
             </p>
           </div>
           <div class="d-flex justify-space-between">
-            <LockableButton icon="mdi-cash-fast" class="mr-2" color="success" size="large" @click="openPedidoRapidoDialog">
-              Pedido Rápido
+            <LockableButton
+              v-if="canManageOrders"
+              icon="mdi-plus"
+              class="mr-2"
+              color="success"
+              size="large"
+              @click="openNuevoPedidoDialog"
+            >
+              Nuevo Pedido
             </LockableButton>
             <v-btn-toggle v-model="filterPago" color="primary" mandatory>
               <v-btn value="all">Todos</v-btn>
@@ -167,7 +174,19 @@
                 <td :colspan="columns.length" class="pa-4 bg-grey-lighten-5">
                   <v-row>
                     <v-col cols="12" md="8">
-                      <h4 class="mb-2">Productos del pedido</h4>
+                      <div class="d-flex justify-space-between align-center mb-2">
+                        <h4>Productos del pedido</h4>
+                        <LockableButton
+                          v-if="canManageOrders && item.payment_status !== 'paid'"
+                          icon="mdi-plus"
+                          color="primary"
+                          size="small"
+                          variant="tonal"
+                          @click="openAgregarItemsDialog(item)"
+                        >
+                          Agregar productos
+                        </LockableButton>
+                      </div>
                       <v-table density="compact">
                         <thead>
                           <tr>
@@ -518,57 +537,102 @@
       </v-card>
     </v-dialog>
 
-    <!-- Dialog Pedido Rápido -->
-    <v-dialog v-model="pedidoRapidoDialog" max-width="500" persistent>
+    <!-- Dialog Nuevo Pedido -->
+    <v-dialog v-model="nuevoPedidoDialog" max-width="900" persistent scrollable>
       <v-card>
         <v-card-title class="bg-success">
-          <v-icon start>mdi-cash-fast</v-icon>
-          Pedido Rápido
+          <v-icon start>mdi-receipt-text-plus</v-icon>
+          Nuevo Pedido
         </v-card-title>
         <v-card-text class="pt-4">
-          <v-alert type="info" density="compact" class="mb-4">
-            Registra solo el monto total. Podrás editar los detalles después.
-          </v-alert>
+          <v-row dense>
+            <v-col cols="12" md="6">
+              <v-select
+                v-model="nuevoPedido.dining_table_id"
+                :items="mesasDisponibles"
+                :item-title="(t: any) => t.display_name || `Mesa ${t.number}`"
+                item-value="id"
+                label="Mesa (opcional)"
+                hint="Sin mesa el pedido queda como venta de mostrador"
+                persistent-hint
+                clearable
+              />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field
+                v-model="nuevoPedido.customer_name"
+                label="Cliente (opcional)"
+                placeholder="Ej: Juan Pérez"
+              />
+            </v-col>
+          </v-row>
 
-          <v-text-field
-            v-model.number="pedidoRapidoData.total"
-            label="Monto Total"
-            type="number"
-            min="0"
-            step="0.01"
-            prefix="$"
-            :rules="[v => v > 0 || 'Monto requerido']"
-            autofocus
-            required
-          />
+          <v-divider class="my-4" />
 
-          <v-text-field
-            v-model="pedidoRapidoData.customer_name"
-            label="Cliente / Mesa (opcional)"
-            placeholder="Ej: Mesa 5, Juan Pérez"
+          <ProductPicker
+            :items="menuItems"
+            :loading="loadingMenu"
+            :selection="nuevoPedido.items"
+            @add="agregarAlPedido"
+            @remove="quitarDelPedido"
           />
 
           <v-textarea
-            v-model="pedidoRapidoData.notas"
+            v-model="nuevoPedido.notes"
             label="Notas (opcional)"
             rows="2"
-            placeholder="Detalles adicionales..."
-          />
-
-          <v-switch
-            v-model="pedidoRapidoData.marcar_pagado"
-            label="Marcar como pagado"
-            color="success"
-            hint="Si está pagado, se marcará automáticamente"
-            persistent-hint
+            class="mt-4"
           />
         </v-card-text>
         <v-card-actions>
+          <div class="text-h6 ml-4">
+            Total: ${{ totalNuevoPedido.toLocaleString('es-CO') }}
+          </div>
           <v-spacer />
-          <v-btn @click="closePedidoRapidoDialog">Cancelar</v-btn>
-          <v-btn color="success" :loading="saving" @click="crearPedidoRapido">
+          <v-btn @click="nuevoPedidoDialog = false">Cancelar</v-btn>
+          <v-btn
+            color="success"
+            :loading="saving"
+            :disabled="nuevoPedido.items.length === 0"
+            @click="crearPedido"
+          >
             <v-icon start>mdi-check</v-icon>
             Crear Pedido
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Dialog Agregar productos a un pedido abierto -->
+    <v-dialog v-model="agregarItemsDialog" max-width="900" persistent scrollable>
+      <v-card>
+        <v-card-title class="bg-primary">
+          <v-icon start>mdi-plus-box</v-icon>
+          Agregar productos al pedido #{{ selectedOrder?.id }}
+        </v-card-title>
+        <v-card-text class="pt-4">
+          <ProductPicker
+            :items="menuItems"
+            :loading="loadingMenu"
+            :selection="itemsParaAgregar"
+            @add="(item: any) => agregarASeleccion(itemsParaAgregar, item)"
+            @remove="(id: number) => quitarDeSeleccion(itemsParaAgregar, id)"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <div class="text-h6 ml-4">
+            Total: ${{ totalParaAgregar.toLocaleString('es-CO') }}
+          </div>
+          <v-spacer />
+          <v-btn @click="agregarItemsDialog = false">Cancelar</v-btn>
+          <v-btn
+            color="primary"
+            :loading="saving"
+            :disabled="itemsParaAgregar.length === 0"
+            @click="guardarItemsAgregados"
+          >
+            <v-icon start>mdi-check</v-icon>
+            Agregar
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -600,6 +664,11 @@ import {
   label,
 } from '@/utils/labels';
 import LockableButton from '../components/LockableButton.vue'
+import ProductPicker from '../components/ProductPicker.vue'
+import { menuItemsService } from '@/services/menuService';
+import { tablesService } from '@/services/tablesService';
+import { effectiveFeatures } from '@/types/auth';
+import { addLine, removeLine, linesTotal, type PickedLine } from '@/utils/orderLines';
 
 const orders = ref<Order[]>([]);
 const loading = ref(true);
@@ -680,12 +749,18 @@ const togglePaymentItem = (item: OrderItem, checked: boolean) => {
 const editItemDialog = ref(false);
 const editItemData = ref({ quantity: 1, unit_price: 0, discount: 0 });
 
-const pedidoRapidoDialog = ref(false);
-const pedidoRapidoData = ref({
-  total: 0,
+// Nuevo pedido y "seguir pidiendo" sobre un pedido abierto.
+const nuevoPedidoDialog = ref(false);
+const agregarItemsDialog = ref(false);
+const menuItems = ref<any[]>([]);
+const loadingMenu = ref(false);
+const mesasDisponibles = ref<any[]>([]);
+const itemsParaAgregar = ref<PickedLine[]>([]);
+const nuevoPedido = ref({
+  dining_table_id: null as number | null,
   customer_name: '',
-  notas: '',
-  marcar_pagado: false,
+  notes: '',
+  items: [] as PickedLine[],
 });
 
 const snackbar = ref(false);
@@ -741,6 +816,12 @@ const showMessage = (text: string, color = 'success') => {
 const authStore = useAuthStore();
 // Revertir un cobro es una acción sensible: solo el admin.
 const isAdmin = computed(() => authStore.isAdmin);
+
+// Crear pedidos y agregar productos depende del permiso de pedidos; el
+// backend vuelve a comprobarlo (esconder un botón no bloquea nada).
+const canManageOrders = computed(() =>
+  effectiveFeatures(authStore.user).includes('orders'),
+);
 
 const nowTick = ref(Date.now());
 const tickInterval = setInterval(() => { nowTick.value = Date.now(); }, 15_000);
@@ -1108,51 +1189,101 @@ const eliminarItem = async () => {
   }
 };
 
-// Funciones para Pedido Rápido
-const openPedidoRapidoDialog = () => {
-  pedidoRapidoData.value = {
-    total: 0,
-    customer_name: '',
-    notas: '',
-    marcar_pagado: false,
-  };
-  pedidoRapidoDialog.value = true;
+// El menú y las mesas se cargan al abrir un diálogo, no al entrar a la página.
+const cargarCatalogo = async () => {
+  loadingMenu.value = true;
+  try {
+    const [items, mesas] = await Promise.all([
+      menuItemsService.getAll(),
+      tablesService.getAvailable().catch(() => []),
+    ]);
+    menuItems.value = items;
+    mesasDisponibles.value = mesas;
+  } catch (error) {
+    showMessage(errorMessage(error, 'No se pudo cargar el menú'), 'error');
+  } finally {
+    loadingMenu.value = false;
+  }
 };
 
-const closePedidoRapidoDialog = () => {
-  pedidoRapidoDialog.value = false;
-  pedidoRapidoData.value = {
-    total: 0,
+const openNuevoPedidoDialog = () => {
+  nuevoPedido.value = {
+    dining_table_id: null,
     customer_name: '',
-    notas: '',
-    marcar_pagado: false,
+    notes: '',
+    items: [],
   };
+  nuevoPedidoDialog.value = true;
+  cargarCatalogo();
 };
 
-const crearPedidoRapido = async () => {
-  if (!pedidoRapidoData.value.total || pedidoRapidoData.value.total <= 0) {
-    showMessage('Ingresa un monto válido', 'error');
+const agregarAlPedido = (item: any) => addLine(nuevoPedido.value.items, item);
+const quitarDelPedido = (menuItemId: number) => removeLine(nuevoPedido.value.items, menuItemId);
+const agregarASeleccion = (lines: PickedLine[], item: any) => addLine(lines, item);
+const quitarDeSeleccion = (lines: PickedLine[], menuItemId: number) => removeLine(lines, menuItemId);
+
+const totalNuevoPedido = computed(() => linesTotal(nuevoPedido.value.items));
+const totalParaAgregar = computed(() => linesTotal(itemsParaAgregar.value));
+
+const crearPedido = async () => {
+  if (nuevoPedido.value.items.length === 0) {
+    showMessage('Agrega al menos un producto', 'error');
     return;
   }
-  
+
   saving.value = true;
   try {
-    const pedidoData = {
-      customer_name: pedidoRapidoData.value.customer_name || 'Pedido Rápido',
-      notes: pedidoRapidoData.value.notas || 'Pedido rápido - Detalles pendientes',
-      items: [], // Sin items específicos
-      manual_total: pedidoRapidoData.value.total,
-      is_quick_order: true,
-      payment_status: pedidoRapidoData.value.marcar_pagado ? 'paid' : 'pending',
-    };
+    await ordersService.create({
+      dining_table_id: nuevoPedido.value.dining_table_id,
+      customer_name: nuevoPedido.value.customer_name || undefined,
+      notes: nuevoPedido.value.notes || undefined,
+      items: nuevoPedido.value.items.map(line => ({
+        menu_item_id: line.menu_item_id,
+        quantity: line.quantity,
+      })),
+    });
 
-    await ordersService.create(pedidoData);
-    showMessage('Pedido rápido creado');
-    closePedidoRapidoDialog();
+    showMessage('Pedido creado');
+    nuevoPedidoDialog.value = false;
     loadOrders();
   } catch (error: any) {
-    console.error('[Pedidos] Error al crear pedido rápido:', error);
-    showMessage(errorMessage(error, 'Error al crear pedido: ') + (error.response?.data?.message || error.message), 'error');
+    // La mesa ya tiene un pedido abierto: el backend devuelve cuál es.
+    const activo = error.response?.data?.active_order;
+
+    if (activo) {
+      showMessage(`La mesa ya tiene el pedido #${activo.id} abierto: agrégale los productos desde ahí.`, 'error');
+    } else {
+      showMessage(errorMessage(error, 'Error al crear el pedido: '), 'error');
+    }
+  } finally {
+    saving.value = false;
+  }
+};
+
+const openAgregarItemsDialog = (order: Order) => {
+  selectedOrder.value = order;
+  itemsParaAgregar.value = [];
+  agregarItemsDialog.value = true;
+  cargarCatalogo();
+};
+
+const guardarItemsAgregados = async () => {
+  if (!selectedOrder.value || itemsParaAgregar.value.length === 0) return;
+
+  saving.value = true;
+  try {
+    for (const line of itemsParaAgregar.value) {
+      await ordersService.addItem(selectedOrder.value.id, {
+        menu_item_id: line.menu_item_id,
+        quantity: line.quantity,
+      });
+    }
+
+    showMessage('Productos agregados al pedido');
+    agregarItemsDialog.value = false;
+    loadOrders();
+  } catch (error) {
+    showMessage(errorMessage(error, 'Error al agregar productos: '), 'error');
   } finally {
     saving.value = false;
   }

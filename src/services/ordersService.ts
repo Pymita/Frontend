@@ -204,6 +204,17 @@ export const ordersService = {
     return response.data.data;
   },
 
+  /** Agregar un producto a un pedido ya abierto (mesa que sigue pidiendo) */
+  async addItem(orderId: number, data: {
+    menu_item_id: number;
+    quantity: number;
+    variant_id?: number | null;
+    special_instructions?: string;
+  }): Promise<Order> {
+    const response = await api.post<ApiResponse<Order>>(`/orders/${orderId}/items`, data);
+    return response.data.data;
+  },
+
   async updateItem(orderId: number, itemId: number, data: {
     quantity?: number;
     unit_price?: number;

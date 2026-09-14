@@ -99,7 +99,7 @@ test('una empresa vencida ve el motivo y las acciones apagadas, no escondidas', 
   await expect(page.getByRole('button', { name: 'Nueva Categoría' })).toBeDisabled()
 
   await page.goto('/pedidos')
-  await expect(page.getByRole('button', { name: 'Pedido Rápido' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Nuevo Pedido' })).toBeDisabled()
 
   await page.goto('/empleados')
   await expect(page.getByRole('button', { name: /nuevo empleado/i })).toBeDisabled()
@@ -145,7 +145,7 @@ test('la misma empresa al día sí ofrece esas acciones', async ({ page, request
   await expect(page.getByRole('button', { name: 'Nueva Categoría' })).toBeEnabled()
 
   await page.goto('/pedidos')
-  await expect(page.getByRole('button', { name: 'Pedido Rápido' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Nuevo Pedido' })).toBeEnabled()
 
   await page.goto('/empleados')
   await expect(page.getByRole('button', { name: /nuevo empleado/i })).toBeEnabled()
