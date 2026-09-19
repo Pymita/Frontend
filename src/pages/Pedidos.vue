@@ -248,6 +248,7 @@
                           <tr>
                             <th>Cantidad</th>
                             <th>Producto</th>
+                            <th v-if="hasGuests(item)">Persona</th>
                             <th>Precio Unit.</th>
                             <th>Total</th>
                             <th>Acciones</th>
@@ -259,6 +260,11 @@
                             <td>
                               {{ orderItem.product_name }}
                               <span v-if="orderItem.variant" class="text-grey"> ({{ orderItem.variant }})</span>
+                            </td>
+                            <td v-if="hasGuests(item)">
+                              <v-chip size="x-small" :color="orderItem.guest_number ? 'primary' : undefined" variant="tonal">
+                                {{ guestLabel(orderItem.guest_number) }}
+                              </v-chip>
                             </td>
                             <td>{{ money(orderItem.unit_price) }}</td>
                             <td class="font-weight-bold">{{ money(orderItem.total_price) }}</td>
@@ -336,6 +342,22 @@
                             <span>Factura:</span>
                             <span>{{ item.invoice_number }}</span>
                           </div>
+                          <!-- Cuentas separadas: lo que debe cada persona. -->
+                          <template v-if="hasGuests(item)">
+                            <v-divider class="my-2" />
+                            <div class="text-caption text-grey-darken-1 mb-1">Por persona</div>
+                            <div
+                              v-for="guest in item.guests"
+                              :key="guest.number ?? 0"
+                              class="d-flex justify-space-between text-body-2"
+                            >
+                              <span>
+                                {{ guest.label }}
+                                <v-icon v-if="guest.paid" size="small" color="success">mdi-check-circle</v-icon>
+                              </span>
+                              <span :class="guest.paid ? 'text-grey' : ''">{{ money(guest.amount) }}</span>
+                            </div>
+                          </template>
                           <div v-if="Number(item.amount_paid) > 0 && item.payment_status !== 'paid'" class="d-flex justify-space-between mt-2">
                             <span>Pagado:</span>
                             <span>{{ money(item.amount_paid) }}</span>
@@ -400,12 +422,73 @@
       <v-card v-if="selectedOrder">
         <v-card-title>Cobrar pedido #{{ selectedOrder.id }}</v-card-title>
         <v-card-text>
+          <!-- La mesa separó la cuenta: se pregunta si pagan juntos o cada uno lo suyo. -->
+          <v-btn-toggle
+            v-if="hasGuests(selectedOrder)"
+            v-model="payMode"
+            mandatory
+            density="compact"
+            color="primary"
+            class="mb-4"
+          >
+            <v-btn value="together">Todos juntos</v-btn>
+            <v-btn value="split">Por persona</v-btn>
+          </v-btn-toggle>
+
           <v-select
             v-model="payMethod"
             :items="payMethodOptions"
             label="Método de pago"
             class="mb-1"
           />
+
+          <template v-if="payMode === 'split'">
+            <p class="text-body-2 text-medium-emphasis mb-2">
+              Cada persona paga lo suyo. Los descuentos y cargos de la mesa se reparten
+              proporcionalmente. Al pagar la última, el pedido queda cerrado.
+            </p>
+            <v-list density="compact" class="border rounded mb-2">
+              <v-list-item v-for="guest in selectedOrder.guests" :key="guest.number ?? 0">
+                <v-list-item-title>
+                  {{ guest.label }}
+                  <span class="text-caption text-grey"> · {{ guest.items_count }} prod.</span>
+                </v-list-item-title>
+                <v-list-item-subtitle>
+                  <span v-if="guest.paid" class="text-success">Pagado</span>
+                  <strong v-else>{{ money(guest.pending_amount) }}</strong>
+                </v-list-item-subtitle>
+                <template #append>
+                  <div class="d-flex ga-1">
+                    <v-btn
+                      size="small"
+                      variant="text"
+                      color="primary"
+                      :loading="printing"
+                      @click="printGuestBill(selectedOrder, guest.number)"
+                    >
+                      <v-icon start>mdi-printer</v-icon>
+                      Cuenta
+                    </v-btn>
+                    <v-btn
+                      v-if="!guest.paid"
+                      size="small"
+                      color="success"
+                      variant="tonal"
+                      :loading="saving"
+                      @click="cobrarPersona(guest)"
+                    >
+                      Cobrar
+                    </v-btn>
+                  </div>
+                </template>
+              </v-list-item>
+            </v-list>
+            <div class="d-flex justify-space-between text-body-2">
+              <span>Pendiente de la mesa:</span>
+              <strong class="text-error">{{ money(selectedOrder.pending_balance) }}</strong>
+            </div>
+          </template>
+          <template v-else>
           <v-autocomplete
             v-model="payCustomerId"
             :items="customers"
@@ -471,6 +554,8 @@
             </div>
           </v-card>
 
+          </template>
+
           <v-checkbox
             v-model="printOnPay"
             label="Imprimir la factura al cobrar"
@@ -481,6 +566,7 @@
         </v-card-text>
         <v-card-actions class="flex-wrap">
           <v-btn
+            v-if="payMode === 'together'"
             :variant="tipOffered ? 'tonal' : 'text'"
             color="primary"
             :loading="printing"
@@ -490,19 +576,21 @@
             Imprimir cuenta
           </v-btn>
           <v-spacer />
-          <v-btn @click="payDialog = false">Cancelar</v-btn>
-          <v-btn
-            v-if="tipOffered"
-            color="success"
-            variant="tonal"
-            :loading="saving"
-            @click="confirmarCobro(false)"
-          >
-            Cobrar sin propina
-          </v-btn>
-          <v-btn color="success" variant="flat" :loading="saving" @click="confirmarCobro(tipOffered)">
-            {{ tipOffered ? 'Cobrar con propina' : 'Confirmar cobro' }}
-          </v-btn>
+          <v-btn @click="payDialog = false">{{ payMode === 'split' ? 'Cerrar' : 'Cancelar' }}</v-btn>
+          <template v-if="payMode === 'together'">
+            <v-btn
+              v-if="tipOffered"
+              color="success"
+              variant="tonal"
+              :loading="saving"
+              @click="confirmarCobro(false)"
+            >
+              Cobrar sin propina
+            </v-btn>
+            <v-btn color="success" variant="flat" :loading="saving" @click="confirmarCobro(tipOffered)">
+              {{ tipOffered ? 'Cobrar con propina' : 'Confirmar cobro' }}
+            </v-btn>
+          </template>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -648,6 +736,14 @@
             type="number"
             min="1"
           />
+          <v-select
+            v-model="editItemData.guest_number"
+            :items="guestOptions"
+            label="Persona (cuentas separadas)"
+            hint="Compartido = lo paga la mesa junta"
+            persistent-hint
+            class="mb-2"
+          />
           <!-- Cambiar precio o descontar es ajustar el cobro: solo admin. -->
           <template v-if="isAdmin">
             <v-text-field
@@ -755,8 +851,9 @@
             :items="menuItems"
             :loading="loadingMenu"
             :selection="itemsParaAgregar"
-            @add="(item: any) => agregarASeleccion(itemsParaAgregar, item)"
-            @remove="(id: number) => quitarDeSeleccion(itemsParaAgregar, id)"
+            :existing-guests="guestsOf(selectedOrder)"
+            @add="(item: any, guest: number | null) => agregarASeleccion(itemsParaAgregar, item, guest)"
+            @remove="(line: PickedLine) => quitarDeSeleccion(itemsParaAgregar, line)"
           />
         </v-card-text>
         <v-card-actions>
@@ -810,7 +907,8 @@ import ProductPicker from '../components/ProductPicker.vue'
 import { menuItemsService } from '@/services/menuService';
 import { tablesService } from '@/services/tablesService';
 import { effectiveFeatures } from '@/types/auth';
-import { addLine, removeLine, linesTotal, type PickedLine } from '@/utils/orderLines';
+import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/utils/orderLines';
+import type { OrderGuest } from '@/services/ordersService';
 
 const orders = ref<Order[]>([]);
 const loading = ref(true);
@@ -828,6 +926,13 @@ const money = (value: number | string | null | undefined): string =>
 /** Pedido abierto: se puede cobrar, descontar o cancelar. */
 const isOpen = (order: Order) =>
   order.payment_status !== 'paid' && order.status !== 'cancelled';
+
+/** La mesa separó la cuenta por personas. */
+const hasGuests = (order: Order | null | undefined) => (order?.guests?.length ?? 0) > 0;
+
+/** Cuántas personas numeradas tiene el pedido. */
+const guestsOf = (order: Order | null | undefined) =>
+  (order?.guests ?? []).reduce((max, g) => Math.max(max, g.number ?? 0), 0);
 
 const startOfToday = () => {
   const now = new Date();
@@ -923,7 +1028,16 @@ const togglePaymentItem = (item: OrderItem, checked: boolean) => {
 };
 
 const editItemDialog = ref(false);
-const editItemData = ref({ quantity: 1, unit_price: 0, discount: 0 });
+const editItemData = ref({ quantity: 1, unit_price: 0, discount: 0, guest_number: null as number | null });
+
+// Compartido + las personas que ya hay + una más, por si llega alguien.
+const guestOptions = computed(() => {
+  const count = guestsOf(selectedOrder.value) + 1;
+  return [
+    { title: 'Compartido', value: null },
+    ...Array.from({ length: count }, (_, i) => ({ title: `Persona ${i + 1}`, value: i + 1 })),
+  ];
+});
 
 // Nuevo pedido y "seguir pidiendo" sobre un pedido abierto.
 const nuevoPedidoDialog = ref(false);
@@ -1192,11 +1306,15 @@ watch([tipEnabled, tipPercent], () => {
   payTip.value = tipEnabled.value ? suggestedTip(selectedOrder.value) : 0;
 });
 
+// Cuentas separadas: juntos (un solo cobro) o cada persona lo suyo.
+const payMode = ref<'together' | 'split'>('together');
+
 const openPayDialog = async (order: Order) => {
   selectedOrder.value = order;
   payMethod.value = 'cash';
   payTip.value = tipEnabled.value ? suggestedTip(order) : 0;
   payCustomerId.value = null;
+  payMode.value = hasGuests(order) ? 'split' : 'together';
   payDialog.value = true;
   // El catálogo de clientes se carga una sola vez, al primer cobro.
   if (customers.value.length === 0) {
@@ -1241,6 +1359,50 @@ const confirmarCobro = async (withTip: boolean) => {
   }
 };
 
+/**
+ * Cobra lo que debe una persona: sus unidades sin pagar, con el cobro por
+ * ítems del backend (que prorratea descuentos y cargos). Cuando paga la
+ * última, el pedido queda pagado y sale la factura de toda la mesa.
+ */
+const cobrarPersona = async (guest: OrderGuest) => {
+  const order = selectedOrder.value;
+  if (!order) return;
+
+  const items = order.items
+    .filter(i => (i.guest_number ?? null) === (guest.number ?? null) && i.unpaid_quantity > 0)
+    .map(i => ({ order_item_id: i.id, quantity: i.unpaid_quantity }));
+  if (items.length === 0) return;
+
+  const win = printOnPay.value ? openPrintWindow() : null;
+  saving.value = true;
+  try {
+    const updated = await ordersService.recordPartialPayment(order.id, {
+      items,
+      payment_method: payMethod.value,
+    });
+    selectedOrder.value = updated;
+    loadOrders();
+
+    if (updated.payment_status === 'paid') {
+      showMessage('Cuenta saldada: todas las personas pagaron');
+      payDialog.value = false;
+      if (win) await printReceipt(updated, win);
+    } else {
+      showMessage(`${guest.label} pagó ${money(guest.pending_amount)}`);
+      if (win) {
+        // Comprobante de lo que pagó esta persona (no es la factura).
+        const r = await ordersService.receipt(order.id, guest.number);
+        fillPrintWindow(win, `${guest.label} - pedido #${order.id}`, buildTicket(r, order.id, { preBill: true, paidNow: true }));
+      }
+    }
+  } catch (error) {
+    win?.close();
+    showMessage(errorMessage(error, 'No se pudo cobrar a esta persona'), 'error');
+  } finally {
+    saving.value = false;
+  }
+};
+
 // --- Impresión: cuenta (antes de cobrar) y factura (después) ---
 
 const TICKET_WIDTH = 38;
@@ -1259,6 +1421,8 @@ const amountLine = (labelText: string, value: number, sign = ''): string => {
 interface TicketOptions {
   /** Cuenta previa al cobro: sin número de factura ni resolución. */
   preBill?: boolean;
+  /** Cuenta de una persona que acaba de pagar (comprobante, no factura). */
+  paidNow?: boolean;
   /** Propina sugerida al cliente (solo en la cuenta; 0 = no se ofrece). */
   suggestedTip?: number;
   tipPercent?: number;
@@ -1289,8 +1453,9 @@ const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {})
 
   const header = opts.preBill
     ? [
-        center('CUENTA DE COBRO'),
+        center(opts.paidNow ? 'COMPROBANTE DE PAGO' : 'CUENTA DE COBRO'),
         center(`Pedido #${orderId}`),
+        r.guest ? center(r.guest.label.toUpperCase()) : '',
         center('(No es factura de venta)'),
       ]
     : isInvoice
@@ -1316,7 +1481,7 @@ const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {})
         amountLine(suggestedTip > 0 ? 'TOTAL SIN PROPINA' : 'TOTAL', totalWithoutTip),
         amountPaid > 0 ? amountLine('ABONADO', amountPaid, '-') : '',
         amountPaid > 0 ? amountLine('POR PAGAR', totalWithoutTip - amountPaid) : '',
-        ...(suggestedTip > 0
+        ...(suggestedTip > 0 && !opts.paidNow
           ? [
               line,
               amountLine(`PROPINA SUGERIDA${opts.tipPercent ? ' ' + opts.tipPercent + '%' : ''}`, suggestedTip),
@@ -1325,6 +1490,9 @@ const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {})
               center('La propina es voluntaria.'),
               center('Puede pagar con o sin ella.'),
             ]
+          : []),
+        ...(opts.paidNow
+          ? [line, center('PAGADO'), r.payment_methods.length ? center(r.payment_methods.map(m => label(orderPaymentMethodLabels, m)).join(' + ')) : '']
           : []),
       ]
     : [
@@ -1403,6 +1571,29 @@ const printReceipt = async (order: Order, win: Window | null = openPrintWindow()
   } catch (error) {
     win.close();
     showMessage(errorMessage(error, 'Error al generar la factura'), 'error');
+  }
+};
+
+/** Cuenta de una sola persona (cuentas separadas), con su parte prorrateada. */
+const printGuestBill = async (order: Order, guest: number | null) => {
+  const win = openPrintWindow();
+  if (!win) return;
+  printing.value = true;
+  try {
+    const r = await ordersService.receipt(order.id, guest);
+    const tip = tipEnabled.value
+      ? Math.round((Number(r.total) * Math.max(0, Number(tipPercent.value) || 0)) / 100)
+      : 0;
+    fillPrintWindow(win, `${r.guest?.label ?? 'Compartido'} - pedido #${order.id}`, buildTicket(r, order.id, {
+      preBill: true,
+      suggestedTip: tip,
+      tipPercent: tipEnabled.value ? tipPercent.value : undefined,
+    }));
+  } catch (error) {
+    win.close();
+    showMessage(errorMessage(error, 'Error al generar la cuenta'), 'error');
+  } finally {
+    printing.value = false;
   }
 };
 
@@ -1521,6 +1712,7 @@ const openEditItemDialog = (order: Order, item: OrderItem) => {
     quantity: item.quantity,
     unit_price: item.unit_price,
     discount: item.discount,
+    guest_number: item.guest_number ?? null,
   };
   editItemDialog.value = true;
 };
@@ -1529,10 +1721,10 @@ const guardarItem = async () => {
   if (!selectedOrder.value || !selectedItem.value) return;
   saving.value = true;
   try {
-    // Los empleados solo tocan la cantidad; el cobro es cosa del admin.
+    // Los empleados solo tocan cantidad y persona; el cobro es cosa del admin.
     const payload = isAdmin.value
       ? editItemData.value
-      : { quantity: editItemData.value.quantity };
+      : { quantity: editItemData.value.quantity, guest_number: editItemData.value.guest_number };
     await ordersService.updateItem(
       selectedOrder.value.id,
       selectedItem.value.id,
@@ -1592,10 +1784,10 @@ const openNuevoPedidoDialog = () => {
   cargarCatalogo();
 };
 
-const agregarAlPedido = (item: any) => addLine(nuevoPedido.value.items, item);
-const quitarDelPedido = (menuItemId: number) => removeLine(nuevoPedido.value.items, menuItemId);
-const agregarASeleccion = (lines: PickedLine[], item: any) => addLine(lines, item);
-const quitarDeSeleccion = (lines: PickedLine[], menuItemId: number) => removeLine(lines, menuItemId);
+const agregarAlPedido = (item: any, guest: number | null) => addLine(nuevoPedido.value.items, item, guest);
+const quitarDelPedido = (line: PickedLine) => removeLine(nuevoPedido.value.items, line.menu_item_id, line.guest_number);
+const agregarASeleccion = (lines: PickedLine[], item: any, guest: number | null) => addLine(lines, item, guest);
+const quitarDeSeleccion = (lines: PickedLine[], line: PickedLine) => removeLine(lines, line.menu_item_id, line.guest_number);
 
 const totalNuevoPedido = computed(() => linesTotal(nuevoPedido.value.items));
 const totalParaAgregar = computed(() => linesTotal(itemsParaAgregar.value));
@@ -1615,6 +1807,7 @@ const crearPedido = async () => {
       items: nuevoPedido.value.items.map(line => ({
         menu_item_id: line.menu_item_id,
         quantity: line.quantity,
+        guest_number: line.guest_number ?? undefined,
       })),
     });
 
@@ -1651,6 +1844,7 @@ const guardarItemsAgregados = async () => {
       await ordersService.addItem(selectedOrder.value.id, {
         menu_item_id: line.menu_item_id,
         quantity: line.quantity,
+        guest_number: line.guest_number ?? undefined,
       });
     }
 

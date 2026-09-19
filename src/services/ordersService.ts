@@ -35,6 +35,20 @@ export interface OrderItem {
   applied_modifiers?: any[] | null;
   item_status: OrderItemStatus;
   variant?: string | null;
+  /** Cuentas separadas: persona de la mesa (null = compartido) */
+  guest_number?: number | null;
+}
+
+/** Resumen por persona cuando la mesa separó la cuenta (prorrateado como el cobro por ítems). */
+export interface OrderGuest {
+  number: number | null;
+  label: string;
+  items_count: number;
+  subtotal: number;
+  amount: number;
+  pending_amount: number;
+  paid: boolean;
+  item_ids: number[];
 }
 
 export interface OrderTime {
@@ -54,6 +68,8 @@ export interface OrderTime {
 
 /** Datos de la factura sencilla (tirilla POS), no la e-factura DIAN. */
 export interface OrderReceipt {
+  /** Cuenta de una sola persona de la mesa (cuentas separadas) */
+  guest: { number: number; label: string } | null
   business: {
     name: string | null
     legal_name: string | null
@@ -119,6 +135,8 @@ export interface Order {
   notes?: string;
   time?: OrderTime | null;
   items: OrderItem[];
+  /** Vacío cuando nadie separó la cuenta */
+  guests?: OrderGuest[];
   payments?: OrderPayment[] | null;
   created_at: string;
   paid_at?: string;
@@ -180,9 +198,11 @@ export const ordersService = {
     return response.data.data;
   },
 
-  /** Factura sencilla (tirilla POS) del pedido. */
-  async receipt(id: number): Promise<OrderReceipt> {
-    const response = await api.get<ApiResponse<OrderReceipt>>(`/orders/${id}/receipt`);
+  /** Factura sencilla (tirilla POS) del pedido, o la cuenta de una persona. */
+  async receipt(id: number, guest?: number | null): Promise<OrderReceipt> {
+    const response = await api.get<ApiResponse<OrderReceipt>>(`/orders/${id}/receipt`, {
+      params: guest ? { guest } : undefined,
+    });
     return response.data.data;
   },
 
@@ -220,6 +240,7 @@ export const ordersService = {
     quantity: number;
     variant_id?: number | null;
     special_instructions?: string;
+    guest_number?: number | null;
   }): Promise<Order> {
     const response = await api.post<ApiResponse<Order>>(`/orders/${orderId}/items`, data);
     return response.data.data;
@@ -229,6 +250,7 @@ export const ordersService = {
     quantity?: number;
     unit_price?: number;
     discount?: number;
+    guest_number?: number | null;
   }): Promise<Order> {
     const response = await api.put<ApiResponse<Order>>(`/orders/${orderId}/items/${itemId}`, data);
     return response.data.data;

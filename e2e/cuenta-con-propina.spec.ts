@@ -34,8 +34,9 @@ test('la cuenta impresa muestra el total con y sin propina', async ({ page, requ
     page.waitForEvent('popup'),
     dialog.getByRole('button', { name: 'Imprimir cuenta' }).click(),
   ])
+  // La ventana abre con "Generando…" y se llena cuando llega el recibo.
+  await expect(bill.locator('body')).toContainText('CUENTA DE COBRO')
   const billText = await bill.locator('body').innerText()
-  expect(billText).toContain('CUENTA DE COBRO')
   expect(billText).toContain('TOTAL SIN PROPINA')
   expect(billText).toContain('$30.000')
   expect(billText).toContain('PROPINA SUGERIDA 10%')
