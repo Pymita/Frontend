@@ -6,7 +6,7 @@
           <div>
             <h1 class="text-h4">Pedidos</h1>
             <p class="text-body-1 text-grey-darken-1">
-              Gestiona los pedidos del día
+              Primero lo pendiente de cobro; los de otros días quedan marcados.
             </p>
           </div>
           <div class="d-flex justify-space-between">
@@ -21,14 +21,43 @@
               Nuevo Pedido
             </LockableButton>
             <v-btn-toggle v-model="filterPago" color="primary" mandatory>
-              <v-btn value="all">Todos</v-btn>
               <v-btn value="pending">Pendientes</v-btn>
               <v-btn value="paid">Pagados</v-btn>
+              <v-btn value="all">Todos</v-btn>
             </v-btn-toggle>
           </div>
         </div>
       </v-col>
     </v-row>
+
+    <!-- Pendientes de otros días: lo más urgente de la página. -->
+    <v-alert
+      v-if="overdueOrders.length > 0"
+      type="warning"
+      variant="tonal"
+      density="compact"
+      icon="mdi-alert-circle"
+      class="mb-4"
+    >
+      <div class="d-flex align-center flex-wrap ga-2">
+        <span>
+          <strong>{{ overdueOrders.length }}</strong>
+          {{ overdueOrders.length === 1
+            ? 'pedido pendiente de cobro de un día anterior'
+            : 'pedidos pendientes de cobro de días anteriores' }}:
+          revísalos antes de seguir. En la lista quedan resaltados.
+        </span>
+        <v-btn
+          v-if="!showsAllPending"
+          size="small"
+          variant="tonal"
+          color="warning"
+          @click="verTodosLosPendientes"
+        >
+          Ver pendientes
+        </v-btn>
+      </div>
+    </v-alert>
 
     <v-row>
       <v-col cols="12">
@@ -54,6 +83,9 @@
                   hide-details
                   density="compact"
                 />
+                <div v-if="filterPago === 'pending' && soloHoy" class="text-caption text-warning">
+                  Con "Solo hoy" no ves los pendientes de otros días.
+                </div>
               </v-col>
               <v-col cols="12" md="4" class="text-right">
                 <v-btn variant="text" @click="loadOrders">
@@ -68,6 +100,7 @@
             :headers="headers"
             :items="filteredOrders"
             :loading="loading"
+            :row-props="rowProps"
             class="elevation-0"
             item-value="id"
             show-expand
@@ -94,11 +127,14 @@
             </template>
             
             <template #item.total="{ item }">
-              <span class="font-weight-bold text-success">
-                ${{ Number(item.total || 0).toFixed(2) }}
+              <span class="font-weight-bold text-success text-no-wrap">
+                {{ money(item.total) }}
               </span>
-              <div v-if="Number(item.pending_balance) > 0" class="text-error text-caption">
-                Debe: ${{ Number(item.pending_balance || 0).toFixed(2) }}
+              <div
+                v-if="Number(item.pending_balance) > 0 && item.payment_status === 'partial'"
+                class="text-error text-caption text-no-wrap"
+              >
+                Debe: {{ money(item.pending_balance) }}
               </div>
             </template>
             
@@ -107,66 +143,86 @@
             </template>
 
             <template #item.created_at="{ item }">
-              {{ formatDate(item.created_at) }}
+              <div class="text-no-wrap text-caption">
+                {{ formatDate(item.created_at) }}
+                <v-chip
+                  v-if="isOverdue(item)"
+                  color="warning"
+                  size="x-small"
+                  variant="flat"
+                  class="ml-1"
+                >
+                  Otro día
+                </v-chip>
+              </div>
             </template>
             
             <template #item.actions="{ item }">
-              <v-menu>
-                <template #activator="{ props }">
-                  <v-btn icon size="small" variant="text" v-bind="props">
-                    <v-icon>mdi-dots-vertical</v-icon>
-                  </v-btn>
-                </template>
-                <v-list density="compact">
-                  <v-list-item v-if="item.payment_status === 'paid' && isAdmin" @click="openRevertDialog(item)">
-                    <template #prepend>
-                      <v-icon color="error">mdi-undo-variant</v-icon>
+              <div class="d-flex align-center justify-end ga-1 text-no-wrap">
+                <!-- Cobrar es la acción principal de la página: a la vista, no en el menú. -->
+                <LockableButton
+                  v-if="isOpen(item)"
+                  icon="mdi-cash-check"
+                  color="success"
+                  size="small"
+                  variant="flat"
+                  @click="openPayDialog(item)"
+                >
+                  Cobrar
+                </LockableButton>
+                <v-btn
+                  v-else-if="item.payment_status === 'paid'"
+                  size="small"
+                  variant="tonal"
+                  color="primary"
+                  @click="printReceipt(item)"
+                >
+                  <v-icon start>mdi-printer</v-icon>
+                  Factura
+                </v-btn>
+                <v-menu v-if="isOpen(item) || (item.payment_status === 'paid' && isAdmin)">
+                  <template #activator="{ props }">
+                    <v-btn icon size="small" variant="text" v-bind="props">
+                      <v-icon>mdi-dots-vertical</v-icon>
+                    </v-btn>
+                  </template>
+                  <v-list density="compact">
+                    <v-list-item v-if="item.payment_status === 'paid' && isAdmin" @click="openRevertDialog(item)">
+                      <template #prepend>
+                        <v-icon color="error">mdi-undo-variant</v-icon>
+                      </template>
+                      <v-list-item-title>Revertir cobro</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item v-if="isOpen(item)" @click="printPreBill(item)">
+                      <template #prepend>
+                        <v-icon color="primary">mdi-receipt-text</v-icon>
+                      </template>
+                      <v-list-item-title>Imprimir cuenta</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item v-if="isOpen(item) && isAdmin" @click="openDiscountDialog(item)">
+                      <template #prepend>
+                        <v-icon color="warning">mdi-percent</v-icon>
+                      </template>
+                      <v-list-item-title>Aplicar descuento</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item v-if="isOpen(item)" @click="openPagoDialog(item)">
+                      <template #prepend>
+                        <v-icon color="info">mdi-cash-plus</v-icon>
+                      </template>
+                      <v-list-item-title>Registrar pago parcial</v-list-item-title>
+                    </v-list-item>
+                    <template v-if="isOpen(item)">
+                      <v-divider />
+                      <v-list-item @click="cancelarPedido(item)">
+                        <template #prepend>
+                          <v-icon color="error">mdi-cancel</v-icon>
+                        </template>
+                        <v-list-item-title>Cancelar pedido</v-list-item-title>
+                      </v-list-item>
                     </template>
-                    <v-list-item-title>Revertir cobro</v-list-item-title>
-                  </v-list-item>
-                  <v-list-item v-if="item.payment_status !== 'paid'" @click="openPayDialog(item)">
-                    <template #prepend>
-                      <v-icon color="success">mdi-cash-check</v-icon>
-                    </template>
-                    <v-list-item-title>Cobrar pedido</v-list-item-title>
-                  </v-list-item>
-                  <v-list-item v-if="item.payment_status === 'paid'" @click="printReceipt(item)">
-                    <template #prepend>
-                      <v-icon color="primary">mdi-receipt-text</v-icon>
-                    </template>
-                    <v-list-item-title>Imprimir factura</v-list-item-title>
-                  </v-list-item>
-                  <v-list-item v-if="item.payment_status !== 'paid' && isAdmin" @click="openDiscountDialog(item)">
-                    <template #prepend>
-                      <v-icon color="warning">mdi-percent</v-icon>
-                    </template>
-                    <v-list-item-title>Aplicar descuento</v-list-item-title>
-                  </v-list-item>
-                  <v-list-item v-if="item.payment_status !== 'paid'" @click="openPagoDialog(item)">
-                    <template #prepend>
-                      <v-icon color="info">mdi-cash-plus</v-icon>
-                    </template>
-                    <v-list-item-title>Registrar pago parcial</v-list-item-title>
-                  </v-list-item>
-                  <v-divider />
-                  <v-list-item v-if="item.payment_status !== 'paid'" @click="cancelarPedido(item)">
-                    <template #prepend>
-                      <v-icon color="error">mdi-cancel</v-icon>
-                    </template>
-                    <v-list-item-title>Cancelar pedido</v-list-item-title>
-                  </v-list-item>
-                </v-list>
-              </v-menu>
-              <v-chip
-                v-if="item.payment_status === 'paid'"
-                color="success"
-                size="small"
-                variant="flat"
-                class="ml-1"
-              >
-                <v-icon start size="small">mdi-check</v-icon>
-                Pagado
-              </v-chip>
+                  </v-list>
+                </v-menu>
+              </div>
             </template>
             
             <template #expanded-row="{ columns, item }">
@@ -204,8 +260,8 @@
                               {{ orderItem.product_name }}
                               <span v-if="orderItem.variant" class="text-grey"> ({{ orderItem.variant }})</span>
                             </td>
-                            <td>${{ Number(orderItem.unit_price || 0).toFixed(2) }}</td>
-                            <td class="font-weight-bold">${{ Number(orderItem.total_price || 0).toFixed(2) }}</td>
+                            <td>{{ money(orderItem.unit_price) }}</td>
+                            <td class="font-weight-bold">{{ money(orderItem.total_price) }}</td>
                             <td>
                               <v-btn
                                 v-if="item.payment_status !== 'paid'"
@@ -239,7 +295,7 @@
                                 <span v-else class="text-caption text-grey">({{ item.time.minutes_billed }} min)</span>
                               </span>
                               <span class="font-weight-medium">
-                                ${{ Number(item.time.running ? liveTimeAmount(item.time) : item.time.amount).toFixed(2) }}
+                                {{ money(item.time.running ? liveTimeAmount(item.time) : item.time.amount) }}
                               </span>
                             </div>
                             <v-btn
@@ -257,24 +313,36 @@
                           </template>
                           <div class="d-flex justify-space-between mb-2">
                             <span>Subtotal:</span>
-                            <span>${{ Number(item.subtotal || 0).toFixed(2) }}</span>
+                            <span>{{ money(item.subtotal) }}</span>
                           </div>
                           <div v-if="item.discount_percentage > 0 || item.discount_amount > 0" class="d-flex justify-space-between mb-2 text-warning">
                             <span>Descuento:</span>
-                            <span>-${{ (Number(item.subtotal || 0) * Number(item.discount_percentage || 0) / 100 + Number(item.discount_amount || 0)).toFixed(2) }}</span>
+                            <span>-{{ money(Number(item.subtotal || 0) * Number(item.discount_percentage || 0) / 100 + Number(item.discount_amount || 0)) }}</span>
+                          </div>
+                          <div v-if="Number(item.delivery_fee) > 0" class="d-flex justify-space-between mb-2">
+                            <span>Domicilio:</span>
+                            <span>{{ money(item.delivery_fee) }}</span>
+                          </div>
+                          <div v-if="Number(item.tip) > 0" class="d-flex justify-space-between mb-2">
+                            <span>Propina:</span>
+                            <span>{{ money(item.tip) }}</span>
                           </div>
                           <v-divider class="my-2" />
                           <div class="d-flex justify-space-between font-weight-bold">
                             <span>Total:</span>
-                            <span class="text-success">${{ Number(item.total || 0).toFixed(2) }}</span>
+                            <span class="text-success">{{ money(item.total) }}</span>
+                          </div>
+                          <div v-if="item.invoice_number" class="d-flex justify-space-between text-caption text-grey-darken-1 mt-1">
+                            <span>Factura:</span>
+                            <span>{{ item.invoice_number }}</span>
                           </div>
                           <div v-if="Number(item.amount_paid) > 0 && item.payment_status !== 'paid'" class="d-flex justify-space-between mt-2">
                             <span>Pagado:</span>
-                            <span>${{ Number(item.amount_paid || 0).toFixed(2) }}</span>
+                            <span>{{ money(item.amount_paid) }}</span>
                           </div>
                           <div v-if="Number(item.pending_balance) > 0" class="d-flex justify-space-between text-error font-weight-bold">
                             <span>Pendiente:</span>
-                            <span>${{ Number(item.pending_balance || 0).toFixed(2) }}</span>
+                            <span>{{ money(item.pending_balance) }}</span>
                           </div>
                         </v-card-text>
                       </v-card>
@@ -321,25 +389,21 @@
       </v-card>
     </v-dialog>
 
-    <!-- Dialog Cobrar: método de pago, propina y cliente en un solo paso -->
-    <v-dialog v-model="payDialog" max-width="440" persistent>
+    <!--
+      Dialog Cobrar. El orden importa: primero se imprime la CUENTA (sin
+      número de factura) con el total con y sin propina, el cliente elige, y
+      solo al confirmar el cobro el backend toma el consecutivo de la
+      resolución DIAN y se imprime la FACTURA. Imprimir la factura antes de
+      cobrar gastaría un consecutivo en una venta que quizá no ocurre.
+    -->
+    <v-dialog v-model="payDialog" max-width="520" persistent>
       <v-card v-if="selectedOrder">
-        <v-card-title>Cobrar Pedido #{{ selectedOrder.id }}</v-card-title>
+        <v-card-title>Cobrar pedido #{{ selectedOrder.id }}</v-card-title>
         <v-card-text>
           <v-select
             v-model="payMethod"
             :items="payMethodOptions"
             label="Método de pago"
-            class="mb-1"
-          />
-          <v-text-field
-            v-model.number="payTip"
-            label="Propina (opcional)"
-            type="number"
-            min="0"
-            prefix="$"
-            hint="Va aparte del total: no lleva descuentos ni impuestos"
-            persistent-hint
             class="mb-1"
           />
           <v-autocomplete
@@ -352,17 +416,87 @@
             persistent-hint
             clearable
           />
-          <v-card flat color="grey-lighten-4" class="pa-3 mt-3 d-flex justify-space-between">
-            <span>Total a cobrar:</span>
-            <strong class="text-success">
-              ${{ (Number(selectedOrder.pending_balance ?? selectedOrder.total) + (payTip || 0)).toLocaleString('es-CO') }}
-            </strong>
+
+          <!-- Propina: apagada, el negocio no la ofrece y no aparece en la cuenta. -->
+          <v-switch
+            v-model="tipEnabled"
+            label="Sugerir propina voluntaria"
+            color="primary"
+            hide-details
+            density="compact"
+            class="mt-3"
+          />
+          <template v-if="tipEnabled">
+            <v-row dense class="mt-1">
+              <v-col cols="5">
+                <v-text-field
+                  v-model.number="tipPercent"
+                  label="Sugerida (%)"
+                  type="number"
+                  min="0"
+                  max="100"
+                  suffix="%"
+                  density="compact"
+                  hide-details
+                />
+              </v-col>
+              <v-col cols="7">
+                <v-text-field
+                  v-model.number="payTip"
+                  label="Propina (opcional)"
+                  type="number"
+                  min="0"
+                  prefix="$"
+                  density="compact"
+                  hint="Se calcula con el porcentaje; puedes ajustar el valor"
+                  persistent-hint
+                />
+              </v-col>
+            </v-row>
+            <p class="text-caption text-grey-darken-1 mt-2 mb-0">
+              La propina es voluntaria (Ley 1935 de 2018): en la cuenta impresa el
+              cliente ve el total con y sin propina y decide cómo paga.
+            </p>
+          </template>
+
+          <v-card flat color="grey-lighten-4" class="pa-3 mt-3">
+            <div class="d-flex justify-space-between">
+              <span>Total sin propina:</span>
+              <strong :class="tipOffered ? '' : 'text-success'">{{ money(payBase) }}</strong>
+            </div>
+            <div v-if="tipOffered" class="d-flex justify-space-between mt-1">
+              <span>Total con propina:</span>
+              <strong class="text-success">{{ money(payBase + payTip) }}</strong>
+            </div>
           </v-card>
+
+          <v-checkbox
+            v-model="printOnPay"
+            label="Imprimir la factura al cobrar"
+            density="compact"
+            hide-details
+            class="mt-1"
+          />
         </v-card-text>
-        <v-card-actions>
+        <v-card-actions class="flex-wrap">
+          <v-btn variant="text" color="primary" :loading="printing" @click="printPreBill(selectedOrder)">
+            <v-icon start>mdi-printer</v-icon>
+            Imprimir cuenta
+          </v-btn>
           <v-spacer />
           <v-btn @click="payDialog = false">Cancelar</v-btn>
-          <v-btn color="success" :loading="saving" @click="confirmarCobro">Cobrar</v-btn>
+          <v-btn
+            v-if="tipOffered"
+            color="success"
+            variant="tonal"
+            :loading="saving"
+            @click="confirmarCobro(false)"
+          >
+            Cobrar sin propina
+          </v-btn>
+          <v-btn color="success" variant="flat" :loading="saving" @click="confirmarCobro(tipOffered)">
+            {{ tipOffered ? 'Cobrar con propina' : 'Confirmar cobro' }}
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -402,7 +536,7 @@
         <v-card-title>Registrar Pago</v-card-title>
         <v-card-text>
           <p class="mb-3">
-            Saldo pendiente: <strong class="text-error">${{ Number(selectedOrder?.pending_balance || 0).toFixed(2) }}</strong>
+            Saldo pendiente: <strong class="text-error">{{ money(selectedOrder?.pending_balance) }}</strong>
           </p>
 
           <v-btn-toggle v-model="paymentMode" mandatory density="compact" color="primary" class="mb-4">
@@ -452,13 +586,13 @@
                     </div>
                   </td>
                   <td class="text-right" style="width: 90px">
-                    ${{ unitPriceOf(orderItem).toFixed(2) }} c/u
+                    {{ money(unitPriceOf(orderItem)) }} c/u
                   </td>
                 </tr>
               </tbody>
             </v-table>
             <v-alert v-if="selectionCount > 0" type="info" variant="tonal" density="compact" class="mb-2">
-              A cobrar por esta selección: <strong>${{ selectionEstimate.toFixed(2) }}</strong>
+              A cobrar por esta selección: <strong>{{ money(selectionEstimate) }}</strong>
             </v-alert>
           </template>
 
@@ -490,7 +624,7 @@
             :disabled="paymentMode === 'items' ? selectionCount === 0 : !paymentAmount"
             @click="registrarPago"
           >
-            Cobrar{{ paymentMode === 'items' && selectionCount > 0 ? ` $${selectionEstimate.toFixed(2)}` : '' }}
+            Cobrar{{ paymentMode === 'items' && selectionCount > 0 ? ` ${money(selectionEstimate)}` : '' }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -653,6 +787,7 @@ import {
   type Order,
   type OrderItem,
   type OrderPaymentMethod,
+  type OrderReceipt,
   type PartialPaymentPayload,
 } from '@/services/ordersService';
 import { billingService, type Customer } from '@/services/billingService';
@@ -661,6 +796,7 @@ import {
   paymentStatusLabels,
   paymentStatusColors,
   orderPaymentMethodLabels,
+  taxRegimeLabels,
   label,
 } from '@/utils/labels';
 import LockableButton from '../components/LockableButton.vue'
@@ -674,8 +810,42 @@ const orders = ref<Order[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 const search = ref('');
-const filterPago = ref('all');
-const soloHoy = ref(true);
+// Por defecto: TODO lo pendiente de cobro, de cualquier día. Un pedido de
+// ayer sin cobrar es plata que se pierde si solo se ve lo de hoy.
+const filterPago = ref<'pending' | 'paid' | 'all'>('pending');
+const soloHoy = ref(false);
+
+/** Pesos colombianos: sin decimales y con separador de miles. */
+const money = (value: number | string | null | undefined): string =>
+  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 });
+
+/** Pedido abierto: se puede cobrar, descontar o cancelar. */
+const isOpen = (order: Order) =>
+  order.payment_status !== 'paid' && order.status !== 'cancelled';
+
+const startOfToday = () => {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+};
+
+/** Pendiente de cobro y creado antes de hoy: lo que no puede pasar desapercibido. */
+const isOverdue = (order: Order) =>
+  isOpen(order) && new Date(order.created_at).getTime() < startOfToday();
+
+// Pendientes de otros días. Cuando la lista ya trae todos los pendientes se
+// derivan de ahí; si no (pagados, solo hoy), se consultan aparte para que la
+// alerta no desaparezca al cambiar de filtro.
+const overdueOrders = ref<Order[]>([]);
+const showsAllPending = computed(() => filterPago.value === 'pending' && !soloHoy.value);
+
+const verTodosLosPendientes = () => {
+  filterPago.value = 'pending';
+  soloHoy.value = false;
+};
+
+const rowProps = ({ item }: { item: Order }) => ({
+  class: isOverdue(item) ? 'bg-orange-lighten-5' : '',
+});
 
 const selectedOrder = ref<Order | null>(null);
 const selectedItem = ref<OrderItem | null>(null);
@@ -774,15 +944,17 @@ const headers = [
   { title: 'Estado', key: 'status' },
   { title: 'Pago', key: 'payment_status' },
   { title: 'Total', key: 'total' },
-  { title: 'Fecha', key: 'created_at' },
-  { title: '', key: 'actions', sortable: false },
+  // La fecha va compacta para dejarle sitio al botón de cobrar.
+  { title: 'Fecha', key: 'created_at', width: 130 },
+  { title: '', key: 'actions', sortable: false, align: 'end' as const, width: 200 },
 ];
 
 const filteredOrders = computed(() => {
   let result = orders.value;
 
   if (filterPago.value === 'pending') {
-    result = result.filter(o => o.payment_status !== 'paid');
+    // Un pedido cancelado no está "por cobrar" aunque su pago siga en pendiente.
+    result = result.filter(isOpen);
   } else if (filterPago.value === 'paid') {
     result = result.filter(o => o.payment_status === 'paid');
   }
@@ -902,9 +1074,21 @@ const stopTime = async (order: Order) => {
 const loadOrders = async () => {
   loading.value = true;
   try {
-    orders.value = await ordersService.getAll({
+    // El filtro de pago se manda al backend: "todos" sin "solo hoy" sería
+    // traer el histórico completo cada vez que se abre la página.
+    const filters = {
       today: soloHoy.value,
-    });
+      ...(filterPago.value === 'pending' ? { pending_payment: true } : {}),
+      ...(filterPago.value === 'paid' ? { payment_status: 'paid' } : {}),
+    };
+
+    const [list, pending] = await Promise.all([
+      ordersService.getAll(filters),
+      showsAllPending.value ? null : ordersService.getAll({ pending_payment: true }),
+    ]);
+
+    orders.value = list;
+    overdueOrders.value = (pending ?? list).filter(isOverdue);
   } catch (error) {
     showMessage(errorMessage(error, 'Error al cargar pedidos'), 'error');
   } finally {
@@ -912,7 +1096,7 @@ const loadOrders = async () => {
   }
 };
 
-watch(soloHoy, () => loadOrders());
+watch([soloHoy, filterPago], () => loadOrders());
 
 const getStatusColor = (status: string) => {
   const colors: Record<string, string> = {
@@ -931,29 +1115,81 @@ const getPagoColor = (estado: string) => paymentStatusColors[estado] || 'grey';
 
 const getPagoText = (estado: string) => label(paymentStatusLabels, estado) || estado;
 
+// Hoy solo la hora; otro día, día y mes también.
 const formatDate = (dateString: string) => {
   const date = new Date(dateString);
-  return date.toLocaleString('es-CO', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const time = date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+  if (date.getTime() >= startOfToday()) return time;
+  return `${date.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit' })} ${time}`;
 };
 
-// --- Cobro: método, propina y cliente en un solo paso ---
+// --- Cobro: método, cliente y propina (voluntaria) ---
 const payDialog = ref(false);
-const payMethod = ref<'cash' | 'credit_card' | 'debit_card' | 'transfer' | 'other'>('cash');
+const printing = ref(false);
+const payMethod = ref<OrderPaymentMethod>('cash');
 const payTip = ref(0);
 const payCustomerId = ref<number | null>(null);
 const customers = ref<Customer[]>([]);
 
 const payMethodOptions = Object.entries(orderPaymentMethodLabels).map(([value, title]) => ({ value, title }));
 
+/**
+ * Preferencias de caja, guardadas en este navegador: si el negocio sugiere
+ * propina (y cuánto) y si imprime la factura al cobrar. Un local chico que
+ * no maneja propina la apaga una vez y no vuelve a verla.
+ */
+const CASHIER_PREFS_KEY = 'pos.cashier_prefs';
+const loadCashierPrefs = (): { tipEnabled: boolean; tipPercent: number; printOnPay: boolean } => {
+  const defaults = { tipEnabled: false, tipPercent: 10, printOnPay: true };
+  try {
+    const raw = localStorage.getItem(CASHIER_PREFS_KEY);
+    return raw ? { ...defaults, ...JSON.parse(raw) } : defaults;
+  } catch {
+    return defaults;
+  }
+};
+const cashierPrefs = loadCashierPrefs();
+const tipEnabled = ref(cashierPrefs.tipEnabled);
+const tipPercent = ref(cashierPrefs.tipPercent);
+const printOnPay = ref(cashierPrefs.printOnPay);
+
+watch([tipEnabled, tipPercent, printOnPay], ([enabled, percent, print]) => {
+  try {
+    localStorage.setItem(
+      CASHIER_PREFS_KEY,
+      JSON.stringify({ tipEnabled: enabled, tipPercent: percent, printOnPay: print }),
+    );
+  } catch {
+    // Sin almacenamiento (modo privado): las preferencias duran la sesión.
+  }
+});
+
+/** Lo que el cliente consumió, sin la propina que el pedido ya traiga. */
+const consumptionOf = (order: Order) => Number(order.total || 0) - Number(order.tip || 0);
+
+/** Saldo a pagar sin propina (descontando abonos anteriores). */
+const payBase = computed(() => {
+  const order = selectedOrder.value;
+  if (!order) return 0;
+  return Math.max(0, Number(order.pending_balance ?? order.total) - Number(order.tip || 0));
+});
+
+/** Se le ofrece propina al cliente: hay sugerencia y vale más de cero. */
+const tipOffered = computed(() => tipEnabled.value && payTip.value > 0);
+
+const suggestedTip = (order: Order) =>
+  Math.round((consumptionOf(order) * Math.max(0, Number(tipPercent.value) || 0)) / 100);
+
+// Cambiar el porcentaje o encender la propina recalcula la sugerencia.
+watch([tipEnabled, tipPercent], () => {
+  if (!selectedOrder.value) return;
+  payTip.value = tipEnabled.value ? suggestedTip(selectedOrder.value) : 0;
+});
+
 const openPayDialog = async (order: Order) => {
   selectedOrder.value = order;
   payMethod.value = 'cash';
-  payTip.value = 0;
+  payTip.value = tipEnabled.value ? suggestedTip(order) : 0;
   payCustomerId.value = null;
   payDialog.value = true;
   // El catálogo de clientes se carga una sola vez, al primer cobro.
@@ -966,18 +1202,28 @@ const openPayDialog = async (order: Order) => {
   }
 };
 
-const confirmarCobro = async () => {
+/**
+ * Registra el pago con o sin propina. El backend asigna aquí el consecutivo
+ * de la resolución DIAN (si está configurada); por eso la factura se
+ * imprime DESPUÉS y no antes.
+ */
+const confirmarCobro = async (withTip: boolean) => {
   if (!selectedOrder.value) return;
+  const order = selectedOrder.value;
   saving.value = true;
   try {
-    await ordersService.markPaid(selectedOrder.value.id, {
+    const paid = await ordersService.markPaid(order.id, {
       payment_method: payMethod.value,
-      tip: payTip.value > 0 ? payTip.value : undefined,
+      // Sin propina se manda 0: si el pedido traía una, queda en cero.
+      tip: withTip ? payTip.value : 0,
       customer_id: payCustomerId.value ?? undefined,
     });
-    showMessage('Pedido cobrado');
+    showMessage(withTip ? 'Pedido cobrado con propina' : 'Pedido cobrado');
     payDialog.value = false;
     loadOrders();
+    if (printOnPay.value) {
+      await printReceipt(paid);
+    }
   } catch (error) {
     showMessage(errorMessage(error, 'Error al cobrar'), 'error');
   } finally {
@@ -985,78 +1231,181 @@ const confirmarCobro = async () => {
   }
 };
 
+// --- Impresión: cuenta (antes de cobrar) y factura (después) ---
+
+const TICKET_WIDTH = 38;
+
+const center = (text: string): string => {
+  if (!text || text.length >= TICKET_WIDTH) return text;
+  return ' '.repeat(Math.floor((TICKET_WIDTH - text.length) / 2)) + text;
+};
+
+/** `ETIQUETA :             $1.000` en el ancho de la tirilla. */
+const amountLine = (labelText: string, value: number, sign = ''): string => {
+  const left = labelText.padEnd(10);
+  return left + (sign + money(value)).padStart(TICKET_WIDTH - left.length);
+};
+
+interface TicketOptions {
+  /** Cuenta previa al cobro: sin número de factura ni resolución. */
+  preBill?: boolean;
+  /** Propina sugerida al cliente (solo en la cuenta; 0 = no se ofrece). */
+  suggestedTip?: number;
+  tipPercent?: number;
+  /** Abonos previos del pedido (la cuenta muestra lo que falta). */
+  amountPaid?: number;
+}
+
 /**
- * Tirilla POS: comprobante mínimo de la compra (no la e-factura DIAN).
- * Se imprime en una ventana aparte con ancho de impresora térmica.
+ * Tirilla POS (no la e-factura DIAN). Con resolución configurada, el
+ * backend le asigna al pedido el consecutivo al cobrarlo y la tirilla sale
+ * como FACTURA DE VENTA con los datos de la resolución. Sin número (sin
+ * resolución, o cuenta previa) sale como comprobante o cuenta, sin
+ * mencionar la resolución: un documento sin consecutivo no es factura.
  */
+const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {}): string => {
+  const line = '-'.repeat(TICKET_WIDTH);
+  const isInvoice = !opts.preBill && !!r.invoice_number;
+
+  const rows = r.items
+    .map(i => `${String(i.quantity).padEnd(4)}${i.name.slice(0, 22).padEnd(24)}${money(i.total).padStart(10)}`);
+  if (r.time_amount && r.time_amount > 0) {
+    rows.push(`${'1'.padEnd(4)}${'Tiempo de mesa'.padEnd(24)}${money(r.time_amount).padStart(10)}`);
+  }
+
+  const totalWithoutTip = Number(r.total) - Number(r.tip || 0);
+  const amountPaid = Number(opts.amountPaid || 0);
+  const suggestedTip = Math.max(0, Number(opts.suggestedTip || 0));
+
+  const header = opts.preBill
+    ? [
+        center('CUENTA DE COBRO'),
+        center(`Pedido #${orderId}`),
+        center('(No es factura de venta)'),
+      ]
+    : isInvoice
+      ? [
+          r.resolution
+            ? `Resol. DIAN ${r.resolution.number}${r.resolution.date ? ' de ' + r.resolution.date : ''}`
+            : '',
+          r.resolution?.range_from
+            ? `Autoriza de ${r.resolution.prefix ?? ''}${r.resolution.range_from} a ${r.resolution.prefix ?? ''}${r.resolution.range_to}`
+            : '',
+          r.resolution?.valid_until
+            ? `Vigencia${r.resolution.valid_from ? ' ' + r.resolution.valid_from : ''} hasta ${r.resolution.valid_until}`
+            : '',
+          `FACTURA DE VENTA No. ${r.invoice_number}`,
+        ]
+      : [
+          center('COMPROBANTE DE VENTA'),
+          center(`Pedido #${orderId}`),
+        ];
+
+  const totals = opts.preBill
+    ? [
+        amountLine('TOTAL', totalWithoutTip),
+        amountPaid > 0 ? amountLine('ABONADO', amountPaid, '-') : '',
+        amountPaid > 0 ? amountLine('POR PAGAR', totalWithoutTip - amountPaid) : '',
+        ...(suggestedTip > 0
+          ? [
+              line,
+              amountLine(`PROPINA${opts.tipPercent ? ' ' + opts.tipPercent + '%' : ''}`, suggestedTip),
+              amountLine('CON PROP.', totalWithoutTip - amountPaid + suggestedTip),
+              '',
+              center('La propina es voluntaria.'),
+              center('Puede pagar con o sin ella.'),
+            ]
+          : []),
+      ]
+    : [
+        r.tip > 0 ? amountLine('PROPINA V.', r.tip) : '',
+        amountLine('TOTAL', r.total),
+        r.payment_methods.length
+          ? `FORMA DE PAGO: ${r.payment_methods.map(m => label(orderPaymentMethodLabels, m)).join(' + ')}`
+          : '',
+      ];
+
+  return [
+    center(r.business.name || ''),
+    center(r.business.legal_name || ''),
+    r.business.nit ? center(`NIT ${r.business.nit}`) : '',
+    r.business.tax_regime ? center(label(taxRegimeLabels, r.business.tax_regime)) : '',
+    center([r.business.address, r.business.city].filter(Boolean).join(' - ')),
+    r.business.phone ? center(`Tel. ${r.business.phone}`) : '',
+    line,
+    ...header,
+    line,
+    `CLIENTE : ${r.customer.name || 'Consumidor final'}`,
+    r.customer.document ? `CC/NIT  : ${r.customer.document}` : '',
+    `FECHA   : ${new Date((!opts.preBill && r.paid_at) || r.created_at).toLocaleString('es-CO')}`,
+    r.dining_table ? `MESA    : ${r.dining_table}` : '',
+    r.waiter ? `ATENDIO : ${r.waiter}` : '',
+    line,
+    'CANT ARTICULO                    VALOR',
+    line,
+    ...rows,
+    line,
+    amountLine('SUBTOTAL', r.subtotal),
+    r.discount > 0 ? amountLine('DESCUENTO', r.discount, '-') : '',
+    r.included_vat > 0 ? amountLine('IVA INCL.', r.included_vat) : '',
+    r.delivery_fee > 0 ? amountLine('DOMICILIO', r.delivery_fee) : '',
+    ...totals,
+    line,
+    center(opts.preBill ? '** GRACIAS POR SU VISITA **' : '** GRACIAS POR SU COMPRA **'),
+  ].filter(Boolean).join('\n');
+};
+
+/** Abre la tirilla en una ventana con ancho de impresora térmica. */
+const openPrintWindow = (title: string, body: string): boolean => {
+  const win = window.open('', '_blank', 'width=420,height=650');
+  if (!win) {
+    showMessage('El navegador bloqueó la ventana de impresión', 'error');
+    return false;
+  }
+  win.document.write(
+    `<html><head><title>${title.replace(/</g, '&lt;')}</title>` +
+    '<style>body{font-family:monospace;font-size:12px;white-space:pre;width:80mm;margin:0 auto;padding:8px}</style>' +
+    `</head><body>${body.replace(/</g, '&lt;')}</body></html>`,
+  );
+  win.document.close();
+  win.focus();
+  win.print();
+  return true;
+};
+
+/** Factura (o comprobante) de un pedido ya cobrado. */
 const printReceipt = async (order: Order) => {
   try {
     const r = await ordersService.receipt(order.id);
-    const money = (v: number) => '$' + Number(v || 0).toLocaleString('es-CO');
-    const line = '-'.repeat(38);
-
-    const rows = r.items
-      .map(i => `${String(i.quantity).padEnd(4)}${i.name.slice(0, 22).padEnd(24)}${money(i.total).padStart(10)}`)
-      .join('\n');
-
-    const parts = [
-      center(r.business.name || ''),
-      center(r.business.legal_name || ''),
-      r.business.nit ? center(`NIT ${r.business.nit}`) : '',
-      center([r.business.address, r.business.city].filter(Boolean).join(' - ')),
-      r.business.phone ? center(`Tel. ${r.business.phone}`) : '',
-      line,
-      r.resolution ? `Resol. DIAN ${r.resolution.number}${r.resolution.date ? ' de ' + r.resolution.date : ''}` : '',
-      r.resolution?.range_from
-        ? `Autoriza de ${r.resolution.prefix ?? ''}${r.resolution.range_from} a ${r.resolution.prefix ?? ''}${r.resolution.range_to}`
-        : '',
-      r.invoice_number ? `FACTURA DE VENTA: ${r.invoice_number}` : `PEDIDO #${order.id}`,
-      line,
-      `CLIENTE : ${r.customer.name || 'Consumidor final'}`,
-      r.customer.document ? `CC/NIT  : ${r.customer.document}` : '',
-      `FECHA   : ${new Date(r.paid_at || r.created_at).toLocaleString('es-CO')}`,
-      r.dining_table ? `MESA    : ${r.dining_table}` : '',
-      r.waiter ? `ATENDIO : ${r.waiter}` : '',
-      line,
-      'CANT ARTICULO                    VALOR',
-      line,
-      rows,
-      line,
-      `SUBTOTAL :${money(r.subtotal).padStart(26)}`,
-      r.discount > 0 ? `DESCUENTO:${('-' + money(r.discount).slice(1)).padStart(26)}` : '',
-      r.included_vat > 0 ? `IVA INCL.:${money(r.included_vat).padStart(26)}` : '',
-      r.delivery_fee > 0 ? `DOMICILIO:${money(r.delivery_fee).padStart(26)}` : '',
-      r.tip > 0 ? `PROPINA  :${money(r.tip).padStart(26)}` : '',
-      `TOTAL    :${money(r.total).padStart(26)}`,
-      r.payment_methods.length
-        ? `FORMA DE PAGO: ${r.payment_methods.map(m => label(orderPaymentMethodLabels, m)).join(' + ')}`
-        : '',
-      line,
-      center('** GRACIAS POR SU COMPRA **'),
-    ].filter(Boolean).join('\n');
-
-    const win = window.open('', '_blank', 'width=420,height=650');
-    if (!win) {
-      showMessage('El navegador bloqueó la ventana de impresión', 'error');
-      return;
-    }
-    win.document.write(
-      `<html><head><title>${r.invoice_number || 'Pedido #' + order.id}</title>` +
-      '<style>body{font-family:monospace;font-size:12px;white-space:pre;width:80mm;margin:0 auto;padding:8px}</style>' +
-      `</head><body>${parts.replace(/</g, '&lt;')}</body></html>`,
-    );
-    win.document.close();
-    win.focus();
-    win.print();
+    openPrintWindow(r.invoice_number || `Pedido #${order.id}`, buildTicket(r, order.id));
   } catch (error) {
     showMessage(errorMessage(error, 'Error al generar la factura'), 'error');
   }
 };
 
-const center = (text: string): string => {
-  const width = 38;
-  if (!text || text.length >= width) return text;
-  return ' '.repeat(Math.floor((width - text.length) / 2)) + text;
+/**
+ * Cuenta previa al cobro: el cliente ve cuánto debe, con y sin la propina
+ * sugerida, y elige. No lleva número de factura porque todavía no hay venta.
+ */
+const printPreBill = async (order: Order) => {
+  printing.value = true;
+  try {
+    const r = await ordersService.receipt(order.id);
+    // Desde el diálogo se usa la propina que se esté editando; desde el
+    // menú de la fila, la sugerencia configurada.
+    const fromDialog = payDialog.value && selectedOrder.value?.id === order.id;
+    const tip = tipEnabled.value ? (fromDialog ? payTip.value : suggestedTip(order)) : 0;
+    openPrintWindow(`Cuenta pedido #${order.id}`, buildTicket(r, order.id, {
+      preBill: true,
+      suggestedTip: tip,
+      tipPercent: tipEnabled.value ? tipPercent.value : undefined,
+      amountPaid: Number(order.amount_paid || 0),
+    }));
+  } catch (error) {
+    showMessage(errorMessage(error, 'Error al generar la cuenta'), 'error');
+  } finally {
+    printing.value = false;
+  }
 };
 
 const openDiscountDialog = (order: Order) => {

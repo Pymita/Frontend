@@ -1,5 +1,33 @@
 <template>
   <v-container fluid class="pa-4">
+    <!-- Pedidos sin cobrar de días anteriores: es plata que se pierde si
+         nadie la ve. Va arriba de todo, antes de cualquier estadística. -->
+    <v-alert
+      v-if="!loading && overduePending.length > 0"
+      type="warning"
+      variant="tonal"
+      icon="mdi-alert-circle"
+      class="mb-4"
+    >
+      <div class="d-flex align-center flex-wrap ga-3">
+        <div>
+          <div class="font-weight-bold">
+            {{ overduePending.length === 1
+              ? 'Hay 1 pedido pendiente de cobro de un día anterior'
+              : `Hay ${overduePending.length} pedidos pendientes de cobro de días anteriores` }}
+          </div>
+          <div class="text-body-2">
+            Suman {{ money(overduePendingTotal) }} por cobrar. Revísalos y ciérralos para que la caja cuadre.
+          </div>
+        </div>
+        <v-spacer />
+        <v-btn color="warning" variant="flat" to="/pedidos">
+          <v-icon start>mdi-receipt</v-icon>
+          Ver pedidos pendientes
+        </v-btn>
+      </div>
+    </v-alert>
+
     <v-row>
       <!-- Estadísticas principales -->
       <v-col cols="12" md="3" v-for="stat in stats" :key="stat.title">
@@ -68,7 +96,7 @@
                 </template>
                 <v-list-item-title>Pedido #{{ order.id }}</v-list-item-title>
                 <v-list-item-subtitle>
-                  {{ order.customer_name }} - ${{ Number(order.total || 0).toFixed(2) }}
+                  {{ order.customer_name }} - {{ money(order.total) }}
                 </v-list-item-subtitle>
                 <template v-slot:append>
                   <v-chip :color="getStatusInfo(order.status).color" size="small" variant="outlined">
@@ -181,7 +209,23 @@ const dashStats = ref<DashboardStats>({
 })
 
 const recentOrders = ref<Order[]>([])
+// Pendientes de cobro creados antes de hoy (los cancelados no cuentan).
+const overduePending = ref<Order[]>([])
 const lowStockProducts = ref<LowStockProduct[]>([])
+
+const money = (value: number | string | null | undefined): string =>
+  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
+
+const overduePendingTotal = computed(() =>
+  overduePending.value.reduce((sum, o) => sum + Number(o.pending_balance ?? o.total ?? 0), 0),
+)
+
+const isOverduePending = (order: Order): boolean => {
+  if (order.payment_status === 'paid' || order.status === 'cancelled') return false
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  return new Date(order.created_at).getTime() < startOfToday
+}
 const topProducts = ref<TopProduct[]>([])
 const salesWeekData = ref<SalesWeekDay[]>([])
 const loading = ref(true)
@@ -279,9 +323,10 @@ const chartOptions = {
 const loadData = async () => {
   loading.value = true
   try {
-    const [stats, orders, stock, products, salesWeek] = await Promise.all([
+    const [stats, orders, pending, stock, products, salesWeek] = await Promise.all([
       dashboardService.getStats(),
       ordersService.getAll({ today: true }),
+      ordersService.getAll({ pending_payment: true }),
       dashboardService.getLowStock(),
       dashboardService.getTopProducts(),
       dashboardService.getSalesWeek(),
@@ -289,6 +334,7 @@ const loadData = async () => {
 
     dashStats.value = stats
     recentOrders.value = orders.slice(0, 4) // Últimos 4 pedidos
+    overduePending.value = pending.filter(isOverduePending)
     lowStockProducts.value = stock
     topProducts.value = products
     salesWeekData.value = salesWeek

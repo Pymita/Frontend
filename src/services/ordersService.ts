@@ -61,6 +61,8 @@ export interface OrderReceipt {
     address: string | null
     city: string | null
     phone: string | null
+    /** common | simplified | large_taxpayer (ver taxRegimeLabels) */
+    tax_regime: string | null
   }
   resolution: {
     number: string
@@ -68,6 +70,8 @@ export interface OrderReceipt {
     prefix: string | null
     range_from: number | null
     range_to: number | null
+    valid_from: string | null
+    valid_until: string | null
   } | null
   invoice_number: string | null
   paid_at: string | null
@@ -104,6 +108,11 @@ export interface Order {
   discount_percentage: number;
   discount_amount: number;
   discount_reason?: string;
+  delivery_fee?: number;
+  /** Propina ya registrada en el pedido (entra en `total`) */
+  tip?: number;
+  /** Consecutivo de la resolución DIAN; null hasta que se cobra o sin resolución */
+  invoice_number?: string | null;
   total: number;
   amount_paid: number;
   pending_balance: number;
@@ -164,7 +173,8 @@ export const ordersService = {
   ): Promise<Order> {
     const response = await api.post<ApiResponse<Order>>(`/orders/${id}/pay`, {
       ...(payload.payment_method ? { payment_method: payload.payment_method } : {}),
-      ...(payload.tip ? { tip: payload.tip } : {}),
+      // Se manda también el 0: si el pedido traía propina, "sin propina" la quita.
+      ...(payload.tip !== undefined ? { tip: payload.tip } : {}),
       ...(payload.customer_id ? { customer_id: payload.customer_id } : {}),
     });
     return response.data.data;

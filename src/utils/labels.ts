@@ -63,6 +63,13 @@ export const orderPaymentMethodLabels: Record<string, string> = {
   other: 'Otro',
 }
 
+/** Régimen tributario de la empresa, como debe leerse en la tirilla. */
+export const taxRegimeLabels: Record<string, string> = {
+  common: 'Responsable de IVA',
+  simplified: 'No responsable de IVA',
+  large_taxpayer: 'Gran contribuyente',
+}
+
 export const expensePaymentMethodLabels: Record<string, string> = {
   cash: 'Efectivo',
   transfer: 'Transferencia',

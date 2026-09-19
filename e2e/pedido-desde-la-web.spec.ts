@@ -84,7 +84,7 @@ test('agregar productos a un pedido que ya está abierto', async ({ page, reques
   await page.goto('/pedidos')
 
   // Abrir el detalle del pedido y pedir algo más.
-  await page.locator('tr', { hasText: '$3500.00' }).first().locator('.mdi-chevron-down').click()
+  await page.locator('tr', { hasText: '$3.500' }).first().locator('.mdi-chevron-down').click()
   await page.getByRole('button', { name: 'Agregar productos' }).click()
 
   const dialog = page.getByRole('dialog')
