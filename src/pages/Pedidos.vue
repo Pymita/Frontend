@@ -454,8 +454,9 @@
               </v-col>
             </v-row>
             <p class="text-caption text-grey-darken-1 mt-2 mb-0">
-              La propina es voluntaria (Ley 1935 de 2018): en la cuenta impresa el
-              cliente ve el total con y sin propina y decide cómo paga.
+              La propina es voluntaria (Ley 1935 de 2018). Primero
+              <strong>imprime la cuenta</strong>: el cliente ve el total con y sin
+              propina y decide; después cobras con la opción que eligió.
             </p>
           </template>
 
@@ -479,7 +480,12 @@
           />
         </v-card-text>
         <v-card-actions class="flex-wrap">
-          <v-btn variant="text" color="primary" :loading="printing" @click="printPreBill(selectedOrder)">
+          <v-btn
+            :variant="tipOffered ? 'tonal' : 'text'"
+            color="primary"
+            :loading="printing"
+            @click="printPreBill(selectedOrder)"
+          >
             <v-icon start>mdi-printer</v-icon>
             Imprimir cuenta
           </v-btn>
@@ -1210,6 +1216,9 @@ const openPayDialog = async (order: Order) => {
 const confirmarCobro = async (withTip: boolean) => {
   if (!selectedOrder.value) return;
   const order = selectedOrder.value;
+  // La ventana de la factura se abre ya, en el clic; si se abriera después
+  // de esperar al servidor el navegador la bloquearía.
+  const win = printOnPay.value ? openPrintWindow() : null;
   saving.value = true;
   try {
     const paid = await ordersService.markPaid(order.id, {
@@ -1221,10 +1230,11 @@ const confirmarCobro = async (withTip: boolean) => {
     showMessage(withTip ? 'Pedido cobrado con propina' : 'Pedido cobrado');
     payDialog.value = false;
     loadOrders();
-    if (printOnPay.value) {
-      await printReceipt(paid);
+    if (win) {
+      await printReceipt(paid, win);
     }
   } catch (error) {
+    win?.close();
     showMessage(errorMessage(error, 'Error al cobrar'), 'error');
   } finally {
     saving.value = false;
@@ -1240,9 +1250,9 @@ const center = (text: string): string => {
   return ' '.repeat(Math.floor((TICKET_WIDTH - text.length) / 2)) + text;
 };
 
-/** `ETIQUETA :             $1.000` en el ancho de la tirilla. */
+/** `ETIQUETA                 $1.000` en el ancho de la tirilla. */
 const amountLine = (labelText: string, value: number, sign = ''): string => {
-  const left = labelText.padEnd(10);
+  const left = labelText.padEnd(20);
   return left + (sign + money(value)).padStart(TICKET_WIDTH - left.length);
 };
 
@@ -1303,23 +1313,26 @@ const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {})
 
   const totals = opts.preBill
     ? [
-        amountLine('TOTAL', totalWithoutTip),
+        amountLine(suggestedTip > 0 ? 'TOTAL SIN PROPINA' : 'TOTAL', totalWithoutTip),
         amountPaid > 0 ? amountLine('ABONADO', amountPaid, '-') : '',
         amountPaid > 0 ? amountLine('POR PAGAR', totalWithoutTip - amountPaid) : '',
         ...(suggestedTip > 0
           ? [
               line,
-              amountLine(`PROPINA${opts.tipPercent ? ' ' + opts.tipPercent + '%' : ''}`, suggestedTip),
-              amountLine('CON PROP.', totalWithoutTip - amountPaid + suggestedTip),
-              '',
+              amountLine(`PROPINA SUGERIDA${opts.tipPercent ? ' ' + opts.tipPercent + '%' : ''}`, suggestedTip),
+              amountLine('TOTAL CON PROPINA', totalWithoutTip - amountPaid + suggestedTip),
+              line,
               center('La propina es voluntaria.'),
               center('Puede pagar con o sin ella.'),
             ]
           : []),
       ]
     : [
-        r.tip > 0 ? amountLine('PROPINA V.', r.tip) : '',
-        amountLine('TOTAL', r.total),
+        // Con propina, la factura desglosa los dos totales: lo consumido y
+        // lo pagado con la propina voluntaria encima.
+        r.tip > 0 ? amountLine('TOTAL SIN PROPINA', totalWithoutTip) : '',
+        r.tip > 0 ? amountLine('PROPINA VOLUNTARIA', r.tip) : '',
+        amountLine(r.tip > 0 ? 'TOTAL PAGADO' : 'TOTAL', r.total),
         r.payment_methods.length
           ? `FORMA DE PAGO: ${r.payment_methods.map(m => label(orderPaymentMethodLabels, m)).join(' + ')}`
           : '',
@@ -1355,13 +1368,22 @@ const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {})
   ].filter(Boolean).join('\n');
 };
 
-/** Abre la tirilla en una ventana con ancho de impresora térmica. */
-const openPrintWindow = (title: string, body: string): boolean => {
+/**
+ * La ventana se abre en el mismo clic (los navegadores bloquean las que se
+ * abren después de esperar al servidor) y se llena cuando llega la tirilla.
+ */
+const openPrintWindow = (): Window | null => {
   const win = window.open('', '_blank', 'width=420,height=650');
   if (!win) {
-    showMessage('El navegador bloqueó la ventana de impresión', 'error');
-    return false;
+    showMessage('El navegador bloqueó la ventana de impresión: permite las ventanas emergentes para este sitio', 'error');
+    return null;
   }
+  win.document.write('<html><body style="font-family:monospace;padding:8px">Generando…</body></html>');
+  return win;
+};
+
+const fillPrintWindow = (win: Window, title: string, body: string) => {
+  win.document.open();
   win.document.write(
     `<html><head><title>${title.replace(/</g, '&lt;')}</title>` +
     '<style>body{font-family:monospace;font-size:12px;white-space:pre;width:80mm;margin:0 auto;padding:8px}</style>' +
@@ -1370,15 +1392,16 @@ const openPrintWindow = (title: string, body: string): boolean => {
   win.document.close();
   win.focus();
   win.print();
-  return true;
 };
 
 /** Factura (o comprobante) de un pedido ya cobrado. */
-const printReceipt = async (order: Order) => {
+const printReceipt = async (order: Order, win: Window | null = openPrintWindow()) => {
+  if (!win) return;
   try {
     const r = await ordersService.receipt(order.id);
-    openPrintWindow(r.invoice_number || `Pedido #${order.id}`, buildTicket(r, order.id));
+    fillPrintWindow(win, r.invoice_number || `Pedido #${order.id}`, buildTicket(r, order.id));
   } catch (error) {
+    win.close();
     showMessage(errorMessage(error, 'Error al generar la factura'), 'error');
   }
 };
@@ -1388,6 +1411,8 @@ const printReceipt = async (order: Order) => {
  * sugerida, y elige. No lleva número de factura porque todavía no hay venta.
  */
 const printPreBill = async (order: Order) => {
+  const win = openPrintWindow();
+  if (!win) return;
   printing.value = true;
   try {
     const r = await ordersService.receipt(order.id);
@@ -1395,13 +1420,14 @@ const printPreBill = async (order: Order) => {
     // menú de la fila, la sugerencia configurada.
     const fromDialog = payDialog.value && selectedOrder.value?.id === order.id;
     const tip = tipEnabled.value ? (fromDialog ? payTip.value : suggestedTip(order)) : 0;
-    openPrintWindow(`Cuenta pedido #${order.id}`, buildTicket(r, order.id, {
+    fillPrintWindow(win, `Cuenta pedido #${order.id}`, buildTicket(r, order.id, {
       preBill: true,
       suggestedTip: tip,
       tipPercent: tipEnabled.value ? tipPercent.value : undefined,
       amountPaid: Number(order.amount_paid || 0),
     }));
   } catch (error) {
+    win.close();
     showMessage(errorMessage(error, 'Error al generar la cuenta'), 'error');
   } finally {
     printing.value = false;
