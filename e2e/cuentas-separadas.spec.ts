@@ -86,21 +86,51 @@ test('cobrar por persona hasta cerrar la mesa', async ({ page, request }) => {
   await expect(persona1).toContainText('$8.000')
   await expect(persona2).toContainText('$16.000')
 
+  // Persona 1 deja propina: se sugiere el 10% y se puede cambiar.
+  await dialog.getByLabel('Sugerir propina voluntaria').check()
+  await expect(persona1.getByLabel('Propina')).toHaveValue('800')
+  await persona1.getByLabel('Propina').fill('1000')
+  await expect(persona1).toContainText('con propina $9.000')
+
   await persona1.getByRole('button', { name: 'Cobrar' }).click()
-  await expect(page.getByText('Persona 1 pagó $8.000')).toBeVisible()
+  await expect(page.getByText('Persona 1 pagó $9.000')).toBeVisible()
   await expect(persona1).toContainText('Pagado')
   await expect(dialog.getByText('Pendiente de la mesa:')).toBeVisible()
 
   let current = (await (await request.get(`${API}/orders/${orderId}`, { headers: auth })).json()).data
   expect(current.payment_status).toBe('partial')
-  expect(current.amount_paid).toBe(8000)
+  expect(current.amount_paid).toBe(9000)
+  expect(current.tip).toBe(1000)
+  // La propina de la persona 1 no le sube la cuenta a la persona 2.
+  await expect(persona2).toContainText('$16.000')
 
-  await persona2.getByRole('button', { name: 'Cobrar' }).click()
-  await expect(page.getByText('Cuenta saldada: todas las personas pagaron')).toBeVisible()
+  // Los demás pagan juntos: solo lo que falta, sin volver a cobrar a la persona 1.
+  await dialog.getByRole('button', { name: 'Todos juntos' }).click()
+  await expect(dialog.getByText('Ya pagado (personas que pagaron aparte):')).toBeVisible()
+  await expect(dialog.getByText('$16.000')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cobrar sin propina' }).click()
+  await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
 
   current = (await (await request.get(`${API}/orders/${orderId}`, { headers: auth })).json()).data
   expect(current.payment_status).toBe('paid')
-  expect(current.total).toBe(24000)
+  expect(current.total).toBe(25000)
+  expect(current.tip).toBe(1000)
+  expect(current.amount_paid).toBe(25000)
+})
+
+test('el diálogo de cobro se puede cerrar con la X', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const productId = await seedProduct(request, auth, 'Pan Cerrar', 2500)
+  await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: productId, quantity: 1 }] } })
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  await page.locator('tr', { hasText: '$2.500' }).first().getByRole('button', { name: 'Cobrar' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cerrar' }).click()
+  await expect(dialog).toHaveCount(0)
 })
 
 test('la mesa que separó la cuenta también puede pagar todo junto', async ({ page, request }) => {

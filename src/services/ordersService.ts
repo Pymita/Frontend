@@ -17,6 +17,8 @@ export interface PartialPaymentPayload {
   amount?: number;
   items?: { order_item_id: number; quantity: number }[];
   payment_method?: OrderPaymentMethod;
+  /** Propina de este pago (cuentas separadas: cada persona deja la suya) */
+  tip?: number;
 }
 
 export interface OrderItem {
@@ -127,6 +129,10 @@ export interface Order {
   delivery_fee?: number;
   /** Propina ya registrada en el pedido (entra en `total`) */
   tip?: number;
+  /** Parte de esa propina que ya entró con pagos anteriores */
+  tip_paid?: number;
+  /** Falso cuando es una cuenta de otro día: no se le agregan productos */
+  is_current?: boolean;
   /** Consecutivo de la resolución DIAN; null hasta que se cobra o sin resolución */
   invoice_number?: string | null;
   total: number;

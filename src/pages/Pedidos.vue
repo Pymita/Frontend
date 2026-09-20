@@ -418,9 +418,16 @@
       resolución DIAN y se imprime la FACTURA. Imprimir la factura antes de
       cobrar gastaría un consecutivo en una venta que quizá no ocurre.
     -->
-    <v-dialog v-model="payDialog" max-width="520" persistent>
+    <v-dialog v-model="payDialog" max-width="760" persistent scrollable>
       <v-card v-if="selectedOrder">
-        <v-card-title>Cobrar pedido #{{ selectedOrder.id }}</v-card-title>
+        <v-card-title class="d-flex align-center">
+          Cobrar pedido #{{ selectedOrder.id }}
+          <span v-if="selectedOrder.dining_table" class="text-body-2 text-grey ml-2">
+            {{ selectedOrder.dining_table.display_name }}
+          </span>
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" aria-label="Cerrar" @click="payDialog = false" />
+        </v-card-title>
         <v-card-text>
           <!-- La mesa separó la cuenta: se pregunta si pagan juntos o cada uno lo suyo. -->
           <v-btn-toggle
@@ -447,6 +454,14 @@
               Cada persona paga lo suyo. Los descuentos y cargos de la mesa se reparten
               proporcionalmente. Al pagar la última, el pedido queda cerrado.
             </p>
+            <v-switch
+              v-model="tipEnabled"
+              label="Sugerir propina voluntaria"
+              color="primary"
+              hide-details
+              density="compact"
+              class="mb-2"
+            />
             <v-list density="compact" class="border rounded mb-2">
               <v-list-item v-for="guest in selectedOrder.guests" :key="guest.number ?? 0">
                 <v-list-item-title>
@@ -455,10 +470,27 @@
                 </v-list-item-title>
                 <v-list-item-subtitle>
                   <span v-if="guest.paid" class="text-success">Pagado</span>
-                  <strong v-else>{{ money(guest.pending_amount) }}</strong>
+                  <template v-else>
+                    <strong>{{ money(guest.pending_amount) }}</strong>
+                    <span v-if="tipEnabled && guestTip(guest) > 0" class="text-grey">
+                      · con propina {{ money(guest.pending_amount + guestTip(guest)) }}
+                    </span>
+                  </template>
                 </v-list-item-subtitle>
                 <template #append>
-                  <div class="d-flex ga-1">
+                  <div class="d-flex align-center ga-1">
+                    <v-text-field
+                      v-if="tipEnabled && !guest.paid"
+                      :model-value="guestTip(guest)"
+                      label="Propina"
+                      type="number"
+                      min="0"
+                      prefix="$"
+                      density="compact"
+                      hide-details
+                      style="width: 130px"
+                      @update:model-value="(v: string) => setGuestTip(guest, v)"
+                    />
                     <v-btn
                       size="small"
                       variant="text"
@@ -544,6 +576,10 @@
           </template>
 
           <v-card flat color="grey-lighten-4" class="pa-3 mt-3">
+            <div v-if="Number(selectedOrder.amount_paid) > 0" class="d-flex justify-space-between text-grey-darken-1 mb-1">
+              <span>Ya pagado (personas que pagaron aparte):</span>
+              <span>{{ money(selectedOrder.amount_paid) }}</span>
+            </div>
             <div class="d-flex justify-space-between">
               <span>Total sin propina:</span>
               <strong :class="tipOffered ? '' : 'text-success'">{{ money(payBase) }}</strong>
@@ -1284,15 +1320,33 @@ watch([tipEnabled, tipPercent, printOnPay], ([enabled, percent, print]) => {
   }
 });
 
-/** Lo que el cliente consumió, sin la propina que el pedido ya traiga. */
-const consumptionOf = (order: Order) => Number(order.total || 0) - Number(order.tip || 0);
+/** Propina del pedido que todavía nadie ha pagado (venía en el pedido). */
+const unpaidTip = (order: Order) => Math.max(0, Number(order.tip || 0) - Number(order.tip_paid || 0));
 
-/** Saldo a pagar sin propina (descontando abonos anteriores). */
-const payBase = computed(() => {
-  const order = selectedOrder.value;
-  if (!order) return 0;
-  return Math.max(0, Number(order.pending_balance ?? order.total) - Number(order.tip || 0));
-});
+/**
+ * Lo que aún se debe sin propina. Descuenta los abonos (personas que ya
+ * pagaron lo suyo, con su propina) para que "todos juntos" cobre solo a
+ * los que faltan.
+ */
+const consumptionOf = (order: Order) =>
+  Math.max(0, Number(order.pending_balance ?? order.total) - unpaidTip(order));
+
+const payBase = computed(() => (selectedOrder.value ? consumptionOf(selectedOrder.value) : 0));
+
+// Cuentas separadas: propina de cada persona (se sugiere el % sobre lo suyo).
+const guestTips = ref<Record<number, number>>({});
+const guestTip = (guest: OrderGuest) => {
+  const key = guest.number ?? 0;
+  if (guestTips.value[key] === undefined) {
+    return tipEnabled.value
+      ? Math.round((guest.pending_amount * Math.max(0, Number(tipPercent.value) || 0)) / 100)
+      : 0;
+  }
+  return guestTips.value[key];
+};
+const setGuestTip = (guest: OrderGuest, value: string) => {
+  guestTips.value[guest.number ?? 0] = Math.max(0, Number(value) || 0);
+};
 
 /** Se le ofrece propina al cliente: hay sugerencia y vale más de cero. */
 const tipOffered = computed(() => tipEnabled.value && payTip.value > 0);
@@ -1315,6 +1369,7 @@ const openPayDialog = async (order: Order) => {
   payTip.value = tipEnabled.value ? suggestedTip(order) : 0;
   payCustomerId.value = null;
   payMode.value = hasGuests(order) ? 'split' : 'together';
+  guestTips.value = {};
   payDialog.value = true;
   // El catálogo de clientes se carga una sola vez, al primer cobro.
   if (customers.value.length === 0) {
@@ -1373,12 +1428,14 @@ const cobrarPersona = async (guest: OrderGuest) => {
     .map(i => ({ order_item_id: i.id, quantity: i.unpaid_quantity }));
   if (items.length === 0) return;
 
+  const tip = tipEnabled.value ? guestTip(guest) : 0;
   const win = printOnPay.value ? openPrintWindow() : null;
   saving.value = true;
   try {
     const updated = await ordersService.recordPartialPayment(order.id, {
       items,
       payment_method: payMethod.value,
+      tip: tip > 0 ? tip : undefined,
     });
     selectedOrder.value = updated;
     loadOrders();
@@ -1388,7 +1445,7 @@ const cobrarPersona = async (guest: OrderGuest) => {
       payDialog.value = false;
       if (win) await printReceipt(updated, win);
     } else {
-      showMessage(`${guest.label} pagó ${money(guest.pending_amount)}`);
+      showMessage(`${guest.label} pagó ${money(guest.pending_amount + tip)}`);
       if (win) {
         // Comprobante de lo que pagó esta persona (no es la factura).
         const r = await ordersService.receipt(order.id, guest.number);
