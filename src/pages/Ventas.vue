@@ -13,7 +13,7 @@
             color="success"
             prepend-icon="mdi-file-excel"
             :loading="exporting"
-            :disabled="!report || report.sales.length === 0"
+            :disabled="!canExport"
             @click="exportExcel"
           >
             Descargar Excel
@@ -103,7 +103,111 @@
       </v-col>
     </v-row>
 
-    <v-row>
+    <!-- Tres lecturas del mismo rango: venta por venta, qué se vendió y qué dejó cada mesa. -->
+    <v-row dense class="mt-1">
+      <v-col cols="12">
+        <v-btn-toggle v-model="view" mandatory color="primary" density="comfortable">
+          <v-btn value="sales" prepend-icon="mdi-receipt-text">Ventas</v-btn>
+          <v-btn value="products" prepend-icon="mdi-food">Por producto</v-btn>
+          <v-btn value="tables" prepend-icon="mdi-table-furniture">Por mesa</v-btn>
+        </v-btn-toggle>
+      </v-col>
+    </v-row>
+
+    <v-row v-if="view === 'products'">
+      <v-col cols="12">
+        <v-card>
+          <v-card-text class="d-flex flex-wrap ga-4 pb-0">
+            <div>
+              <div class="text-caption text-grey">Unidades vendidas</div>
+              <div class="text-h6">{{ productReport?.summary.quantity ?? 0 }}</div>
+            </div>
+            <div>
+              <div class="text-caption text-grey">Neto vendido</div>
+              <div class="text-h6 text-success">{{ money(productReport?.summary.net) }}</div>
+            </div>
+            <div>
+              <div class="text-caption text-grey">Ganancia (neto - costo)</div>
+              <div class="text-h6" :class="(productReport?.summary.profit ?? 0) >= 0 ? 'text-success' : 'text-error'">
+                {{ money(productReport?.summary.profit) }}
+              </div>
+            </div>
+          </v-card-text>
+          <v-data-table
+            :headers="productHeaders"
+            :items="productReport?.products ?? []"
+            :loading="loading"
+            density="comfortable"
+            class="elevation-0"
+            :items-per-page="25"
+          >
+            <template #item.category="{ item }">{{ item.category || '—' }}</template>
+            <template #item.gross="{ item }">{{ money(item.gross) }}</template>
+            <template #item.net="{ item }">
+              <span class="font-weight-bold text-success">{{ money(item.net) }}</span>
+            </template>
+            <template #item.cost="{ item }">{{ money(item.cost) }}</template>
+            <template #item.profit="{ item }">
+              <span :class="item.profit >= 0 ? 'text-success' : 'text-error'">{{ money(item.profit) }}</span>
+            </template>
+            <template #no-data>
+              <p class="text-grey py-6">No hay ventas en el rango seleccionado</p>
+            </template>
+          </v-data-table>
+        </v-card>
+      </v-col>
+    </v-row>
+
+    <v-row v-else-if="view === 'tables'">
+      <v-col cols="12">
+        <v-card>
+          <v-card-text class="d-flex flex-wrap ga-4 pb-0">
+            <div>
+              <div class="text-caption text-grey">Ventas</div>
+              <div class="text-h6">{{ tableReport?.summary.sales_count ?? 0 }}</div>
+            </div>
+            <div>
+              <div class="text-caption text-grey">Tiempo de billar</div>
+              <div class="text-h6">{{ money(tableReport?.summary.time_total) }}</div>
+            </div>
+            <div>
+              <div class="text-caption text-grey">Total</div>
+              <div class="text-h6 text-success">{{ money(tableReport?.summary.total) }}</div>
+            </div>
+          </v-card-text>
+          <v-data-table
+            :headers="tableHeaders"
+            :items="tableReport?.tables ?? []"
+            :loading="loading"
+            density="comfortable"
+            class="elevation-0"
+            :items-per-page="25"
+          >
+            <template #item.name="{ item }">
+              <v-icon v-if="item.table_type === 'billiard'" size="small" class="mr-1">mdi-billiards</v-icon>
+              {{ item.name }}
+            </template>
+            <template #item.products_total="{ item }">{{ money(item.products_total) }}</template>
+            <template #item.time_total="{ item }">
+              <template v-if="item.time_minutes > 0">
+                {{ money(item.time_total) }}
+                <span class="text-caption text-grey">({{ formatMinutes(item.time_minutes) }})</span>
+              </template>
+              <span v-else class="text-grey">—</span>
+            </template>
+            <template #item.tips="{ item }">{{ item.tips ? money(item.tips) : '—' }}</template>
+            <template #item.total="{ item }">
+              <span class="font-weight-bold text-success">{{ money(item.total) }}</span>
+            </template>
+            <template #no-data>
+              <p class="text-grey py-6">No hay ventas en el rango seleccionado</p>
+            </template>
+          </v-data-table>
+        </v-card>
+      </v-col>
+    </v-row>
+
+    <v-row v-else>
       <v-col cols="12">
         <v-card>
           <v-alert v-if="report?.truncated" type="info" variant="tonal" density="compact" class="ma-2 mb-0">
@@ -153,8 +257,11 @@ import { computed, onMounted, ref, watch } from 'vue'
 import salesService, {
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,
+  type ProductSalesReport,
   type SalesFilters,
   type SalesReport,
+  type SalesView,
+  type TableSalesReport,
 } from '../services/salesService'
 
 // Hoy en local (los inputs date usan YYYY-MM-DD): el día de trabajo actual
@@ -170,7 +277,44 @@ const filters = ref<SalesFilters>({
 })
 
 const report = ref<SalesReport | null>(null)
+const productReport = ref<ProductSalesReport | null>(null)
+const tableReport = ref<TableSalesReport | null>(null)
+const view = ref<SalesView>('sales')
 const loading = ref(false)
+
+const money = (value: number | null | undefined): string =>
+  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
+
+const formatMinutes = (minutes: number): string => {
+  const hours = Math.floor(minutes / 60)
+  return hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`
+}
+
+const productHeaders = [
+  { title: 'Producto', key: 'name' },
+  { title: 'Categoría', key: 'category' },
+  { title: 'Cantidad', key: 'quantity', align: 'end' as const },
+  { title: 'Bruto', key: 'gross', align: 'end' as const },
+  { title: 'Neto', key: 'net', align: 'end' as const },
+  { title: 'Costo', key: 'cost', align: 'end' as const },
+  { title: 'Ganancia', key: 'profit', align: 'end' as const },
+  { title: 'Ventas', key: 'orders_count', align: 'end' as const },
+]
+
+const tableHeaders = [
+  { title: 'Mesa', key: 'name' },
+  { title: 'Ventas', key: 'sales_count', align: 'end' as const },
+  { title: 'Productos', key: 'products_total', align: 'end' as const },
+  { title: 'Tiempo', key: 'time_total', align: 'end' as const },
+  { title: 'Propinas', key: 'tips', align: 'end' as const },
+  { title: 'Total', key: 'total', align: 'end' as const },
+]
+
+const canExport = computed(() => {
+  if (view.value === 'products') return (productReport.value?.products.length ?? 0) > 0
+  if (view.value === 'tables') return (tableReport.value?.tables.length ?? 0) > 0
+  return (report.value?.sales.length ?? 0) > 0
+})
 const exporting = ref(false)
 const snackbar = ref({ show: false, text: '' })
 
@@ -215,10 +359,18 @@ const formatDate = (iso: string | null): string =>
     ? new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
     : '—'
 
+// Cada vista consulta lo suyo; los totales de arriba siempre son del listado.
 const load = async () => {
   loading.value = true
   try {
-    report.value = await salesService.report(filters.value)
+    if (view.value === 'products') {
+      productReport.value = await salesService.byProduct(filters.value)
+    } else if (view.value === 'tables') {
+      tableReport.value = await salesService.byTable(filters.value)
+    }
+    if (view.value === 'sales' || !report.value) {
+      report.value = await salesService.report(filters.value)
+    }
   } catch {
     snackbar.value = { show: true, text: 'Error al cargar las ventas' }
   } finally {
@@ -226,10 +378,12 @@ const load = async () => {
   }
 }
 
+watch(view, load)
+
 const exportExcel = async () => {
   exporting.value = true
   try {
-    await salesService.export(filters.value)
+    await salesService.export(filters.value, view.value)
   } catch {
     snackbar.value = { show: true, text: 'Error al exportar las ventas' }
   } finally {
