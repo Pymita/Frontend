@@ -267,6 +267,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/errors';
 import { computed, ref, onMounted } from 'vue';
+import { useLiveRefresh } from '@/composables/useLiveRefresh';
 import { tablesService, type DiningTable, type DiningTableStatus } from '@/services/tablesService';
 import { tableStatusLabels, label } from '@/utils/labels';
 import { useAuthStore } from '@/stores/auth';
@@ -445,6 +446,10 @@ const releaseTable = async (table: DiningTable) => {
     showMessage(errorMessage(error, 'Error al liberar mesa'), 'error');
   }
 };
+
+// Las mesas se ocupan y liberan desde el celular y desde la caja: la
+// página se refresca sola cuando algo cambia.
+useLiveRefresh(() => loadTables());
 
 onMounted(() => {
   loadTables();

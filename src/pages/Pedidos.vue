@@ -944,6 +944,7 @@ import { menuItemsService } from '@/services/menuService';
 import { tablesService } from '@/services/tablesService';
 import { effectiveFeatures } from '@/types/auth';
 import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/utils/orderLines';
+import { useLiveRefresh } from '@/composables/useLiveRefresh';
 import type { OrderGuest } from '@/services/ordersService';
 
 const orders = ref<Order[]>([]);
@@ -1227,8 +1228,8 @@ const stopTime = async (order: Order) => {
   }
 };
 
-const loadOrders = async () => {
-  loading.value = true;
+const loadOrders = async (silent = false) => {
+  if (!silent) loading.value = true;
   try {
     // El filtro de pago se manda al backend: "todos" sin "solo hoy" sería
     // traer el histórico completo cada vez que se abre la página.
@@ -1917,6 +1918,37 @@ const guardarItemsAgregados = async () => {
 
 onMounted(() => {
   loadOrders();
+});
+
+// --- En vivo: lo que hace el mesero desde el celular aparece aquí solo ---
+
+/** Un "din" corto para que la caja se entere de un pedido nuevo sin mirar. */
+const playNewOrderChime = () => {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.5);
+  } catch {
+    // Sin audio (o sin interacción previa del usuario): el aviso visual basta.
+  }
+};
+
+useLiveRefresh(({ latestId, previousLatestId }) => {
+  // Recarga sin spinner: la tabla no parpadea mientras se está cobrando.
+  loadOrders(true);
+  if (previousLatestId !== null && latestId > previousLatestId) {
+    const count = latestId - previousLatestId;
+    showMessage(count === 1 ? `Nuevo pedido #${latestId}` : `${count} pedidos nuevos`, 'info');
+    playNewOrderChime();
+  }
 });
 </script>
 
