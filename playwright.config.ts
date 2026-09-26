@@ -10,6 +10,9 @@ export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
   retries: 0,
+  // Every spec shares one backend and one e2e.sqlite: parallel workers
+  // interfere with each other (tables, open orders, kardex rows).
+  workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: 'http://127.0.0.1:5199',
