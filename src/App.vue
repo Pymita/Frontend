@@ -2,8 +2,10 @@
   <v-app>
     <v-navigation-drawer
       v-if="$route.name !== 'Login' && isAuthenticated"
+      v-model="drawer"
       app
-      permanent
+      :permanent="!smAndDown"
+      :temporary="smAndDown"
       width="280"
       color="primary"
       theme="dark"
@@ -52,11 +54,12 @@
 
     <!-- App Bar -->
     <v-app-bar v-if="$route.name !== 'Login' && isAuthenticated" app color="white" elevation="1">
+      <v-app-bar-nav-icon v-if="smAndDown" aria-label="Abrir menú" @click="drawer = !drawer" />
       <v-app-bar-title>{{ pageTitle }}</v-app-bar-title>
       <v-spacer></v-spacer>
       <v-chip color="primary" variant="outlined" class="mr-2">
-        <v-icon start>mdi-account</v-icon>
-        {{ currentUser?.name || 'Usuario' }}
+        <v-icon :start="!smAndDown">mdi-account</v-icon>
+        <template v-if="!smAndDown">{{ currentUser?.name || 'Usuario' }}</template>
         <v-chip-text v-if="currentUser?.role === 'admin'" class="ml-2" color="warning" size="x-small">
           Admin
         </v-chip-text>
@@ -108,6 +111,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useDisplay } from 'vuetify'
 import invoicingService from './services/invoicingService'
 import { useAuthStore } from './stores/auth'
 import { effectiveFeatures } from './types/auth'
@@ -120,6 +124,15 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const loading = ref<boolean>(false)
+
+// On phones and small tablets a fixed 280px menu leaves no room for the
+// page: it becomes a drawer opened from the app bar.
+const { smAndDown } = useDisplay()
+const drawer = ref(!smAndDown.value)
+watch(smAndDown, small => { drawer.value = !small })
+watch(() => route.fullPath, () => {
+  if (smAndDown.value) drawer.value = false
+})
 
 // Usar computed del store directamente
 const isAuthenticated = computed(() => authStore.isAuthenticated)
