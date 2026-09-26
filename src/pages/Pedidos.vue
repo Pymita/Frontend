@@ -619,12 +619,12 @@
               color="success"
               variant="tonal"
               :loading="saving"
-              @click="confirmarCobro(false)"
+              @click="confirmarCobro(true)"
             >
-              Cobrar sin propina
+              Cobrar con propina
             </v-btn>
-            <v-btn color="success" variant="flat" :loading="saving" @click="confirmarCobro(tipOffered)">
-              {{ tipOffered ? 'Cobrar con propina' : 'Confirmar cobro' }}
+            <v-btn color="success" variant="flat" :loading="saving" @click="confirmarCobro(false)">
+              {{ tipOffered ? 'Cobrar sin propina' : 'Confirmar cobro' }}
             </v-btn>
           </template>
         </v-card-actions>
