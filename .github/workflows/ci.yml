@@ -54,6 +54,7 @@ jobs:
           composer install --no-interaction --prefer-dist --no-progress
           cp .env.example .env
           php artisan key:generate
+          php artisan storage:link
 
       - uses: actions/setup-node@v4
         with:
