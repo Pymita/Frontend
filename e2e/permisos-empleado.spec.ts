@@ -65,3 +65,28 @@ test('admin ve todas las secciones incluidas las administrativas', async ({ page
   // Pero no la de plataforma (es de super admin):
   await expect(sidebarItem(page, 'Plataforma')).toHaveCount(0)
 })
+
+test('en el celular el menú no tapa la página: se abre con el botón y se cierra al navegar', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await loginUI(page, ADMIN.email, ADMIN.password)
+
+  const menu = page.locator('.v-navigation-drawer')
+  const openMenu = page.getByRole('button', { name: 'Abrir menú' })
+  await expect(menu).not.toBeInViewport()
+  await expect(page.locator('.v-main').getByText('Pedidos Hoy', { exact: true })).toBeInViewport()
+
+  await openMenu.click()
+  await expect(menu).toBeInViewport()
+  await sidebarItem(page, 'Kardex').click()
+
+  await expect(page).toHaveURL(/\/kardex/)
+  await expect(menu).not.toBeInViewport()
+})
+
+test('en escritorio el menú sigue fijo y sin botón para abrirlo', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, ADMIN.email, ADMIN.password)
+
+  await expect(sidebarItem(page, 'Dashboard')).toBeInViewport()
+  await expect(page.getByRole('button', { name: 'Abrir menú' })).toHaveCount(0)
+})
