@@ -132,8 +132,8 @@
               >
                 <v-list-item-title>{{ product.name }}</v-list-item-title>
                 <v-list-item-subtitle>
-                  Actual: <strong>{{ Number(product.current_stock || 0).toFixed(2) }} {{ product.unit }}</strong>
-                  / Mínimo: {{ Number(product.minimum_stock || 0).toFixed(2) }} {{ product.unit }}
+                  Actual: <strong>{{ quantity(product.current_stock) }} {{ product.unit }}</strong>
+                  / Mínimo: {{ quantity(product.minimum_stock) }} {{ product.unit }}
                 </v-list-item-subtitle>
                 <template v-slot:append>
                   <v-chip color="warning" size="small" variant="outlined">
@@ -216,6 +216,10 @@ const lowStockProducts = ref<LowStockProduct[]>([])
 const money = (value: number | string | null | undefined): string =>
   '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
 
+// Stock can be fractional (kg, litros) but 12 units must not read "12.00".
+const quantity = (value: number | string | null | undefined): string =>
+  Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 })
+
 const overduePendingTotal = computed(() =>
   overduePending.value.reduce((sum, o) => sum + Number(o.pending_balance ?? o.total ?? 0), 0),
 )
@@ -240,8 +244,8 @@ const stats = computed(() => [
   },
   {
     title: 'Ventas Hoy',
-    value: `$${Number(dashStats.value.sales_today || 0).toFixed(0)}`,
-    subtitle: `$${Number(dashStats.value.sales_month || 0).toFixed(0)} este mes`,
+    value: money(dashStats.value.sales_today),
+    subtitle: `${money(dashStats.value.sales_month)} este mes`,
     color: 'text-success',
     trend: { icon: 'mdi-cash', text: 'Ventas pagadas', color: 'success' }
   },

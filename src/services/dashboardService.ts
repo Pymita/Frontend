@@ -18,6 +18,8 @@ export interface LowStockProduct {
   id: number;
   name: string;
   current_stock: number;
+  /** @deprecated alias of current_stock kept by the API for older clients. */
+  stock: number;
   minimum_stock: number;
   unit: string;
 }
