@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: frontend
+
+      # playwright.config.ts boots the API from ../backend. A cross-repo change
+      # uses the same branch name in both repos, so test against that branch
+      # when it exists and against main otherwise. Backend is private: the
+      # BACKEND_DEPLOY_KEY secret is a read-only deploy key of Pymita/Backend.
+      - name: Pick backend branch
+        id: backend
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          SSH_KEY: ${{ secrets.BACKEND_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/backend_key
+          chmod 600 ~/.ssh/backend_key
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/backend_key -o StrictHostKeyChecking=accept-new"
+          if git ls-remote --exit-code --heads git@github.com:Pymita/Backend.git "$BRANCH" > /dev/null; then
+            echo "ref=$BRANCH" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        with:
+          repository: Pymita/Backend
+          ref: ${{ steps.backend.outputs.ref }}
+          ssh-key: ${{ secrets.BACKEND_DEPLOY_KEY }}
+          path: backend
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_sqlite, sqlite3, gd, zip, mbstring
+          coverage: none
+      - name: Prepare backend
+        working-directory: backend
+        run: |
+          composer install --no-interaction --prefer-dist --no-progress
+          cp .env.example .env
+          php artisan key:generate
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Types and build
+        working-directory: frontend
+        run: |
+          npm ci
+          npx vue-tsc --noEmit -p tsconfig.app.json
+          npm run build
+      - name: Playwright
+        working-directory: frontend
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7
