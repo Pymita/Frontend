@@ -15,16 +15,22 @@ Web app (Vue 3 + TypeScript + Vuetify + Pinia) for the management SaaS.
    (`toLocaleString('es-CO')`). Do not use `toFixed(2)` for sale amounts.
 4. **UI copy in Spanish**; variable names and comments in English.
 
-## Commits
+## Workflow
 
-**Commit every feature or fix once it is implemented and tested** — never leave
-finished, verified work uncommitted, and never commit failing work.
+Full rules: `docs/DEVELOPMENT.md` sections 3.1 (reuse), 3.2 (tests), 3.4
+(branches) and 3.8 (cross-layer impact).
 
-- **Author: Valentina. Never add a `Co-Authored-By` trailer for Claude or any
-  other AI tool.**
+- **Never commit to `main`.** Branch (`feat/<slug>`, `fix/<slug>`…, same name
+  in every repo a change touches), open a PR, merge only after Valentina
+  approves and CI is green (`gh pr merge --squash --delete-branch`).
+- **Check the other repos first:** every change may affect backend, frontend
+  and mobile. Report which ones change and why the others do not.
+- **Extend before creating:** existing endpoints, pages, components and styles
+  before new ones.
+- Commit once implemented AND tested. **Author: Valentina. Never add a
+  `Co-Authored-By` trailer for Claude or any other AI tool.**
 - Message in English, conventional-commit style (`feat:`, `fix:`, `docs:`,
   `test:`), explaining *why* when the change is not obvious.
-- One commit per coherent change; push the repos that changed.
 
 ## Verify
 
