@@ -8,8 +8,8 @@ export interface InvoicingResolution {
   range_from: number | null
   range_to: number | null
   current_sequence: number | null
-  valid_from: string | null
   valid_until: string | null
+  validity_months: number | null
 }
 
 export interface ResolutionPayload {
@@ -18,8 +18,9 @@ export interface ResolutionPayload {
   invoice_prefix?: string | null
   range_from: number
   range_to: number
-  valid_from?: string | null
+  start_number?: number | null
   valid_until?: string | null
+  validity_months?: number | null
 }
 
 /**

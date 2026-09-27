@@ -103,11 +103,7 @@
                 <td class="text-right">{{ money(balance.assets.cash) }}</td>
               </tr>
               <tr>
-                <td class="pl-8">Cuentas por cobrar</td>
-                <td class="text-right">{{ money(balance.assets.accounts_receivable) }}</td>
-              </tr>
-              <tr>
-                <td class="pl-8">Inventario valorizado</td>
+                <td class="pl-8">Inventario valorizado (costo promedio)</td>
                 <td class="text-right">{{ money(balance.assets.inventory) }}</td>
               </tr>
               <tr>

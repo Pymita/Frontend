@@ -1,95 +1,173 @@
 <template>
   <v-container fluid>
     <!-- Título -->
-    <v-row class="mb-4">
+    <v-row class="mb-2">
       <v-col cols="12">
         <div class="d-flex align-center justify-space-between">
           <div class="d-flex align-center">
             <v-icon size="40" class="mr-3" color="primary">mdi-account-multiple</v-icon>
             <div>
-              <h1 class="text-h3">Clientes</h1>
-              <p class="text-body-1 text-grey">Gestiona la base de datos de clientes para facturación</p>
+              <h1 class="text-h3">Clientes y proveedores</h1>
+              <p class="text-body-1 text-grey">Gestiona los terceros para facturación y compras</p>
             </div>
           </div>
-          <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
-            Nuevo Cliente
+          <LockableButton
+            icon="mdi-plus"
+            color="primary"
+            size="large"
+            @click="activeTab === 'clientes' ? openDialog() : openSupplierDialog()">
+            {{ activeTab === 'clientes' ? 'Nuevo Cliente' : 'Nuevo Proveedor' }}
           </LockableButton>
         </div>
       </v-col>
     </v-row>
 
-    <!-- Filtros -->
-    <v-row>
-      <v-col cols="12">
-        <v-card>
-          <v-card-text>
-            <v-row>
-              <v-col cols="12" md="6">
-                <v-text-field
-                  v-model="search"
-                  prepend-inner-icon="mdi-magnify"
-                  label="Buscar por nombre o documento"
-                  variant="outlined"
-                  density="compact"
-                  hide-details
-                  clearable />
-              </v-col>
-            </v-row>
-          </v-card-text>
-        </v-card>
-      </v-col>
-    </v-row>
+    <v-tabs v-model="activeTab" color="primary" class="mb-4">
+      <v-tab value="clientes"><v-icon start>mdi-account</v-icon>Clientes</v-tab>
+      <v-tab value="proveedores"><v-icon start>mdi-truck</v-icon>Proveedores</v-tab>
+    </v-tabs>
 
-    <!-- Tabla de Clientes -->
-    <v-row class="mt-4">
-      <v-col cols="12">
-        <v-card>
-          <v-data-table
-            :headers="headers"
-            :items="filteredClientes"
-            :loading="loading"
-            :search="search"
-            class="elevation-0">
-            <template #item.document_type="{ item }">
-              <v-chip size="small" color="primary" variant="outlined">
-                {{ item.document_type }}
-              </v-chip>
-            </template>
+    <v-window v-model="activeTab">
+      <!-- ===== Clientes ===== -->
+      <v-window-item value="clientes">
+        <v-row>
+          <v-col cols="12">
+            <v-card>
+              <v-card-text>
+                <v-row>
+                  <v-col cols="12" md="6">
+                    <v-text-field
+                      v-model="search"
+                      prepend-inner-icon="mdi-magnify"
+                      label="Buscar por nombre o documento"
+                      variant="outlined"
+                      density="compact"
+                      hide-details
+                      clearable />
+                  </v-col>
+                </v-row>
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
 
-            <template #item.person_type="{ item }">
-              <v-chip
-                size="small"
-                :color="item.person_type === 'legal' ? 'purple' : 'blue'"
-                variant="tonal">
-                {{ item.person_type === 'legal' ? 'Jurídica' : 'Natural' }}
-              </v-chip>
-            </template>
+        <v-row class="mt-4">
+          <v-col cols="12">
+            <v-card>
+              <v-data-table
+                :headers="headers"
+                :items="filteredClientes"
+                :loading="loading"
+                :search="search"
+                class="elevation-0">
+                <template #item.document_type="{ item }">
+                  <v-chip size="small" color="primary" variant="outlined">
+                    {{ item.document_type }}
+                  </v-chip>
+                </template>
 
-            <template #item.frequent_customer="{ item }">
-              <v-icon :color="item.frequent_customer ? 'success' : 'grey'">
-                {{ item.frequent_customer ? 'mdi-star' : 'mdi-star-outline' }}
-              </v-icon>
-            </template>
+                <template #item.person_type="{ item }">
+                  <v-chip
+                    size="small"
+                    :color="item.person_type === 'legal' ? 'purple' : 'blue'"
+                    variant="tonal">
+                    {{ item.person_type === 'legal' ? 'Jurídica' : 'Natural' }}
+                  </v-chip>
+                </template>
 
-            <template #item.actions="{ item }">
-              <v-btn
-                icon="mdi-pencil"
-                size="small"
-                variant="text"
-                :disabled="isReadOnly"
-                @click="openDialog(item)" />
-              <v-btn
-                icon="mdi-delete"
-                size="small"
-                variant="text"
-                color="error"
-                :disabled="isReadOnly"
-                @click="deleteCliente(item)" />
-            </template>
-          </v-data-table>
-        </v-card>
-      </v-col>
-    </v-row>
+                <template #item.frequent_customer="{ item }">
+                  <v-icon :color="item.frequent_customer ? 'success' : 'grey'">
+                    {{ item.frequent_customer ? 'mdi-star' : 'mdi-star-outline' }}
+                  </v-icon>
+                </template>
+
+                <template #item.actions="{ item }">
+                  <v-btn
+                    icon="mdi-pencil"
+                    size="small"
+                    variant="text"
+                    :disabled="isReadOnly"
+                    @click="openDialog(item)" />
+                  <v-btn
+                    icon="mdi-delete"
+                    size="small"
+                    variant="text"
+                    color="error"
+                    :disabled="isReadOnly"
+                    @click="deleteCliente(item)" />
+                </template>
+              </v-data-table>
+            </v-card>
+          </v-col>
+        </v-row>
+      </v-window-item>
+
+      <!-- ===== Proveedores ===== -->
+      <v-window-item value="proveedores">
+        <v-row>
+          <v-col cols="12">
+            <v-card>
+              <v-card-text>
+                <v-row>
+                  <v-col cols="12" md="6">
+                    <v-text-field
+                      v-model="supplierSearch"
+                      prepend-inner-icon="mdi-magnify"
+                      label="Buscar proveedor por nombre o documento"
+                      variant="outlined"
+                      density="compact"
+                      hide-details
+                      clearable />
+                  </v-col>
+                </v-row>
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
+
+        <v-row class="mt-4">
+          <v-col cols="12">
+            <v-card>
+              <v-data-table
+                :headers="supplierHeaders"
+                :items="suppliers"
+                :loading="loadingSuppliers"
+                :search="supplierSearch"
+                class="elevation-0">
+                <template #item.name="{ item }">
+                  {{ item.name }}
+                  <v-chip
+                    v-if="item.is_default"
+                    size="x-small"
+                    color="primary"
+                    variant="tonal"
+                    class="ml-2">
+                    Por defecto
+                  </v-chip>
+                </template>
+
+                <template #item.actions="{ item }">
+                  <v-btn
+                    icon="mdi-pencil"
+                    size="small"
+                    variant="text"
+                    :disabled="isReadOnly"
+                    @click="openSupplierDialog(item)" />
+                  <v-btn
+                    icon="mdi-delete"
+                    size="small"
+                    variant="text"
+                    color="error"
+                    :disabled="isReadOnly || item.is_default"
+                    :title="item.is_default ? 'El proveedor por defecto no se puede eliminar' : ''"
+                    @click="deleteSupplier(item)" />
+                </template>
+              </v-data-table>
+            </v-card>
+          </v-col>
+        </v-row>
+      </v-window-item>
+    </v-window>
 
     <!-- Dialog Cliente -->
     <v-dialog v-model="dialog" max-width="800px" persistent>
@@ -203,6 +281,80 @@
       </v-card>
     </v-dialog>
 
+    <!-- Dialog Proveedor -->
+    <v-dialog v-model="supplierDialog" max-width="700px" persistent>
+      <v-card>
+        <v-card-title class="bg-primary">
+          {{ supplierEditing ? 'Editar Proveedor' : 'Nuevo Proveedor' }}
+        </v-card-title>
+        <v-card-text class="pt-4">
+          <v-form ref="supplierFormRef">
+            <p class="text-caption text-grey-darken-1 mb-3">
+              Solo el nombre es obligatorio; el resto es opcional.
+            </p>
+            <v-row>
+              <v-col cols="12">
+                <v-text-field
+                  v-model="supplierForm.name"
+                  variant="outlined"
+                  density="comfortable"
+                  :rules="[rules.required]"
+                >
+                  <template #label>
+                    Nombre <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-text-field>
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-text-field
+                  v-model="supplierForm.document_number"
+                  label="Documento / NIT"
+                  variant="outlined"
+                  density="comfortable" />
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-text-field
+                  v-model="supplierForm.phone"
+                  label="Teléfono"
+                  variant="outlined"
+                  density="comfortable" />
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-text-field
+                  v-model="supplierForm.email"
+                  label="Email"
+                  type="email"
+                  variant="outlined"
+                  density="comfortable" />
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-text-field
+                  v-model="supplierForm.address"
+                  label="Dirección"
+                  variant="outlined"
+                  density="comfortable" />
+              </v-col>
+              <v-col cols="12">
+                <v-textarea
+                  v-model="supplierForm.notes"
+                  label="Notas"
+                  variant="outlined"
+                  density="comfortable"
+                  rows="2" />
+              </v-col>
+            </v-row>
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="supplierDialog = false">Cancelar</v-btn>
+          <v-btn color="primary" :loading="savingSupplier" @click="saveSupplier()">
+            Guardar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="snackbarColor === 'error' ? 9000 : 3000" closable>
       {{ snackbarText }}
     </v-snackbar>
@@ -212,12 +364,15 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/errors';
 import { ref, computed, onMounted } from 'vue'
-import { billingService, type Customer, type PersonType } from '@/services/billingService'
+import { billingService, type Customer, type PersonType, type Supplier } from '@/services/billingService'
 import LockableButton from '../components/LockableButton.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
 const isReadOnly = useReadOnly()
+
+// Clientes y proveedores comparten página en pestañas.
+const activeTab = ref<'clientes' | 'proveedores'>('clientes')
 
 interface ClienteForm {
   id?: number
@@ -369,7 +524,113 @@ const showMessage = (text: string, color: 'success' | 'error' | 'warning') => {
   snackbar.value = true
 }
 
+// ===== Proveedores =====
+interface SupplierForm {
+  id?: number
+  name: string
+  document_number?: string
+  phone?: string
+  email?: string
+  address?: string
+  notes?: string
+}
+
+const suppliers = ref<Supplier[]>([])
+const loadingSuppliers = ref(false)
+const supplierDialog = ref(false)
+const supplierEditing = ref<Supplier | null>(null)
+const savingSupplier = ref(false)
+const supplierSearch = ref('')
+const supplierFormRef = ref<any>(null)
+
+const supplierHeaders = [
+  { title: 'Nombre', key: 'name', sortable: true },
+  { title: 'Documento / NIT', key: 'document_number', sortable: true },
+  { title: 'Teléfono', key: 'phone', sortable: false },
+  { title: 'Email', key: 'email', sortable: false },
+  { title: 'Acciones', key: 'actions', sortable: false, align: 'end' as const },
+]
+
+const emptySupplierForm = (): SupplierForm => ({
+  name: '',
+  document_number: '',
+  phone: '',
+  email: '',
+  address: '',
+  notes: '',
+})
+
+const supplierForm = ref<SupplierForm>(emptySupplierForm())
+
+const loadSuppliers = async () => {
+  loadingSuppliers.value = true
+  try {
+    suppliers.value = await billingService.getSuppliers()
+  } catch (error) {
+    console.error('[Proveedores] Error al cargar:', error)
+    showMessage(errorMessage(error, 'Error al cargar proveedores'), 'error')
+  } finally {
+    loadingSuppliers.value = false
+  }
+}
+
+const openSupplierDialog = (supplier?: Supplier) => {
+  supplierEditing.value = supplier || null
+  if (supplier) {
+    supplierForm.value = {
+      id: supplier.id,
+      name: supplier.name,
+      document_number: supplier.document_number || '',
+      phone: supplier.phone || '',
+      email: supplier.email || '',
+      address: supplier.address || '',
+      notes: supplier.notes || '',
+    }
+  } else {
+    supplierForm.value = emptySupplierForm()
+  }
+  supplierDialog.value = true
+}
+
+const saveSupplier = async () => {
+  const { valid } = await supplierFormRef.value.validate()
+  if (!valid) return
+
+  savingSupplier.value = true
+  try {
+    if (supplierEditing.value?.id) {
+      await billingService.updateSupplier(supplierEditing.value.id, supplierForm.value)
+      showMessage('Proveedor actualizado exitosamente', 'success')
+    } else {
+      await billingService.createSupplier(supplierForm.value)
+      showMessage('Proveedor creado exitosamente', 'success')
+    }
+    supplierDialog.value = false
+    loadSuppliers()
+  } catch (error) {
+    console.error('[Proveedores] Error al guardar:', error)
+    showMessage(errorMessage(error, 'Error al guardar proveedor'), 'error')
+  } finally {
+    savingSupplier.value = false
+  }
+}
+
+const deleteSupplier = async (supplier: Supplier) => {
+  if (supplier.is_default) return
+  if (!confirm(`¿Está seguro de eliminar el proveedor "${supplier.name}"?`)) return
+
+  try {
+    await billingService.deleteSupplier(supplier.id)
+    showMessage('Proveedor eliminado exitosamente', 'success')
+    loadSuppliers()
+  } catch (error) {
+    console.error('[Proveedores] Error al eliminar:', error)
+    showMessage(errorMessage(error, 'Error al eliminar proveedor'), 'error')
+  }
+}
+
 onMounted(() => {
   loadClientes()
+  loadSuppliers()
 })
 </script>

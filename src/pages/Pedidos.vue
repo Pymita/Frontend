@@ -180,13 +180,19 @@
                   <v-icon start>mdi-printer</v-icon>
                   Factura
                 </v-btn>
-                <v-menu v-if="isOpen(item) || (item.payment_status === 'paid' && isAdmin)">
+                <v-menu v-if="isOpen(item) || item.payment_status === 'paid'">
                   <template #activator="{ props }">
                     <v-btn icon size="small" variant="text" v-bind="props">
                       <v-icon>mdi-dots-vertical</v-icon>
                     </v-btn>
                   </template>
                   <v-list density="compact">
+                    <v-list-item v-if="item.payment_status === 'paid'" @click="openTipDialog(item)">
+                      <template #prepend>
+                        <v-icon color="success">mdi-hand-coin</v-icon>
+                      </template>
+                      <v-list-item-title>Agregar propina</v-list-item-title>
+                    </v-list-item>
                     <v-list-item v-if="item.payment_status === 'paid' && isAdmin" @click="openRevertDialog(item)">
                       <template #prepend>
                         <v-icon color="error">mdi-undo-variant</v-icon>
@@ -381,6 +387,41 @@
         </v-card>
       </v-col>
     </v-row>
+
+    <!-- Dialog: agregar propina a un pedido ya pagado -->
+    <v-dialog v-model="tipDialog" max-width="440" persistent>
+      <v-card>
+        <v-card-title>Agregar propina</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 text-medium-emphasis mb-3">
+            El pedido #{{ tippingOrder?.id }} ya está pagado. La propina es
+            voluntaria (Ley 1935 de 2018) y se registra aparte de la venta.
+          </p>
+          <v-text-field
+            v-model.number="tipAmount"
+            label="Propina"
+            type="number"
+            min="0"
+            prefix="$"
+            autofocus
+          />
+          <v-select
+            v-model="tipMethod"
+            :items="payMethodOptions"
+            item-title="title"
+            item-value="value"
+            label="Medio de pago de la propina"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="tipDialog = false">Cancelar</v-btn>
+          <v-btn color="success" :loading="saving" :disabled="!(tipAmount > 0)" @click="saveTip">
+            Agregar propina
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Dialog: revertir cobro -->
     <v-dialog v-model="revertDialog" max-width="480" persistent>
@@ -665,9 +706,55 @@
       <v-card>
         <v-card-title>Registrar Pago</v-card-title>
         <v-card-text>
-          <p class="mb-3">
-            Saldo pendiente: <strong class="text-error">{{ money(selectedOrder?.pending_balance) }}</strong>
-          </p>
+          <!-- Total a pagar, lo que ya entró y el saldo, para no perder la cuenta. -->
+          <v-card flat color="grey-lighten-4" class="pa-3 mb-3">
+            <div class="d-flex justify-space-between text-body-2">
+              <span>Total a pagar:</span>
+              <strong>{{ money(selectedOrder?.total) }}</strong>
+            </div>
+            <div class="d-flex justify-space-between text-body-2 text-grey-darken-1">
+              <span>Ya pagado:</span>
+              <span>{{ money(selectedOrder?.amount_paid) }}</span>
+            </div>
+            <v-divider class="my-2" />
+            <div class="d-flex justify-space-between">
+              <span>Saldo:</span>
+              <strong class="text-error">{{ money(selectedOrder?.pending_balance) }}</strong>
+            </div>
+          </v-card>
+
+          <!-- Historial: cada venta lleva su factura #pedido-n; los abonos son anticipos. -->
+          <v-list
+            v-if="(selectedOrder?.payments?.length ?? 0) > 0"
+            density="compact"
+            class="border rounded mb-3 py-0"
+          >
+            <v-list-subheader class="text-caption">Pagos registrados</v-list-subheader>
+            <v-list-item v-for="pay in selectedOrder!.payments!" :key="pay.id" class="px-3">
+              <template #prepend>
+                <v-chip
+                  :color="pay.kind === 'sale' ? 'success' : 'grey'"
+                  size="x-small"
+                  label
+                  class="mr-2"
+                >
+                  {{ pay.kind === 'sale' ? 'Factura' : 'Abono' }}
+                </v-chip>
+              </template>
+              <v-list-item-title class="text-body-2">
+                {{ pay.invoice_number || pay.reference || ('#' + selectedOrder!.id) }}
+                <span class="text-caption text-grey"> · {{ paymentMethodLabel(pay.payment_method) }}</span>
+              </v-list-item-title>
+              <template #append>
+                <div class="text-right">
+                  <strong>{{ money(pay.amount) }}</strong>
+                  <div v-if="Number(pay.tip) > 0" class="text-caption text-grey">
+                    propina {{ money(pay.tip) }}
+                  </div>
+                </div>
+              </template>
+            </v-list-item>
+          </v-list>
 
           <v-btn-toggle v-model="paymentMode" mandatory density="compact" color="primary" class="mb-4">
             <v-btn value="items">Por productos</v-btn>
@@ -677,7 +764,9 @@
           <!-- Modo por productos: dividir la cuenta -->
           <template v-if="paymentMode === 'items'">
             <p class="text-body-2 text-medium-emphasis mb-2">
-              Marca lo que va a pagar este grupo. Los descuentos del pedido se reparten proporcionalmente.
+              Marca lo que va a pagar este grupo. Cada cobro por productos es una
+              <strong>factura de venta parcial</strong> (#{{ selectedOrder?.id }}-n) y
+              descuenta su inventario. Los descuentos del pedido se reparten proporcionalmente.
             </p>
             <v-table density="compact" class="mb-3">
               <tbody>
@@ -727,15 +816,25 @@
           </template>
 
           <!-- Modo por monto libre -->
-          <v-text-field
-            v-else
-            v-model.number="paymentAmount"
-            label="Monto a pagar"
-            type="number"
-            min="0"
-            :max="selectedOrder?.pending_balance"
-            prefix="$"
-          />
+          <template v-else>
+            <v-text-field
+              v-model.number="paymentAmount"
+              label="Monto a pagar"
+              type="number"
+              min="0"
+              :max="selectedOrder?.pending_balance"
+              prefix="$"
+            />
+            <v-alert type="info" variant="tonal" density="compact" class="mb-2">
+              <template v-if="paymentAmount >= Number(selectedOrder?.pending_balance ?? 0) && Number(selectedOrder?.pending_balance ?? 0) > 0">
+                Cierra la cuenta: factura los productos que falten y aplica los abonos.
+              </template>
+              <template v-else>
+                Es un <strong>recibo de abono</strong> (anticipo): no genera factura ni
+                descuenta inventario. Se factura al cerrar la cuenta.
+              </template>
+            </v-alert>
+          </template>
 
           <v-select
             v-model="paymentMethod"
@@ -1014,6 +1113,9 @@ const paymentMethodOptions = Object.entries(orderPaymentMethodLabels).map(
   ([value, title]) => ({ value, title }),
 );
 
+const paymentMethodLabel = (method?: string | null) =>
+  (method ? orderPaymentMethodLabels[method as OrderPaymentMethod] : undefined) ?? method ?? '';
+
 const payableItems = computed(() =>
   (selectedOrder.value?.items ?? []).filter(i => i.unpaid_quantity > 0),
 );
@@ -1192,6 +1294,38 @@ const liveTimeAmount = (time: { started_at: string; rate: number; increment_minu
 };
 
 // --- Revertir un cobro (solo admin) ---
+// --- Propina posterior al cobro (endpoint /orders/{id}/tip) ---
+const tipDialog = ref(false);
+const tippingOrder = ref<Order | null>(null);
+const tipAmount = ref<number>(0);
+const tipMethod = ref<OrderPaymentMethod>('cash');
+
+const openTipDialog = (order: Order) => {
+  tippingOrder.value = order;
+  tipAmount.value = 0;
+  tipMethod.value = 'cash';
+  tipDialog.value = true;
+};
+
+const saveTip = async () => {
+  if (!tippingOrder.value || !(tipAmount.value > 0)) return;
+
+  saving.value = true;
+  try {
+    await ordersService.addTip(tippingOrder.value.id, {
+      tip: tipAmount.value,
+      payment_method: tipMethod.value,
+    });
+    showMessage('Propina registrada');
+    tipDialog.value = false;
+    await loadOrders();
+  } catch (error: any) {
+    showMessage(errorMessage(error, 'No se pudo registrar la propina'), 'error');
+  } finally {
+    saving.value = false;
+  }
+};
+
 const revertDialog = ref(false);
 const revertReason = ref('');
 const revertingOrder = ref<Order | null>(null);
@@ -1741,7 +1875,7 @@ const registrarPago = async () => {
     showMessage(
       updated.payment_status === 'paid'
         ? 'Cuenta saldada: pedido pagado por completo'
-        : 'Pago registrado',
+        : (payload.items ? 'Factura parcial registrada' : 'Abono registrado'),
     );
     pagoDialog.value = false;
     loadOrders();

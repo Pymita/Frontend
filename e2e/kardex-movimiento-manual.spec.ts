@@ -3,7 +3,8 @@ import { ADMIN, API, apiLogin, field, loginUI } from './helpers'
 
 /**
  * Movimiento manual del kardex: una devolución de ventas (DV) entra al
- * inventario desde la propia pantalla del kardex, con motivo obligatorio.
+ * inventario desde la propia pantalla del kardex. Las observaciones son
+ * opcionales; el tercero se elige o se escribe libremente.
  */
 test('una devolución de ventas se registra desde el kardex y aparece como DV', async ({ page, request }) => {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
@@ -40,7 +41,8 @@ test('una devolución de ventas se registra desde el kardex y aparece como DV', 
   await page.getByLabel('Cantidad *').fill('2')
   await page.getByLabel('Cliente *').fill('Cliente Devolución E2E')
   await page.getByLabel('Referencia').fill('POS-999')
-  await page.getByLabel('Motivo *').fill('Cliente devolvió botellas E2E')
+  // Observaciones ya no es obligatorio, pero se sigue pudiendo escribir.
+  await page.getByLabel('Observaciones').fill('Cliente devolvió botellas E2E')
   await page.getByRole('button', { name: 'Registrar', exact: true }).click()
 
   await expect(page.getByText('Movimiento registrado en el kardex')).toBeVisible()

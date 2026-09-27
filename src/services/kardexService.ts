@@ -59,7 +59,7 @@ export interface KardexReport {
 
 export interface BalanceReport {
   as_of: string
-  assets: { cash: number; accounts_receivable: number; inventory: number; total: number }
+  assets: { cash: number; inventory: number; total: number }
   liabilities: { accounts_payable: number; loans: number; total: number }
   equity: number
 }
@@ -173,7 +173,8 @@ class KardexService {
     /** Proveedor (FC) o cliente (DV) del movimiento */
     counterparty?: string | null
     reference?: string | null
-    notes: string
+    /** Observaciones opcionales del movimiento */
+    notes?: string
   }): Promise<KardexMovement> {
     const response = await api.post<ApiEnvelope<KardexMovement>>('/kardex/movements', payload)
     return response.data.data

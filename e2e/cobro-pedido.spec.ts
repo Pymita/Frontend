@@ -117,3 +117,89 @@ test('cobrar sin propina deja el total tal cual', async ({ page, request }) => {
   expect(data.total).toBe(18300)
   expect(data.payment_status).toBe('paid')
 })
+
+async function seedSimpleProduct(request: any, auth: any, name: string, price: number) {
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `${name} Cat` } })
+  const categoryId = (await category.json()).data.id
+  const product = await request.post(`${API}/products`, {
+    headers: auth,
+    data: { name, type: 'final', unit: 'und', sale_price: price, tracks_stock: false, category_id: categoryId },
+  })
+  return (await product.json()).data.id
+}
+
+test('un abono por monto es un anticipo, no una factura', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const productId = await seedSimpleProduct(request, auth, 'Bandeja Abono E2E', 30000)
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { customer_name: 'Mesa Abono E2E', items: [{ product_id: productId, quantity: 1 }] },
+  })
+  const orderId = (await order.json()).data.id
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+
+  const row = page.locator('tr', { hasText: '$30.000' }).first()
+  await row.locator('.mdi-dots-vertical').click()
+  await page.getByText('Registrar pago parcial').click()
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText('Total a pagar:')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Por monto' }).click()
+  await dialog.getByLabel('Monto a pagar').fill('10000')
+  // El anticipo se avisa como recibo de abono (no factura ni kardex).
+  await expect(dialog.getByText('recibo de abono')).toBeVisible()
+  await dialog.getByRole('button', { name: /Cobrar/ }).click()
+  await expect(page.getByText('Abono registrado')).toBeVisible()
+
+  // El abono no es una venta: no hay factura y el pedido sigue parcial.
+  const afterAbono = (await (await request.get(`${API}/orders/${orderId}`, { headers: auth })).json()).data
+  expect(afterAbono.payment_status).toBe('partial')
+  expect(afterAbono.amount_paid).toBe(10000)
+  const abono = afterAbono.payments.find((p: any) => p.kind === 'abono')
+  expect(abono).toBeTruthy()
+  expect(abono.invoice_number).toBeFalsy()
+
+  // Reabrir muestra el historial con el abono y el saldo restante.
+  await page.locator('tr', { hasText: '$30.000' }).first().locator('.mdi-dots-vertical').click()
+  await page.getByText('Registrar pago parcial').click()
+  await expect(dialog.getByText('Pagos registrados')).toBeVisible()
+  await expect(dialog.getByText('Abono', { exact: true })).toBeVisible()
+})
+
+test('cobrar por productos emite una factura de venta parcial', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const productId = await seedSimpleProduct(request, auth, 'Cerveza Factura E2E', 6000)
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { customer_name: 'Mesa Factura E2E', items: [{ product_id: productId, quantity: 2 }] },
+  })
+  const orderId = (await order.json()).data.id
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+
+  const row = page.locator('tr', { hasText: '$12.000' }).first()
+  await row.locator('.mdi-dots-vertical').click()
+  await page.getByText('Registrar pago parcial').click()
+
+  const dialog = page.getByRole('dialog')
+  // El modo "Por productos" anuncia que es una factura de venta parcial.
+  await expect(dialog.getByText('factura de venta parcial')).toBeVisible()
+  // Marcar selecciona las 2 unidades; se baja a 1 para dejar la cuenta abierta.
+  await dialog.locator('.v-checkbox-btn').first().click()
+  await dialog.locator('.mdi-minus').click()
+  await dialog.getByRole('button', { name: /Cobrar/ }).click()
+  await expect(page.getByText('Factura parcial registrada')).toBeVisible()
+
+  // Es una venta con su secuencia #pedido-1 y descontó su parte.
+  const afterSale = (await (await request.get(`${API}/orders/${orderId}`, { headers: auth })).json()).data
+  expect(afterSale.payment_status).toBe('partial')
+  const sale = afterSale.payments.find((p: any) => p.kind === 'sale')
+  expect(sale).toBeTruthy()
+  expect(sale.invoice_sequence).toBe(1)
+  expect(sale.reference).toBe(`#${orderId}-1`)
+})

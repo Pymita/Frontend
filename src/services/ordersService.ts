@@ -5,11 +5,26 @@ export type OrderItemStatus = 'pending' | 'preparing' | 'ready' | 'delivered';
 
 export type OrderPaymentMethod = 'cash' | 'credit_card' | 'debit_card' | 'transfer' | 'other';
 
+/** Un pago es una VENTA (factura sus ítems, cuenta como ingreso) o un ABONO (anticipo en efectivo). */
+export type OrderPaymentKind = 'sale' | 'abono';
+
 export interface OrderPayment {
   id: number;
+  /** 'sale' = factura parcial #pedido-n; 'abono' = recibo de anticipo (no factura) */
+  kind: OrderPaymentKind;
   amount: number;
+  /** Propina de este pago (no es venta) */
+  tip: number;
+  /** Ingreso reconocido por este pago, sin propina (0 en abonos) */
+  sale_amount: number;
   payment_method: OrderPaymentMethod;
   items: { order_item_id: number; quantity: number }[] | null;
+  /** Consecutivo DIAN de esta venta; null en abonos o sin resolución */
+  invoice_number?: string | null;
+  /** Secuencia del pago dentro del pedido (la n en #pedido-n) */
+  invoice_sequence?: number | null;
+  /** Etiqueta amigable #pedido-n */
+  reference?: string | null;
   created_at: string;
 }
 
@@ -200,6 +215,22 @@ export const ordersService = {
       // Se manda también el 0: si el pedido traía propina, "sin propina" la quita.
       ...(payload.tip !== undefined ? { tip: payload.tip } : {}),
       ...(payload.customer_id ? { customer_id: payload.customer_id } : {}),
+    });
+    return response.data.data;
+  },
+
+  /**
+   * Agregar propina a un pedido YA pagado: el mesero cerró la cuenta y luego
+   * el cliente decide dejar propina. Se registra aparte de la venta (no toca
+   * inventario ni el consecutivo de factura).
+   */
+  async addTip(
+    id: number,
+    payload: { tip: number; payment_method?: OrderPaymentMethod },
+  ): Promise<Order> {
+    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/tip`, {
+      tip: payload.tip,
+      ...(payload.payment_method ? { payment_method: payload.payment_method } : {}),
     });
     return response.data.data;
   },

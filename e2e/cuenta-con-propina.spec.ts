@@ -63,3 +63,49 @@ test('la cuenta impresa muestra el total con y sin propina', async ({ page, requ
   expect(invoiceText).toContain('$33.000')
   expect(invoiceText).not.toContain('CUENTA DE COBRO')
 })
+
+/**
+ * Propina posterior al cobro: el mesero cierra la cuenta y luego el cliente
+ * deja propina. Desde el menú del pedido pagado se agrega con el endpoint
+ * /orders/{id}/tip, sin volver a tocar inventario ni el consecutivo.
+ */
+test('se puede agregar propina a un pedido ya cobrado', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: 'Propina Post E2E' } })
+  const categoryId = (await category.json()).data.id
+  const product = await request.post(`${API}/products`, {
+    headers: auth,
+    data: { name: 'Combo Propina E2E', type: 'final', unit: 'plato', sale_price: 37777, tracks_stock: false, category_id: categoryId },
+  })
+  const productId = (await product.json()).data.id
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { customer_name: 'Mesa Propina Post', items: [{ product_id: productId, quantity: 1 }] },
+  })
+  const orderId = (await order.json()).data.id
+  // Se cobra sin propina (el cliente aún no decide).
+  const paid = await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+  expect(paid.ok()).toBeTruthy()
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Pagados' }).click()
+
+  const row = page.locator('tr', { hasText: '$37.777' }).first()
+  await expect(row).toBeVisible()
+  await row.getByRole('button').filter({ has: page.locator('.mdi-dots-vertical') }).click()
+  await page.getByText('Agregar propina').click()
+
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Propina', { exact: true }).fill('5000')
+  await dialog.getByRole('button', { name: 'Agregar propina' }).click()
+  await expect(page.getByText('Propina registrada')).toBeVisible()
+
+  // El pedido sigue pagado y ahora lleva la propina (aparte de la venta).
+  const after = await request.get(`${API}/orders/${orderId}`, { headers: auth })
+  const data = (await after.json()).data
+  expect(Number(data.tip)).toBe(5000)
+  expect(data.payment_status).toBe('paid')
+})

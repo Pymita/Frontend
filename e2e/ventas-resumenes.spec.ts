@@ -52,6 +52,13 @@ test('resumen por producto y por mesa con descarga a Excel', async ({ page, requ
   await expect(productRow).toContainText('$10.000')
   await expect(productRow).toContainText('$6.000')
 
+  // El neto por producto cuadra con el "Total vendido" de arriba: la misma
+  // plata, leída de dos formas, no se contradice.
+  const totalCard = page.locator('.v-card', { hasText: 'Total vendido' })
+  const netCard = page.locator('.v-card', { hasText: 'Neto vendido' })
+  await expect(totalCard).toContainText('$10.000')
+  await expect(netCard).toContainText('$10.000')
+
   // Por mesa: la mesa 77 con sus 2 ventas.
   await page.getByRole('button', { name: 'Por mesa' }).click()
   const tableRow = page.locator('tr', { hasText: tableName }).first()
@@ -64,4 +71,56 @@ test('resumen por producto y por mesa con descarga a Excel', async ({ page, requ
     page.getByRole('button', { name: 'Descargar Excel' }).click(),
   ])
   expect(download.suggestedFilename()).toContain('ventas_por_mesa')
+})
+
+/**
+ * El orden de la tabla "Por producto" responde a la columna que se toca: el
+ * usuario puede ver primero lo que más neto dejó o lo que menos.
+ */
+test('el sorting de por producto ordena por la columna elegida', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: 'Sort E2E' } })
+  const categoryId = (await category.json()).data.id
+
+  const make = async (name: string, price: number) => {
+    const res = await request.post(`${API}/products`, {
+      headers: auth,
+      data: {
+        name, type: 'final', unit: 'und', unit_cost: 500,
+        sale_price: price, tracks_stock: false, category_id: categoryId,
+      },
+    })
+    return (await res.json()).data.id
+  }
+
+  // Barato (neto bajo) y caro (neto alto), cada uno en su venta.
+  const cheap = await make('ZZZ Barato Sort', 1000)
+  const pricey = await make('AAA Caro Sort', 9000)
+  for (const productId of [cheap, pricey]) {
+    const order = await request.post(`${API}/orders`, {
+      headers: auth,
+      data: { items: [{ product_id: productId, quantity: 1 }] },
+    })
+    const orderId = (await order.json()).data.id
+    await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+  }
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/ventas')
+  await page.getByRole('button', { name: 'Por producto' }).click()
+
+  const names = () =>
+    page.locator('tbody tr td:first-child').allInnerTexts()
+
+  // Por defecto ordena por neto descendente: el caro va primero.
+  const sortRows = page.locator('tbody tr', { hasText: 'Sort' })
+  await expect(sortRows.first()).toContainText('AAA Caro Sort')
+
+  // Al tocar "Neto" alterna a ascendente: el barato sube.
+  await page.getByRole('columnheader', { name: 'Neto' }).click()
+  await expect
+    .poll(async () => (await names()).filter(n => n.includes('Sort'))[0])
+    .toContain('ZZZ Barato Sort')
 })
