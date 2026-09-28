@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, loginUI } from './helpers'
+import { ADMIN, API, apiLogin, field, loginUI } from './helpers'
 
 /**
  * Crear varios productos (por API, rápido) y verificar que la tabla de
@@ -178,4 +178,82 @@ test('el saldo inicial retrofechado muestra su fecha real en el kardex', async (
   const siRow = page.locator('tr', { hasText: 'SI' }).first()
   await expect(siRow).toBeVisible()
   await expect(siRow).toContainText(expectedLabel)
+})
+
+/**
+ * Un producto se puede crear sin existencias (saldo inicial 0): nace agotado
+ * (rojo en la tabla), se puede pedir y cobrar, y al venderlo el kardex queda
+ * en negativo (en rojo). El dashboard lo marca como agotado.
+ */
+test('un producto con saldo inicial 0 se crea, se vende y el kardex queda en negativo', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+
+  await request.post(`${API}/categories`, {
+    headers: auth,
+    data: { name: 'Sin Saldo E2E Cat' },
+  })
+  // El formulario exige impuesto; la empresa base no trae ninguno sembrado.
+  await request.post(`${API}/taxes`, {
+    headers: auth,
+    data: { name: 'IVA Sin Saldo E2E', rate: 19 },
+  })
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/productos-base')
+
+  // Alta por interfaz: por defecto es producto final en "unidad" y el saldo
+  // inicial viene en 0, así que se crea sin existencias (ya no es obligatorio).
+  await page.getByRole('button', { name: 'Nuevo Producto' }).click()
+  await field(page, 'Nombre del producto *').locator('input').fill('Gaseosa Sin Saldo E2E')
+
+  await field(page, 'Categoría *').click()
+  await page.getByRole('option', { name: 'Sin Saldo E2E Cat' }).click()
+
+  await expect(field(page, 'Unidad de medida *').locator('input')).toHaveValue('unidad')
+  await expect(field(page, 'Saldo inicial').locator('input')).toHaveValue('0')
+
+  await field(page, 'Precio de venta *').locator('input').fill('5000')
+  await field(page, 'Impuesto *').locator('.v-field').click()
+  await page.getByRole('option', { name: /Exento|IVA|%/ }).first().click()
+
+  await page.getByRole('dialog').getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Producto creado')).toBeVisible()
+
+  // Aparece en la tabla, agotado: el chip de stock está en rojo con 0.
+  await page.getByRole('textbox', { name: 'Buscar' }).fill('Gaseosa Sin Saldo E2E')
+  const row = page.locator('tr', { hasText: 'Gaseosa Sin Saldo E2E' })
+  await expect(row).toBeVisible()
+  await expect(row.locator('.v-chip.text-error')).toContainText('0')
+
+  // Se puede pedir y cobrar aunque no haya stock: la venta lleva el saldo a
+  // negativo (arreglamos el pedido por API para ir directo a lo que importa).
+  const list = await request.get(`${API}/products`, { headers: auth })
+  const created = (await list.json()).data.find((p: any) => p.name === 'Gaseosa Sin Saldo E2E')
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { customer_name: 'Mesa Agotado E2E', items: [{ product_id: created.id, quantity: 3 }] },
+  })
+  const orderId = (await order.json()).data.id
+  expect((await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: { payment_method: 'cash' } })).ok()).toBeTruthy()
+
+  // Kardex: existencia y saldo en negativo, resaltados en rojo.
+  await page.goto('/kardex')
+  await page.getByRole('combobox', { name: 'Producto' }).click()
+  await page.getByRole('option', { name: 'Gaseosa Sin Saldo E2E' }).click()
+  await page.getByRole('button').filter({ has: page.locator('.mdi-magnify') }).click()
+
+  await expect(page.getByText('-3 unidad')).toBeVisible()
+  const fvRow = page.locator('tr', { hasText: 'FV' }).first()
+  await expect(fvRow).toBeVisible()
+  // El saldo de cantidad, en negativo, resaltado en rojo.
+  await expect(fvRow.locator('td.text-error', { hasText: '-3' })).toBeVisible()
+
+  // Dashboard: el producto agotado (saldo negativo) sale como alerta.
+  await page.goto('/dashboard')
+  const alert = page
+    .locator('.v-list-item', { hasText: 'Gaseosa Sin Saldo E2E' })
+    .filter({ hasText: 'Agotado' })
+  await expect(alert).toBeVisible()
+  await expect(alert).toContainText('-3 unidad')
 })

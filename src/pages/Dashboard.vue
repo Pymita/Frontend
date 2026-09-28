@@ -172,8 +172,12 @@
                   / Mínimo: {{ quantity(product.minimum_stock) }} {{ product.unit }}
                 </v-list-item-subtitle>
                 <template v-slot:append>
-                  <v-chip color="warning" size="small" variant="outlined">
-                    Bajo
+                  <v-chip
+                    :color="product.current_stock <= 0 ? 'error' : 'warning'"
+                    size="small"
+                    variant="outlined"
+                  >
+                    {{ product.current_stock <= 0 ? 'Agotado' : 'Bajo' }}
                   </v-chip>
                 </template>
               </v-list-item>

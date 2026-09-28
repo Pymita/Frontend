@@ -206,7 +206,7 @@
       <v-col cols="12" md="4">
         <v-card class="pa-4 text-center">
           <div class="text-caption text-grey">Existencia actual</div>
-          <div class="text-h5">{{ report.product.current_stock }} {{ report.product.unit }}</div>
+          <div class="text-h5" :class="{ 'text-error': report.product.current_stock <= 0 }">{{ report.product.current_stock }} {{ report.product.unit }}</div>
         </v-card>
       </v-col>
       <v-col cols="12" md="4">
@@ -218,7 +218,7 @@
       <v-col cols="12" md="4">
         <v-card class="pa-4 text-center">
           <div class="text-caption text-grey">Valor del inventario</div>
-          <div class="text-h5">{{ money(report.product.current_stock * report.product.unit_cost) }}</div>
+          <div class="text-h5" :class="{ 'text-error': report.product.current_stock < 0 }">{{ money(report.product.current_stock * report.product.unit_cost) }}</div>
         </v-card>
       </v-col>
     </v-row>
@@ -294,9 +294,9 @@
                 </td>
                 <td class="text-right">{{ money(m.unit_cost) }}</td>
                 <td class="text-right">{{ money(m.total_cost) }}</td>
-                <td class="text-right">{{ m.balance_quantity }}</td>
+                <td class="text-right" :class="{ 'text-error font-weight-bold': m.balance_quantity < 0 }">{{ m.balance_quantity }}</td>
                 <td class="text-right">{{ money(m.balance_unit_cost) }}</td>
-                <td class="text-right">{{ money(m.balance_total_cost) }}</td>
+                <td class="text-right" :class="{ 'text-error font-weight-bold': m.balance_total_cost < 0 }">{{ money(m.balance_total_cost) }}</td>
                 <td class="text-caption">{{ m.user || '—' }}</td>
               </tr>
               <tr v-if="report && report.movements.length === 0">

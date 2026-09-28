@@ -399,17 +399,14 @@
                     v-model="formData.current_stock"
                     type="text"
                     inputmode="decimal"
+                    label="Saldo inicial"
                     :suffix="formData.unit || ''"
                     @blur="formatStockField('current_stock')"
                     @keypress="allowDecimalInput"
-                    hint="Obligatorio: después el stock solo se mueve por pedidos o ajustes"
+                    hint="Opcional. Déjalo en 0 si aún no tienes existencias: el stock luego entra por compras o ajustes."
                     persistent-hint
-                    :rules="[v => parseStock(v) > 0 || 'Indica el saldo inicial']"
-                  >
-                    <template #label>
-                      Saldo inicial <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
-                    </template>
-                  </v-text-field>
+                    :rules="[v => parseStock(v) >= 0 || 'No puede ser negativo']"
+                  />
                 </v-col>
                 <v-col cols="12" md="4">
                   <v-text-field
@@ -658,14 +655,14 @@ const formData = ref({
   sku: '',
   barcode: '',
   image_url: null as string | null,
-  type: 'raw_material' as 'raw_material' | 'intermediate' | 'final',
-  unit: '',
+  type: 'final' as 'raw_material' | 'intermediate' | 'final',
+  unit: 'unidad',
   tracks_stock: true,
   unit_cost: 0,
   sale_price: null as number | null,
   tax_id: null as number | null,
   category_id: null as number | null,
-  current_stock: null as string | number | null,
+  current_stock: 0 as string | number | null,
   initial_stock_date: today,
   minimum_stock: null as string | number | null,
 });
@@ -756,9 +753,12 @@ const getStockAlertType = (product: Product): 'success' | 'error' | 'warning' | 
 
 const getStockColor = (product: Product) => {
   if (product.tracks_stock === false) return 'grey';
-  if (!product.current_stock || !product.minimum_stock) return 'grey';
-  if (product.current_stock <= product.minimum_stock) return 'error';
-  if (product.current_stock <= product.minimum_stock * 1.5) return 'warning';
+  const stock = Number(product.current_stock ?? 0);
+  // Agotado o en negativo: siempre en rojo, aunque no tenga mínimo.
+  if (stock <= 0) return 'error';
+  if (!product.minimum_stock) return 'grey';
+  if (stock <= product.minimum_stock) return 'error';
+  if (stock <= product.minimum_stock * 1.5) return 'warning';
   return 'success';
 };
 
@@ -962,14 +962,16 @@ const openDialog = (product?: Product, forceMenu = false) => {
         sku: '',
         barcode: '',
         image_url: null,
-        type: hasRecipes.value ? 'raw_material' : 'final',
-        unit: '',
+        // Por defecto un producto final y en unidades: es el caso más común.
+        type: 'final',
+        unit: 'unidad',
         tracks_stock: true,
         unit_cost: 0,
         sale_price: null,
         tax_id: null,
         category_id: null,
-        current_stock: null,
+        // Nace agotado (0): se puede crear sin existencias y verlo en el kardex.
+        current_stock: 0,
         initial_stock_date: today,
         minimum_stock: null,
       };
@@ -991,13 +993,6 @@ const save = async () => {
   // Todo producto lleva un impuesto asociado (existe la opción Exento).
   if (formData.value.tax_id === null || formData.value.tax_id === undefined) {
     showMessage('Selecciona el impuesto del producto', 'error');
-    return;
-  }
-
-  // Con inventario activo, el saldo inicial es obligatorio al crear:
-  // después el stock solo se mueve por pedidos o ajustes del kardex.
-  if (!editing.value && formData.value.tracks_stock && parseStock(formData.value.current_stock) <= 0) {
-    showMessage('Indica el saldo inicial del inventario', 'error');
     return;
   }
 
@@ -1032,10 +1027,12 @@ const save = async () => {
       // por el botón Ajustar Stock (que lo deja en el kardex).
       delete dataToSend.initial_stock_date;
     } else {
-      dataToSend.current_stock = formData.value.tracks_stock && formData.value.current_stock
-        ? parseFloat(String(formData.value.current_stock).replace(',', '.'))
+      // El saldo inicial puede ser 0 (nace agotado); solo entonces se manda
+      // la fecha real del saldo cuando hay existencias que fecharle.
+      dataToSend.current_stock = formData.value.tracks_stock
+        ? parseStock(formData.value.current_stock)
         : null;
-      dataToSend.initial_stock_date = formData.value.tracks_stock && formData.value.current_stock
+      dataToSend.initial_stock_date = formData.value.tracks_stock && parseStock(formData.value.current_stock) > 0
         ? formData.value.initial_stock_date
         : undefined;
     }
