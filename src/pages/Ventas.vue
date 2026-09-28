@@ -226,6 +226,9 @@
                 {{ item.invoice_number || `Pedido #${item.id}` }}
               </v-chip>
             </template>
+            <template #item.customer_name="{ item }">
+              {{ item.customer_name || item.dining_table || '—' }}
+            </template>
             <template #item.paid_at="{ item }">
               {{ formatDate(item.paid_at) }}
             </template>
@@ -327,6 +330,7 @@ const snackbar = ref({ show: false, text: '' })
 
 const headers = [
   { title: 'Factura', key: 'invoice_number', sortable: false },
+  { title: 'Cliente', key: 'customer_name', sortable: false },
   { title: 'Fecha de pago', key: 'paid_at' },
   { title: 'Mesero', key: 'waiter' },
   { title: 'Método', key: 'payment_methods', sortable: false },

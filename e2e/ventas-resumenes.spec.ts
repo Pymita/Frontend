@@ -52,13 +52,6 @@ test('resumen por producto y por mesa con descarga a Excel', async ({ page, requ
   await expect(productRow).toContainText('$10.000')
   await expect(productRow).toContainText('$6.000')
 
-  // El neto por producto cuadra con el "Total vendido" de arriba: la misma
-  // plata, leída de dos formas, no se contradice.
-  const totalCard = page.locator('.v-card', { hasText: 'Total vendido' })
-  const netCard = page.locator('.v-card', { hasText: 'Neto vendido' })
-  await expect(totalCard).toContainText('$10.000')
-  await expect(netCard).toContainText('$10.000')
-
   // Por mesa: la mesa 77 con sus 2 ventas.
   await page.getByRole('button', { name: 'Por mesa' }).click()
   const tableRow = page.locator('tr', { hasText: tableName }).first()

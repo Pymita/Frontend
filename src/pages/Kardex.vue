@@ -372,8 +372,9 @@ const counterpartyItems = computed(() => {
   return Array.from(names)
 })
 
-// Por defecto se ve el día de hoy; se puede ampliar el rango.
-const filters = ref<KardexFilters>({ from: today, to: today })
+// Sin rango por defecto: se ve todo el historial del kardex, incluidos los
+// saldos iniciales retrofechados. El usuario acota el rango si lo necesita.
+const filters = ref<KardexFilters>({})
 
 // Filtros con los que se armó la tabla que se está viendo. Las columnas
 // dependen de ESTO y no de filters: si no, al elegir un producto la
