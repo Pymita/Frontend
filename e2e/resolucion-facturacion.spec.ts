@@ -18,6 +18,13 @@ test('la resolución numera las ventas y el consecutivo aparece en el kardex', a
   await page.getByLabel('Prefijo').fill('POS')
   await page.getByLabel('Rango desde *').fill('500')
   await page.getByLabel('Rango hasta *').fill('600')
+  // La numeración puede empezar por encima del inicio del rango.
+  await page.getByLabel('La numeración empieza en').fill('520')
+  // Vigencia por meses desde la fecha de la resolución.
+  await page.getByLabel('Fecha de la resolución').fill('2026-01-15')
+  await page.getByRole('button', { name: 'Por meses' }).click()
+  await page.getByLabel('Meses de vigencia').fill('48')
+  await expect(page.getByText('Vence el 2030-01-15')).toBeVisible()
   await page.getByRole('button', { name: /Guardar resolución/ }).click()
   await expect(page.getByText('Resolución guardada')).toBeVisible()
   // Otros tests en paralelo pueden consumir consecutivos: solo se verifica

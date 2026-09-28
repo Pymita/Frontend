@@ -110,8 +110,9 @@
           </v-row>
           <v-row dense>
             <v-col cols="6">
-              <v-text-field
+              <v-combobox
                 v-model="movementForm.counterparty"
+                :items="counterpartyItems"
                 :label="counterpartyLabel"
                 :hint="counterpartyRequired ? 'Obligatorio para este documento' : 'Opcional'"
                 persistent-hint
@@ -128,14 +129,11 @@
           </v-row>
           <v-textarea
             v-model="movementForm.notes"
-            hint="Queda registrado en el kardex junto al movimiento"
+            label="Observaciones"
+            hint="Opcional. Queda registrada en el kardex junto al movimiento"
             persistent-hint
             rows="2"
-          >
-            <template #label>
-              Motivo <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
-            </template>
-          </v-textarea>
+          />
         </v-card-text>
         <v-card-actions>
           <v-spacer />
@@ -208,7 +206,7 @@
       <v-col cols="12" md="4">
         <v-card class="pa-4 text-center">
           <div class="text-caption text-grey">Existencia actual</div>
-          <div class="text-h5">{{ report.product.current_stock }} {{ report.product.unit }}</div>
+          <div class="text-h5" :class="{ 'text-error': report.product.current_stock <= 0 }">{{ report.product.current_stock }} {{ report.product.unit }}</div>
         </v-card>
       </v-col>
       <v-col cols="12" md="4">
@@ -220,7 +218,7 @@
       <v-col cols="12" md="4">
         <v-card class="pa-4 text-center">
           <div class="text-caption text-grey">Valor del inventario</div>
-          <div class="text-h5">{{ money(report.product.current_stock * report.product.unit_cost) }}</div>
+          <div class="text-h5" :class="{ 'text-error': report.product.current_stock < 0 }">{{ money(report.product.current_stock * report.product.unit_cost) }}</div>
         </v-card>
       </v-col>
     </v-row>
@@ -296,9 +294,9 @@
                 </td>
                 <td class="text-right">{{ money(m.unit_cost) }}</td>
                 <td class="text-right">{{ money(m.total_cost) }}</td>
-                <td class="text-right">{{ m.balance_quantity }}</td>
+                <td class="text-right" :class="{ 'text-error font-weight-bold': m.balance_quantity < 0 }">{{ m.balance_quantity }}</td>
                 <td class="text-right">{{ money(m.balance_unit_cost) }}</td>
-                <td class="text-right">{{ money(m.balance_total_cost) }}</td>
+                <td class="text-right" :class="{ 'text-error font-weight-bold': m.balance_total_cost < 0 }">{{ money(m.balance_total_cost) }}</td>
                 <td class="text-caption">{{ m.user || '—' }}</td>
               </tr>
               <tr v-if="report && report.movements.length === 0">
@@ -334,6 +332,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import kardexService, { type DocumentType, type KardexFilters, type KardexReport } from '../services/kardexService'
 import { productsService } from '../services/productsService'
+import { billingService, type Customer, type Supplier } from '../services/billingService'
 import LockableButton from '../components/LockableButton.vue'
 
 // Documentos que el sistema genera solo: no se pueden registrar a mano.
@@ -361,6 +360,20 @@ const report = ref<KardexReport | null>(null)
 const products = ref<{ id: number; name: string; unit_cost?: number | null }[]>([])
 const documentTypes = ref<DocumentType[]>([])
 
+// Terceros para el selector Cliente/Proveedor del movimiento.
+const suppliers = ref<Supplier[]>([])
+const customers = ref<Customer[]>([])
+// Proveedor por defecto (nombre de la empresa): va precargado en el formulario.
+const defaultSupplierName = computed(() => suppliers.value.find(s => s.is_default)?.name ?? '')
+const counterpartyItems = computed(() => {
+  const names = new Set<string>()
+  suppliers.value.forEach(s => s.name && names.add(s.name))
+  customers.value.forEach(c => c.name && names.add(c.name))
+  return Array.from(names)
+})
+
+// Sin rango por defecto: se ve todo el historial del kardex, incluidos los
+// saldos iniciales retrofechados. El usuario acota el rango si lo necesita.
 const filters = ref<KardexFilters>({})
 
 // Filtros con los que se armó la tabla que se está viendo. Las columnas
@@ -422,7 +435,8 @@ const openMovementDialog = () => {
     quantity: 0,
     unit_cost: null,
     moved_at: today,
-    counterparty: '',
+    // Precargado con el proveedor por defecto (nombre de la empresa).
+    counterparty: defaultSupplierName.value,
     reference: '',
     notes: '',
   }
@@ -438,8 +452,7 @@ const saveMovement = async () => {
   if (!form.document_type_id) missing.push('el tipo de documento')
   if (!form.quantity || form.quantity <= 0) missing.push('la cantidad')
   if (!form.moved_at) missing.push('la fecha')
-  if (!form.notes.trim()) missing.push('el motivo')
-  if (counterpartyRequired.value && !form.counterparty.trim()) {
+  if (counterpartyRequired.value && !(form.counterparty || '').trim()) {
     missing.push(selectedDocCode.value === 'FC' ? 'el proveedor de la compra' : 'el cliente de la devolución')
   }
 
@@ -458,9 +471,9 @@ const saveMovement = async () => {
       quantity: form.quantity,
       unit_cost: form.movement_type === 'in' ? form.unit_cost : undefined,
       moved_at: form.moved_at,
-      counterparty: form.counterparty.trim() || undefined,
+      counterparty: (form.counterparty || '').trim() || undefined,
       reference: form.reference.trim() || undefined,
-      notes: form.notes.trim(),
+      notes: form.notes.trim() || undefined,
     })
     notify('Movimiento registrado en el kardex', 'success')
     movementDialog.value = false
@@ -529,6 +542,17 @@ onMounted(async () => {
     documentTypes.value = docTypes
   } catch {
     notify('Error al cargar los filtros')
+  }
+  // Terceros para el selector; si fallan, el combobox queda como texto libre.
+  try {
+    const [sup, cust] = await Promise.all([
+      billingService.getSuppliers(),
+      billingService.getCustomers().catch(() => [] as Customer[]),
+    ])
+    suppliers.value = sup
+    customers.value = cust
+  } catch {
+    // sin terceros el movimiento se registra escribiendo el nombre a mano
   }
   await load()
 })

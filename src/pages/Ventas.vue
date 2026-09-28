@@ -166,7 +166,7 @@
               <div class="text-caption text-grey">Ventas</div>
               <div class="text-h6">{{ tableReport?.summary.sales_count ?? 0 }}</div>
             </div>
-            <div>
+            <div v-if="hasTimeBilling">
               <div class="text-caption text-grey">Tiempo de billar</div>
               <div class="text-h6">{{ money(tableReport?.summary.time_total) }}</div>
             </div>
@@ -226,6 +226,9 @@
                 {{ item.invoice_number || `Pedido #${item.id}` }}
               </v-chip>
             </template>
+            <template #item.customer_name="{ item }">
+              {{ item.customer_name || item.dining_table || '—' }}
+            </template>
             <template #item.paid_at="{ item }">
               {{ formatDate(item.paid_at) }}
             </template>
@@ -263,6 +266,8 @@ import salesService, {
   type SalesView,
   type TableSalesReport,
 } from '../services/salesService'
+import { useAuthStore } from '@/stores/auth'
+import { effectiveFeatures } from '@/types/auth'
 
 // Hoy en local (los inputs date usan YYYY-MM-DD): el día de trabajo actual
 // es lo primero que quiere ver quien abre la pestaña.
@@ -301,14 +306,19 @@ const productHeaders = [
   { title: 'Ventas', key: 'orders_count', align: 'end' as const },
 ]
 
-const tableHeaders = [
+// El cobro por tiempo es un módulo: un restaurante no cobra por tiempo, así que
+// no debe ver la columna ni el resumen de "Tiempo de billar".
+const authStore = useAuthStore()
+const hasTimeBilling = computed(() => effectiveFeatures(authStore.user).includes('time_billing'))
+
+const tableHeaders = computed(() => [
   { title: 'Mesa', key: 'name' },
   { title: 'Ventas', key: 'sales_count', align: 'end' as const },
   { title: 'Productos', key: 'products_total', align: 'end' as const },
-  { title: 'Tiempo', key: 'time_total', align: 'end' as const },
+  ...(hasTimeBilling.value ? [{ title: 'Tiempo', key: 'time_total', align: 'end' as const }] : []),
   { title: 'Propinas', key: 'tips', align: 'end' as const },
   { title: 'Total', key: 'total', align: 'end' as const },
-]
+])
 
 const canExport = computed(() => {
   if (view.value === 'products') return (productReport.value?.products.length ?? 0) > 0
@@ -320,13 +330,12 @@ const snackbar = ref({ show: false, text: '' })
 
 const headers = [
   { title: 'Factura', key: 'invoice_number', sortable: false },
+  { title: 'Cliente', key: 'customer_name', sortable: false },
   { title: 'Fecha de pago', key: 'paid_at' },
-  { title: 'Mesa', key: 'dining_table' },
-  { title: 'Cliente', key: 'customer_name' },
   { title: 'Mesero', key: 'waiter' },
   { title: 'Método', key: 'payment_methods', sortable: false },
-  { title: 'Propina', key: 'tip' },
-  { title: 'Total', key: 'total' },
+  { title: 'Propina', key: 'tip', align: 'end' as const },
+  { title: 'Total', key: 'total', align: 'end' as const },
 ]
 
 const methodOptions = Object.entries(PAYMENT_METHOD_LABELS).map(([value, title]) => ({ value, title }))

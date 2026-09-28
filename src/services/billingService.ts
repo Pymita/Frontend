@@ -24,6 +24,20 @@ export interface Customer {
   updated_at: string
 }
 
+export interface Supplier {
+  id: number
+  name: string
+  document_number?: string | null
+  phone?: string | null
+  email?: string | null
+  address?: string | null
+  notes?: string | null
+  /** Proveedor por defecto (nombre de la empresa), precargado en el kardex */
+  is_default: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface CompanySetting {
   id: number
   nit: string
@@ -95,6 +109,28 @@ export const billingService = {
       }
       throw error
     }
+  },
+
+  // ===== Proveedores =====
+  // El primero de la lista es el proveedor por defecto (nombre de la empresa),
+  // que el backend autocrea y precarga en el kardex.
+  async getSuppliers(): Promise<Supplier[]> {
+    const response = await api.get<ApiResponse<Supplier[]>>('/suppliers')
+    return response.data.data
+  },
+
+  async createSupplier(data: Partial<Supplier>): Promise<Supplier> {
+    const response = await api.post<ApiResponse<Supplier>>('/suppliers', data)
+    return response.data.data
+  },
+
+  async updateSupplier(id: number, data: Partial<Supplier>): Promise<Supplier> {
+    const response = await api.put<ApiResponse<Supplier>>(`/suppliers/${id}`, data)
+    return response.data.data
+  },
+
+  async deleteSupplier(id: number): Promise<void> {
+    await api.delete(`/suppliers/${id}`)
   },
 
   // ===== Configuración de la Empresa =====

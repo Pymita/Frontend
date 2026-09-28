@@ -70,5 +70,9 @@ test('la imagen subida se guarda en la carpeta de la empresa', async ({ page, re
 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/categorias')
+  // La tabla ordena por nombre y pagina de a 10; con muchas categorías la nueva
+  // puede caer en otra página, así que ampliamos el tamaño de página para verla.
+  await page.locator('.v-data-table-footer__items-per-page .v-select').click()
+  await page.getByRole('option', { name: '100' }).click()
   await expect(page.locator('tr', { hasText: 'Con foto E2E' }).locator('img')).toBeVisible()
 })

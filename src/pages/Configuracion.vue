@@ -180,15 +180,56 @@
                 </v-text-field>
               </v-col>
               <v-col cols="6" md="3">
-                <v-text-field v-model="resolutionForm.resolution_date" label="Fecha de la resolución" type="date" />
+                <v-text-field
+                  v-model.number="resolutionForm.start_number"
+                  type="number"
+                  min="1"
+                  label="La numeración empieza en"
+                  hint="Si ya facturaste con otros números, indica desde cuál sigue"
+                  persistent-hint
+                />
               </v-col>
               <v-col cols="6" md="3">
-                <v-text-field v-model="resolutionForm.valid_from" label="Vigente desde" type="date" />
+                <v-text-field
+                  v-model="resolutionForm.resolution_date"
+                  label="Fecha de la resolución"
+                  type="date"
+                  hint="Es también el inicio de la vigencia"
+                  persistent-hint
+                />
               </v-col>
-              <v-col cols="6" md="3">
-                <v-text-field v-model="resolutionForm.valid_until" label="Vigente hasta" type="date" />
+              <v-col cols="12" md="6">
+                <p class="text-caption text-grey-darken-1 mb-1">Vigencia hasta</p>
+                <v-btn-toggle
+                  v-model="validityMode"
+                  color="primary"
+                  density="compact"
+                  variant="outlined"
+                  mandatory
+                  class="mb-2"
+                >
+                  <v-btn value="months" size="small">Por meses</v-btn>
+                  <v-btn value="date" size="small">Elegir fecha</v-btn>
+                </v-btn-toggle>
+
+                <v-text-field
+                  v-if="validityMode === 'months'"
+                  v-model.number="resolutionForm.validity_months"
+                  type="number"
+                  min="1"
+                  max="120"
+                  label="Meses de vigencia"
+                  :hint="computedValidUntil ? `Vence el ${computedValidUntil}` : 'Ej: 48 meses desde la fecha de la resolución'"
+                  persistent-hint
+                />
+                <v-text-field
+                  v-else
+                  v-model="resolutionForm.valid_until"
+                  label="Vigente hasta"
+                  type="date"
+                />
               </v-col>
-              <v-col cols="6" md="3" class="d-flex align-center">
+              <v-col cols="12" class="d-flex align-center">
                 <LockableButton color="primary" :loading="saving" @click="saveResolution">
                   Guardar resolución
                 </LockableButton>
@@ -287,7 +328,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import kardexService, { type DocumentType, type Tax } from '../services/kardexService'
 import invoicingService, { type InvoicingResolution, type ResolutionStatus } from '../services/invoicingService'
 import LockableButton from '../components/LockableButton.vue'
@@ -329,15 +370,46 @@ const resolutionForm = ref({
   invoice_prefix: '',
   range_from: null as number | null,
   range_to: null as number | null,
+  start_number: null as number | null,
   resolution_date: '',
-  valid_from: '',
   valid_until: '',
+  validity_months: null as number | null,
+})
+
+// Vigencia: calcularla por meses desde la fecha de la resolución, o elegir
+// la fecha de vencimiento a mano.
+const validityMode = ref<'months' | 'date'>('months')
+
+// Fecha de vencimiento que se calcula al vuelo cuando el usuario indica meses,
+// solo para mostrarla como pista (el backend la calcula de forma definitiva).
+const computedValidUntil = computed(() => {
+  const months = resolutionForm.value.validity_months
+  const start = resolutionForm.value.resolution_date
+  if (!months || !start) return ''
+  const date = new Date(start + 'T00:00:00')
+  if (Number.isNaN(date.getTime())) return ''
+  date.setMonth(date.getMonth() + months)
+  return date.toISOString().slice(0, 10)
 })
 
 // Si el usuario ya empezó a escribir, la carga asíncrona no debe pisar
 // sus datos (pasa con conexiones lentas y con los tests).
 const resolutionFormTouched = ref(false)
 watch(resolutionForm, () => { resolutionFormTouched.value = true }, { deep: true })
+
+// Al cambiar el rango, el número inicial se ajusta si quedó por fuera de él.
+watch(
+  () => [resolutionForm.value.range_from, resolutionForm.value.range_to],
+  () => {
+    const { range_from, range_to, start_number } = resolutionForm.value
+    if (range_from == null) return
+    const outOfRange =
+      start_number == null ||
+      start_number < range_from ||
+      (range_to != null && start_number > range_to)
+    if (outOfRange) resolutionForm.value.start_number = range_from
+  },
+)
 
 const loadResolution = async () => {
   try {
@@ -350,10 +422,16 @@ const loadResolution = async () => {
       invoice_prefix: data.invoice_prefix || '',
       range_from: data.range_from,
       range_to: data.range_to,
+      // El inicio de la numeración es el próximo consecutivo (o el inicio del rango).
+      start_number: data.current_sequence ?? data.range_from,
       resolution_date: data.resolution_date || '',
-      valid_from: data.valid_from || '',
       valid_until: data.valid_until || '',
+      validity_months: data.validity_months,
     }
+    // Recuerda el modo con el que se guardó: si hay meses, "por meses".
+    validityMode.value = data.validity_months ? 'months' : (data.valid_until ? 'date' : 'months')
+    // La carga no cuenta como edición del usuario.
+    resolutionFormTouched.value = false
   } catch {
     // Empleados sin permiso de admin: la tarjeta queda vacía sin romper la página.
   }
@@ -365,6 +443,7 @@ const saveResolution = async () => {
     notify('Completa el número de resolución y el rango', 'error')
     return
   }
+  const byMonths = validityMode.value === 'months'
   saving.value = true
   try {
     resolution.value = await invoicingService.saveResolution({
@@ -372,11 +451,15 @@ const saveResolution = async () => {
       invoice_prefix: form.invoice_prefix || null,
       range_from: form.range_from,
       range_to: form.range_to,
+      start_number: form.start_number ?? null,
       resolution_date: form.resolution_date || null,
-      valid_from: form.valid_from || null,
-      valid_until: form.valid_until || null,
+      // Solo se envía el modo elegido; el otro se limpia en el backend.
+      valid_until: byMonths ? null : (form.valid_until || null),
+      validity_months: byMonths ? (form.validity_months || null) : null,
     })
     resolutionStatus.value = await invoicingService.status()
+    resolutionFormTouched.value = false
+    await loadResolution()
     notify('Resolución guardada')
   } catch (error: any) {
     notify(error.response?.data?.message || 'Error al guardar la resolución', 'error')
