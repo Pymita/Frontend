@@ -56,6 +56,40 @@ test('armar un pedido por personas desde la web', async ({ page, request }) => {
   ])
 })
 
+test('poner nombre a una persona con el lapicito', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  await seedProduct(request, auth, 'Empanada Nombre', 4000)
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Nuevo Pedido' }).click()
+
+  const dialog = page.getByRole('dialog')
+  await dialog.getByText('Persona', { exact: true }).click()
+
+  // El lapicito de "Persona 1" abre el editor y le ponemos nombre.
+  await dialog.locator('.v-chip', { hasText: 'Persona 1' }).getByTitle('Editar nombre').click()
+  await dialog.getByLabel('Nombre de la Persona 1').fill('Vale')
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  const valeChip = dialog.locator('.v-chip', { hasText: 'Vale' })
+  await expect(valeChip).toBeVisible()
+
+  // Ese nombre queda en el pedido de la persona.
+  await valeChip.click()
+  await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill('Empanada Nombre')
+  await dialog.getByText('Empanada Nombre').first().click()
+  await dialog.getByRole('button', { name: 'Crear Pedido' }).click()
+  await expect(page.getByText('Pedido creado')).toBeVisible()
+
+  const orders = await request.get(`${API}/orders`, { headers: auth })
+  const created = (await orders.json()).data.find((o: any) =>
+    o.items?.some((i: any) => i.product_name === 'Empanada Nombre'),
+  )
+  expect(created.guest_names).toEqual({ '1': 'Vale' })
+  expect(created.guests.map((g: any) => g.label)).toContain('Vale')
+})
+
 test('cobrar por persona hasta cerrar la mesa', async ({ page, request }) => {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
   const auth = { Authorization: `Bearer ${token}` }

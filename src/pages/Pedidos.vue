@@ -944,8 +944,10 @@
             :items="menuItems"
             :loading="loadingMenu"
             :selection="nuevoPedido.items"
+            :guest-names="nuevoPedido.guest_names"
             @add="agregarAlPedido"
             @remove="quitarDelPedido"
+            @rename="renombrarPersonaNueva"
           />
 
           <v-textarea
@@ -987,8 +989,10 @@
             :loading="loadingMenu"
             :selection="itemsParaAgregar"
             :existing-guests="guestsOf(selectedOrder)"
+            :guest-names="agregarGuestNames"
             @add="(item: any, guest: number | null) => agregarASeleccion(itemsParaAgregar, item, guest)"
             @remove="(line: PickedLine) => quitarDeSeleccion(itemsParaAgregar, line)"
+            @rename="renombrarPersonaExistente"
           />
         </v-card-text>
         <v-card-actions>
@@ -1190,7 +1194,10 @@ const nuevoPedido = ref({
   customer_name: '',
   notes: '',
   items: [] as PickedLine[],
+  guest_names: {} as Record<number, string>,
 });
+// Nombres de las personas al agregar productos a un pedido ya abierto.
+const agregarGuestNames = ref<Record<number, string>>({});
 
 const snackbar = ref(false);
 const snackbarText = ref('');
@@ -1971,6 +1978,7 @@ const openNuevoPedidoDialog = () => {
     customer_name: '',
     notes: '',
     items: [],
+    guest_names: {},
   };
   nuevoPedidoDialog.value = true;
   cargarCatalogo();
@@ -1980,6 +1988,16 @@ const agregarAlPedido = (item: any, guest: number | null) => addLine(nuevoPedido
 const quitarDelPedido = (line: PickedLine) => removeLine(nuevoPedido.value.items, line.menu_item_id, line.guest_number);
 const agregarASeleccion = (lines: PickedLine[], item: any, guest: number | null) => addLine(lines, item, guest);
 const quitarDeSeleccion = (lines: PickedLine[], line: PickedLine) => removeLine(lines, line.menu_item_id, line.guest_number);
+
+// Guarda (o borra si queda vacío) el nombre puesto a una persona.
+const setGuestName = (target: Record<number, string>, n: number, name: string) => {
+  if (name) {
+    target[n] = name;
+  } else {
+    delete target[n];
+  }
+};
+const renombrarPersonaNueva = (n: number, name: string) => setGuestName(nuevoPedido.value.guest_names, n, name);
 
 const totalNuevoPedido = computed(() => linesTotal(nuevoPedido.value.items));
 const totalParaAgregar = computed(() => linesTotal(itemsParaAgregar.value));
@@ -2001,6 +2019,7 @@ const crearPedido = async () => {
         quantity: line.quantity,
         guest_number: line.guest_number ?? undefined,
       })),
+      guest_names: Object.keys(nuevoPedido.value.guest_names).length ? nuevoPedido.value.guest_names : undefined,
     });
 
     showMessage('Pedido creado');
@@ -2023,8 +2042,21 @@ const crearPedido = async () => {
 const openAgregarItemsDialog = (order: Order) => {
   selectedOrder.value = order;
   itemsParaAgregar.value = [];
+  agregarGuestNames.value = { ...(order.guest_names ?? {}) };
   agregarItemsDialog.value = true;
   cargarCatalogo();
+};
+
+// En un pedido abierto el renombrado se guarda al momento (el pedido ya existe).
+const renombrarPersonaExistente = async (n: number, name: string) => {
+  if (!selectedOrder.value) return;
+  setGuestName(agregarGuestNames.value, n, name);
+  try {
+    await ordersService.update(selectedOrder.value.id, { guest_names: agregarGuestNames.value });
+    await loadOrders();
+  } catch (error) {
+    showMessage(errorMessage(error, 'No se pudo guardar el nombre'), 'error');
+  }
 };
 
 const guardarItemsAgregados = async () => {

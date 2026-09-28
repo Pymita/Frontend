@@ -64,11 +64,32 @@
           :variant="guest === n ? 'flat' : 'tonal'"
           @click="setGuest(n)"
         >
-          Persona {{ n }}
+          {{ nameOf(n) }}
+          <!-- Lapicito: renombrar la persona (por defecto "Persona N"). -->
+          <v-icon size="x-small" class="ml-1" title="Editar nombre" @click.stop="startEdit(n)">
+            mdi-pencil
+          </v-icon>
         </v-chip>
         <v-chip size="small" variant="outlined" prepend-icon="mdi-account-plus" @click="addGuest">
           Persona
         </v-chip>
+      </div>
+
+      <!-- Editor de nombre en línea de la persona seleccionada. -->
+      <div v-if="editingGuest !== null" class="d-flex align-center ga-2 mb-2">
+        <v-text-field
+          v-model="editingName"
+          :label="`Nombre de la Persona ${editingGuest}`"
+          :placeholder="`Persona ${editingGuest}`"
+          density="compact"
+          hide-details
+          autofocus
+          maxlength="40"
+          style="max-width: 260px"
+          @keyup.enter="confirmEdit"
+        />
+        <v-btn size="small" color="primary" variant="tonal" @click="confirmEdit">Guardar</v-btn>
+        <v-btn size="small" variant="text" @click="editingGuest = null">Cancelar</v-btn>
       </div>
 
       <p v-if="selection.length === 0" class="text-grey text-body-2">
@@ -131,14 +152,33 @@ const props = defineProps<{
   selection: PickedLine[];
   /** Personas que ya tiene el pedido abierto (para seguir numerando desde ahí) */
   existingGuests?: number;
+  /** Nombres de las personas (número→nombre); sin nombre se muestra "Persona N". */
+  guestNames?: Record<number, string>;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   add: [item: any, guest: number | null];
   remove: [line: PickedLine];
+  rename: [guest: number, name: string];
 }>();
 
 const search = ref('');
+
+// Nombre visible de una persona: el que le pusieron, o "Persona N".
+const nameOf = (n: number): string => props.guestNames?.[n] || `Persona ${n}`;
+
+// Edición del nombre de una persona (lapicito).
+const editingGuest = ref<number | null>(null);
+const editingName = ref('');
+const startEdit = (n: number) => {
+  editingGuest.value = n;
+  editingName.value = props.guestNames?.[n] ?? '';
+};
+const confirmEdit = () => {
+  if (editingGuest.value === null) return;
+  emit('rename', editingGuest.value, editingName.value.trim());
+  editingGuest.value = null;
+};
 
 // Persona activa: a ella van los productos que se agreguen.
 const guest = ref<number | null>(null);
