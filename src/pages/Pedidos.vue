@@ -495,14 +495,33 @@
               Cada persona paga lo suyo. Los descuentos y cargos de la mesa se reparten
               proporcionalmente. Al pagar la última, el pedido queda cerrado.
             </p>
-            <v-switch
-              v-model="tipEnabled"
-              label="Sugerir propina voluntaria"
-              color="primary"
-              hide-details
-              density="compact"
-              class="mb-2"
-            />
+            <v-row dense class="align-center mb-1">
+              <v-col cols="12" sm="7">
+                <v-switch
+                  v-model="tipEnabled"
+                  label="Sugerir propina voluntaria"
+                  color="primary"
+                  hide-details
+                  density="compact"
+                />
+              </v-col>
+              <v-col v-if="tipEnabled" cols="12" sm="5">
+                <v-text-field
+                  v-model.number="tipPercent"
+                  label="Propina sugerida (%)"
+                  type="number"
+                  min="0"
+                  max="100"
+                  suffix="%"
+                  density="compact"
+                  hide-details
+                />
+              </v-col>
+            </v-row>
+            <p v-if="tipEnabled" class="text-caption text-grey-darken-1 mb-2">
+              La propina es voluntaria (Ley 1935 de 2018). El monto sugerido es solo una
+              referencia: a cada persona se le cobra la propina que escribas, o ninguna.
+            </p>
             <v-list density="compact" class="border rounded mb-2">
               <v-list-item v-for="guest in selectedOrder.guests" :key="guest.number ?? 0">
                 <v-list-item-title>
@@ -516,10 +535,14 @@
                     <span v-if="tipEnabled && guestTip(guest) > 0" class="text-grey">
                       · con propina {{ money(guest.pending_amount + guestTip(guest)) }}
                     </span>
+                    <span v-else-if="tipEnabled && guestSuggestedTip(guest) > 0" class="text-grey">
+                      · sugerida {{ tipPercent }}%: {{ money(guestSuggestedTip(guest)) }}
+                      <a href="#" class="text-primary text-decoration-none" @click.prevent="useGuestSuggested(guest)">usar</a>
+                    </span>
                   </template>
                 </v-list-item-subtitle>
                 <template #append>
-                  <div class="d-flex align-center ga-1">
+                  <div class="d-flex align-center flex-wrap justify-end ga-1">
                     <v-text-field
                       v-if="tipEnabled && !guest.paid"
                       :model-value="guestTip(guest)"
@@ -529,7 +552,7 @@
                       prefix="$"
                       density="compact"
                       hide-details
-                      style="width: 130px"
+                      style="width: 120px"
                       @update:model-value="(v: string) => setGuestTip(guest, v)"
                     />
                     <v-btn
@@ -542,16 +565,27 @@
                       <v-icon start>mdi-printer</v-icon>
                       Cuenta
                     </v-btn>
-                    <v-btn
-                      v-if="!guest.paid"
-                      size="small"
-                      color="success"
-                      variant="tonal"
-                      :loading="saving"
-                      @click="cobrarPersona(guest)"
-                    >
-                      Cobrar
-                    </v-btn>
+                    <template v-if="!guest.paid">
+                      <v-btn
+                        v-if="tipEnabled && guestTip(guest) > 0"
+                        size="small"
+                        color="success"
+                        variant="tonal"
+                        :loading="saving"
+                        @click="cobrarPersona(guest, true)"
+                      >
+                        Cobrar con propina
+                      </v-btn>
+                      <v-btn
+                        size="small"
+                        :color="tipEnabled && guestTip(guest) > 0 ? undefined : 'success'"
+                        :variant="tipEnabled && guestTip(guest) > 0 ? 'text' : 'tonal'"
+                        :loading="saving"
+                        @click="cobrarPersona(guest, false)"
+                      >
+                        {{ tipEnabled && guestTip(guest) > 0 ? 'Cobrar sin propina' : 'Cobrar' }}
+                      </v-btn>
+                    </template>
                   </div>
                 </template>
               </v-list-item>
@@ -1468,19 +1502,22 @@ const consumptionOf = (order: Order) =>
 
 const payBase = computed(() => (selectedOrder.value ? consumptionOf(selectedOrder.value) : 0));
 
-// Cuentas separadas: propina de cada persona (se sugiere el % sobre lo suyo).
+// Cuentas separadas: la propina de cada persona es SOLO lo que el cajero
+// escribe (0 por defecto). La sugerencia del % es una referencia; nunca se
+// cobra sola para no meterle propina a nadie sin que lo pida.
 const guestTips = ref<Record<number, number>>({});
-const guestTip = (guest: OrderGuest) => {
-  const key = guest.number ?? 0;
-  if (guestTips.value[key] === undefined) {
-    return tipEnabled.value
-      ? Math.round((guest.pending_amount * Math.max(0, Number(tipPercent.value) || 0)) / 100)
-      : 0;
-  }
-  return guestTips.value[key];
-};
+const guestTip = (guest: OrderGuest) => guestTips.value[guest.number ?? 0] ?? 0;
+/** Referencia: el % sugerido sobre lo que le falta a esa persona (no se cobra). */
+const guestSuggestedTip = (guest: OrderGuest) =>
+  tipEnabled.value
+    ? Math.round((guest.pending_amount * Math.max(0, Number(tipPercent.value) || 0)) / 100)
+    : 0;
 const setGuestTip = (guest: OrderGuest, value: string) => {
   guestTips.value[guest.number ?? 0] = Math.max(0, Number(value) || 0);
+};
+/** Atajo: copia la sugerencia al campo editable; el cajero puede ajustarla o borrarla. */
+const useGuestSuggested = (guest: OrderGuest) => {
+  guestTips.value[guest.number ?? 0] = guestSuggestedTip(guest);
 };
 
 /** Se le ofrece propina al cliente: hay sugerencia y vale más de cero. */
@@ -1554,7 +1591,7 @@ const confirmarCobro = async (withTip: boolean) => {
  * ítems del backend (que prorratea descuentos y cargos). Cuando paga la
  * última, el pedido queda pagado y sale la factura de toda la mesa.
  */
-const cobrarPersona = async (guest: OrderGuest) => {
+const cobrarPersona = async (guest: OrderGuest, withTip = false) => {
   const order = selectedOrder.value;
   if (!order) return;
 
@@ -1563,7 +1600,8 @@ const cobrarPersona = async (guest: OrderGuest) => {
     .map(i => ({ order_item_id: i.id, quantity: i.unpaid_quantity }));
   if (items.length === 0) return;
 
-  const tip = tipEnabled.value ? guestTip(guest) : 0;
+  // Solo se cobra propina si el cajero la escribió y confirmó "con propina".
+  const tip = withTip && tipEnabled.value ? guestTip(guest) : 0;
   const win = printOnPay.value ? openPrintWindow() : null;
   saving.value = true;
   try {
@@ -1773,8 +1811,11 @@ const printGuestBill = async (order: Order, guest: number | null) => {
   printing.value = true;
   try {
     const r = await ordersService.receipt(order.id, guest);
+    // La sugerencia va sobre lo que le falta a ESA persona, no sobre otro total.
+    const g = order.guests?.find(x => (x.number ?? null) === (guest ?? null));
+    const tipBase = g ? g.pending_amount : Math.max(0, Number(r.total) - Number(r.tip || 0));
     const tip = tipEnabled.value
-      ? Math.round((Number(r.total) * Math.max(0, Number(tipPercent.value) || 0)) / 100)
+      ? Math.round((tipBase * Math.max(0, Number(tipPercent.value) || 0)) / 100)
       : 0;
     fillPrintWindow(win, `${r.guest?.label ?? 'Compartido'} - pedido #${order.id}`, buildTicket(r, order.id, {
       preBill: true,
@@ -1803,11 +1844,15 @@ const printPreBill = async (order: Order) => {
     // menú de la fila, la sugerencia configurada.
     const fromDialog = payDialog.value && selectedOrder.value?.id === order.id;
     const tip = tipEnabled.value ? (fromDialog ? payTip.value : suggestedTip(order)) : 0;
+    // "Abonado/Por pagar" van SIN propina, igual que el diálogo: se resta solo
+    // el consumo ya pagado (amount_paid menos la propina que ya entró), no el
+    // dinero con propina, para que "POR PAGAR" cuadre con "Total sin propina".
+    const consumptionPaid = Math.max(0, Number(order.amount_paid || 0) - Number(order.tip_paid || 0));
     fillPrintWindow(win, `Cuenta pedido #${order.id}`, buildTicket(r, order.id, {
       preBill: true,
       suggestedTip: tip,
       tipPercent: tipEnabled.value ? tipPercent.value : undefined,
-      amountPaid: Number(order.amount_paid || 0),
+      amountPaid: consumptionPaid,
     }));
   } catch (error) {
     win.close();

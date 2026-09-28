@@ -86,13 +86,15 @@ test('cobrar por persona hasta cerrar la mesa', async ({ page, request }) => {
   await expect(persona1).toContainText('$8.000')
   await expect(persona2).toContainText('$16.000')
 
-  // Persona 1 deja propina: se sugiere el 10% y se puede cambiar.
+  // La propina no se cobra sola: el campo arranca en 0 y solo se muestra el
+  // monto sugerido como referencia. La persona deja propina si el cajero la escribe.
   await dialog.getByLabel('Sugerir propina voluntaria').check()
-  await expect(persona1.getByLabel('Propina')).toHaveValue('800')
+  await expect(persona1.getByLabel('Propina')).toHaveValue('0')
+  await expect(persona1).toContainText('sugerida 10%')
   await persona1.getByLabel('Propina').fill('1000')
   await expect(persona1).toContainText('con propina $9.000')
 
-  await persona1.getByRole('button', { name: 'Cobrar' }).click()
+  await persona1.getByRole('button', { name: 'Cobrar con propina' }).click()
   await expect(page.getByText('Persona 1 pagó $9.000')).toBeVisible()
   await expect(persona1).toContainText('Pagado')
   await expect(dialog.getByText('Pendiente de la mesa:')).toBeVisible()
@@ -108,6 +110,21 @@ test('cobrar por persona hasta cerrar la mesa', async ({ page, request }) => {
   await dialog.getByRole('button', { name: 'Todos juntos' }).click()
   await expect(dialog.getByText('Ya pagado (personas que pagaron aparte):')).toBeVisible()
   await expect(dialog.getByText('$16.000')).toBeVisible()
+
+  // La cuenta impresa cuadra con el diálogo: ABONADO es el consumo ya pagado
+  // (sin la propina de la persona 1) y POR PAGAR lo que falta, sin propina.
+  const [bill] = await Promise.all([
+    page.waitForEvent('popup'),
+    dialog.getByRole('button', { name: 'Imprimir cuenta' }).click(),
+  ])
+  await expect(bill.locator('body')).toContainText('CUENTA DE COBRO')
+  const billText = await bill.locator('body').innerText()
+  expect(billText).toContain('ABONADO')
+  expect(billText).toContain('$8.000')
+  expect(billText).toContain('POR PAGAR')
+  expect(billText).toContain('$16.000')
+  await bill.close()
+
   await dialog.getByRole('button', { name: 'Cobrar sin propina' }).click()
   await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
 
@@ -116,6 +133,43 @@ test('cobrar por persona hasta cerrar la mesa', async ({ page, request }) => {
   expect(current.total).toBe(25000)
   expect(current.tip).toBe(1000)
   expect(current.amount_paid).toBe(25000)
+})
+
+test('con la sugerencia encendida, cobrar sin escribir propina no cobra propina', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const productId = await seedProduct(request, auth, 'Tinto Sin Propina E2E', 4000)
+
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: {
+      customer_name: 'Mesa Sin Propina Separada E2E',
+      items: [
+        { product_id: productId, quantity: 1, guest_number: 1 },
+        { product_id: productId, quantity: 1, guest_number: 2 },
+      ],
+    },
+  })
+  const orderId = (await order.json()).data.id
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  await page.locator('tr', { hasText: '$8.000' }).first().getByRole('button', { name: 'Cobrar' }).click()
+
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Imprimir la factura al cobrar').uncheck()
+  // Aunque la sugerencia esté encendida, si el cajero no escribe propina el
+  // botón es "Cobrar" (no "con propina") y no se cobra ninguna.
+  await dialog.getByLabel('Sugerir propina voluntaria').check()
+  const persona1 = dialog.locator('.v-list-item', { hasText: 'Persona 1' })
+  await expect(persona1.getByLabel('Propina')).toHaveValue('0')
+  await expect(persona1.getByRole('button', { name: 'Cobrar con propina' })).toHaveCount(0)
+  await persona1.getByRole('button', { name: 'Cobrar', exact: true }).click()
+  await expect(page.getByText('Persona 1 pagó $4.000')).toBeVisible()
+
+  const current = (await (await request.get(`${API}/orders/${orderId}`, { headers: auth })).json()).data
+  expect(current.tip).toBe(0)
+  expect(current.amount_paid).toBe(4000)
 })
 
 test('el diálogo de cobro se puede cerrar con la X', async ({ page, request }) => {
