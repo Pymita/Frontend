@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, loginUI, sidebarItem } from './helpers'
+import { ADMIN, API, apiLogin, loginUI, openSidebarGroup, sidebarItem } from './helpers'
 
 /**
  * El tipo de negocio decide qué módulos ve la empresa: un billar no debe
@@ -34,6 +34,7 @@ test('un billar no ve recetas pero sí cobro por tiempo', async ({ page, request
 
   // Ve lo suyo...
   await expect(sidebarItem(page, 'Pedidos')).toBeVisible()
+  await openSidebarGroup(page, 'Catálogo')
   await expect(sidebarItem(page, 'Productos')).toBeVisible()
   await expect(sidebarItem(page, 'Mesas')).toBeVisible()
 
@@ -55,6 +56,7 @@ test('un restaurante ve recetas y no ofrece mesas de billar', async ({ page, req
 
   await loginUI(page, admin.email, admin.password)
 
+  await openSidebarGroup(page, 'Catálogo')
   await expect(sidebarItem(page, 'Recetas')).toBeVisible()
 
   // El selector de tipo de mesa no aparece: no tiene cobro por tiempo.
@@ -104,6 +106,7 @@ test('la plataforma puede personalizar los módulos de una empresa', async ({ pa
 
   // Ahora el admin del billar sí ve recetas.
   await loginUI(page, admin.email, admin.password)
+  await openSidebarGroup(page, 'Catálogo')
   await expect(sidebarItem(page, 'Recetas')).toBeVisible()
   await expect(sidebarItem(page, 'Mesas')).toBeVisible()
 })

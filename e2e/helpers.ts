@@ -41,9 +41,26 @@ export async function loginUI(page: Page, login: string, password: string): Prom
   await page.waitForURL((url) => !url.pathname.includes('login'))
 }
 
-/** Ítems del menú lateral visibles. */
+/**
+ * Ítems del menú lateral. Los de una sección cerrada existen pero están
+ * ocultos: para verlos o hacerles clic, primero `openSidebarGroup`.
+ */
 export function sidebarItem(page: Page, title: string) {
   return page.locator('.v-navigation-drawer').getByText(title, { exact: true })
+}
+
+/** Encabezado desplegable del menú lateral (Catálogo, Administración). */
+export function sidebarGroup(page: Page, title: string) {
+  return page.locator('.v-navigation-drawer .v-list-group__header', { hasText: title })
+}
+
+/** Abre una sección desplegable del menú lateral si está cerrada. */
+export async function openSidebarGroup(page: Page, title: string): Promise<void> {
+  const header = sidebarGroup(page, title)
+  if ((await header.getAttribute('aria-expanded')) !== 'true') {
+    await header.click()
+  }
+  await expect(header).toHaveAttribute('aria-expanded', 'true')
 }
 
 /**

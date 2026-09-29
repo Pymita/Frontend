@@ -9,7 +9,7 @@
       width="264"
       color="chrome"
     >
-      <div class="d-flex align-center ga-3 px-4 pt-5 pb-2">
+      <div class="d-flex align-center ga-3 px-4 pt-4 pb-1">
         <v-avatar color="accent" rounded="lg" size="36">
           <v-icon icon="mdi-bread-slice" size="22" />
         </v-avatar>
@@ -19,27 +19,56 @@
         </div>
       </div>
 
-      <v-list nav density="compact" base-color="chrome-text" color="on-chrome-active">
+      <!-- Operación queda siempre abierta; las demás secciones se despliegan
+           de a una (abrir una cierra la otra) para que el menú no necesite scroll. -->
+      <v-list
+        v-model:opened="openedGroups"
+        open-strategy="single"
+        nav
+        density="compact"
+        base-color="chrome-text"
+        color="on-chrome-active"
+      >
         <template v-for="group in menuGroups" :key="group.title">
-          <v-list-subheader v-if="menuGroups.length > 1" class="text-overline text-chrome-overline">
-            {{ group.title }}
-          </v-list-subheader>
-          <v-list-item
-            v-for="item in group.items"
-            :key="item.title"
-            :to="item.route"
-            :exact="item.route === '/plataforma'"
-            :prepend-icon="item.icon"
-            :title="item.title"
-            active-class="bg-chrome-active"
-            class="mb-1"
-          />
+          <v-list-group v-if="isCollapsible(group.title)" :value="group.title" fluid>
+            <template #activator="{ props: activator, isOpen }">
+              <v-list-item v-bind="activator" :aria-expanded="isOpen" min-height="32">
+                <v-list-item-title class="text-overline text-chrome-overline">{{ group.title }}</v-list-item-title>
+              </v-list-item>
+            </template>
+            <v-list-item
+              v-for="item in group.items"
+              :key="item.title"
+              :to="item.route"
+              :exact="item.route === '/plataforma'"
+              :prepend-icon="item.icon"
+              :title="item.title"
+              active-class="bg-chrome-active"
+              min-height="36"
+            />
+          </v-list-group>
+
+          <template v-else>
+            <v-list-subheader v-if="menuGroups.length > 1" class="text-overline text-chrome-overline">
+              {{ group.title }}
+            </v-list-subheader>
+            <v-list-item
+              v-for="item in group.items"
+              :key="item.title"
+              :to="item.route"
+              :exact="item.route === '/plataforma'"
+              :prepend-icon="item.icon"
+              :title="item.title"
+              active-class="bg-chrome-active"
+              min-height="36"
+            />
+          </template>
         </template>
       </v-list>
 
       <template v-slot:append>
         <v-divider></v-divider>
-        <v-list nav base-color="chrome-text">
+        <v-list nav density="compact" base-color="chrome-text">
           <v-list-item
             :prepend-icon="loading ? 'mdi-loading' : 'mdi-logout'"
             :title="loading ? 'Cerrando sesión...' : 'Cerrar Sesión'"
@@ -174,7 +203,7 @@ const MENU_GROUPS = ['Operación', 'Catálogo', 'Administración', 'Plataforma']
 
 const allMenuItems: MenuItem[] = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', route: '/dashboard', feature: 'reports', group: 'Operación' },
-  { title: 'Pedidos', icon: 'mdi-receipt', route: '/pedidos', feature: 'orders', group: 'Operación' },
+  { title: 'Pedidos', icon: 'mdi-receipt-text', route: '/pedidos', feature: 'orders', group: 'Operación' },
   { title: 'Ventas', icon: 'mdi-cash-register', route: '/ventas', feature: 'reports', group: 'Operación' },
   { title: 'Mesas', icon: 'mdi-table-chair', route: '/mesas', feature: 'orders', group: 'Operación' },
   { title: 'Plano del Salón', icon: 'mdi-floor-plan', route: '/plano', feature: 'orders', group: 'Operación' },
@@ -224,6 +253,26 @@ const menuGroups = computed(() =>
   MENU_GROUPS
     .map(title => ({ title, items: availableMenuItems.value.filter(item => item.group === title) }))
     .filter(group => group.items.length > 0)
+)
+
+// Operación es lo del día a día: siempre visible. El resto se despliega.
+const ALWAYS_OPEN_GROUP = 'Operación'
+const isCollapsible = (group: string): boolean =>
+  menuGroups.value.length > 1 && group !== ALWAYS_OPEN_GROUP
+
+const openedGroups = ref<string[]>([])
+
+// La sección de la página actual se abre sola (al entrar por URL o al
+// navegar), así el ítem activo nunca queda escondido.
+watch(
+  [() => route.path, menuGroups],
+  () => {
+    const current = availableMenuItems.value.find(item => item.route === route.path)
+    if (current?.group && isCollapsible(current.group)) {
+      openedGroups.value = [current.group]
+    }
+  },
+  { immediate: true },
 )
 
 const userInitials = computed((): string => {
