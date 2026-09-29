@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, COMPANY_SLUG, apiLogin, loginUI, sidebarItem } from './helpers'
+import { ADMIN, API, COMPANY_SLUG, apiLogin, loginUI, openSidebarGroup, sidebarGroup, sidebarItem } from './helpers'
 
 /**
  * Acceso por permisos: quien solo toma pedidos usa la app y no entra a la
@@ -61,18 +61,83 @@ test('empleado con acceso limitado solo ve sus secciones', async ({ page, reques
 test('admin ve todas las secciones incluidas las administrativas', async ({ page }) => {
   await loginUI(page, ADMIN.email, ADMIN.password)
 
-  for (const item of ['Dashboard', 'Pedidos', 'Productos', 'Kardex', 'Gastos', 'Finanzas', 'Empleados', 'Configuración']) {
-    await expect(sidebarItem(page, item)).toBeVisible()
-  }
-
   // Las secciones van agrupadas bajo su encabezado, y el rol se ve junto al nombre.
   for (const group of ['Operación', 'Catálogo', 'Administración']) {
     await expect(sidebarItem(page, group)).toBeVisible()
   }
   await expect(page.locator('.v-app-bar').getByText('Admin', { exact: true })).toBeVisible()
 
+  // Operación siempre está abierta; Catálogo y Administración se despliegan.
+  for (const item of ['Dashboard', 'Pedidos']) {
+    await expect(sidebarItem(page, item)).toBeVisible()
+  }
+  await openSidebarGroup(page, 'Catálogo')
+  for (const item of ['Productos', 'Kardex']) {
+    await expect(sidebarItem(page, item)).toBeVisible()
+  }
+  await openSidebarGroup(page, 'Administración')
+  for (const item of ['Gastos', 'Finanzas', 'Empleados', 'Configuración']) {
+    await expect(sidebarItem(page, item)).toBeVisible()
+  }
+
   // Pero no la de plataforma (es de super admin):
   await expect(sidebarItem(page, 'Plataforma')).toHaveCount(0)
+})
+
+test('las secciones del menú se despliegan de a una y el menú no necesita scroll', async ({ page }) => {
+  // Un portátil de 1366x768 deja unos 700 px de alto dentro del navegador.
+  await page.setViewportSize({ width: 1366, height: 700 })
+  await loginUI(page, ADMIN.email, ADMIN.password)
+
+  const content = page.locator('.v-navigation-drawer__content')
+  const fits = async () =>
+    content.evaluate(el => el.scrollHeight <= el.clientHeight)
+
+  // Abrir una sección cierra la otra.
+  await openSidebarGroup(page, 'Catálogo')
+  await expect(sidebarItem(page, 'Kardex')).toBeVisible()
+  await expect(sidebarItem(page, 'Empleados')).toBeHidden()
+  await expect.poll(fits).toBe(true)
+
+  await openSidebarGroup(page, 'Administración')
+  await expect(sidebarItem(page, 'Empleados')).toBeVisible()
+  await expect(sidebarItem(page, 'Kardex')).toBeHidden()
+  await expect(sidebarGroup(page, 'Catálogo')).toHaveAttribute('aria-expanded', 'false')
+  await expect.poll(fits).toBe(true)
+
+  // Al entrar directo a una página, su sección aparece abierta con el ítem activo.
+  await page.goto('/kardex')
+  await expect(sidebarGroup(page, 'Catálogo')).toHaveAttribute('aria-expanded', 'true')
+  // Se abre con la transición de Vuetify: se espera a que termine.
+  await expect(page.locator('.v-list-group--open .v-list-group__items')).not.toHaveClass(/expand-transition/)
+  await expect(page.locator('.v-navigation-drawer .v-list-item--active', { hasText: 'Kardex' })).toBeVisible()
+  await expect(sidebarItem(page, 'Tipos de Producto')).toBeInViewport()
+  await expect(sidebarItem(page, 'Cerrar Sesión')).toBeInViewport()
+  await expect.poll(fits).toBe(true)
+
+  await page.screenshot({ path: '../screenshots/menu-desplegable-1366x700.png' })
+})
+
+test('el panel del login presenta el producto a la altura del formulario', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/login')
+
+  const tagline = page.getByRole('heading', { name: 'Sistema de Gestión' })
+  await expect(tagline).toBeVisible()
+  for (const feature of ['Pedidos y mesas', 'Inventario al día', 'Ventas y reportes', 'Facturación']) {
+    await expect(page.getByText(feature, { exact: true })).toBeVisible()
+  }
+
+  // El mensaje ya no queda pegado abajo con el panel vacío encima: arranca
+  // en la franja central, como el formulario.
+  const box = await tagline.boundingBox()
+  expect(box!.y).toBeGreaterThan(900 * 0.15)
+  expect(box!.y).toBeLessThan(900 * 0.5)
+
+  await page.screenshot({ path: '../screenshots/login-1440x900.png' })
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await expect(page.getByText('Facturación', { exact: true })).toBeInViewport()
+  await page.screenshot({ path: '../screenshots/login-1280x720.png' })
 })
 
 test('en el celular el menú no tapa la página: se abre con el botón y se cierra al navegar', async ({ page }) => {
@@ -86,6 +151,7 @@ test('en el celular el menú no tapa la página: se abre con el botón y se cier
 
   await openMenu.click()
   await expect(menu).toBeInViewport()
+  await openSidebarGroup(page, 'Catálogo')
   await sidebarItem(page, 'Kardex').click()
 
   await expect(page).toHaveURL(/\/kardex/)

@@ -1,17 +1,34 @@
 <template>
   <v-container fluid class="fill-height pa-0">
     <v-row no-gutters class="fill-height">
-      <v-col md="5" class="d-none d-md-flex flex-column justify-space-between bg-chrome pa-12">
+      <v-col md="5" class="d-none d-md-flex flex-column bg-chrome pa-12">
         <div class="d-flex align-center ga-3">
           <v-avatar color="accent" rounded="lg" size="44">
             <v-icon icon="mdi-bread-slice" size="26" />
           </v-avatar>
           <span class="text-h5 font-weight-bold">{{ APP_NAME }}</span>
         </div>
-        <div>
-          <h2 class="text-h2 mb-4">{{ APP_TAGLINE }}</h2>
-          <p class="text-body-1 text-chrome-text">Pedidos, mesas, inventario y ventas de tu negocio en un solo lugar.</p>
+
+        <!-- El mensaje va centrado en el alto del panel, a la altura del
+             formulario, en vez de quedar pegado abajo con un vacío encima. -->
+        <div class="flex-grow-1 d-flex flex-column justify-center py-8">
+          <h2 class="text-h3 mb-3">{{ APP_TAGLINE }}</h2>
+          <p class="text-body-1 text-chrome-text mb-8">
+            Pedidos, mesas, inventario y ventas de tu negocio en un solo lugar.
+          </p>
+
+          <div v-for="feature in FEATURES" :key="feature.title" class="d-flex align-start ga-4 mb-5">
+            <v-avatar color="chrome-active" rounded="lg" size="40">
+              <v-icon :icon="feature.icon" size="22" />
+            </v-avatar>
+            <div>
+              <div class="text-subtitle-1 font-weight-bold">{{ feature.title }}</div>
+              <div class="text-body-2 text-chrome-text">{{ feature.text }}</div>
+            </div>
+          </div>
         </div>
+
+        <p class="text-caption text-chrome-overline">© {{ year }} {{ APP_NAME }}</p>
       </v-col>
 
       <v-col cols="12" md="7" class="d-flex align-center justify-center bg-background pa-6">
@@ -109,6 +126,16 @@ import type { LoginCredentials } from '../types'
 
 const router = useRouter()
 const authStore = useAuthStore()
+
+// Lo que resuelve el producto, en palabras del negocio (lo ven todas las empresas).
+const FEATURES = [
+  { icon: 'mdi-receipt-text', title: 'Pedidos y mesas', text: 'Toma pedidos desde el celular y cobra por persona o por producto.' },
+  { icon: 'mdi-package-variant', title: 'Inventario al día', text: 'Cada venta descuenta el kardex y te avisa cuando algo se está acabando.' },
+  { icon: 'mdi-chart-line', title: 'Ventas y reportes', text: 'Lo vendido, las propinas y el estado de resultados sin hojas de cálculo.' },
+  { icon: 'mdi-file-document-check', title: 'Facturación', text: 'Consecutivos de tu resolución DIAN y cobros mensuales con su cartera.' },
+]
+
+const year = new Date().getFullYear()
 
 // Schema de validación con Zod: correo (admins) o usuario del negocio
 // (empleados); el usuario interno necesita además el código del negocio.
