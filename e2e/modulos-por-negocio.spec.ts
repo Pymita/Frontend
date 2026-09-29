@@ -63,6 +63,26 @@ test('un restaurante ve recetas y no ofrece mesas de billar', async ({ page, req
   await expect(page.getByRole('dialog').getByText('Tipo de mesa')).toHaveCount(0)
 })
 
+test('la facturación automática es del cobro mensual: un restaurante no la ve', async ({ page, request }) => {
+  const restaurant = await createCompany(request, 'restaurant', 'sin-cuotas')
+  await loginUI(page, restaurant.email, restaurant.password)
+
+  await expect(sidebarItem(page, 'Pedidos')).toBeVisible()
+  await expect(sidebarItem(page, 'Facturación automática')).toHaveCount(0)
+  await page.goto('/facturacion-automatica')
+  await expect(page).not.toHaveURL(/facturacion-automatica/)
+
+  await page.evaluate(() => localStorage.clear())
+  const condo = await createCompany(request, 'recurring', 'conjunto')
+  await loginUI(page, condo.email, condo.password)
+
+  await expect(sidebarItem(page, 'Facturación automática')).toBeVisible()
+  await expect(sidebarItem(page, 'Pedidos')).toHaveCount(0)
+  await expect(sidebarItem(page, 'Productos')).toHaveCount(0)
+  // Tipos de producto es del menú: sin ese módulo no aparece ni para el admin.
+  await expect(sidebarItem(page, 'Tipos de Producto')).toHaveCount(0)
+})
+
 test('la plataforma puede personalizar los módulos de una empresa', async ({ page, request }) => {
   const admin = await createCompany(request, 'billiard', 'hibrido')
 
