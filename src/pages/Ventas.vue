@@ -9,16 +9,24 @@
               Pedidos pagados: cuánto se ha vendido, con qué método y por quién
             </p>
           </div>
-          <v-btn
-            color="secondary"
-            variant="tonal"
-            prepend-icon="mdi-file-excel"
-            :loading="exporting"
-            :disabled="!canExport"
-            @click="exportExcel"
-          >
-            Descargar Excel
-          </v-btn>
+          <!-- El tooltip va sobre un span: un botón deshabilitado no emite
+               eventos de mouse y el usuario no sabría por qué está apagado. -->
+          <v-tooltip location="bottom" max-width="300" :text="exportHint">
+            <template #activator="{ props: tooltip }">
+              <span v-bind="tooltip" class="d-inline-flex">
+                <v-btn
+                  color="primary"
+                  variant="outlined"
+                  prepend-icon="mdi-microsoft-excel"
+                  :loading="exporting"
+                  :disabled="!canExport"
+                  @click="exportExcel"
+                >
+                  Descargar Excel
+                </v-btn>
+              </span>
+            </template>
+          </v-tooltip>
         </div>
       </v-col>
     </v-row>
@@ -326,6 +334,14 @@ const canExport = computed(() => {
   if (view.value === 'tables') return (tableReport.value?.tables.length ?? 0) > 0
   return (report.value?.sales.length ?? 0) > 0
 })
+const EXPORT_HINTS: Record<SalesView, string> = {
+  sales: 'Descarga el listado de ventas con los filtros de arriba',
+  products: 'Descarga el resumen por producto con los filtros de arriba',
+  tables: 'Descarga el resumen por mesa con los filtros de arriba',
+}
+const exportHint = computed(() =>
+  canExport.value ? EXPORT_HINTS[view.value] : 'No hay ventas con estos filtros para descargar',
+)
 const exporting = ref(false)
 const snackbar = ref({ show: false, text: '' })
 

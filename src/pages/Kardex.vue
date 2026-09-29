@@ -14,8 +14,8 @@
               Registrar Movimiento
             </LockableButton>
             <v-btn
-              color="secondary"
-              variant="tonal"
+              color="primary"
+              variant="outlined"
               size="large"
               :loading="exporting"
               :disabled="!report || report.movements.length === 0"
