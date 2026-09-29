@@ -67,6 +67,71 @@ test('resumen por producto y por mesa con descarga a Excel', async ({ page, requ
 })
 
 /**
+ * Lo normal en un restaurante es vender ítems del menú. Con dos ítems
+ * distintos vendidos, "Por producto" respondía 500 (Server Error) mientras
+ * "Todas" y "Por mesa" funcionaban.
+ */
+test('por producto carga cuando se vendieron varios ítems del menú', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `Menú Resumen ${Date.now()}` } })
+  const categoryId = (await category.json()).data.id
+  const menuItem = async (name: string, price: number, cost: number) => {
+    const product = await request.post(`${API}/products`, {
+      headers: auth,
+      data: { name, type: 'final', unit: 'und', unit_cost: cost, sale_price: price, tracks_stock: false, category_id: categoryId },
+    })
+    const created = await request.post(`${API}/menu-items`, {
+      headers: auth,
+      data: { name, final_product_id: (await product.json()).data.id, category_id: categoryId, base_price: price },
+    })
+    return (await created.json()).data.id
+  }
+  const burger = await menuItem('Hamburguesa Menú E2E', 18000, 7000)
+  const juice = await menuItem('Jugo Menú E2E', 6000, 2000)
+
+  for (const [menuItemId, quantity] of [[burger, 2], [juice, 1]]) {
+    const order = await request.post(`${API}/orders`, {
+      headers: auth,
+      data: { items: [{ menu_item_id: menuItemId, quantity }] },
+    })
+    const orderId = (await order.json()).data.id
+    await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+  }
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/ventas')
+  await page.getByRole('button', { name: 'Por producto' }).click()
+
+  // Neto 36.000 y costo 14.000 del producto final: ganancia 22.000.
+  const burgerRow = page.locator('tr', { hasText: 'Hamburguesa Menú E2E' })
+  await expect(burgerRow).toContainText('$36.000')
+  await expect(burgerRow).toContainText('$22.000')
+  await expect(page.locator('tr', { hasText: 'Jugo Menú E2E' })).toContainText('$4.000')
+  await expect(page.getByText('Error al cargar las ventas')).toHaveCount(0)
+
+  // El botón de Excel se ve como acción y explica qué descarga.
+  const excel = page.getByRole('button', { name: 'Descargar Excel' })
+  await expect(excel).toBeEnabled()
+  await excel.hover()
+  await expect(page.getByText('Descarga el resumen por producto con los filtros de arriba')).toBeVisible()
+  const [download] = await Promise.all([page.waitForEvent('download'), excel.click()])
+  expect(download.suggestedFilename()).toContain('ventas_por_producto')
+})
+
+test('sin ventas el botón de Excel dice por qué está apagado', async ({ page }) => {
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/ventas')
+  await page.getByLabel('Desde').fill('2001-01-01')
+  await page.getByLabel('Hasta').fill('2001-01-31')
+
+  await expect(page.getByRole('button', { name: 'Descargar Excel' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Descargar Excel' }).locator('..').hover()
+  await expect(page.getByText('No hay ventas con estos filtros para descargar')).toBeVisible()
+})
+
+/**
  * El orden de la tabla "Por producto" responde a la columna que se toca: el
  * usuario puede ver primero lo que más neto dejó o lo que menos.
  */

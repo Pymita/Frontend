@@ -214,10 +214,11 @@
                 <p class="text-subtitle-2 mb-2">Empresa</p>
                 <v-text-field
                   v-model="createData.name"
-                  label="Nombre de la empresa"
                   :rules="[(v: string) => !!v || 'Nombre requerido']"
                   required
-                />
+                >
+                  <template #label>Nombre de la empresa <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                </v-text-field>
                 <v-select
                   v-model="createData.business_type"
                   :items="businessTypeOptions"
@@ -256,27 +257,30 @@
                 <p class="text-subtitle-2 mb-2">Administrador de la empresa</p>
                 <v-text-field
                   v-model="createData.admin.name"
-                  label="Nombre del administrador"
                   :rules="[(v: string) => !!v || 'Nombre requerido']"
-                />
+                >
+                  <template #label>Nombre del administrador <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                </v-text-field>
                 <v-row dense class="mt-1">
                   <v-col cols="6">
                     <v-text-field
                       v-model="createData.admin.email"
-                      label="Email de acceso"
                       type="email"
                       :rules="[(v: string) => !!v || 'Email requerido']"
-                    />
+                    >
+                      <template #label>Email de acceso <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                    </v-text-field>
                   </v-col>
                   <v-col cols="6">
                     <v-text-field
                       v-model="createData.admin.password"
-                      label="Contraseña inicial"
                       type="password"
                       :rules="passwordRules"
                       :hint="PASSWORD_HINT"
                       persistent-hint
-                    />
+                    >
+                      <template #label>Contraseña inicial <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                    </v-text-field>
                   </v-col>
                 </v-row>
 
@@ -378,18 +382,20 @@
                 <v-col cols="6">
                   <v-text-field
                     v-model="editData.name"
-                    label="Nombre"
                     :rules="[(v: string) => !!v || 'Nombre requerido']"
-                  />
+                  >
+                    <template #label>Nombre <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                  </v-text-field>
                 </v-col>
                 <v-col cols="6">
                   <v-text-field
                     v-model="editData.slug"
-                    label="Slug (identificador público)"
                     hint="Lo usa la app móvil (header X-Company); cambiarlo requiere actualizar la app"
                     persistent-hint
                     :rules="[(v: string) => !!v || 'Slug requerido']"
-                  />
+                  >
+                    <template #label>Slug (identificador público) <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                  </v-text-field>
                 </v-col>
                 <v-col cols="6">
                   <v-text-field v-model="editData.email" label="Email" type="email" />

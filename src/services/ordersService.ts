@@ -174,6 +174,10 @@ interface OrderFilters {
   active?: boolean;
   pending_payment?: boolean;
   today?: boolean;
+  dining_table_id?: number;
+  /** Creado desde / hasta (AAAA-MM-DD) */
+  from?: string;
+  to?: string;
   status?: string;
   payment_status?: string;
 }

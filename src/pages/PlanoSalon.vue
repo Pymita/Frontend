@@ -178,40 +178,26 @@
       </template>
     </v-card>
 
-    <!-- Detalle de mesa en modo operación -->
-    <v-dialog v-model="detailOpen" max-width="420">
+    <!-- Mesa en modo operación: su pedido completo y todas sus acciones
+         (cobrar, agregar productos, descuento, cuenta, cancelar) sin salir
+         del plano. Es la misma gestión de la página de Pedidos. -->
+    <v-dialog v-model="detailOpen" max-width="1200" scrollable>
       <v-card v-if="detailTable">
-        <v-card-title class="d-flex align-center justify-space-between">
-          {{ displayName(detailTable) }}
+        <v-card-title class="d-flex align-center flex-wrap ga-2">
+          <span>{{ displayName(detailTable) }}</span>
           <v-chip :color="statusColor(detailTable.status)" size="small" variant="flat">
             {{ label(tableStatusLabels, detailTable.status) }}
           </v-chip>
-        </v-card-title>
-        <v-card-text>
-          <div class="text-body-2 mb-1">Capacidad: {{ detailTable.capacity }} personas</div>
-          <div v-if="detailTable.zone" class="text-body-2 mb-1">Zona: {{ detailTable.zone }}</div>
-          <v-divider class="my-3" />
-          <template v-if="detailTable.latest_active_order">
-            <div class="text-body-2 font-weight-bold mb-1">Pedido activo #{{ detailTable.latest_active_order.id }}</div>
-            <div class="text-body-2">Total: ${{ Number(detailTable.latest_active_order.total).toLocaleString() }}</div>
-            <div class="text-body-2">
-              Pago: {{ label(paymentStatusLabels, detailTable.latest_active_order.payment_status) }}
-            </div>
-          </template>
-          <div v-else class="text-body-2 text-medium-emphasis">Sin pedido activo.</div>
-        </v-card-text>
-        <v-card-actions>
+          <span class="text-body-2 text-medium-emphasis">
+            {{ detailTable.capacity }} personas<template v-if="detailTable.zone"> · {{ detailTable.zone }}</template>
+          </span>
           <v-spacer />
-          <v-btn variant="text" @click="detailOpen = false">Cerrar</v-btn>
-          <v-btn
-            v-if="detailTable.latest_active_order"
-            color="primary"
-            variant="flat"
-            @click="goToOrders"
-          >
-            Ver pedidos
-          </v-btn>
-        </v-card-actions>
+          <v-btn icon="mdi-close" variant="text" size="small" aria-label="Cerrar" @click="detailOpen = false" />
+        </v-card-title>
+        <v-divider />
+        <v-card-text>
+          <Pedidos :table-id="detailTable.id" embedded @changed="load" />
+        </v-card-text>
       </v-card>
     </v-dialog>
 
@@ -223,18 +209,17 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
 import { tablesService } from '@/services/tablesService';
 import type { DiningTable, DiningTableShape, DiningTableStatus } from '@/services/tablesService';
-import { label, paymentStatusLabels, tableStatusColors, tableStatusLabels } from '@/utils/labels';
+import { label, tableStatusColors, tableStatusLabels } from '@/utils/labels';
 import { useAuthStore } from '@/stores/auth';
+import Pedidos from './Pedidos.vue';
 
 const GRID = 20;
 const BOUNDS = { minX: 70, maxX: 930, minY: 60, maxY: 560 };
 const POLL_MS = 10000;
 
 const authStore = useAuthStore();
-const router = useRouter();
 
 const tables = ref<DiningTable[]>([]);
 const loading = ref(false);
@@ -442,11 +427,6 @@ const onTableClick = (table: DiningTable) => {
   if (editMode.value) return;
   detailTable.value = table;
   detailOpen.value = true;
-};
-
-const goToOrders = () => {
-  detailOpen.value = false;
-  router.push('/pedidos');
 };
 
 const notify = (text: string, color: string) => {

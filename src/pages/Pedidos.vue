@@ -1,6 +1,21 @@
 <template>
-  <v-container fluid>
-    <v-row>
+  <v-container fluid :class="{ 'pa-0': embedded }">
+    <!-- Dentro del plano del salón: la mesa elegida, sin encabezado ni filtros. -->
+    <div v-if="embedded" class="d-flex align-center justify-space-between flex-wrap ga-2 mb-3">
+      <span class="text-body-2 text-medium-emphasis">
+        {{ filteredOrders.length ? 'Pedido abierto de la mesa' : 'La mesa no tiene pedidos por cobrar.' }}
+      </span>
+      <LockableButton
+        v-if="canManageOrders && !filteredOrders.length"
+        icon="mdi-plus"
+        color="primary"
+        @click="openNuevoPedidoDialog"
+      >
+        Nuevo pedido en esta mesa
+      </LockableButton>
+    </div>
+
+    <v-row v-if="!embedded">
       <v-col cols="15">
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
@@ -32,7 +47,7 @@
 
     <!-- Pendientes de otros días: lo más urgente de la página. -->
     <v-alert
-      v-if="overdueOrders.length > 0"
+      v-if="!embedded && overdueOrders.length > 0"
       type="warning"
       variant="tonal"
       density="compact"
@@ -62,7 +77,7 @@
     <v-row>
       <v-col cols="12">
         <v-card>
-          <v-card-title>
+          <v-card-title v-if="!embedded">
             <v-row align="center">
               <v-col cols="12" md="4">
                 <v-text-field
@@ -75,32 +90,49 @@
                   density="compact"
                 />
               </v-col>
-              <v-col cols="12" md="4">
-                <v-switch
-                  v-model="soloHoy"
-                  label="Solo hoy"
-                  color="primary"
+              <v-col cols="6" md="2">
+                <v-text-field
+                  v-model="dateFrom"
+                  label="Desde"
+                  type="date"
+                  :max="dateTo || undefined"
                   hide-details
                   density="compact"
                 />
-                <div v-if="filterPago === 'pending' && soloHoy" class="text-caption text-warning">
-                  Con "Solo hoy" no ves los pendientes de otros días.
-                </div>
               </v-col>
-              <v-col cols="12" md="4" class="text-right">
-                <v-btn variant="text" @click="loadOrders">
+              <v-col cols="6" md="2">
+                <v-text-field
+                  v-model="dateTo"
+                  label="Hasta"
+                  type="date"
+                  :min="dateFrom || undefined"
+                  hide-details
+                  density="compact"
+                />
+              </v-col>
+              <v-col cols="12" md="4" class="d-flex align-center justify-end flex-wrap ga-1">
+                <v-btn variant="tonal" color="primary" size="small" @click="setToday">Hoy</v-btn>
+                <v-btn v-if="hasDateRange" variant="text" size="small" @click="clearDates">Quitar fechas</v-btn>
+                <v-btn variant="text" @click="loadOrders()">
                   <v-icon start>mdi-refresh</v-icon>
                   Actualizar
                 </v-btn>
+              </v-col>
+              <v-col v-if="filterPago === 'pending' && hasDateRange" cols="12" class="pt-0">
+                <div class="text-caption text-warning">
+                  Con un rango de fechas no ves los pendientes de otros días.
+                </div>
               </v-col>
             </v-row>
           </v-card-title>
           
           <v-data-table
+            v-model:expanded="expanded"
             :headers="headers"
             :items="filteredOrders"
             :loading="loading"
             :row-props="rowProps"
+            :hide-default-footer="embedded"
             class="elevation-0"
             item-value="id"
             show-expand
@@ -1086,14 +1118,33 @@ import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
 import type { OrderGuest } from '@/services/ordersService';
 
+// El plano del salón monta esta misma página para una mesa: se gestiona el
+// pedido ahí sin duplicar la lógica de cobro, productos y descuentos.
+const props = defineProps<{ tableId?: number | null; embedded?: boolean }>();
+const emit = defineEmits<{ changed: [] }>();
+
 const orders = ref<Order[]>([]);
+// Vuetify lo tipa como string[], pero compara contra item-value (el id numérico).
+const expanded = ref<any[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 const search = ref('');
 // Por defecto: TODO lo pendiente de cobro, de cualquier día. Un pedido de
 // ayer sin cobrar es plata que se pierde si solo se ve lo de hoy.
 const filterPago = ref<'pending' | 'paid' | 'all'>('pending');
-const soloHoy = ref(false);
+// Rango por fecha de creación (AAAA-MM-DD, hora local del negocio).
+const dateFrom = ref('');
+const dateTo = ref('');
+const hasDateRange = computed(() => !!dateFrom.value || !!dateTo.value);
+const localToday = () => new Date().toLocaleDateString('en-CA');
+const setToday = () => {
+  dateFrom.value = localToday();
+  dateTo.value = localToday();
+};
+const clearDates = () => {
+  dateFrom.value = '';
+  dateTo.value = '';
+};
 
 /** Pesos colombianos: sin decimales y con separador de miles. */
 const money = (value: number | string | null | undefined): string =>
@@ -1123,11 +1174,11 @@ const isOverdue = (order: Order) =>
 // derivan de ahí; si no (pagados, solo hoy), se consultan aparte para que la
 // alerta no desaparezca al cambiar de filtro.
 const overdueOrders = ref<Order[]>([]);
-const showsAllPending = computed(() => filterPago.value === 'pending' && !soloHoy.value);
+const showsAllPending = computed(() => filterPago.value === 'pending' && !hasDateRange.value);
 
 const verTodosLosPendientes = () => {
   filterPago.value = 'pending';
-  soloHoy.value = false;
+  clearDates();
 };
 
 const rowProps = ({ item }: { item: Order }) => ({
@@ -1408,21 +1459,29 @@ const stopTime = async (order: Order) => {
 const loadOrders = async (silent = false) => {
   if (!silent) loading.value = true;
   try {
-    // El filtro de pago se manda al backend: "todos" sin "solo hoy" sería
+    // El filtro de pago se manda al backend: "todos" sin fechas sería
     // traer el histórico completo cada vez que se abre la página.
     const filters = {
-      today: soloHoy.value,
+      ...(props.tableId ? { dining_table_id: props.tableId } : {}),
+      ...(dateFrom.value ? { from: dateFrom.value } : {}),
+      ...(dateTo.value ? { to: dateTo.value } : {}),
       ...(filterPago.value === 'pending' ? { pending_payment: true } : {}),
       ...(filterPago.value === 'paid' ? { payment_status: 'paid' } : {}),
     };
 
     const [list, pending] = await Promise.all([
       ordersService.getAll(filters),
-      showsAllPending.value ? null : ordersService.getAll({ pending_payment: true }),
+      showsAllPending.value || props.embedded ? null : ordersService.getAll({ pending_payment: true }),
     ]);
 
     orders.value = list;
     overdueOrders.value = (pending ?? list).filter(isOverdue);
+
+    if (props.embedded) {
+      // Con una sola mesa, el detalle del pedido va abierto de entrada.
+      expanded.value = list.filter(isOpen).map(order => order.id);
+      if (!silent) emit('changed');
+    }
   } catch (error) {
     showMessage(errorMessage(error, 'Error al cargar pedidos'), 'error');
   } finally {
@@ -1430,7 +1489,7 @@ const loadOrders = async (silent = false) => {
   }
 };
 
-watch([soloHoy, filterPago], () => loadOrders());
+watch([dateFrom, dateTo, filterPago], () => loadOrders());
 
 const getStatusColor = (status: string) => orderStatusColors[status] || 'secondary';
 
@@ -2012,7 +2071,7 @@ const cargarCatalogo = async () => {
 
 const openNuevoPedidoDialog = () => {
   nuevoPedido.value = {
-    dining_table_id: null,
+    dining_table_id: props.tableId ?? null,
     customer_name: '',
     notes: '',
     items: [],
@@ -2148,7 +2207,8 @@ const playNewOrderChime = () => {
 useLiveRefresh(({ latestId, previousLatestId }) => {
   // Recarga sin spinner: la tabla no parpadea mientras se está cobrando.
   loadOrders(true);
-  if (previousLatestId !== null && latestId > previousLatestId) {
+  // Desde el plano solo importa la mesa abierta: sin avisos de otros pedidos.
+  if (!props.embedded && previousLatestId !== null && latestId > previousLatestId) {
     const count = latestId - previousLatestId;
     showMessage(count === 1 ? `Nuevo pedido #${latestId}` : `${count} pedidos nuevos`, 'info');
     playNewOrderChime();

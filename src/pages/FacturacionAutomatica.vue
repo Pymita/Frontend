@@ -216,9 +216,9 @@
               </v-col>
               <v-col cols="12" md="3" class="d-flex justify-md-end">
                 <v-btn
-                  color="secondary"
-                  variant="tonal"
-                  prepend-icon="mdi-file-excel"
+                  color="primary"
+                  variant="outlined"
+                  prepend-icon="mdi-microsoft-excel"
                   :loading="exporting"
                   :disabled="(receivables?.customers.length ?? 0) === 0"
                   @click="exportReceivables">

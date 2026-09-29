@@ -59,7 +59,13 @@ export interface KardexReport {
 
 export interface BalanceReport {
   as_of: string
-  assets: { cash: number; inventory: number; total: number }
+  assets: {
+    cash: number
+    inventory: number
+    /** Productos con unidades en el kardex pero sin costo: suman $0 al inventario */
+    uncosted_stock?: { id: number; name: string; unit: string | null; quantity: number }[]
+    total: number
+  }
   liabilities: { accounts_payable: number; loans: number; total: number }
   equity: number
 }

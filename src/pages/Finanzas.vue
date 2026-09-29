@@ -106,6 +106,15 @@
                 <td class="pl-8">Inventario valorizado (costo promedio)</td>
                 <td class="text-right">{{ money(balance.assets.inventory) }}</td>
               </tr>
+              <tr v-if="balance.assets.uncosted_stock?.length">
+                <td colspan="2" class="py-2">
+                  <v-alert type="warning" variant="tonal" density="compact" class="text-body-2">
+                    Estos productos tienen existencias pero su costo en el kardex es $0, así que no suman al inventario:
+                    <strong>{{ uncostedLabel }}</strong>.
+                    Para valorizarlos, en el Kardex sácalos con un ajuste (AJ) y vuelve a entrarlos con su costo.
+                  </v-alert>
+                </td>
+              </tr>
               <tr>
                 <td class="font-weight-medium">Total activos</td>
                 <td class="text-right font-weight-medium">{{ money(balance.assets.total) }}</td>
@@ -279,6 +288,12 @@ const isReadOnly = useReadOnly()
 const loadingIncome = ref(false)
 const income = ref<IncomeStatement | null>(null)
 const balance = ref<BalanceReport | null>(null)
+
+const uncostedLabel = computed(() =>
+  (balance.value?.assets.uncosted_stock ?? [])
+    .map(p => `${p.name} (${p.quantity.toLocaleString('es-CO')}${p.unit ? ' ' + p.unit : ''})`)
+    .join(', '),
+)
 
 // Rango por defecto: el mes actual.
 const now = new Date()
