@@ -270,10 +270,9 @@
                 />
               </v-col>
               <v-col cols="6" md="3">
-                <v-text-field
+                <DateField
                   v-model="resolutionForm.resolution_date"
                   label="Fecha de la resolución"
-                  type="date"
                   hint="Es también el inicio de la vigencia"
                   persistent-hint
                 />
@@ -302,11 +301,10 @@
                   :hint="computedValidUntil ? `Vence el ${computedValidUntil}` : 'Ej: 48 meses desde la fecha de la resolución'"
                   persistent-hint
                 />
-                <v-text-field
+                <DateField
                   v-else
                   v-model="resolutionForm.valid_until"
                   label="Vigente hasta"
-                  type="date"
                 />
               </v-col>
               <v-col cols="12" class="d-flex align-center">
@@ -412,6 +410,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import kardexService, { type DocumentType, type Tax } from '../services/kardexService'
 import invoicingService, { type InvoicingResolution, type ResolutionStatus } from '../services/invoicingService'
 import LockableButton from '../components/LockableButton.vue'
+import DateField from '../components/DateField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 import { billingService, type BusinessForm } from '../services/billingService'
 import type { DocumentBusiness } from '../utils/printDocuments'

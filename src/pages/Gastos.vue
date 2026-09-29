@@ -24,19 +24,17 @@
           <v-card-text  class="mt-4" >
             <v-row>
               <v-col md="3">
-                <v-text-field
+                <DateField
                   v-model="fechaInicio"
                   label="Fecha Inicio"
-                  type="date"
                   variant="outlined"
                   density="compact"
                   hide-details />
               </v-col>
               <v-col md="3">
-                <v-text-field
+                <DateField
                   v-model="fechaFin"
                   label="Fecha Fin"
-                  type="date"
                   variant="outlined"
                   density="compact"
                   hide-details />
@@ -256,9 +254,8 @@
               </v-col>
 
               <v-col cols="12" md="6">
-                <v-text-field
+                <DateField
                   v-model="expenseFormData.expense_date"
-                  type="date"
                   variant="outlined"
                   density="comfortable"
                   :rules="[rules.required]"
@@ -268,7 +265,7 @@
                   <template #label>
                     Fecha del Gasto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
-                </v-text-field>
+                </DateField>
               </v-col>
 
               <v-col cols="12" md="6">
@@ -469,6 +466,7 @@ import { expensesService, type Expense, type ExpenseCategory, type ExpenseSummar
 import { expenseCategoryTypeLabels, label } from '@/utils/labels'
 import { productsService, type Product } from '@/services/productsService'
 import LockableButton from '../components/LockableButton.vue'
+import DateField from '../components/DateField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.

@@ -23,6 +23,8 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:5199',
     timezoneId: 'America/Bogota',
+    // Colombian users run Spanish browsers; the app must read the same.
+    locale: 'es-CO',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },

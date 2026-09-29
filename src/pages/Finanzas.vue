@@ -16,18 +16,16 @@
           <div class="d-flex align-center mb-3">
             <h2 class="text-h6">Estado de Resultados</h2>
             <v-spacer />
-            <v-text-field
+            <DateField
               v-model="from"
-              type="date"
               label="Desde"
               density="compact"
               hide-details
               class="mr-2"
               style="max-width: 160px"
             />
-            <v-text-field
+            <DateField
               v-model="to"
-              type="date"
               label="Hasta"
               density="compact"
               hide-details
@@ -239,7 +237,7 @@
               />
             </v-col>
             <v-col cols="6">
-              <v-text-field v-model="movementForm.occurred_at" label="Fecha" type="date" />
+              <DateField v-model="movementForm.occurred_at" label="Fecha" />
             </v-col>
           </v-row>
           <v-select
@@ -280,6 +278,7 @@ import kardexService, {
   type MovementKindOption,
 } from '../services/kardexService'
 import LockableButton from '../components/LockableButton.vue'
+import DateField from '../components/DateField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.

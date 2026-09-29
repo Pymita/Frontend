@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { API, apiLogin, field, loginUI, sidebarItem } from './helpers'
+import { API, PLATFORM, apiLogin, displayDate, field, loginUI, sidebarItem } from './helpers'
 
 /**
  * Facturación automática: un conjunto cobra la misma cuota cada mes. Se
@@ -18,7 +18,7 @@ interface Company {
 }
 
 async function createRecurringCompany(request: APIRequestContext, slug: string): Promise<Company> {
-  const superToken = await apiLogin(request, 'plataforma@saboresdeltrigo.com', 'plataforma123')
+  const superToken = await apiLogin(request, PLATFORM.email, PLATFORM.password)
   const credentials = { email: `admin.${slug}.${Date.now()}@e2e.test`, password: 'conjunto2026' }
 
   const response = await request.post(`${API}/platform/companies`, {
@@ -274,7 +274,7 @@ test('el día a facturar marca a quienes tienen el corte ese día', async ({ pag
   await sidebarItem(page, 'Facturación automática').click()
 
   // Por defecto el día a facturar es hoy y queda marcado quien corta hoy.
-  await expect(field(page, 'Día a facturar').locator('input')).toHaveValue(today)
+  await expect(field(page, 'Día a facturar').locator('input')).toHaveValue(displayDate(today))
   await expect(row(page, 'Ana Corte Hoy').locator('input[type="checkbox"]')).toBeChecked()
   await expect(row(page, 'Beto Corte Otro').locator('input[type="checkbox"]')).not.toBeChecked()
   await expect(page.getByText(/Quedó marcado 1 tercero con corte el/)).toBeVisible()
@@ -288,7 +288,7 @@ test('el día a facturar marca a quienes tienen el corte ese día', async ({ pag
 
   // El mes a facturar sigue al día elegido.
   await field(page, 'Día a facturar').locator('input').fill('2025-03-05')
-  await expect(field(page, 'Mes a facturar').locator('input')).toHaveValue('2025-03')
+  await expect(field(page, 'Mes a facturar').locator('input')).toHaveValue('marzo de 2025')
   await expect(page.getByText(/Nadie tiene su corte el/)).toBeVisible()
 })
 

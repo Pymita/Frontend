@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import { ADMIN, API, apiLogin, loginUI } from './helpers'
+import { ADMIN, API, apiLogin, displayDate, loginUI } from './helpers'
 
 /**
  * Dashboard: lo que el dueño mira primero. Las métricas cuentan lo mismo
@@ -115,8 +115,8 @@ test('el gráfico cambia entre semana, mes y rango, y más vendidos sigue el per
   await expect(chart).toContainText('Ventas del Periodo')
   const from = chart.getByLabel('Desde')
   const to = chart.getByLabel('Hasta')
-  await expect(from).toHaveValue(monthFrom)
-  await expect(to).toHaveValue(localDate(today))
+  await expect(from).toHaveValue(displayDate(monthFrom))
+  await expect(to).toHaveValue(displayDate(localDate(today)))
 
   // Un mes sin ventas: el gráfico sigue ahí, en cero, y más vendidos lo dice.
   await from.fill('2020-01-01')

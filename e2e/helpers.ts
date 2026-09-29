@@ -5,6 +5,9 @@ export const API = 'http://127.0.0.1:8010/api'
 /** Credenciales que crean los seeders (base e2e recién sembrada). */
 export const ADMIN = { email: 'admin@saboresdeltrigo.com', password: 'admin123' }
 
+/** Cuenta de la plataforma (super admin) que crea PlatformSeeder. */
+export const PLATFORM = { email: 'plataforma@servifypos.co', password: 'plataforma123' }
+
 /** Slug de la empresa sembrada: los empleados entran con usuario + negocio. */
 export const COMPANY_SLUG = 'sabores-del-trigo'
 
@@ -74,6 +77,12 @@ export async function openSidebarGroup(page: Page, title: string): Promise<void>
  * `:text-is()`: los campos obligatorios llevan el asterisco en un `<span>`
  * rojo dentro de la etiqueta, y `:text-is()` no cruza los elementos hijos.
  */
+/** "2026-09-29" → "29/09/2026": así muestran las fechas los campos de la app. */
+export function displayDate(iso: string): string {
+  const [year, month, day] = iso.split('-')
+  return `${day}/${month}/${year}`
+}
+
 export function field(page: Page, label: string) {
   return page.locator('.v-input').filter({ has: page.getByText(label, { exact: true }) })
 }

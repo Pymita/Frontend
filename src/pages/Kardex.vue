@@ -98,15 +98,14 @@
             </v-col>
             <v-col cols="4">
               <!-- Los documentos no siempre se registran el día que ocurren -->
-              <v-text-field
+              <DateField
                 v-model="movementForm.moved_at"
-                type="date"
                 :max="today"
               >
                 <template #label>
                   Fecha del movimiento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                 </template>
-              </v-text-field>
+              </DateField>
             </v-col>
           </v-row>
           <v-row dense>
@@ -164,10 +163,10 @@
               />
             </v-col>
             <v-col cols="6" md="2">
-              <v-text-field v-model="filters.from" label="Desde" type="date" hide-details />
+              <DateField v-model="filters.from" label="Desde" hide-details />
             </v-col>
             <v-col cols="6" md="2">
-              <v-text-field v-model="filters.to" label="Hasta" type="date" hide-details />
+              <DateField v-model="filters.to" label="Hasta" hide-details />
             </v-col>
             <v-col cols="6" md="2">
               <v-select
@@ -335,6 +334,7 @@ import kardexService, { type DocumentType, type KardexFilters, type KardexReport
 import { productsService } from '../services/productsService'
 import { billingService, type Customer, type Supplier } from '../services/billingService'
 import LockableButton from '../components/LockableButton.vue'
+import DateField from '../components/DateField.vue'
 
 // Documentos que el sistema genera solo: no se pueden registrar a mano.
 const AUTOMATIC_CODES = ['SI', 'FV', 'NC']

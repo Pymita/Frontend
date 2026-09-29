@@ -79,7 +79,7 @@
         <v-card>
           <v-card-title v-if="!embedded">
             <v-row align="center">
-              <v-col cols="12" md="4">
+              <v-col cols="12" md="3">
                 <v-text-field
                   v-model="search"
                   prepend-inner-icon="mdi-magnify"
@@ -90,27 +90,25 @@
                   density="compact"
                 />
               </v-col>
-              <v-col cols="6" md="2">
-                <v-text-field
+              <v-col cols="6" md="3">
+                <DateField
                   v-model="dateFrom"
                   label="Desde"
-                  type="date"
                   :max="dateTo || undefined"
                   hide-details
                   density="compact"
                 />
               </v-col>
-              <v-col cols="6" md="2">
-                <v-text-field
+              <v-col cols="6" md="3">
+                <DateField
                   v-model="dateTo"
                   label="Hasta"
-                  type="date"
                   :min="dateFrom || undefined"
                   hide-details
                   density="compact"
                 />
               </v-col>
-              <v-col cols="12" md="4" class="d-flex align-center justify-end flex-wrap ga-1">
+              <v-col cols="12" md="3" class="d-flex align-center justify-end flex-wrap ga-1">
                 <v-btn variant="tonal" color="primary" size="small" @click="setToday">Hoy</v-btn>
                 <v-btn v-if="hasDateRange" variant="text" size="small" @click="clearDates">Quitar fechas</v-btn>
                 <v-btn variant="text" @click="loadOrders()">
@@ -1110,6 +1108,7 @@ import {
   label,
 } from '@/utils/labels';
 import LockableButton from '../components/LockableButton.vue'
+import DateField from '../components/DateField.vue'
 import ProductPicker from '../components/ProductPicker.vue'
 import { menuItemsService } from '@/services/menuService';
 import { tablesService } from '@/services/tablesService';

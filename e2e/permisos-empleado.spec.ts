@@ -140,6 +140,46 @@ test('el panel del login presenta el producto a la altura del formulario', async
   await page.screenshot({ path: '../screenshots/login-1280x720.png' })
 })
 
+test('la app se llama Servify POS y habla español en tablas, paginación y fechas', async ({ page }) => {
+  await page.goto('/login')
+  await expect(page).toHaveTitle('Servify POS — Sistema de Gestión')
+  await expect(page.getByRole('heading', { name: 'Servify POS', level: 1 })).toBeVisible()
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', /favicon\.svg$/)
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await expect(page.locator('.v-navigation-drawer')).toContainText('Servify POS')
+
+  // Las fechas se escriben y se leen como dd/mm/aaaa, sin importar el navegador.
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Todos' }).click()
+  await page.getByLabel('Desde').fill('01/01/2001')
+  await page.getByLabel('Hasta').fill('31/01/2001')
+  await expect(page.getByLabel('Desde')).toHaveValue('01/01/2001')
+
+  const table = page.locator('.v-data-table')
+  await expect(table).toContainText('No hay datos disponibles')
+  await expect(table).toContainText(/(Filas|Elementos) por página/)
+  await expect(page.getByText(/No data available|Items per page/)).toHaveCount(0)
+
+  // El calendario también sale en español.
+  await page.getByRole('button', { name: 'Abrir calendario' }).first().click()
+  const picker = page.locator('.v-date-picker')
+  await expect(picker).toContainText(/enero/i)
+  await expect(picker).toBeInViewport()
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/fechas-en-espanol-1440.png' })
+
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await page.getByLabel('Desde').fill('01/01/2001')
+  await page.getByLabel('Desde').blur()
+  await expect(page.getByLabel('Desde')).toHaveValue('01/01/2001')
+  await expect(table).toContainText('No hay datos disponibles')
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/fechas-en-espanol-390.png' })
+})
+
 test('en el celular el menú no tapa la página: se abre con el botón y se cierra al navegar', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await loginUI(page, ADMIN.email, ADMIN.password)

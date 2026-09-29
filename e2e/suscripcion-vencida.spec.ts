@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { API, apiLogin, loginUI } from './helpers'
+import { API, PLATFORM, apiLogin, loginUI } from './helpers'
 
 /**
  * Una empresa con la suscripción vencida queda en SOLO LECTURA: puede
@@ -11,8 +11,6 @@ import { API, apiLogin, loginUI } from './helpers'
  *
  * Patrón: preparar por API, verificar por interfaz.
  */
-
-const PLATFORM = { email: 'plataforma@saboresdeltrigo.com', password: 'plataforma123' }
 
 const BLOCK_REASON = 'Pago vencido de agosto: comunícate con soporte para reactivar'
 

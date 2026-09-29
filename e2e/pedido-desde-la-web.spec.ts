@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, loginUI } from './helpers'
+import { ADMIN, API, apiLogin, displayDate, loginUI } from './helpers'
 
 /**
  * La web crea pedidos con productos reales (antes solo existía el pedido
@@ -125,8 +125,8 @@ test('el panel de pedidos filtra por rango de fechas', async ({ page, request })
   // "Hoy" pone el rango del día y el pedido vuelve.
   await page.getByRole('button', { name: 'Hoy', exact: true }).click()
   const today = new Date().toLocaleDateString('en-CA')
-  await expect(page.getByLabel('Desde')).toHaveValue(today)
-  await expect(page.getByLabel('Hasta')).toHaveValue(today)
+  await expect(page.getByLabel('Desde')).toHaveValue(displayDate(today))
+  await expect(page.getByLabel('Hasta')).toHaveValue(displayDate(today))
   await expect(row).toBeVisible()
 
   // En "Pendientes" con fechas avisa que se ocultan los de otros días.

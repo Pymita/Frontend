@@ -73,10 +73,10 @@
           <v-card-text>
             <v-row v-if="period === 'range'" dense class="mb-2">
               <v-col cols="6" sm="4">
-                <v-text-field v-model="range.from" label="Desde" type="date" density="compact" hide-details />
+                <DateField v-model="range.from" label="Desde" density="compact" hide-details />
               </v-col>
               <v-col cols="6" sm="4">
-                <v-text-field v-model="range.to" label="Hasta" type="date" density="compact" hide-details />
+                <DateField v-model="range.to" label="Hasta" density="compact" hide-details />
               </v-col>
             </v-row>
             <v-alert v-if="periodError" type="error" variant="tonal" density="compact" class="mb-2">
@@ -238,6 +238,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed, watch } from 'vue'
+import DateField from '../components/DateField.vue'
 import {
   dashboardService,
   type DashboardStats,

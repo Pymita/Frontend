@@ -6,6 +6,7 @@
  * régimen, dirección, teléfonos y observaciones.
  */
 import { taxRegimeLabels } from './labels'
+import { APP_NAME } from './branding'
 
 export interface DocumentBusiness {
   legal_name: string
@@ -195,7 +196,7 @@ const footer = (left: string, right: string) => `
     <div class="signature">${left}</div>
     <div class="signature">${right}</div>
   </div>
-  <div class="printed-by">Documento impreso por computador · Pymita</div>`
+  <div class="printed-by">Documento impreso por computador · ${escape(APP_NAME)}</div>`
 
 export const invoiceHtml = (
   business: DocumentBusiness,

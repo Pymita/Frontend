@@ -409,10 +409,9 @@
                   />
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-text-field
+                  <DateField
                     v-model="formData.initial_stock_date"
                     label="Fecha del saldo inicial"
-                    type="date"
                     :max="today"
                     hint="Si el inventario existe desde antes, pon la fecha real: así queda en el kardex"
                     persistent-hint
@@ -608,6 +607,7 @@ import { menuItemsService } from '@/services/menuService';
 import kardexService from '@/services/kardexService';
 import { productTypeLabels, label } from '@/utils/labels';
 import LockableButton from '../components/LockableButton.vue'
+import DateField from '../components/DateField.vue'
 import ProductImportDialog from '../components/ProductImportDialog.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 

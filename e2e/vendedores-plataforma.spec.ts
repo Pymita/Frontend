@@ -1,7 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { API, apiLogin, loginUI, sidebarItem } from './helpers'
-
-const PLATFORM = { email: 'plataforma@saboresdeltrigo.com', password: 'plataforma123' }
+import { API, PLATFORM, apiLogin, loginUI, sidebarItem } from './helpers'
 
 /**
  * Capa comercial de la plataforma: vendedores, precio acordado en la

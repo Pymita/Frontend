@@ -41,19 +41,18 @@
           <v-card-text>
             <v-row dense>
               <v-col cols="12" sm="4" md="3">
-                <v-text-field
+                <DateField
                   v-model="issueDate"
                   label="Día a facturar"
-                  type="date"
                   density="compact"
                   hint="Es la fecha de emisión; se marcan los terceros con corte ese día"
                   persistent-hint />
               </v-col>
               <v-col cols="12" sm="4" md="3">
-                <v-text-field
+                <DateField
                   v-model="period"
                   label="Mes a facturar"
-                  type="month"
+                  month
                   density="compact"
                   hint="Sigue al día a facturar; cámbialo para facturar otro mes"
                   persistent-hint />
@@ -477,7 +476,7 @@
               <v-text-field v-model.number="rowForm.discount" label="Descuento" type="number" min="0" prefix="$" density="comfortable" />
             </v-col>
             <v-col cols="6" md="3">
-              <v-text-field v-model="rowForm.due_date" label="Vence" type="date" density="comfortable" />
+              <DateField v-model="rowForm.due_date" label="Vence" density="comfortable" />
             </v-col>
             <v-col cols="12" md="6">
               <v-select
@@ -613,7 +612,7 @@
                   density="comfortable" />
               </v-col>
               <v-col cols="12" md="4">
-                <v-text-field v-model="paymentForm.paid_at" label="Fecha" type="date" :max="today" density="comfortable" />
+                <DateField v-model="paymentForm.paid_at" label="Fecha" :max="today" density="comfortable" />
               </v-col>
             </v-row>
           </v-form>
@@ -670,7 +669,7 @@
                     density="comfortable" />
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-text-field v-model="customerPaymentForm.paid_at" label="Fecha" type="date" :max="today" density="comfortable" />
+                  <DateField v-model="customerPaymentForm.paid_at" label="Fecha" :max="today" density="comfortable" />
                 </v-col>
                 <v-col cols="12">
                   <v-text-field v-model="customerPaymentForm.notes" label="Nota (opcional)" density="comfortable" />
@@ -864,6 +863,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import LockableButton from '../components/LockableButton.vue'
+import DateField from '../components/DateField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 import {
   billingService,

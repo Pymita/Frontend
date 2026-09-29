@@ -4,7 +4,7 @@
       <v-col md="5" class="d-none d-md-flex flex-column bg-chrome pa-12">
         <div class="d-flex align-center ga-3">
           <v-avatar color="accent" rounded="lg" size="44">
-            <v-icon icon="mdi-bread-slice" size="26" />
+            <v-icon :icon="APP_ICON" size="26" />
           </v-avatar>
           <span class="text-h5 font-weight-bold">{{ APP_NAME }}</span>
         </div>
@@ -35,7 +35,7 @@
         <v-card width="400" class="pa-8">
           <div class="mb-6">
             <v-avatar color="accent" rounded="lg" size="44" class="d-md-none mb-4">
-              <v-icon icon="mdi-bread-slice" size="26" />
+              <v-icon :icon="APP_ICON" size="26" />
             </v-avatar>
             <h1 class="text-h4 mb-1">{{ APP_NAME }}</h1>
             <p class="text-body-1 text-medium-emphasis">Ingresa con tu cuenta para continuar</p>
@@ -59,7 +59,7 @@
               v-model="company"
               v-bind="companyAttrs"
               label="Código del negocio"
-              hint="Pídeselo a tu administrador (ej: sabores-del-trigo)"
+              hint="Pídeselo a tu administrador (ej: mi-negocio)"
               persistent-hint
               prepend-inner-icon="mdi-storefront"
               variant="outlined"
@@ -115,7 +115,7 @@
 </template>
 
 <script setup lang="ts">
-import { APP_NAME, APP_TAGLINE } from '@/utils/branding';
+import { APP_ICON, APP_NAME, APP_TAGLINE } from '@/utils/branding';
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useForm } from 'vee-validate'

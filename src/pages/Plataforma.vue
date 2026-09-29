@@ -570,10 +570,9 @@
               />
             </v-col>
             <v-col cols="6">
-              <v-text-field
+              <DateField
                 v-model="subscriptionData.current_period_end"
                 label="Pagada hasta"
-                type="date"
               />
             </v-col>
             <v-col cols="6">
@@ -725,6 +724,7 @@ import type { PlatformCompany, PlatformCompanyDetail, PlatformSeller, SellerStat
 import { ALL_FEATURES, type BusinessType, type Feature, type SubscriptionStatus } from '../types/auth'
 import { PASSWORD_HINT, passwordRules } from '../utils/validation'
 import CopyCatalogDialog from '../components/CopyCatalogDialog.vue'
+import DateField from '../components/DateField.vue'
 
 const loading = ref(false)
 const saving = ref(false)

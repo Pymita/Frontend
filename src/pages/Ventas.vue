@@ -75,10 +75,10 @@
     <!-- Filtros -->
     <v-row dense>
       <v-col cols="6" md="2">
-        <v-text-field v-model="filters.from" label="Desde" type="date" density="compact" hide-details />
+        <DateField v-model="filters.from" label="Desde" density="compact" hide-details />
       </v-col>
       <v-col cols="6" md="2">
-        <v-text-field v-model="filters.to" label="Hasta" type="date" density="compact" hide-details />
+        <DateField v-model="filters.to" label="Hasta" density="compact" hide-details />
       </v-col>
       <v-col cols="6" md="2">
         <v-select
@@ -266,6 +266,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import DateField from '../components/DateField.vue'
 import salesService, {
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,

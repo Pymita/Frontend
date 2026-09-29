@@ -11,7 +11,7 @@
     >
       <div class="d-flex align-center ga-3 px-4 pt-4 pb-1">
         <v-avatar color="accent" rounded="lg" size="36">
-          <v-icon icon="mdi-bread-slice" size="22" />
+          <v-icon :icon="APP_ICON" size="22" />
         </v-avatar>
         <div class="text-truncate">
           <div class="text-h6 font-weight-bold text-truncate">{{ companyName }}</div>
@@ -145,7 +145,7 @@ import { useDisplay } from 'vuetify'
 import invoicingService from './services/invoicingService'
 import { useAuthStore } from './stores/auth'
 import { effectiveFeatures } from './types/auth'
-import { APP_NAME } from './utils/branding'
+import { APP_ICON, APP_NAME } from './utils/branding'
 import { SUBSCRIPTION_BLOCKED_EVENT } from './services/api'
 import type { MenuItem } from './types'
 
