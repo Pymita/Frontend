@@ -154,6 +154,8 @@ export interface Order {
   amount_paid: number;
   pending_balance: number;
   notes?: string;
+  /** Nombres puestos a las personas (número→nombre); sin nombre se usa "Persona N" */
+  guest_names?: Record<number, string>;
   time?: OrderTime | null;
   items: OrderItem[];
   /** Vacío cuando nadie separó la cuenta */

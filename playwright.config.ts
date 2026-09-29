@@ -1,5 +1,11 @@
 import { defineConfig } from '@playwright/test'
 
+// The API runs in America/Bogota (APP_TIMEZONE) and so do the customers. On a
+// UTC runner "today" is already tomorrow after 7pm Bogotá, and every screen
+// that defaults its date filter to today misses the sales just created. The
+// specs (Node) and the browser must share the API's clock.
+process.env.TZ = 'America/Bogota'
+
 /**
  * E2E: levanta backend (Laravel, puerto 8010) con una base de datos
  * SQLite propia (database/e2e.sqlite, recreada y sembrada en cada
@@ -16,6 +22,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: 'http://127.0.0.1:5199',
+    timezoneId: 'America/Bogota',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
