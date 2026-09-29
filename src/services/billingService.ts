@@ -1,5 +1,6 @@
 import api from './api'
 import type { PaymentMethod } from './salesService'
+import type { DocumentBusiness, DocumentResolution, PrintableReceipt } from '../utils/printDocuments'
 
 export type PersonType = 'natural' | 'legal'
 
@@ -90,6 +91,8 @@ export interface GeneratePayload {
 
 export interface RecurringPayment {
   id: number
+  /** Recibo de caja (RC-n) al que pertenece este abono */
+  receipt_number: number | null
   amount: number
   payment_method: PaymentMethod
   paid_at: string
@@ -183,6 +186,20 @@ export interface InvoiceFilters {
 export interface ReceivableFilters {
   all?: boolean
   q?: string
+}
+
+export interface CashReceipt extends PrintableReceipt {
+  number: number
+}
+
+/** Datos del negocio editables (encabezado de facturas y recibos) */
+export type BusinessForm = Omit<DocumentBusiness, 'complete'>
+
+export interface CustomerPaymentPayload {
+  amount: number
+  payment_method: PaymentMethod
+  paid_at?: string
+  notes?: string
 }
 
 export interface Supplier {
@@ -322,9 +339,37 @@ export const billingService = {
   async addRecurringPayment(
     invoiceId: number,
     data: { amount: number; payment_method: PaymentMethod; paid_at?: string; notes?: string },
-  ): Promise<{ data: RecurringInvoice; message: string }> {
-    const response = await api.post<ApiResponse<RecurringInvoice>>(`/recurring-billing/invoices/${invoiceId}/payments`, data)
+  ): Promise<{ data: RecurringInvoice & { receipt_number: number }; message: string }> {
+    const response = await api.post<ApiResponse<RecurringInvoice & { receipt_number: number }>>(`/recurring-billing/invoices/${invoiceId}/payments`, data)
     return { data: response.data.data, message: response.data.message ?? '' }
+  },
+
+  /** Abono al tercero: paga sus documentos del más viejo al más nuevo, en un recibo. */
+  async payCustomer(customerId: number, data: CustomerPaymentPayload): Promise<{ data: CashReceipt; message: string }> {
+    const response = await api.post<ApiResponse<CashReceipt>>(`/recurring-billing/customers/${customerId}/payments`, data)
+    return { data: response.data.data, message: response.data.message ?? '' }
+  },
+
+  async getReceipt(receiptNumber: number): Promise<{ business: DocumentBusiness; receipt: CashReceipt }> {
+    const response = await api.get<ApiResponse<{ business: DocumentBusiness; receipt: CashReceipt }>>(`/recurring-billing/receipts/${receiptNumber}`)
+    return response.data.data
+  },
+
+  async getInvoiceDocument(invoiceId: number): Promise<{ business: DocumentBusiness; resolution: DocumentResolution | null; invoice: RecurringInvoice }> {
+    const response = await api.get<ApiResponse<{ business: DocumentBusiness; resolution: DocumentResolution | null; invoice: RecurringInvoice }>>(
+      `/recurring-billing/invoices/${invoiceId}/document`,
+    )
+    return response.data.data
+  },
+
+  async getBusiness(): Promise<DocumentBusiness> {
+    const response = await api.get<ApiResponse<DocumentBusiness>>('/invoicing/business')
+    return response.data.data
+  },
+
+  async updateBusiness(data: BusinessForm): Promise<DocumentBusiness> {
+    const response = await api.put<ApiResponse<DocumentBusiness>>('/invoicing/business', data)
+    return response.data.data
   },
 
   async deleteRecurringPayment(paymentId: number): Promise<RecurringInvoice> {

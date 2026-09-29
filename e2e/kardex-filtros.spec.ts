@@ -87,6 +87,40 @@ test('al elegir un producto el kardex solo muestra sus movimientos', async ({ pa
   await expect(rows.filter({ hasText: levadura })).not.toHaveCount(0)
 })
 
+/**
+ * En staging (lento, con arranques en frío) una respuesta vieja podía llegar
+ * después de la nueva: se elegía Gatorade y la tabla quedaba con los
+ * movimientos del producto anterior. La respuesta vieja se descarta.
+ */
+test('cambiar de producto rápido muestra el último elegido aunque la consulta anterior tarde', async ({ page, request }) => {
+  const { names, ids } = await createProductWithMovements(request, 'Lento')
+  const [slow, fast] = names
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/kardex')
+  const rows = page.locator('tbody tr')
+  await expect(rows.filter({ hasText: slow })).not.toHaveCount(0)
+
+  // La consulta del primer producto tarda más que la del segundo.
+  await page.route(new RegExp(`/api/kardex\\?.*product_id=${ids[0]}(&|$)`), async route => {
+    await new Promise(resolve => setTimeout(resolve, 2500))
+    await route.continue()
+  })
+
+  await page.getByRole('combobox', { name: 'Producto' }).click()
+  await page.getByRole('option', { name: slow }).click()
+  await page.waitForTimeout(500)
+  await page.getByRole('combobox', { name: 'Producto' }).click()
+  await page.getByRole('option', { name: fast }).click()
+
+  // Ya llegó la respuesta lenta: la tabla sigue siendo del producto elegido.
+  await page.waitForTimeout(3500)
+  await expect(rows.filter({ hasText: 'Merma E2E' })).toHaveCount(0)
+  await expect(rows).not.toHaveCount(0)
+  await expect(page.getByText('Existencia actual')).toBeVisible()
+  await expect(page.locator('.v-card', { hasText: 'Existencia actual' }).first()).toContainText('11')
+})
+
 test('los filtros de movimiento, documento y fechas se aplican solos', async ({ page, request }) => {
   const { names } = await createProductWithMovements(request, 'B')
   const [azucar] = names

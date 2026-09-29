@@ -1,0 +1,371 @@
+/**
+ * Documentos imprimibles en hoja carta de la facturación automática: cuenta
+ * de cobro / factura de venta y recibo de caja. Es UNA plantilla para todas
+ * las empresas: el encabezado sale de los datos de cada una (Configuración >
+ * Datos del negocio), así que cada negocio imprime con su nombre, NIT,
+ * régimen, dirección, teléfonos y observaciones.
+ */
+import { taxRegimeLabels } from './labels'
+
+export interface DocumentBusiness {
+  legal_name: string
+  trade_name?: string | null
+  nit?: string | null
+  tax_regime?: string | null
+  address?: string | null
+  city?: string | null
+  department?: string | null
+  phone?: string | null
+  email?: string | null
+  document_notes?: string | null
+  complete?: boolean
+}
+
+export interface DocumentResolution {
+  number: string
+  date?: string | null
+  prefix?: string | null
+  range_from?: number | null
+  range_to?: number | null
+  valid_until?: string | null
+}
+
+export interface PrintableInvoice {
+  document_kind: 'invoice' | 'collection'
+  document_number: string
+  issued_at: string
+  due_date: string | null
+  period: string
+  customer_name: string
+  customer_document_type: string | null
+  customer_document: string | null
+  customer_address: string | null
+  customer_city: string | null
+  customer_phone: string | null
+  customer_email: string | null
+  concept: string
+  quantity: number
+  unit_price: number
+  subtotal: number
+  discount: number
+  tax_name: string | null
+  tax_rate: number
+  tax_amount: number
+  total: number
+  amount_paid: number
+  balance: number
+  notes: string | null
+  seller: string | null
+}
+
+export interface PrintableReceipt {
+  reference: string
+  paid_at: string | null
+  payment_method: string | null
+  notes: string | null
+  received_by: string | null
+  customer: {
+    name: string
+    document_type: string | null
+    document: string | null
+    address: string | null
+    city: string | null
+    phone: string | null
+  }
+  total: number
+  lines: {
+    document_kind: 'invoice' | 'collection' | null
+    document_number: string | null
+    concept: string | null
+    period: string | null
+    document_total: number
+    amount: number
+    balance: number
+  }[]
+}
+
+const METHOD_LABELS: Record<string, string> = {
+  cash: 'Efectivo',
+  credit_card: 'Tarjeta crédito',
+  debit_card: 'Tarjeta débito',
+  transfer: 'Transferencia',
+  other: 'Otro',
+}
+
+// ===== Valor en letras =====
+
+const UNITS = [
+  '', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve',
+  'diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve',
+  'veinte', 'veintiuno', 'veintidós', 'veintitrés', 'veinticuatro', 'veinticinco', 'veintiséis', 'veintisiete', 'veintiocho', 'veintinueve',
+]
+const TENS = ['', '', '', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa']
+const HUNDREDS = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos']
+
+const below100 = (n: number): string =>
+  n < 30 ? UNITS[n]! : TENS[Math.floor(n / 10)]! + (n % 10 ? ` y ${UNITS[n % 10]}` : '')
+
+const below1000 = (n: number): string => {
+  if (n === 100) return 'cien'
+  const hundreds = Math.floor(n / 100)
+  const rest = n % 100
+  return [HUNDREDS[hundreds], rest ? below100(rest) : ''].filter(Boolean).join(' ')
+}
+
+// "uno" se acorta delante de "mil", "millones" y "pesos": veintiún mil, un peso.
+const apocope = (words: string): string =>
+  words.endsWith('veintiuno') ? words.replace(/veintiuno$/, 'veintiún') : words.replace(/uno$/, 'un')
+
+const below1Million = (n: number): string => {
+  const thousands = Math.floor(n / 1000)
+  const rest = n % 1000
+  const head = thousands === 0 ? '' : thousands === 1 ? 'mil' : `${apocope(below1000(thousands))} mil`
+  return [head, rest ? below1000(rest) : ''].filter(Boolean).join(' ')
+}
+
+/** Valor en letras como va en las facturas colombianas: "SETENTA MIL PESOS M/CTE". */
+export const amountInWords = (value: number): string => {
+  const n = Math.round(Math.abs(value))
+  if (n === 0) return 'CERO PESOS M/CTE'
+
+  const millions = Math.floor(n / 1_000_000)
+  const rest = n % 1_000_000
+  const head = millions === 0 ? '' : millions === 1 ? 'un millón' : `${apocope(below1Million(millions))} millones`
+  const tail = rest ? apocope(below1Million(rest)) : ''
+  // Millones exactos llevan "de": un millón de pesos.
+  const currency = rest === 0 && millions > 0 ? 'de pesos' : n === 1 ? 'peso' : 'pesos'
+
+  return `${[head, tail].filter(Boolean).join(' ')} ${currency} M/CTE`.toUpperCase()
+}
+
+// ===== Formato =====
+
+const escape = (value: unknown): string =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+
+const money = (value: number): string =>
+  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
+
+/** DD/MM/AAAA sin pasar por Date: la zona horaria no corre el día. */
+const dmy = (value: string | null | undefined): string => {
+  if (!value) return ''
+  const [y, m, d] = value.slice(0, 10).split('-')
+  return `${d}/${m}/${y}`
+}
+
+const periodName = (value: string): string => {
+  const [y = 0, m = 1] = value.split('-').map(Number)
+  return new Date(y, m - 1, 1).toLocaleDateString('es-CO', { month: 'long', year: 'numeric' })
+}
+
+const header = (business: DocumentBusiness, kind: string, number: string): string => {
+  // El régimen es una declaración fiscal del NIT: sin NIT cargado sería el
+  // valor por defecto de la base, no algo que la empresa dijo.
+  const regime = business.nit && business.tax_regime ? taxRegimeLabels[business.tax_regime] ?? '' : ''
+  const place = [business.city, business.department].filter(Boolean).join(' - ')
+  return `
+    <div class="box header">
+      <div class="business">
+        <div class="business-name">${escape(business.legal_name)}</div>
+        ${business.trade_name ? `<div>${escape(business.trade_name)}</div>` : ''}
+        ${business.nit || regime ? `<div>${business.nit ? `NIT: ${escape(business.nit)}` : ''}${business.nit && regime ? ' · ' : ''}${escape(regime.toUpperCase())}</div>` : ''}
+        ${business.address ? `<div>${escape(business.address)}</div>` : ''}
+        ${business.phone || place ? `<div>${business.phone ? `TELÉFONO: ${escape(business.phone)}` : ''} ${escape(place.toUpperCase())}</div>` : ''}
+        ${business.email ? `<div>${escape(business.email)}</div>` : ''}
+      </div>
+      <div class="box doc-number">
+        <div class="doc-kind">${escape(kind)}</div>
+        <div><span class="label">No.</span> <span class="number">${escape(number)}</span></div>
+      </div>
+    </div>`
+}
+
+const partyRows = (rows: [string, string | null | undefined][]): string =>
+  rows
+    .filter(([, value]) => value)
+    .map(([label, value]) => `<div class="party-row"><span class="label">${escape(label)}:</span> ${escape(value)}</div>`)
+    .join('')
+
+const footer = (left: string, right: string) => `
+  <div class="signatures">
+    <div class="signature">${left}</div>
+    <div class="signature">${right}</div>
+  </div>
+  <div class="printed-by">Documento impreso por computador · Pymita</div>`
+
+export const invoiceHtml = (
+  business: DocumentBusiness,
+  invoice: PrintableInvoice,
+  resolution: DocumentResolution | null,
+): string => {
+  const kind = invoice.document_kind === 'invoice' ? 'FACTURA DE VENTA' : 'CUENTA DE COBRO'
+  const notes = [business.document_notes, invoice.notes].filter(Boolean).map(escape).join('<br>')
+  const resolutionText = resolution
+    ? `Resolución DIAN No. ${escape(resolution.number)}${resolution.date ? ` del ${dmy(resolution.date)}` : ''}` +
+      (resolution.range_from && resolution.range_to
+        ? `, numeración ${escape(resolution.prefix ? `${resolution.prefix}-` : '')}${resolution.range_from} al ${resolution.range_to}`
+        : '') +
+      (resolution.valid_until ? `, vigente hasta ${dmy(resolution.valid_until)}` : '')
+    : ''
+
+  return `
+  <section class="document">
+    ${header(business, kind, invoice.document_number)}
+    <div class="box party">
+      <div class="party-grid">
+        <div>
+          ${partyRows([
+            ['NOMBRE', invoice.customer_name],
+            [invoice.customer_document_type === 'NIT' ? 'NIT' : invoice.customer_document_type || 'NIT', invoice.customer_document],
+            ['DIRECCIÓN', invoice.customer_address],
+            ['TELÉFONO', invoice.customer_phone],
+          ])}
+        </div>
+        <div>
+          ${partyRows([
+            ['FECHA (D/M/A)', dmy(invoice.issued_at)],
+            ['VENCE', dmy(invoice.due_date)],
+            ['CIUDAD', invoice.customer_city],
+            ['PERÍODO', periodName(invoice.period)],
+          ])}
+        </div>
+      </div>
+    </div>
+    <div class="box items">
+      <table>
+        <thead>
+          <tr><th class="left">DESCRIPCIÓN</th><th>CANT.</th><th class="right">VL. UNIDAD</th><th class="right">VR. TOTAL</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="left">${escape(invoice.concept.toUpperCase())}</td>
+            <td class="center">${invoice.quantity}</td>
+            <td class="right">${money(invoice.unit_price)}</td>
+            <td class="right">${money(invoice.subtotal)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="totals">
+        ${invoice.discount > 0 ? `<div><span>DESCUENTO:</span> <span>-${money(invoice.discount)}</span></div>` : ''}
+        ${invoice.tax_amount > 0 ? `<div><span>${escape(invoice.tax_name || 'IMPUESTO')} (INCLUIDO):</span> <span>${money(invoice.tax_amount)}</span></div>` : ''}
+        <div class="grand-total"><span>TOTAL:</span> <span>${money(invoice.total)}</span></div>
+      </div>
+    </div>
+    <div class="son"><span class="label">SON:</span> ${escape(amountInWords(invoice.total))}</div>
+    <div class="box notes">
+      <div class="label">OBSERVACIONES:</div>
+      <div>${notes || '&nbsp;'}</div>
+      ${resolutionText ? `<div class="resolution">${resolutionText}</div>` : ''}
+    </div>
+    ${footer('RECIBIDO / CLIENTE', 'FIRMA VENDEDOR')}
+  </section>`
+}
+
+export const receiptHtml = (business: DocumentBusiness, receipt: PrintableReceipt): string => `
+  <section class="document">
+    ${header(business, 'RECIBO DE CAJA', receipt.reference)}
+    <div class="box party">
+      <div class="party-grid">
+        <div>
+          ${partyRows([
+            ['RECIBIMOS DE', receipt.customer.name],
+            [receipt.customer.document_type === 'NIT' ? 'NIT' : receipt.customer.document_type || 'NIT', receipt.customer.document],
+            ['DIRECCIÓN', receipt.customer.address],
+            ['TELÉFONO', receipt.customer.phone],
+          ])}
+        </div>
+        <div>
+          ${partyRows([
+            ['FECHA (D/M/A)', dmy(receipt.paid_at)],
+            ['CIUDAD', receipt.customer.city],
+            ['FORMA DE PAGO', METHOD_LABELS[receipt.payment_method ?? ''] ?? receipt.payment_method],
+          ])}
+        </div>
+      </div>
+    </div>
+    <div class="son"><span class="label">LA SUMA DE:</span> ${escape(amountInWords(receipt.total))} (${money(receipt.total)})</div>
+    <div class="box items">
+      <table>
+        <thead>
+          <tr><th class="left">POR CONCEPTO DE</th><th class="right">VALOR DOCUMENTO</th><th class="right">ABONO</th><th class="right">SALDO</th></tr>
+        </thead>
+        <tbody>
+          ${receipt.lines.map(line => `
+          <tr>
+            <td class="left">Abono a ${line.document_kind === 'invoice' ? 'factura' : 'cuenta de cobro'} ${escape(line.document_number)}${line.concept ? ` · ${escape(line.concept)}` : ''}${line.period ? ` (${escape(periodName(line.period))})` : ''}</td>
+            <td class="right">${money(line.document_total)}</td>
+            <td class="right">${money(line.amount)}</td>
+            <td class="right">${money(line.balance)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="totals">
+        <div class="grand-total"><span>TOTAL RECIBIDO:</span> <span>${money(receipt.total)}</span></div>
+      </div>
+    </div>
+    <div class="box notes">
+      <div class="label">OBSERVACIONES:</div>
+      <div>${[receipt.notes, receipt.received_by ? `Recibió: ${receipt.received_by}` : ''].filter(Boolean).map(escape).join('<br>') || '&nbsp;'}</div>
+    </div>
+    ${footer('ENTREGA (QUIEN PAGA)', 'RECIBIDO POR')}
+  </section>`
+
+// Documento en blanco y negro: se imprime en cualquier impresora de oficina.
+const STYLES = `
+  @page { size: letter; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: black; margin: 0; }
+  .document { max-width: 190mm; margin: 0 auto; page-break-after: always; }
+  .document:last-child { page-break-after: auto; }
+  .box { border: 1.5px solid black; border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .business { flex: 1; text-align: center; line-height: 1.5; }
+  .business-name { font-size: 20px; font-weight: bold; margin-bottom: 4px; }
+  .doc-number { min-width: 190px; text-align: center; margin: 0; }
+  .doc-kind { font-weight: bold; font-size: 14px; margin-bottom: 6px; }
+  .number { font-size: 20px; font-weight: bold; }
+  .label { font-weight: bold; }
+  .party-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 12px; }
+  .party-row { margin: 3px 0; }
+  table { width: 100%; border-collapse: collapse; }
+  th { border-bottom: 1.5px solid black; padding: 4px; font-size: 12px; }
+  td { padding: 6px 4px; vertical-align: top; }
+  .left { text-align: left; } .right { text-align: right; } .center { text-align: center; }
+  .items { min-height: 70mm; display: flex; flex-direction: column; justify-content: space-between; }
+  .totals { align-self: flex-end; min-width: 240px; margin-top: 12px; }
+  .totals div { display: flex; justify-content: space-between; gap: 16px; margin: 2px 0; }
+  .grand-total { font-weight: bold; font-size: 14px; }
+  .son { margin: 4px 6px 8px; }
+  .notes { min-height: 22mm; }
+  .resolution { margin-top: 6px; font-size: 10px; }
+  .signatures { display: flex; justify-content: space-between; gap: 40px; margin-top: 36px; }
+  .signature { flex: 1; border-top: 1px solid black; padding-top: 4px; text-align: center; font-weight: bold; }
+  .printed-by { margin-top: 12px; text-align: center; font-size: 9px; color: dimgray; }
+`
+
+/**
+ * La ventana se abre en el mismo clic (los navegadores bloquean las que se
+ * abren después de esperar al servidor) y se llena cuando llegan los datos.
+ */
+export const openDocumentWindow = (): Window | null => {
+  const win = window.open('', '_blank', 'width=900,height=1000')
+  if (win) {
+    win.document.write('<html><body style="font-family:sans-serif;padding:16px">Generando…</body></html>')
+  }
+  return win
+}
+
+export const fillDocumentWindow = (win: Window, title: string, sections: string): void => {
+  win.document.open()
+  win.document.write(
+    `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${escape(title)}</title>` +
+      `<style>${STYLES}</style></head><body>${sections}</body></html>`,
+  )
+  win.document.close()
+  win.focus()
+  win.print()
+}

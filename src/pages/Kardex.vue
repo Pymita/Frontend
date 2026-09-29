@@ -496,16 +496,24 @@ const money = (value: number): string =>
 const formatDate = (iso: string): string =>
   new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 
+// Cada consulta lleva su número: si una anterior responde tarde (staging es
+// lento), no pisa la tabla del filtro que el usuario eligió después.
+let latestRequest = 0
+
 const load = async () => {
+  const requestId = ++latestRequest
   loading.value = true
   const applied = { ...filters.value }
   try {
-    report.value = await kardexService.report(applied)
+    const result = await kardexService.report(applied)
+    if (requestId !== latestRequest) return
+    report.value = result
     loadedFilters.value = applied
   } catch (error: any) {
+    if (requestId !== latestRequest) return
     notify(error.response?.data?.message || 'Error al cargar el kardex')
   } finally {
-    loading.value = false
+    if (requestId === latestRequest) loading.value = false
   }
 }
 
