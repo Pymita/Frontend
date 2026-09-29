@@ -1,0 +1,260 @@
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { API, apiLogin, field, loginUI, sidebarItem } from './helpers'
+
+/**
+ * Facturación automática: un conjunto cobra la misma cuota cada mes. Se
+ * factura a seleccionados, a todos o a uno (editando lo que cambia para esa
+ * persona) y la cartera muestra valor, abonos y saldo por tercero.
+ *
+ * Patrón: empresa y terceros por API, verificación por la interfaz.
+ */
+
+// Enero de 2025 ya pasó: sus cuotas vencen el 10 y aparecen como vencidas.
+const PERIOD = '2025-01'
+
+interface Company {
+  credentials: { email: string; password: string }
+  token: string
+}
+
+async function createRecurringCompany(request: APIRequestContext, slug: string): Promise<Company> {
+  const superToken = await apiLogin(request, 'plataforma@saboresdeltrigo.com', 'plataforma123')
+  const credentials = { email: `admin.${slug}.${Date.now()}@e2e.test`, password: 'conjunto2026' }
+
+  const response = await request.post(`${API}/platform/companies`, {
+    headers: { Authorization: `Bearer ${superToken}` },
+    data: {
+      name: `E2E ${slug} ${Date.now()}`,
+      business_type: 'recurring',
+      admin: { name: 'Administradora E2E', ...credentials },
+    },
+  })
+  expect(response.status()).toBe(201)
+
+  return { credentials, token: await apiLogin(request, credentials.email, credentials.password) }
+}
+
+async function createResident(
+  request: APIRequestContext,
+  token: string,
+  data: { name: string; document_number: string; monthly_fee?: number; billing_concept?: string },
+): Promise<number> {
+  const response = await request.post(`${API}/customers`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      document_type: 'CC',
+      city: 'Bogotá',
+      recurring_active: true,
+      monthly_fee: 250000,
+      billing_day: 10,
+      ...data,
+    },
+  })
+  expect(response.status()).toBe(201)
+
+  return (await response.json()).data.id
+}
+
+async function openPeriod(page: Page, period: string) {
+  await sidebarItem(page, 'Facturación automática').click()
+  await expect(page.getByRole('heading', { name: 'Facturación automática' })).toBeVisible()
+  await field(page, 'Mes a facturar').locator('input').fill(period)
+}
+
+// Las pestañas inactivas siguen montadas: se busca solo en la visible.
+const row = (page: Page, text: string) => page.locator('.v-window-item--active tbody tr', { hasText: text })
+
+test('factura a los seleccionados editando a una persona y después a todos', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'pinos')
+  await createResident(request, company.token, { name: 'Ana Apto 101', document_number: '1001' })
+  await createResident(request, company.token, { name: 'Beto Apto 102', document_number: '1002' })
+  await createResident(request, company.token, {
+    name: 'Carla Parqueadero 7',
+    document_number: '1003',
+    monthly_fee: 180000,
+    billing_concept: 'Cuota parqueadero',
+  })
+
+  await loginUI(page, company.credentials.email, company.credentials.password)
+
+  // Un conjunto no ve pedidos ni mesas: solo lo suyo.
+  await expect(sidebarItem(page, 'Pedidos')).toHaveCount(0)
+  await openPeriod(page, PERIOD)
+
+  await expect(row(page, 'Ana Apto 101')).toContainText('Cuota de administración')
+  await expect(row(page, 'Ana Apto 101')).toContainText('$250.000')
+  await expect(row(page, 'Ana Apto 101')).toContainText('10 de ene de 2025')
+  await expect(row(page, 'Carla Parqueadero 7')).toContainText('Cuota parqueadero')
+  await expect(page.locator('.v-card', { hasText: 'Valor por facturar' })).toContainText('$680.000')
+
+  // Beto ahora es arrendatario y paga también parqueadero: se edita solo su factura.
+  await page.getByRole('button', { name: 'Editar y facturar a Beto Apto 102' }).click()
+  const dialog = page.getByRole('dialog')
+  await field(page, 'Nombre en la factura').locator('input').fill('Beto Pérez (arrendatario)')
+  await field(page, 'Concepto').locator('input').fill('Administración + parqueadero')
+  await field(page, 'Valor unitario').locator('input').fill('310000')
+  await expect(dialog).toContainText('Total $310.000')
+  await dialog.getByRole('button', { name: 'Guardar cambios' }).click()
+
+  await expect(row(page, 'Beto Pérez (arrendatario)')).toContainText('Editado')
+  await expect(row(page, 'Beto Pérez (arrendatario)')).toContainText('$310.000')
+
+  // Guardar la edición lo deja seleccionado; se suma a Ana.
+  await row(page, 'Ana Apto 101').locator('input[type="checkbox"]').check()
+  await page.getByRole('button', { name: 'Facturar seleccionados (2)' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Se van a generar 2 documentos por $560.000')
+  await page.getByRole('dialog').getByRole('button', { name: 'Generar' }).click()
+
+  await expect(page.getByText('Se generaron 2 documentos')).toBeVisible()
+  await expect(row(page, 'Ana Apto 101')).toContainText('CC-1 · Por pagar')
+  await expect(row(page, 'Beto Apto 102')).toContainText('CC-2 · Por pagar')
+
+  // "A todos" ya solo incluye a quien falta.
+  await page.getByRole('button', { name: 'Facturar a todos (1)' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Se va a generar 1 documento por $180.000')
+  await page.getByRole('dialog').getByRole('button', { name: 'Generar' }).click()
+
+  await expect(page.getByText('Se generó 1 documento')).toBeVisible()
+  await expect(row(page, 'Carla Parqueadero 7')).toContainText('CC-3 · Por pagar')
+  await expect(page.getByRole('button', { name: 'Facturar a todos (0)' })).toBeDisabled()
+
+  // La factura de Beto guardó lo editado; su ficha de tercero quedó igual.
+  const invoices = await (
+    await request.get(`${API}/recurring-billing/invoices?period=${PERIOD}`, {
+      headers: { Authorization: `Bearer ${company.token}` },
+    })
+  ).json()
+  const beto = invoices.data.invoices.find((i: any) => i.document_number === 'CC-2')
+  expect(beto.customer_name).toBe('Beto Pérez (arrendatario)')
+  expect(beto.concept).toBe('Administración + parqueadero')
+  expect(beto.total).toBe(310000)
+})
+
+test('la cartera muestra el saldo por tercero y registra abonos hasta pagar', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'cartera')
+  const ana = await createResident(request, company.token, { name: 'Ana Apto 101', document_number: '1001' })
+  const generated = await request.post(`${API}/recurring-billing/invoices/generate`, {
+    headers: { Authorization: `Bearer ${company.token}` },
+    data: { period: PERIOD, items: [{ customer_id: ana }] },
+  })
+  expect(generated.status()).toBe(201)
+
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Facturación automática').click()
+  await page.getByRole('tab', { name: /Cartera/ }).click()
+
+  await expect(page.locator('.v-card', { hasText: 'Saldo por cobrar' })).toContainText('$250.000')
+  await expect(page.locator('.v-card', { hasText: 'Vencido' }).first()).toContainText('$250.000')
+
+  const panel = page.locator('.v-expansion-panel', { hasText: 'Ana Apto 101' })
+  await expect(panel).toContainText('Saldo $250.000')
+  await expect(panel).toContainText('Vencido $250.000')
+  await panel.locator('.v-expansion-panel-title').click()
+
+  const document = panel.locator('tbody tr', { hasText: 'CC-1' })
+  await expect(document).toContainText('Cuenta de cobro')
+  await expect(document).toContainText('Vencida')
+  await expect(document).toContainText('Por pagar')
+
+  // Abono parcial.
+  await document.getByRole('button', { name: 'Abonar' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('CC-1 · Ana Apto 101')
+  await field(page, 'Valor del abono').locator('input').fill('100000')
+  await field(page, 'Método de pago').click()
+  await page.getByRole('option', { name: 'Transferencia' }).click()
+  await dialog.getByRole('button', { name: 'Registrar abono' }).click()
+
+  await expect(page.getByText('Abono registrado exitosamente')).toBeVisible()
+  await expect(dialog.locator('tbody tr', { hasText: 'Transferencia' })).toContainText('$100.000')
+  await expect(dialog).toContainText('$150.000')
+  await dialog.getByRole('button', { name: 'Cerrar' }).click()
+
+  await expect(panel).toContainText('Saldo $150.000')
+  await expect(document).toContainText('Abonada')
+
+  // El resto: queda pagada y sale de la cartera pendiente.
+  await document.getByRole('button', { name: 'Abonar' }).click()
+  await expect(field(page, 'Valor del abono').locator('input')).toHaveValue('150000')
+  await dialog.getByRole('button', { name: 'Registrar abono' }).click()
+  await expect(page.getByText('Abono registrado: el documento quedó pagado')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cerrar' }).click()
+
+  await expect(page.getByText('Nadie tiene saldo pendiente.')).toBeVisible()
+
+  await page.getByLabel('Incluir documentos pagados').check()
+  await expect(page.locator('.v-expansion-panel', { hasText: 'Ana Apto 101' })).toContainText('Saldo $0')
+})
+
+test('crea un tercero con su cuota y le factura solo a él', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'individual')
+
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Facturación automática').click()
+  await expect(page.getByText('Aún no hay terceros con cobro automático.')).toBeVisible()
+
+  await page.getByRole('tab', { name: /Terceros/ }).click()
+  await page.getByRole('button', { name: 'Nuevo tercero' }).click()
+
+  const dialog = page.getByRole('dialog')
+  await field(page, 'NIT / Número de documento *').locator('input').fill('900123456')
+  await field(page, 'Nombre *').locator('input').fill('Local 3 - Panadería')
+  await field(page, 'Ciudad').locator('input').fill('Medellín')
+
+  // Con el cobro automático encendido la cuota es obligatoria.
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(dialog).toContainText('Escribe la cuota mensual para incluirlo en la facturación automática')
+
+  await field(page, 'Cuota mensual *').locator('input').fill('95000')
+  await field(page, 'Día de corte (vence)').locator('input').fill('15')
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+
+  await expect(page.getByText('Tercero creado exitosamente')).toBeVisible()
+  const tercero = row(page, 'Local 3 - Panadería')
+  await expect(tercero).toContainText('$95.000')
+  await expect(tercero).toContainText('Día 15')
+  await expect(tercero).toContainText('Activo')
+
+  await page.getByRole('tab', { name: /Facturar/ }).click()
+  await field(page, 'Mes a facturar').locator('input').fill(PERIOD)
+  await expect(row(page, 'Local 3 - Panadería')).toContainText('15 de ene de 2025')
+
+  await page.getByRole('button', { name: 'Editar y facturar a Local 3 - Panadería' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Facturar solo a esta persona' }).click()
+
+  await expect(page.getByText('Se generó 1 documento')).toBeVisible()
+  await expect(row(page, 'Local 3 - Panadería')).toContainText('CC-1 · Por pagar')
+})
+
+test('capturas de facturación y cartera en escritorio y en pantalla angosta', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'capturas')
+  const ids = []
+  for (const [n, name] of ['Ana Apto 101', 'Beto Apto 102', 'Carla Apto 103'].entries()) {
+    ids.push(await createResident(request, company.token, { name, document_number: `10${n}` }))
+  }
+  await request.post(`${API}/recurring-billing/invoices/generate`, {
+    headers: { Authorization: `Bearer ${company.token}` },
+    data: { period: PERIOD, items: [{ customer_id: ids[0] }] },
+  })
+
+  await loginUI(page, company.credentials.email, company.credentials.password)
+
+  for (const [name, viewport] of [
+    ['desktop', { width: 1440, height: 900 }],
+    ['narrow', { width: 820, height: 1000 }],
+  ] as const) {
+    await page.setViewportSize(viewport)
+    await page.goto('/facturacion-automatica')
+    await field(page, 'Mes a facturar').locator('input').fill(PERIOD)
+    await expect(row(page, 'Ana Apto 101')).toContainText('CC-1')
+    await page.screenshot({ path: `../screenshots/facturacion-automatica-${name}.png`, fullPage: true })
+
+    await page.getByRole('tab', { name: /Cartera/ }).click()
+    const panel = page.locator('.v-expansion-panel', { hasText: 'Ana Apto 101' })
+    await panel.locator('.v-expansion-panel-title').click()
+    await expect(panel.locator('tbody tr', { hasText: 'CC-1' })).toBeVisible()
+    // El panel se abre con una transición: la captura espera a que termine.
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: `../screenshots/cartera-${name}.png`, fullPage: true })
+  }
+})

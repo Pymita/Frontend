@@ -13,6 +13,7 @@ const Mesas = () => import('../pages/Mesas.vue')
 const PlanoSalon = () => import('../pages/PlanoSalon.vue')
 const Clientes = () => import('../pages/Clientes.vue')
 const Gastos = () => import('../pages/Gastos.vue')
+const FacturacionAutomatica = () => import('../pages/FacturacionAutomatica.vue')
 const Plataforma = () => import('../pages/Plataforma.vue')
 const Empleados = () => import('../pages/Empleados.vue')
 const Kardex = () => import('../pages/Kardex.vue')
@@ -61,7 +62,7 @@ export const routes: RouteRecordRaw[] = [
     path: '/tipos-producto',
     name: 'TiposProducto',
     component: TiposProducto,
-    meta: { requiresAuth: true, requiresAdmin: true }
+    meta: { requiresAuth: true, requiresAdmin: true, feature: 'menu' }
   },
   {
     path: '/productos-base',
@@ -104,6 +105,12 @@ export const routes: RouteRecordRaw[] = [
     name: 'Clientes',
     component: Clientes,
     meta: { requiresAuth: true, feature: 'customers' }
+  },
+  {
+    path: '/facturacion-automatica',
+    name: 'FacturacionAutomatica',
+    component: FacturacionAutomatica,
+    meta: { requiresAuth: true, feature: 'recurring_billing' }
   },
   {
     path: '/gastos',
@@ -202,6 +209,7 @@ export const setupRouterGuards = (router: any) => {
         recipes: '/recetas',
         customers: '/clientes',
         expenses: '/gastos',
+        recurring_billing: '/facturacion-automatica',
       }
       const fallback = features.map(f => featureHome[f]).find(Boolean)
       // No allowed page or already there: let it pass (the backend still enforces 403).

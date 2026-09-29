@@ -832,6 +832,7 @@ const businessTypeOptions = [
   { value: 'restaurant', title: 'Restaurante' },
   { value: 'billiard', title: 'Billar' },
   { value: 'store', title: 'Tienda' },
+  { value: 'recurring', title: 'Cobro mensual (conjuntos, edificios, parqueaderos)' },
   { value: 'other', title: 'Otro (todo activo)' },
 ]
 
@@ -841,6 +842,7 @@ const BUSINESS_TYPE_PRESETS: Record<BusinessType, Feature[]> = {
   restaurant: ['orders', 'menu', 'inventory', 'recipes', 'customers', 'expenses', 'reports'],
   billiard: ['orders', 'menu', 'inventory', 'time_billing', 'customers', 'expenses', 'reports'],
   store: ['menu', 'inventory', 'customers', 'expenses', 'reports'],
+  recurring: ['customers', 'recurring_billing', 'expenses', 'reports'],
   other: ALL_FEATURES,
 }
 
@@ -853,6 +855,7 @@ const featureLabels: Record<Feature, string> = {
   customers: 'Clientes',
   expenses: 'Gastos',
   reports: 'Reportes',
+  recurring_billing: 'Facturación automática',
 }
 
 const featureLabel = (feature: Feature): string => featureLabels[feature] || feature

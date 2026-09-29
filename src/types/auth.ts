@@ -14,6 +14,7 @@ export type Feature =
   | 'customers'
   | 'expenses'
   | 'reports'
+  | 'recurring_billing'
 
 export const ALL_FEATURES: Feature[] = [
   'orders',
@@ -24,6 +25,7 @@ export const ALL_FEATURES: Feature[] = [
   'customers',
   'expenses',
   'reports',
+  'recurring_billing',
 ]
 
 /** Acceso por defecto de un empleado sin permisos explícitos (espejo del backend) */
@@ -35,10 +37,11 @@ export const DEFAULT_EMPLOYEE_FEATURES: Feature[] = [
   'recipes',
   'customers',
   'reports',
+  'recurring_billing',
 ]
 
 /** Tipo de negocio: solo siembra los módulos, no se usa para decidir en runtime */
-export type BusinessType = 'restaurant' | 'billiard' | 'store' | 'other'
+export type BusinessType = 'restaurant' | 'billiard' | 'store' | 'recurring' | 'other'
 
 export interface CompanySubscriptionInfo {
   status: SubscriptionStatus

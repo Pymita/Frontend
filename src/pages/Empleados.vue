@@ -217,6 +217,7 @@ const featureLabels: Record<Feature, string> = {
   customers: 'Clientes',
   expenses: 'Gastos',
   reports: 'Dashboard',
+  recurring_billing: 'Facturación automática y cartera',
 }
 const featureLabel = (feature: Feature): string => featureLabels[feature] || feature
 

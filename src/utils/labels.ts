@@ -40,6 +40,26 @@ export const itemStatusLabels: Record<string, string> = {
   delivered: 'Entregado',
 }
 
+// ===== Facturación automática (solo web: la app del mesero no la muestra) =====
+export const recurringInvoiceStatusLabels: Record<string, string> = {
+  pending: 'Por pagar',
+  partial: 'Abonada',
+  paid: 'Pagada',
+  cancelled: 'Anulada',
+}
+
+export const recurringInvoiceStatusColors: Record<string, string> = {
+  pending: 'error',
+  partial: 'warning',
+  paid: 'success',
+  cancelled: 'secondary',
+}
+
+export const documentKindLabels: Record<string, string> = {
+  invoice: 'Factura',
+  collection: 'Cuenta de cobro',
+}
+
 // ===== Mesas =====
 export const tableStatusLabels: Record<string, string> = {
   available: 'Disponible',
