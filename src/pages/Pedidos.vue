@@ -1,6 +1,21 @@
 <template>
-  <v-container fluid>
-    <v-row>
+  <v-container fluid :class="{ 'pa-0': embedded }">
+    <!-- Dentro del plano del salón: la mesa elegida, sin encabezado ni filtros. -->
+    <div v-if="embedded" class="d-flex align-center justify-space-between flex-wrap ga-2 mb-3">
+      <span class="text-body-2 text-medium-emphasis">
+        {{ filteredOrders.length ? 'Pedido abierto de la mesa' : 'La mesa no tiene pedidos por cobrar.' }}
+      </span>
+      <LockableButton
+        v-if="canManageOrders && !filteredOrders.length"
+        icon="mdi-plus"
+        color="primary"
+        @click="openNuevoPedidoDialog"
+      >
+        Nuevo pedido en esta mesa
+      </LockableButton>
+    </div>
+
+    <v-row v-if="!embedded">
       <v-col cols="15">
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
@@ -32,7 +47,7 @@
 
     <!-- Pendientes de otros días: lo más urgente de la página. -->
     <v-alert
-      v-if="overdueOrders.length > 0"
+      v-if="!embedded && overdueOrders.length > 0"
       type="warning"
       variant="tonal"
       density="compact"
@@ -62,7 +77,7 @@
     <v-row>
       <v-col cols="12">
         <v-card>
-          <v-card-title>
+          <v-card-title v-if="!embedded">
             <v-row align="center">
               <v-col cols="12" md="4">
                 <v-text-field
@@ -112,10 +127,12 @@
           </v-card-title>
           
           <v-data-table
+            v-model:expanded="expanded"
             :headers="headers"
             :items="filteredOrders"
             :loading="loading"
             :row-props="rowProps"
+            :hide-default-footer="embedded"
             class="elevation-0"
             item-value="id"
             show-expand
@@ -1101,7 +1118,14 @@ import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
 import type { OrderGuest } from '@/services/ordersService';
 
+// El plano del salón monta esta misma página para una mesa: se gestiona el
+// pedido ahí sin duplicar la lógica de cobro, productos y descuentos.
+const props = defineProps<{ tableId?: number | null; embedded?: boolean }>();
+const emit = defineEmits<{ changed: [] }>();
+
 const orders = ref<Order[]>([]);
+// Vuetify lo tipa como string[], pero compara contra item-value (el id numérico).
+const expanded = ref<any[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 const search = ref('');
@@ -1438,6 +1462,7 @@ const loadOrders = async (silent = false) => {
     // El filtro de pago se manda al backend: "todos" sin fechas sería
     // traer el histórico completo cada vez que se abre la página.
     const filters = {
+      ...(props.tableId ? { dining_table_id: props.tableId } : {}),
       ...(dateFrom.value ? { from: dateFrom.value } : {}),
       ...(dateTo.value ? { to: dateTo.value } : {}),
       ...(filterPago.value === 'pending' ? { pending_payment: true } : {}),
@@ -1446,11 +1471,17 @@ const loadOrders = async (silent = false) => {
 
     const [list, pending] = await Promise.all([
       ordersService.getAll(filters),
-      showsAllPending.value ? null : ordersService.getAll({ pending_payment: true }),
+      showsAllPending.value || props.embedded ? null : ordersService.getAll({ pending_payment: true }),
     ]);
 
     orders.value = list;
     overdueOrders.value = (pending ?? list).filter(isOverdue);
+
+    if (props.embedded) {
+      // Con una sola mesa, el detalle del pedido va abierto de entrada.
+      expanded.value = list.filter(isOpen).map(order => order.id);
+      if (!silent) emit('changed');
+    }
   } catch (error) {
     showMessage(errorMessage(error, 'Error al cargar pedidos'), 'error');
   } finally {
@@ -2040,7 +2071,7 @@ const cargarCatalogo = async () => {
 
 const openNuevoPedidoDialog = () => {
   nuevoPedido.value = {
-    dining_table_id: null,
+    dining_table_id: props.tableId ?? null,
     customer_name: '',
     notes: '',
     items: [],
@@ -2176,7 +2207,8 @@ const playNewOrderChime = () => {
 useLiveRefresh(({ latestId, previousLatestId }) => {
   // Recarga sin spinner: la tabla no parpadea mientras se está cobrando.
   loadOrders(true);
-  if (previousLatestId !== null && latestId > previousLatestId) {
+  // Desde el plano solo importa la mesa abierta: sin avisos de otros pedidos.
+  if (!props.embedded && previousLatestId !== null && latestId > previousLatestId) {
     const count = latestId - previousLatestId;
     showMessage(count === 1 ? `Nuevo pedido #${latestId}` : `${count} pedidos nuevos`, 'info');
     playNewOrderChime();

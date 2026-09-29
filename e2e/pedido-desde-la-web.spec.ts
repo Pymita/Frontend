@@ -137,3 +137,67 @@ test('el panel de pedidos filtra por rango de fechas', async ({ page, request })
   await expect(page.getByText('Con un rango de fechas no ves los pendientes de otros días.')).toHaveCount(0)
   await expect(row).toBeVisible()
 })
+
+/**
+ * Plano del salón: al tocar una mesa se ve su pedido completo y se gestiona
+ * ahí mismo (agregar productos, cobrar), sin ir a la página de Pedidos.
+ */
+test('desde el plano se ve el pedido de la mesa y se gestiona ahí mismo', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const { productId } = await seedMenuItem(request, auth, 'Empanada Plano E2E', 3100)
+  await seedMenuItem(request, auth, 'Gaseosa Plano E2E', 2900)
+
+  // Una mesa libre que ya esté ubicada en el plano.
+  const tables = (await (await request.get(`${API}/tables`, { headers: auth })).json()).data
+  const table = tables.find((t: any) => t.status === 'available' && t.active && t.pos_x !== null)
+  expect(table, 'el plano sembrado debe tener una mesa libre ubicada').toBeTruthy()
+  const tableName = table.nickname || `Mesa ${table.number}`
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { dining_table_id: table.id, items: [{ product_id: productId, quantity: 1 }] },
+  })
+  const orderId = (await order.json()).data.id
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/plano')
+  const tableNode = page.locator('g.table-node').filter({
+    has: page.locator('text.table-number', { hasText: new RegExp(`^${table.number}$`) }),
+  })
+  await tableNode.click()
+
+  // El pedido completo, abierto: productos, total y sus acciones.
+  const planDialog = page.getByRole('dialog').filter({ hasText: 'Pedido abierto de la mesa' })
+  await expect(planDialog).toContainText(tableName)
+  await expect(planDialog.getByRole('cell', { name: 'Empanada Plano E2E', exact: true })).toBeVisible()
+  await expect(planDialog.getByRole('button', { name: 'Cobrar' })).toBeVisible()
+
+  // Agregar un producto sin salir del plano.
+  await planDialog.getByRole('button', { name: 'Agregar productos' }).click()
+  const addDialog = page.getByRole('dialog').last()
+  await addDialog.getByRole('textbox', { name: /Buscar producto/ }).fill('Gaseosa Plano E2E')
+  await addDialog.getByText('Gaseosa Plano E2E').first().click()
+  await addDialog.getByRole('button', { name: 'Agregar', exact: true }).click()
+  await expect(page.getByText('Productos agregados al pedido')).toBeVisible()
+  await expect(planDialog.getByRole('cell', { name: 'Gaseosa Plano E2E', exact: true })).toBeVisible()
+  await expect(planDialog).toContainText('$6.000')
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/plano-mesa-pedido.png' })
+
+  // Cobrar también desde aquí.
+  await planDialog.getByRole('button', { name: 'Cobrar' }).click()
+  const payDialog = page.getByRole('dialog').filter({ hasText: `Cobrar pedido #${orderId}` })
+  await payDialog.getByLabel('Imprimir la factura al cobrar').uncheck()
+  await payDialog.getByRole('button', { name: 'Confirmar cobro' }).click()
+  await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
+
+  // La mesa queda libre y lista para un pedido nuevo con ella ya elegida.
+  const freeDialog = page.getByRole('dialog').filter({ hasText: 'La mesa no tiene pedidos por cobrar.' })
+  await expect(freeDialog).toBeVisible()
+  await freeDialog.getByRole('button', { name: 'Nuevo pedido en esta mesa' }).click()
+  await expect(page.getByRole('dialog').last()).toContainText(tableName)
+
+  const paid = (await (await request.get(`${API}/orders/${orderId}`, { headers: auth })).json()).data
+  expect(paid.payment_status).toBe('paid')
+  expect(Number(paid.total)).toBe(6000)
+})
