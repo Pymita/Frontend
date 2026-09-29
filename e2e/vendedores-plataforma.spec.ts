@@ -67,3 +67,23 @@ test('vendedor, pago con motivo obligatorio y estadísticas de ventas', async ({
   await page.getByLabel('Monto (COP)').fill('120000')
   await expect(page.getByText(/Indica el motivo de la diferencia/)).toBeVisible()
 })
+
+/**
+ * Los campos obligatorios de "Nueva Empresa" se ven como tales al abrir el
+ * formulario, no solo cuando falla el guardado.
+ */
+test('nueva empresa marca los campos obligatorios desde que se abre', async ({ page }) => {
+  await loginUI(page, PLATFORM.email, PLATFORM.password)
+  await page.getByRole('button', { name: /Nueva Empresa/ }).click()
+
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Nueva Empresa' })
+  for (const label of ['Nombre de la empresa *', 'Nombre del administrador *', 'Email de acceso *', 'Contraseña inicial *']) {
+    await expect(dialog.getByLabel(label)).toBeVisible()
+  }
+  // Los opcionales siguen diciendo que lo son, y aún no hay errores en rojo.
+  await expect(dialog.getByLabel('Email (opcional)')).toBeVisible()
+  await expect(dialog.getByText('Nombre requerido')).toHaveCount(0)
+
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/nueva-empresa-obligatorios.png' })
+})
