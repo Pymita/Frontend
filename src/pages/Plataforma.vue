@@ -135,6 +135,13 @@
       </v-col>
     </v-row>
 
+    <!-- Seguridad de la cuenta de plataforma -->
+    <v-row v-else-if="tab === 'security'">
+      <v-col cols="12" md="8" lg="6">
+        <TwoFactorSetup />
+      </v-col>
+    </v-row>
+
     <!-- Ventas por vendedor -->
     <v-row v-else>
       <v-col cols="12">
@@ -724,6 +731,7 @@ import type { PlatformCompany, PlatformCompanyDetail, PlatformSeller, SellerStat
 import { ALL_FEATURES, type BusinessType, type Feature, type SubscriptionStatus } from '../types/auth'
 import { PASSWORD_HINT, passwordRules } from '../utils/validation'
 import CopyCatalogDialog from '../components/CopyCatalogDialog.vue'
+import TwoFactorSetup from '../components/TwoFactorSetup.vue'
 import DateField from '../components/DateField.vue'
 
 const loading = ref(false)
@@ -1080,16 +1088,17 @@ const confirmToggle = async (company: PlatformCompany) => {
 
 // --- Secciones: viven en la barra lateral, la ruta decide cuál se ve ---
 const route = useRoute()
-const tab = computed(() => (route.meta.section as 'companies' | 'sellers' | 'stats') ?? 'companies')
+const tab = computed(() => (route.meta.section as 'companies' | 'sellers' | 'stats' | 'security') ?? 'companies')
 
 const sectionTitle = computed(() =>
-  ({ companies: 'Empresas', sellers: 'Vendedores', stats: 'Ventas por vendedor' })[tab.value],
+  ({ companies: 'Empresas', sellers: 'Vendedores', stats: 'Ventas por vendedor', security: 'Seguridad' })[tab.value],
 )
 const sectionSubtitle = computed(() =>
   ({
     companies: 'Administra las empresas del sistema y sus suscripciones',
     sellers: 'Quiénes venden el sistema; se asocian a cada suscripción',
     stats: 'Resultados comerciales de cada vendedor',
+    security: 'Verificación en dos pasos de la cuenta de plataforma',
   })[tab.value],
 )
 const sellers = ref<PlatformSeller[]>([])
@@ -1181,6 +1190,7 @@ const saveSeller = async () => {
 // así que el montaje carga lo que la sección visible necesita. Los
 // vendedores se cargan siempre: alimentan los selectores de los diálogos.
 onMounted(() => {
+  if (tab.value === 'security') return
   loadSellers()
   if (tab.value === 'companies') loadCompanies()
   if (tab.value === 'stats') loadStats()

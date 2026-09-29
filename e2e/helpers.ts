@@ -1,3 +1,5 @@
+import { createHmac } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { expect, type APIRequestContext, type Page } from '@playwright/test'
 
 export const API = 'http://127.0.0.1:8010/api'
@@ -85,4 +87,37 @@ export function displayDate(iso: string): string {
 
 export function field(page: Page, label: string) {
   return page.locator('.v-input').filter({ has: page.getByText(label, { exact: true }) })
+}
+
+/**
+ * El código de 6 dígitos que mostraría una app de autenticación para esta
+ * clave (RFC 6238, el mismo cálculo que hace el backend).
+ */
+export function totp(secret: string, at = Date.now()): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+  const bits = [...secret.replace(/[\s=]/g, '').toUpperCase()]
+    .map(char => alphabet.indexOf(char).toString(2).padStart(5, '0'))
+    .join('')
+  const key = Buffer.from((bits.match(/.{8}/g) ?? []).map(byte => parseInt(byte, 2)))
+  const counter = Buffer.alloc(8)
+  counter.writeBigUInt64BE(BigInt(Math.floor(at / 30_000)))
+  const hash = createHmac('sha1', key).update(counter).digest()
+  const offset = hash[hash.length - 1]! & 0x0f
+  const value = ((hash[offset]! & 0x7f) << 24) | (hash[offset + 1]! << 16) | (hash[offset + 2]! << 8) | hash[offset + 3]!
+  return String(value % 1_000_000).padStart(6, '0')
+}
+
+/**
+ * El backend de e2e envía los correos al log (MAIL_MAILER=log): el enlace
+ * de "¿Olvidaste tu contraseña?" más reciente para ese correo.
+ */
+export function lastResetLink(email: string): string {
+  const raw = readFileSync('../backend/storage/logs/laravel.log', 'utf8')
+  // Quoted-printable: líneas partidas con "=" y "=3D" en lugar de "=".
+  const log = raw.replace(/=\r?\n/g, '').replace(/=3D/g, '=').replace(/&amp;/g, '&')
+  const links = [...log.matchAll(/restablecer-contrasena\?token=([A-Za-z0-9]+)&email=([^\s"<>)\]]+)/g)]
+    .filter(match => decodeURIComponent(match[2]!) === email)
+  const last = links.at(-1)
+  if (!last) throw new Error(`No hay enlace de restablecimiento para ${email} en el log`)
+  return `/restablecer-contrasena?token=${last[1]}&email=${last[2]}`
 }

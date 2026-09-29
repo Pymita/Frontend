@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, COMPANY_SLUG, apiLogin, loginUI, openSidebarGroup, sidebarGroup, sidebarItem } from './helpers'
+import { ADMIN, API, COMPANY_SLUG, PLATFORM, apiLogin, lastResetLink, loginUI, openSidebarGroup, sidebarGroup, sidebarItem, totp } from './helpers'
 
 /**
  * Acceso por permisos: quien solo toma pedidos usa la app y no entra a la
@@ -205,3 +205,96 @@ test('en escritorio el menú sigue fijo y sin botón para abrirlo', async ({ pag
   await expect(sidebarItem(page, 'Inicio')).toBeInViewport()
   await expect(page.getByRole('button', { name: 'Abrir menú' })).toHaveCount(0)
 })
+
+/**
+ * La dueña de un negocio olvidó su contraseña: pide el enlace, llega al
+ * correo (en e2e, al log del backend) y elige una nueva desde ese enlace.
+ */
+test('un admin recupera su contraseña con el enlace del correo', async ({ page, request }) => {
+  const superToken = await apiLogin(request, PLATFORM.email, PLATFORM.password)
+  const email = `duena.olvido.${Date.now()}@e2e.test`
+  const created = await request.post(`${API}/platform/companies`, {
+    headers: { Authorization: `Bearer ${superToken}` },
+    data: { name: `E2E olvido ${Date.now()}`, business_type: 'restaurant', admin: { name: 'Dueña Olvido', email, password: 'vieja2026' } },
+  })
+  expect(created.status()).toBe(201)
+
+  await page.goto('/login')
+  await page.getByRole('button', { name: '¿Olvidaste tu contraseña?' }).click()
+  await page.getByLabel('Correo con el que entras').fill(email)
+  await page.getByRole('button', { name: 'Enviar enlace' }).click()
+  await expect(page.getByText('Si el correo está registrado, te enviamos un enlace para cambiar la contraseña.')).toBeVisible()
+
+  await page.goto(lastResetLink(email))
+  await expect(page.getByText('Elige tu contraseña nueva')).toBeVisible()
+  await page.getByLabel('Contraseña nueva').fill('corta')
+  await page.getByLabel('Repite la contraseña').fill('corta')
+  await page.getByRole('button', { name: 'Guardar contraseña' }).click()
+  await expect(page.getByText('Debe tener al menos 8 caracteres')).toBeVisible()
+
+  await page.getByLabel('Contraseña nueva').fill('NuevaClave2026')
+  await page.getByLabel('Repite la contraseña').fill('NuevaClave2026')
+  await page.getByRole('button', { name: 'Guardar contraseña' }).click()
+  await expect(page.getByText('Tu contraseña quedó cambiada. Ya puedes iniciar sesión.')).toBeVisible()
+  await expect(page).toHaveURL(/\/login/)
+  await expect(page.getByLabel('Correo o usuario')).toHaveValue(email)
+
+  const oldPassword = await request.post(`${API}/auth/login`, { headers: { Accept: 'application/json' }, data: { email, password: 'vieja2026' } })
+  expect(oldPassword.status()).toBe(422)
+  await loginUI(page, email, 'NuevaClave2026')
+  await expect(page).toHaveURL(/\/dashboard/)
+})
+
+test.describe('verificación en dos pasos de la cuenta de plataforma', () => {
+  let secret = ''
+
+  // La cuenta de plataforma es compartida por otras pruebas: pase lo que
+  // pase, queda sin segundo factor al terminar.
+  test.afterAll(async ({ request }) => {
+    if (!secret) return
+    const json = { Accept: 'application/json' }
+    const login = await (await request.post(`${API}/auth/login`, { headers: json, data: { email: PLATFORM.email, password: PLATFORM.password } })).json()
+    if (!login.two_factor_required) return
+    const session = await (await request.post(`${API}/auth/two-factor/challenge`, { headers: json, data: { challenge: login.challenge, code: totp(secret) } })).json()
+    await request.post(`${API}/auth/two-factor/disable`, {
+      headers: { ...json, Authorization: `Bearer ${session.token}` },
+      data: { password: PLATFORM.password, code: totp(secret) },
+    })
+  })
+
+  test('se activa desde Seguridad y el login pide el código de la app', async ({ page }) => {
+    await loginUI(page, PLATFORM.email, PLATFORM.password)
+    await sidebarItem(page, 'Seguridad').click()
+    await expect(page.getByRole('heading', { name: 'Seguridad' })).toBeVisible()
+    await expect(page.getByText('Sin activar')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Activar verificación en dos pasos' }).click()
+    secret = (await page.getByTestId('two-factor-secret').innerText()).replace(/\s/g, '')
+    expect(secret).toMatch(/^[A-Z2-7]{32}$/)
+    await expect(page.getByRole('link', { name: 'Abrir en la app' })).toHaveAttribute('href', /^otpauth:\/\/totp\//)
+
+    await page.getByLabel('Código de 6 dígitos').fill(totp(secret))
+    await page.getByRole('button', { name: 'Activar', exact: true }).click()
+    await expect(page.getByText('Guarda estos códigos en un lugar seguro.')).toBeVisible()
+    await page.getByRole('button', { name: 'Ya los guardé' }).click()
+    await expect(page.getByText('Activa', { exact: true })).toBeVisible()
+
+    // Cerrar sesión y volver a entrar: tras la contraseña pide el código.
+    await sidebarItem(page, 'Cerrar sesión').click()
+    await page.waitForURL(/\/login/)
+    await page.getByLabel('Correo o usuario').fill(PLATFORM.email)
+    await page.getByLabel('Contraseña', { exact: true }).fill(PLATFORM.password)
+    await page.getByRole('button', { name: 'Iniciar sesión' }).click()
+    await expect(page.getByText('Escribe el código de 6 dígitos de tu app de autenticación')).toBeVisible()
+
+    await page.getByLabel('Código de 6 dígitos').fill('000000')
+    await page.getByRole('button', { name: 'Verificar' }).click()
+    await expect(page.getByText(/El código no coincide/)).toBeVisible()
+
+    await page.getByLabel('Código de 6 dígitos').fill(totp(secret))
+    await page.getByRole('button', { name: 'Verificar' }).click()
+    await page.waitForURL(/\/plataforma/)
+    await expect(sidebarItem(page, 'Empresas')).toBeVisible()
+  })
+})
+

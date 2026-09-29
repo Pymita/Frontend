@@ -41,6 +41,14 @@ export const routes: RouteRecordRaw[] = [
     }
   },
   {
+    // El enlace del correo de "¿Olvidaste tu contraseña?": misma pantalla
+    // del login, en el paso de elegir la contraseña nueva.
+    path: '/restablecer-contrasena',
+    name: 'ResetPassword',
+    component: Login,
+    meta: { requiresAuth: false },
+  },
+  {
     path: '/dashboard',
     name: 'Dashboard',
     component: Dashboard,
@@ -161,6 +169,12 @@ export const routes: RouteRecordRaw[] = [
     name: 'PlataformaVentas',
     component: Plataforma,
     meta: { requiresAuth: true, requiresSuperAdmin: true, section: 'stats' }
+  },
+  {
+    path: '/plataforma/seguridad',
+    name: 'PlataformaSeguridad',
+    component: Plataforma,
+    meta: { requiresAuth: true, requiresSuperAdmin: true, section: 'security' }
   }
 ]
 
@@ -177,12 +191,14 @@ export const setupRouterGuards = (router: any) => {
 
     let isAdmin = false
     let isSuperAdmin = false
+    let mustSetUpTwoFactor = false
     let features: string[] = []
     if (userStr) {
       try {
         const user = JSON.parse(userStr)
         isAdmin = user.role === 'admin'
         isSuperAdmin = user.role === 'super_admin'
+        mustSetUpTwoFactor = !!user.two_factor?.setup_required
         features = effectiveFeatures(user)
       } catch (error) {
       }
@@ -190,6 +206,9 @@ export const setupRouterGuards = (router: any) => {
 
     if (requiresAuth && !isAuthenticated) {
       next('/login')
+    } else if (isAuthenticated && mustSetUpTwoFactor && to.path !== '/plataforma/seguridad') {
+      // La cuenta de plataforma sin segundo factor solo puede configurarlo.
+      next('/plataforma/seguridad')
     } else if (requiresSuperAdmin && !isSuperAdmin) {
       next('/dashboard')
     } else if (requiresAdmin && !isAdmin) {

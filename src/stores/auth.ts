@@ -45,16 +45,29 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // Actions
-  const login = async (credentials: LoginCredentials): Promise<void> => {
+  /** Devuelve el ticket si la cuenta pide el código de verificación en dos pasos. */
+  const login = async (credentials: LoginCredentials): Promise<string | null> => {
     isLoading.value = true
     try {
       const response = await authService.login(credentials)
-      
-      // Actualizar estado del store
+      if ('two_factor_required' in response) {
+        return response.challenge
+      }
+
       user.value = response.user
       token.value = response.token
-    } catch (error) {
-      throw error
+      return null
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  const completeTwoFactor = async (challenge: string, code: { code?: string; recovery_code?: string }): Promise<void> => {
+    isLoading.value = true
+    try {
+      const response = await authService.verifyTwoFactor(challenge, code)
+      user.value = response.user
+      token.value = response.token
     } finally {
       isLoading.value = false
     }
@@ -126,6 +139,7 @@ export const useAuthStore = defineStore('auth', () => {
     
     // Actions
     login,
+    completeTwoFactor,
     logout,
     getCurrentUser,
     setUser,

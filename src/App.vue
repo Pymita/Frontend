@@ -146,7 +146,7 @@ import invoicingService from './services/invoicingService'
 import { useAuthStore } from './stores/auth'
 import { effectiveFeatures } from './types/auth'
 import { APP_ICON, APP_NAME } from './utils/branding'
-import { SUBSCRIPTION_BLOCKED_EVENT } from './services/api'
+import { SUBSCRIPTION_BLOCKED_EVENT, TWO_FACTOR_REQUIRED_EVENT } from './services/api'
 import type { MenuItem } from './types'
 
 const route = useRoute()
@@ -199,6 +199,13 @@ const onSubscriptionBlocked = (event: Event) => {
   authStore.markBlocked((event as CustomEvent).detail)
 }
 
+// El backend cerró el panel porque la cuenta de plataforma no tiene su
+// segundo factor (p. ej. se activó la exigencia con la sesión abierta).
+const onTwoFactorRequired = async () => {
+  await authStore.getCurrentUser()
+  router.push('/plataforma/seguridad')
+}
+
 const MENU_GROUPS = ['Operación', 'Catálogo', 'Administración', 'Plataforma']
 
 const allMenuItems: MenuItem[] = [
@@ -222,6 +229,7 @@ const allMenuItems: MenuItem[] = [
   { title: 'Empresas', icon: 'mdi-domain', route: '/plataforma', superAdminOnly: true, group: 'Plataforma' },
   { title: 'Vendedores', icon: 'mdi-account-tie', route: '/plataforma/vendedores', superAdminOnly: true, group: 'Plataforma' },
   { title: 'Ventas por vendedor', icon: 'mdi-chart-line', route: '/plataforma/ventas', superAdminOnly: true, group: 'Plataforma' },
+  { title: 'Seguridad', icon: 'mdi-shield-key', route: '/plataforma/seguridad', superAdminOnly: true, group: 'Plataforma' },
 ]
 
 const availableMenuItems = computed((): MenuItem[] => {
@@ -335,11 +343,13 @@ onMounted(() => {
   // Inicializar el store con datos del localStorage
   authStore.initializeAuth()
   window.addEventListener(SUBSCRIPTION_BLOCKED_EVENT, onSubscriptionBlocked)
+  window.addEventListener(TWO_FACTOR_REQUIRED_EVENT, onTwoFactorRequired)
   checkResolutionStatus()
 })
 
 onUnmounted(() => {
   window.removeEventListener(SUBSCRIPTION_BLOCKED_EVENT, onSubscriptionBlocked)
+  window.removeEventListener(TWO_FACTOR_REQUIRED_EVENT, onTwoFactorRequired)
 })
 </script>
 
