@@ -75,23 +75,38 @@
                   density="compact"
                 />
               </v-col>
-              <v-col cols="12" md="4">
-                <v-switch
-                  v-model="soloHoy"
-                  label="Solo hoy"
-                  color="primary"
+              <v-col cols="6" md="2">
+                <v-text-field
+                  v-model="dateFrom"
+                  label="Desde"
+                  type="date"
+                  :max="dateTo || undefined"
                   hide-details
                   density="compact"
                 />
-                <div v-if="filterPago === 'pending' && soloHoy" class="text-caption text-warning">
-                  Con "Solo hoy" no ves los pendientes de otros días.
-                </div>
               </v-col>
-              <v-col cols="12" md="4" class="text-right">
-                <v-btn variant="text" @click="loadOrders">
+              <v-col cols="6" md="2">
+                <v-text-field
+                  v-model="dateTo"
+                  label="Hasta"
+                  type="date"
+                  :min="dateFrom || undefined"
+                  hide-details
+                  density="compact"
+                />
+              </v-col>
+              <v-col cols="12" md="4" class="d-flex align-center justify-end flex-wrap ga-1">
+                <v-btn variant="tonal" color="primary" size="small" @click="setToday">Hoy</v-btn>
+                <v-btn v-if="hasDateRange" variant="text" size="small" @click="clearDates">Quitar fechas</v-btn>
+                <v-btn variant="text" @click="loadOrders()">
                   <v-icon start>mdi-refresh</v-icon>
                   Actualizar
                 </v-btn>
+              </v-col>
+              <v-col v-if="filterPago === 'pending' && hasDateRange" cols="12" class="pt-0">
+                <div class="text-caption text-warning">
+                  Con un rango de fechas no ves los pendientes de otros días.
+                </div>
               </v-col>
             </v-row>
           </v-card-title>
@@ -1093,7 +1108,19 @@ const search = ref('');
 // Por defecto: TODO lo pendiente de cobro, de cualquier día. Un pedido de
 // ayer sin cobrar es plata que se pierde si solo se ve lo de hoy.
 const filterPago = ref<'pending' | 'paid' | 'all'>('pending');
-const soloHoy = ref(false);
+// Rango por fecha de creación (AAAA-MM-DD, hora local del negocio).
+const dateFrom = ref('');
+const dateTo = ref('');
+const hasDateRange = computed(() => !!dateFrom.value || !!dateTo.value);
+const localToday = () => new Date().toLocaleDateString('en-CA');
+const setToday = () => {
+  dateFrom.value = localToday();
+  dateTo.value = localToday();
+};
+const clearDates = () => {
+  dateFrom.value = '';
+  dateTo.value = '';
+};
 
 /** Pesos colombianos: sin decimales y con separador de miles. */
 const money = (value: number | string | null | undefined): string =>
@@ -1123,11 +1150,11 @@ const isOverdue = (order: Order) =>
 // derivan de ahí; si no (pagados, solo hoy), se consultan aparte para que la
 // alerta no desaparezca al cambiar de filtro.
 const overdueOrders = ref<Order[]>([]);
-const showsAllPending = computed(() => filterPago.value === 'pending' && !soloHoy.value);
+const showsAllPending = computed(() => filterPago.value === 'pending' && !hasDateRange.value);
 
 const verTodosLosPendientes = () => {
   filterPago.value = 'pending';
-  soloHoy.value = false;
+  clearDates();
 };
 
 const rowProps = ({ item }: { item: Order }) => ({
@@ -1408,10 +1435,11 @@ const stopTime = async (order: Order) => {
 const loadOrders = async (silent = false) => {
   if (!silent) loading.value = true;
   try {
-    // El filtro de pago se manda al backend: "todos" sin "solo hoy" sería
+    // El filtro de pago se manda al backend: "todos" sin fechas sería
     // traer el histórico completo cada vez que se abre la página.
     const filters = {
-      today: soloHoy.value,
+      ...(dateFrom.value ? { from: dateFrom.value } : {}),
+      ...(dateTo.value ? { to: dateTo.value } : {}),
       ...(filterPago.value === 'pending' ? { pending_payment: true } : {}),
       ...(filterPago.value === 'paid' ? { payment_status: 'paid' } : {}),
     };
@@ -1430,7 +1458,7 @@ const loadOrders = async (silent = false) => {
   }
 };
 
-watch([soloHoy, filterPago], () => loadOrders());
+watch([dateFrom, dateTo, filterPago], () => loadOrders());
 
 const getStatusColor = (status: string) => orderStatusColors[status] || 'secondary';
 

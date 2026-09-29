@@ -100,3 +100,40 @@ test('agregar productos a un pedido que ya está abierto', async ({ page, reques
   expect(data.items).toHaveLength(2)
   expect(Number(data.total)).toBe(8000)
 })
+
+test('el panel de pedidos filtra por rango de fechas', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const { productId } = await seedMenuItem(request, auth, 'Tamal Fecha E2E', 13579)
+  const created = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { items: [{ product_id: productId, quantity: 1 }] },
+  })
+  expect(created.status()).toBe(201)
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Todos' }).click()
+  const row = page.locator('tbody tr', { hasText: '$13.579' })
+  await expect(row).toBeVisible()
+
+  // Un rango en el pasado lo deja por fuera.
+  await page.getByLabel('Desde').fill('2001-01-01')
+  await page.getByLabel('Hasta').fill('2001-01-31')
+  await expect(row).toHaveCount(0)
+
+  // "Hoy" pone el rango del día y el pedido vuelve.
+  await page.getByRole('button', { name: 'Hoy', exact: true }).click()
+  const today = new Date().toLocaleDateString('en-CA')
+  await expect(page.getByLabel('Desde')).toHaveValue(today)
+  await expect(page.getByLabel('Hasta')).toHaveValue(today)
+  await expect(row).toBeVisible()
+
+  // En "Pendientes" con fechas avisa que se ocultan los de otros días.
+  await page.getByRole('button', { name: 'Pendientes' }).click()
+  await expect(page.getByText('Con un rango de fechas no ves los pendientes de otros días.')).toBeVisible()
+  await page.getByRole('button', { name: 'Quitar fechas' }).click()
+  await expect(page.getByLabel('Desde')).toHaveValue('')
+  await expect(page.getByText('Con un rango de fechas no ves los pendientes de otros días.')).toHaveCount(0)
+  await expect(row).toBeVisible()
+})
