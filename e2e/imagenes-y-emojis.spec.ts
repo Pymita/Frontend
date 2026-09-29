@@ -74,5 +74,9 @@ test('la imagen subida se guarda en la carpeta de la empresa', async ({ page, re
   // puede caer en otra página, así que ampliamos el tamaño de página para verla.
   await page.locator('.v-data-table-footer__items-per-page .v-select').click()
   await page.getByRole('option', { name: '100' }).click()
-  await expect(page.locator('tr', { hasText: 'Con foto E2E' }).locator('img')).toBeVisible()
+  // v-img no crea el <img> hasta que la fila entra en pantalla: se baja hasta ella
+  // como lo haría el usuario, o la aserción depende de cuántas categorías haya antes.
+  const row = page.locator('tr', { hasText: 'Con foto E2E' })
+  await row.scrollIntoViewIfNeeded()
+  await expect(row.locator('img')).toBeVisible()
 })
