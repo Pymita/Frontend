@@ -66,6 +66,16 @@
                   persistent-hint />
               </v-col>
             </v-row>
+            <v-alert
+              v-if="billsAnotherMonth"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mt-3"
+            >
+              Vas a facturar {{ periodLabel }} con fecha {{ formatDay(issueDate) }}. Si el día de corte ya pasó,
+              el documento vence el mismo día de emisión: ningún documento nace vencido.
+            </v-alert>
           </v-card-text>
         </v-card>
 
@@ -476,7 +486,14 @@
               <v-text-field v-model.number="rowForm.discount" label="Descuento" type="number" min="0" prefix="$" density="comfortable" />
             </v-col>
             <v-col cols="6" md="3">
-              <DateField v-model="rowForm.due_date" label="Vence" density="comfortable" />
+              <DateField
+                v-model="rowForm.due_date"
+                label="Vence"
+                :min="issueDate"
+                hint="No puede ser antes de la fecha de emisión"
+                persistent-hint
+                density="comfortable"
+              />
             </v-col>
             <v-col cols="12" md="6">
               <v-select
@@ -997,7 +1014,7 @@ const billedRows = computed(() => (preview.value?.rows ?? []).filter(r => r.bill
 // Los que tienen el corte el día a facturar van marcados de entrada: es a
 // quienes les toca hoy. Se recalcula solo al cambiar el día o el mes, para
 // no deshacer lo que el usuario marcó a mano.
-const dueOnIssueDate = computed(() => pendingRows.value.filter(r => r.due_date === issueDate.value))
+const dueOnIssueDate = computed(() => pendingRows.value.filter(r => (r.cutoff_date ?? r.due_date) === issueDate.value))
 let autoSelectedFor = ''
 const autoSelect = () => {
   const key = `${period.value}|${issueDate.value}`
@@ -1021,7 +1038,7 @@ const loadPreview = async () => {
   if (!period.value) return
   loadingPreview.value = true
   try {
-    preview.value = await billingService.getRecurringPreview(period.value)
+    preview.value = await billingService.getRecurringPreview(period.value, issueDate.value)
     if (!generalConcept.value) generalConcept.value = preview.value.default_concept
     // La selección y las ediciones son de un mes: al cambiar de mes se limpian.
     const billable = new Set(pendingRows.value.map(r => r.customer_id))
@@ -1040,16 +1057,20 @@ watch(period, () => {
   loadPreview()
 })
 
-// El mes sigue al día a facturar; si el mes no cambia, solo se remarca.
+// El mes sigue al día a facturar. Si el mes no cambia se recarga igual: el
+// vencimiento de cada fila depende de la fecha de emisión.
 watch(issueDate, value => {
   if (!value) return
   const month = value.slice(0, 7)
   if (month !== period.value) {
     period.value = month
   } else {
-    autoSelect()
+    loadPreview()
   }
 })
+
+// Facturar un mes distinto al de la emisión (ponerse al día con uno pasado).
+const billsAnotherMonth = computed(() => !!issueDate.value && !!period.value && issueDate.value.slice(0, 7) !== period.value)
 
 // --- Impresión (cuenta de cobro / factura y recibo de caja) ---
 const business = ref<DocumentBusiness | null>(null)

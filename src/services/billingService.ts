@@ -52,6 +52,8 @@ export interface RecurringPreviewRow {
   concept: string | null
   unit_price: number | null
   billing_day: number | null
+  /** Día de corte del mes facturado: decide a quién le toca el día elegido. */
+  cutoff_date?: string | null
   due_date: string | null
   tax_id: number | null
   tax_name: string | null
@@ -312,8 +314,11 @@ export const billingService = {
   },
 
   // ===== Facturación automática =====
-  async getRecurringPreview(period: string): Promise<RecurringPreview> {
-    const response = await api.get<ApiResponse<RecurringPreview>>('/recurring-billing/preview', { params: { period } })
+  /** Con la fecha de emisión, el vencimiento de cada fila nunca queda antes de ella. */
+  async getRecurringPreview(period: string, issueDate?: string): Promise<RecurringPreview> {
+    const response = await api.get<ApiResponse<RecurringPreview>>('/recurring-billing/preview', {
+      params: { period, issue_date: issueDate || undefined },
+    })
     return response.data.data
   },
 

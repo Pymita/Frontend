@@ -9,8 +9,13 @@ import { API, PLATFORM, apiLogin, displayDate, field, loginUI, sidebarItem } fro
  * Patrón: empresa y clientes por API, verificación por la interfaz.
  */
 
-// Enero de 2025 ya pasó: sus cuotas vencen el 10 y aparecen como vencidas.
+// Enero de 2025 ya pasó. Facturado hoy, vence hoy (nunca antes de emitirse);
+// emitido en enero, venció el 10 y aparece como vencido.
 const PERIOD = '2025-01'
+const ISSUED_IN_PERIOD = '2025-01-02'
+
+/** Como la página muestra una fecha: "05 de oct de 2026". */
+const dayLabel = (date: Date) => date.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
 
 interface Company {
   credentials: { email: string; password: string }
@@ -83,7 +88,10 @@ test('factura a los seleccionados editando a una persona y después a todos', as
 
   await expect(row(page, 'Ana Apto 101')).toContainText('Cuota de administración')
   await expect(row(page, 'Ana Apto 101')).toContainText('$250.000')
-  await expect(row(page, 'Ana Apto 101')).toContainText('10 de ene de 2025')
+  // Facturar un mes pasado hoy: vence hoy, no el 10 de enero.
+  await expect(row(page, 'Ana Apto 101')).toContainText(dayLabel(new Date()))
+  await expect(row(page, 'Ana Apto 101')).not.toContainText('10 de ene de 2025')
+  await expect(page.getByText(/Vas a facturar enero de 2025 con fecha .*ningún documento nace vencido/)).toBeVisible()
   await expect(row(page, 'Carla Parqueadero 7')).toContainText('Cuota parqueadero')
   await expect(page.locator('.v-card', { hasText: 'Valor por facturar' })).toContainText('$680.000')
 
@@ -135,7 +143,7 @@ test('la cartera muestra el saldo por cliente y registra abonos hasta pagar', as
   const ana = await createResident(request, company.token, { name: 'Ana Apto 101', document_number: '1001' })
   const generated = await request.post(`${API}/recurring-billing/invoices/generate`, {
     headers: { Authorization: `Bearer ${company.token}` },
-    data: { period: PERIOD, items: [{ customer_id: ana }] },
+    data: { period: PERIOD, issue_date: ISSUED_IN_PERIOD, items: [{ customer_id: ana }] },
   })
   expect(generated.status()).toBe(201)
 
@@ -217,7 +225,7 @@ test('crea un cliente con su cuota y le factura solo a él', async ({ page, requ
 
   await page.getByRole('tab', { name: /Facturar/ }).click()
   await field(page, 'Mes a facturar').locator('input').fill(PERIOD)
-  await expect(row(page, 'Local 3 - Panadería')).toContainText('15 de ene de 2025')
+  await expect(row(page, 'Local 3 - Panadería')).toContainText(dayLabel(new Date()))
 
   await page.getByRole('button', { name: 'Editar y facturar a Local 3 - Panadería' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Facturar solo a esta persona' }).click()
@@ -246,6 +254,8 @@ test('capturas de facturación y cartera en escritorio y en pantalla angosta', a
     await page.setViewportSize(viewport)
     await page.goto('/facturacion-automatica')
     await field(page, 'Mes a facturar').locator('input').fill(PERIOD)
+    await field(page, 'Mes a facturar').locator('input').blur()
+    await expect(field(page, 'Mes a facturar').locator('input')).toHaveValue('enero de 2025')
     await expect(row(page, 'Ana Apto 101')).toContainText('CC-1')
     await page.screenshot({ path: `../screenshots/facturacion-automatica-${name}.png`, fullPage: true })
 
