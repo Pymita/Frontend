@@ -148,9 +148,12 @@ test('desde el plano se ve el pedido de la mesa y se gestiona ahí mismo', async
   const { productId } = await seedMenuItem(request, auth, 'Empanada Plano E2E', 3100)
   await seedMenuItem(request, auth, 'Gaseosa Plano E2E', 2900)
 
-  // Una mesa libre que ya esté ubicada en el plano.
+  // Una mesa libre ya ubicada en el plano: la de número más alto, para no
+  // dejarle ventas a la primera mesa libre que usan otras specs.
   const tables = (await (await request.get(`${API}/tables`, { headers: auth })).json()).data
-  const table = tables.find((t: any) => t.status === 'available' && t.active && t.pos_x !== null)
+  const table = [...tables]
+    .sort((a: any, b: any) => b.number - a.number)
+    .find((t: any) => t.status === 'available' && t.active && t.pos_x !== null)
   expect(table, 'el plano sembrado debe tener una mesa libre ubicada').toBeTruthy()
   const tableName = table.nickname || `Mesa ${table.number}`
   const order = await request.post(`${API}/orders`, {
