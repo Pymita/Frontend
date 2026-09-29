@@ -11,6 +11,8 @@ export interface MenuItem {
   /** Función requerida para verla (empleados; los admins tienen todas) */
   feature?: string
   disabled?: boolean
+  /** Section heading it is listed under in the side menu */
+  group?: string
 }
 
 export interface NavigationDrawerItem extends MenuItem {

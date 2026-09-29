@@ -24,6 +24,15 @@ export const orderStatusLabels: Record<string, string> = {
   cancelled: 'Cancelado',
 }
 
+/** Theme role per order status (same map in mobile/src/utils/labels.ts). */
+export const orderStatusColors: Record<string, string> = {
+  pending: 'warning',
+  preparing: 'info',
+  ready: 'success',
+  delivered: 'secondary',
+  cancelled: 'error',
+}
+
 export const itemStatusLabels: Record<string, string> = {
   pending: 'Pendiente',
   preparing: 'Preparando',
@@ -36,6 +45,13 @@ export const tableStatusLabels: Record<string, string> = {
   available: 'Disponible',
   occupied: 'Ocupada',
   reserved: 'Reservada',
+}
+
+/** Theme role per table status (same map in mobile/src/utils/labels.ts). */
+export const tableStatusColors: Record<string, string> = {
+  available: 'success',
+  occupied: 'primary',
+  reserved: 'warning',
 }
 
 // ===== Productos =====

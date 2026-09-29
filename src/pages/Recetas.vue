@@ -5,7 +5,7 @@
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
             <h1 class="text-h4">Gestión de Recetas</h1>
-            <p class="text-body-1 text-grey-darken-1">
+            <p class="text-body-1 text-medium-emphasis">
               Define los ingredientes y cantidades de cada producto
             </p>
           </div>
@@ -34,12 +34,12 @@
             <template #item.product="{ item }">
               <div>
                 <div class="font-weight-bold">{{ item.product?.name }}</div>
-                <div class="text-caption text-grey">{{ item.name }}</div>
+                <div class="text-caption text-medium-emphasis">{{ item.name }}</div>
               </div>
             </template>
             <template #item.variant="{ item }">
               <v-chip v-if="item.variant" size="small" variant="tonal">{{ item.variant.name }}</v-chip>
-              <span v-else class="text-grey">Base</span>
+              <span v-else class="text-medium-emphasis">Base</span>
             </template>
             <template #item.rendimiento="{ item }">
               {{ item.yield_quantity }} {{ item.yield_unit }}
@@ -50,10 +50,10 @@
               </v-chip>
             </template>
             <template #item.total_cost="{ item }">
-              <span v-if="item.total_cost" class="font-weight-bold text-success">
+              <span v-if="item.total_cost" class="font-weight-bold">
                 ${{ Number(item.total_cost).toFixed(2) }}
               </span>
-              <span v-else class="text-grey">-</span>
+              <span v-else class="text-medium-emphasis">-</span>
             </template>
             <template #item.actions="{ item }">
               <v-btn icon size="small" variant="text" :disabled="isReadOnly" @click="openDialog(item)">
@@ -75,7 +75,7 @@
         <v-divider />
         <v-card-text style="max-height: 70vh">
           <v-form ref="form">
-            <p class="text-caption text-grey-darken-1 mb-3">
+            <p class="text-caption text-medium-emphasis mb-3">
               Los campos con
               <span class="text-error font-weight-bold">*</span>
               son obligatorios.
@@ -177,11 +177,11 @@
             <div class="d-flex justify-space-between align-center mb-3">
               <div>
                 <h3>Ingredientes</h3>
-                <div class="text-body-2 text-grey-darken-1">
+                <div class="text-body-2 text-medium-emphasis">
                   Puedes ingresar cantidades de dos formas: lo que usa todo el lote, o una cantidad que rinde varias unidades.
                 </div>
               </div>
-              <v-btn color="success" size="small" @click="addIngrediente">
+              <v-btn color="primary" variant="tonal" size="small" @click="addIngrediente">
                 <v-icon start>mdi-plus</v-icon>
                 Agregar Ingrediente
               </v-btn>
@@ -218,7 +218,7 @@
                       <template #item="{ props, item }">
                         <v-list-item v-bind="props">
                           <template #append>
-                            <span class="text-caption text-grey">
+                            <span class="text-caption text-medium-emphasis">
                               {{ item.raw.unit }}
                             </span>
                           </template>
@@ -272,11 +272,11 @@
                     />
                   </v-col>
                   <v-col cols="12" md="3">
-                    <div class="text-caption text-grey">Consumo calculado para el lote</div>
+                    <div class="text-caption text-medium-emphasis">Consumo calculado para el lote</div>
                     <div class="font-weight-bold">
                       {{ getBatchQuantity(ing).toFixed(4) }} {{ ing.unit || 'unid.' }}
                     </div>
-                    <div class="text-caption text-grey">
+                    <div class="text-caption text-medium-emphasis">
                       Por cada {{ formData.yield_unit || 'unidad' }}:
                       {{ getQuantityPerProducedUnit(ing).toFixed(4) }} {{ ing.unit || 'unid.' }}
                     </div>
@@ -294,8 +294,8 @@
                     />
                   </v-col>
                   <v-col cols="8" md="2">
-                    <div class="text-caption text-grey">Costo lote</div>
-                    <div class="font-weight-bold text-success">
+                    <div class="text-caption text-medium-emphasis">Costo lote</div>
+                    <div class="font-weight-bold tabular-nums">
                       ${{ calcIngredientCost(ing).toFixed(2) }}
                     </div>
                   </v-col>
@@ -316,16 +316,16 @@
 
             <v-divider class="my-3" />
 
-            <v-card color="grey-lighten-4" flat>
+            <v-card color="surface-light" flat>
               <v-card-text>
                 <v-row>
                   <v-col cols="6">
-                    <div class="text-h6">Costo Total</div>
-                    <div class="text-h4 text-success">${{ Number(totalCost).toFixed(2) }}</div>
+                    <div class="text-subtitle-2 text-medium-emphasis">Costo Total</div>
+                    <div class="text-h3 tabular-nums">${{ Number(totalCost).toFixed(2) }}</div>
                   </v-col>
                   <v-col cols="6">
-                    <div class="text-h6">Costo por Unidad</div>
-                    <div class="text-h4 text-primary">
+                    <div class="text-subtitle-2 text-medium-emphasis">Costo por Unidad</div>
+                    <div class="text-h3 tabular-nums">
                       ${{ Number(costPerUnit).toFixed(2) }}/{{ formData.yield_unit || 'unidad' }}
                     </div>
                   </v-col>
@@ -704,6 +704,6 @@ onMounted(() => {
 
 <style scoped>
 .border {
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
 }
 </style>

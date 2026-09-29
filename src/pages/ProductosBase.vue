@@ -5,7 +5,7 @@
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
             <h1 class="text-h4">{{ hasRecipes ? 'Gestión de Productos Base' : 'Productos' }}</h1>
-            <p class="text-body-1 text-grey-darken-1">
+            <p class="text-body-1 text-medium-emphasis">
               {{ hasRecipes
                 ? 'Materias primas, productos intermedios y finales'
                 : 'Lo que vendes y su inventario' }}
@@ -97,15 +97,15 @@
               <v-avatar v-if="item.image_url" size="36" rounded="lg">
                 <v-img :src="resolveImageUrl(item.image_url)" cover />
               </v-avatar>
-              <v-icon v-else color="grey-lighten-1" size="small">mdi-image-outline</v-icon>
+              <v-icon v-else class="text-medium-emphasis" size="small">mdi-image-outline</v-icon>
             </template>
             <template #item.type="{ item }">
-              <v-chip :color="getTipoColor(item.type)" size="small">
+              <v-chip color="secondary" :prepend-icon="getTipoIcon(item.type)" size="small">
                 {{ getTipoLabel(item.type) }}
               </v-chip>
             </template>
             <template #item.current_stock="{ item }">
-              <span v-if="item.tracks_stock === false" class="text-grey">No aplica</span>
+              <span v-if="item.tracks_stock === false" class="text-medium-emphasis">No aplica</span>
               <div v-else-if="item.current_stock !== null && item.current_stock !== undefined">
                 <v-chip 
                   :color="getStockColor(item)" 
@@ -127,29 +127,29 @@
               </v-btn>
             </template>
             <template #item.minimum_stock="{ item }">
-              <span v-if="item.tracks_stock === false" class="text-grey">No aplica</span>
+              <span v-if="item.tracks_stock === false" class="text-medium-emphasis">No aplica</span>
               <span v-else-if="item.minimum_stock">
                 {{ item.minimum_stock }} {{ item.unit }}
               </span>
-              <span v-else class="text-grey">-</span>
+              <span v-else class="text-medium-emphasis">-</span>
             </template>
             <template #item.unit_cost="{ item }">
               <span v-if="item.unit_cost" class="font-weight-bold">
                 ${{ Number(item.unit_cost).toFixed(2) }}/{{ item.unit }}
               </span>
-              <span v-else class="text-grey">-</span>
+              <span v-else class="text-medium-emphasis">-</span>
             </template>
             <template #item.sale_price="{ item }">
-              <span v-if="item.sale_price" class="font-weight-bold text-success">
+              <span v-if="item.sale_price" class="font-weight-bold">
                 ${{ Number(item.sale_price).toLocaleString('es-CO') }}
               </span>
-              <span v-else class="text-grey">-</span>
+              <span v-else class="text-medium-emphasis">-</span>
             </template>
             <template #item.estimated_cost="{ item }">
-              <span v-if="item.estimated_cost" class="text-success">
+              <span v-if="item.estimated_cost">
                 ${{ Number(item.estimated_cost).toFixed(2) }}
               </span>
-              <span v-else class="text-grey">-</span>
+              <span v-else class="text-medium-emphasis">-</span>
             </template>
             <template #item.category="{ item }">
               <v-chip v-if="item.category" size="small" variant="tonal">
@@ -164,7 +164,7 @@
                 <template #activator="{ props }">
                   <v-chip
                     v-bind="props"
-                    :color="item.menu_item.available ? 'green' : 'grey'"
+                    :color="item.menu_item.available ? 'success' : 'secondary'"
                     size="small"
                     style="cursor: pointer"
                     @click="toggleMenuAvailability(item)"
@@ -182,7 +182,7 @@
               >
                 Añadir al menú
               </v-btn>
-              <span v-else class="text-grey">-</span>
+              <span v-else class="text-medium-emphasis">-</span>
             </template>
             <template #item.actions="{ item }">
               <v-tooltip v-if="hasRecipes && item.type !== 'raw_material'" text="Gestionar receta">
@@ -231,7 +231,7 @@
           </v-alert>
 
           <v-form ref="form" @submit.prevent="save">
-            <p class="text-caption text-grey-darken-1 mb-3">
+            <p class="text-caption text-medium-emphasis mb-3">
               Los campos con
               <span class="text-error font-weight-bold">*</span>
               son obligatorios.
@@ -537,7 +537,7 @@
               />
             </v-col>
             <v-col cols="12" md="6">
-              <v-card flat color="grey-lighten-4" class="pa-3">
+              <v-card flat color="surface-light" class="pa-3">
                 <div class="text-caption">Nuevo stock:</div>
                 <div class="text-h5" :class="calcularNuevoStock >= 0 ? 'text-success' : 'text-error'">
                   {{ calcularNuevoStock.toFixed(2) }} {{ stockProduct.unit }}
@@ -735,28 +735,29 @@ const filteredProducts = computed(() => {
   return filtered;
 });
 
-const getTipoColor = (tipo: string) => {
-  const colors: Record<string, string> = {
-    raw_material: 'blue',
-    intermediate: 'orange',
-    final: 'green',
+// Product types are not states: one neutral color, told apart by icon.
+const getTipoIcon = (tipo: string) => {
+  const icons: Record<string, string> = {
+    raw_material: 'mdi-grain',
+    intermediate: 'mdi-pot-mix-outline',
+    final: 'mdi-silverware-fork-knife',
   };
-  return colors[tipo] || 'grey';
+  return icons[tipo] || 'mdi-tag-outline';
 };
 
 const getTipoLabel = (tipo: string) => label(productTypeLabels, tipo);
 
 const getStockAlertType = (product: Product): 'success' | 'error' | 'warning' | 'info' => {
   const color = getStockColor(product);
-  return color === 'grey' ? 'info' : color;
+  return color === 'secondary' ? 'info' : color;
 };
 
 const getStockColor = (product: Product) => {
-  if (product.tracks_stock === false) return 'grey';
+  if (product.tracks_stock === false) return 'secondary';
   const stock = Number(product.current_stock ?? 0);
   // Agotado o en negativo: siempre en rojo, aunque no tenga mínimo.
   if (stock <= 0) return 'error';
-  if (!product.minimum_stock) return 'grey';
+  if (!product.minimum_stock) return 'secondary';
   if (stock <= product.minimum_stock) return 'error';
   if (stock <= product.minimum_stock * 1.5) return 'warning';
   return 'success';

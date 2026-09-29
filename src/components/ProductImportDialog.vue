@@ -19,13 +19,13 @@
             <v-icon start>mdi-download</v-icon>
             Descargar Excel de ejemplo
           </v-btn>
-          <span class="text-caption text-grey-darken-1">
+          <span class="text-caption text-medium-emphasis">
             Trae los encabezados listos y una fila de muestra.
           </span>
         </div>
 
         <h4 class="mb-2">Columnas del archivo</h4>
-        <p class="text-body-2 text-grey-darken-1 mb-3">
+        <p class="text-body-2 text-medium-emphasis mb-3">
           La primera fila son los nombres de las columnas. El orden no importa y no
           distinguimos mayúsculas ni tildes.
         </p>
@@ -43,17 +43,17 @@
             <tr v-for="column in format?.columns ?? []" :key="column.key">
               <td class="font-weight-bold text-no-wrap">{{ column.label }}</td>
               <td>
-                <v-chip :color="column.required ? 'error' : 'grey'" size="x-small" variant="flat">
+                <v-chip :color="column.required ? 'error' : 'secondary'" size="x-small" variant="flat">
                   {{ column.required ? 'Obligatoria' : 'Opcional' }}
                 </v-chip>
               </td>
               <td class="text-body-2">{{ column.help }}</td>
-              <td class="text-body-2 text-grey-darken-1 text-no-wrap">{{ column.example }}</td>
+              <td class="text-body-2 text-medium-emphasis text-no-wrap">{{ column.example }}</td>
             </tr>
           </tbody>
         </v-table>
 
-        <ul class="text-body-2 text-grey-darken-1 mb-4 pl-4">
+        <ul class="text-body-2 text-medium-emphasis mb-4 pl-4">
           <li v-for="note in format?.notes ?? []" :key="note">{{ note }}</li>
         </ul>
 

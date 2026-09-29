@@ -50,6 +50,9 @@ test('empleado con acceso limitado solo ve sus secciones', async ({ page, reques
     await expect(sidebarItem(page, hidden)).toHaveCount(0)
   }
 
+  // Todo lo suyo es de Operación: con una sola sección el menú no pone encabezados.
+  await expect(sidebarItem(page, 'Operación')).toHaveCount(0)
+
   // Y aunque escriba la URL a mano, lo devuelve a una página permitida:
   await page.goto('/gastos')
   await expect(page).not.toHaveURL(/\/gastos/)
@@ -61,6 +64,12 @@ test('admin ve todas las secciones incluidas las administrativas', async ({ page
   for (const item of ['Dashboard', 'Pedidos', 'Productos', 'Kardex', 'Gastos', 'Finanzas', 'Empleados', 'Configuración']) {
     await expect(sidebarItem(page, item)).toBeVisible()
   }
+
+  // Las secciones van agrupadas bajo su encabezado, y el rol se ve junto al nombre.
+  for (const group of ['Operación', 'Catálogo', 'Administración']) {
+    await expect(sidebarItem(page, group)).toBeVisible()
+  }
+  await expect(page.locator('.v-app-bar').getByText('Admin', { exact: true })).toBeVisible()
 
   // Pero no la de plataforma (es de super admin):
   await expect(sidebarItem(page, 'Plataforma')).toHaveCount(0)

@@ -6,8 +6,8 @@
         <div class="d-flex align-center">
           <v-icon size="40" class="mr-3" color="primary">mdi-cash-multiple</v-icon>
           <div>
-            <h1 class="text-h3">Gestión de Gastos</h1>
-            <p class="text-body-1 text-grey">Controla y administra todos los expenses del negocio</p>
+            <h1 class="text-h4">Gestión de Gastos</h1>
+            <p class="text-body-1 text-medium-emphasis">Controla y administra todos los expenses del negocio</p>
           </div>
         </div>
       </v-col>
@@ -17,7 +17,7 @@
       <!-- Resumen de Gastos -->
       <v-col cols="14">
         <v-card>
-          <v-card-title class="bg-primary d-flex align-center">
+          <v-card-title class="d-flex align-center">
             <v-icon class="mr-2">mdi-chart-box</v-icon>
             Resumen Financiero
           </v-card-title>
@@ -55,10 +55,10 @@
 
             <v-row v-if="resumen" class="mt-2">
               <v-col md="3">
-                <v-card color="error" variant="tonal" class="h-100">
+                <v-card class="h-100">
                   <v-card-text class="text-center py-6">
-                    <v-icon size="40" class="mb-2">mdi-cash-remove</v-icon>
-                    <div class="text-h3 font-weight-bold">${{ Number(resumen.total_expenses || 0).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</div>
+                    <v-icon size="40" class="mb-2 text-medium-emphasis">mdi-cash-remove</v-icon>
+                    <div class="text-h3 tabular-nums">${{ Number(resumen.total_expenses || 0).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</div>
                     <div class="text-subtitle-1 font-weight-bold mt-2">Total Gastos</div>
                   </v-card-text>
                 </v-card>
@@ -73,12 +73,12 @@
                     md="4">
                     <v-card class="h-100">
                       <v-card-text>
-                        <v-chip :color="getCategoryColor(item.type)" size="x-small" class="mb-2">
+                        <v-chip color="secondary" :prepend-icon="getCategoryIcon(item.type)" size="x-small" class="mb-2">
                           {{ getTipoLabel(item.type) }}
                         </v-chip>
                         <div class="text-h5 font-weight-bold">${{ Number(item.total || 0).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</div>
                         <div class="text-subtitle-2 mt-1">{{ item.category }}</div>
-                        <div class="text-caption text-grey">
+                        <div class="text-caption text-medium-emphasis">
                           {{ item.count }} registro(s)
                         </div>
                       </v-card-text>
@@ -94,7 +94,7 @@
       <!-- Tabs: Categorías y Gastos -->
       <v-col cols="12">
         <v-card>
-          <v-tabs v-model="tab" bg-color="primary" class="mb-4">
+          <v-tabs v-model="tab" color="primary" class="mb-4">
             <v-tab value="expenses">
               <v-icon start>mdi-receipt</v-icon>
               Registro de Gastos
@@ -110,7 +110,7 @@
               <!-- Tab: Gastos -->
               <v-window-item value="expenses">
                 <div class="d-flex justify-space-between align-center mb-4">
-                  <LockableButton icon="mdi-plus" color="success" size="large" @click="openExpenseDialog()">
+                  <LockableButton icon="mdi-plus" color="primary" size="large" @click="openExpenseDialog()">
                     Registrar Gasto
                   </LockableButton>
                   <v-btn color="primary" variant="outlined" @click="tab = 'categorias'">
@@ -131,7 +131,8 @@
                   <template #item.category="{ item }">
                     <v-chip
                       size="small"
-                      :color="getCategoryColor(item.category?.type)">
+                      color="secondary"
+                      :prepend-icon="getCategoryIcon(item.category?.type)">
                       {{ item.category?.name || 'Sin categoría' }}
                     </v-chip>
                   </template>
@@ -144,7 +145,7 @@
 
                   <template #item.invoice_number="{ item }">
                     <span v-if="item.invoice_number">{{ item.invoice_number }}</span>
-                    <span v-else class="text-grey">-</span>
+                    <span v-else class="text-medium-emphasis">-</span>
                   </template>
 
                   <template #item.actions="{ item }">
@@ -182,7 +183,7 @@
                   :loading="loadingCategorias"
                   class="elevation-0">
                   <template #item.type="{ item }">
-                    <v-chip size="small" :color="getCategoryColor(item.type)">
+                    <v-chip size="small" color="secondary" :prepend-icon="getCategoryIcon(item.type)">
                       {{ getTipoLabel(item.type) }}
                     </v-chip>
                   </template>
@@ -223,7 +224,7 @@
         </v-card-title>
         <v-card-text>
           <v-form ref="expenseForm">
-            <p class="text-caption text-grey-darken-1 mb-3">
+            <p class="text-caption text-medium-emphasis mb-3">
               Los campos con
               <span class="text-error font-weight-bold">*</span>
               son obligatorios.
@@ -245,7 +246,7 @@
                   <template #item="{ props, item }">
                     <v-list-item v-bind="props">
                       <template #append>
-                        <v-chip :color="getCategoryColor(item.raw.type)" size="x-small">
+                        <v-chip color="secondary" :prepend-icon="getCategoryIcon(item.raw.type)" size="x-small">
                           {{ getTipoLabel(item.raw.type) }}
                         </v-chip>
                       </template>
@@ -729,16 +730,17 @@ const selectedProduct = computed(() => {
   return products.value.find(p => p.id === expenseFormData.value.product_id)
 })
 
-const getCategoryColor = (tipo?: string) => {
-  const colors: Record<string, string> = {
-    inventory_purchase: 'green',
-    variable_expense: 'orange',
-    fixed_expense: 'blue',
-    administrative_expense: 'purple',
-    payroll: 'indigo',
-    taxes: 'red',
+// Categories are not states: they share one neutral color and differ by icon.
+const getCategoryIcon = (tipo?: string) => {
+  const icons: Record<string, string> = {
+    inventory_purchase: 'mdi-package-variant',
+    variable_expense: 'mdi-chart-line-variant',
+    fixed_expense: 'mdi-calendar-sync',
+    administrative_expense: 'mdi-briefcase-outline',
+    payroll: 'mdi-account-cash',
+    taxes: 'mdi-bank',
   }
-  return colors[tipo || ''] || 'grey'
+  return icons[tipo || ''] || 'mdi-tag-outline'
 }
 
 const getTipoLabel = (tipo: string) => label(expenseCategoryTypeLabels, tipo)

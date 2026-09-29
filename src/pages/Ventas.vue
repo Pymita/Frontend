@@ -5,12 +5,13 @@
         <div class="d-flex justify-space-between align-center mb-4 flex-wrap ga-2">
           <div>
             <h1 class="text-h4">Ventas</h1>
-            <p class="text-body-1 text-grey-darken-1">
+            <p class="text-body-1 text-medium-emphasis">
               Pedidos pagados: cuánto se ha vendido, con qué método y por quién
             </p>
           </div>
           <v-btn
-            color="success"
+            color="secondary"
+            variant="tonal"
             prepend-icon="mdi-file-excel"
             :loading="exporting"
             :disabled="!canExport"
@@ -26,21 +27,21 @@
     <v-row dense>
       <v-col cols="12" sm="4">
         <v-card class="pa-4 text-center">
-          <div class="text-caption text-grey">Total vendido</div>
-          <div class="text-h5 text-success font-weight-bold">
+          <div class="text-caption text-medium-emphasis">Total vendido</div>
+          <div class="text-h5 font-weight-bold tabular-nums">
             ${{ (report?.summary.total ?? 0).toLocaleString('es-CO') }}
           </div>
         </v-card>
       </v-col>
       <v-col cols="6" sm="4">
         <v-card class="pa-4 text-center">
-          <div class="text-caption text-grey">Ventas</div>
+          <div class="text-caption text-medium-emphasis">Ventas</div>
           <div class="text-h5 font-weight-bold">{{ report?.summary.sales_count ?? 0 }}</div>
         </v-card>
       </v-col>
       <v-col cols="6" sm="4">
         <v-card class="pa-4 text-center">
-          <div class="text-caption text-grey">Propinas</div>
+          <div class="text-caption text-medium-emphasis">Propinas</div>
           <div class="text-h5 font-weight-bold">
             ${{ (report?.summary.tips ?? 0).toLocaleString('es-CO') }}
           </div>
@@ -119,15 +120,15 @@
         <v-card>
           <v-card-text class="d-flex flex-wrap ga-4 pb-0">
             <div>
-              <div class="text-caption text-grey">Unidades vendidas</div>
+              <div class="text-caption text-medium-emphasis">Unidades vendidas</div>
               <div class="text-h6">{{ productReport?.summary.quantity ?? 0 }}</div>
             </div>
             <div>
-              <div class="text-caption text-grey">Neto vendido</div>
-              <div class="text-h6 text-success">{{ money(productReport?.summary.net) }}</div>
+              <div class="text-caption text-medium-emphasis">Neto vendido</div>
+              <div class="text-h6 tabular-nums">{{ money(productReport?.summary.net) }}</div>
             </div>
             <div>
-              <div class="text-caption text-grey">Ganancia (neto - costo)</div>
+              <div class="text-caption text-medium-emphasis">Ganancia (neto - costo)</div>
               <div class="text-h6" :class="(productReport?.summary.profit ?? 0) >= 0 ? 'text-success' : 'text-error'">
                 {{ money(productReport?.summary.profit) }}
               </div>
@@ -144,14 +145,14 @@
             <template #item.category="{ item }">{{ item.category || '—' }}</template>
             <template #item.gross="{ item }">{{ money(item.gross) }}</template>
             <template #item.net="{ item }">
-              <span class="font-weight-bold text-success">{{ money(item.net) }}</span>
+              <span class="font-weight-bold">{{ money(item.net) }}</span>
             </template>
             <template #item.cost="{ item }">{{ money(item.cost) }}</template>
             <template #item.profit="{ item }">
               <span :class="item.profit >= 0 ? 'text-success' : 'text-error'">{{ money(item.profit) }}</span>
             </template>
             <template #no-data>
-              <p class="text-grey py-6">No hay ventas en el rango seleccionado</p>
+              <p class="text-medium-emphasis py-6">No hay ventas en el rango seleccionado</p>
             </template>
           </v-data-table>
         </v-card>
@@ -163,16 +164,16 @@
         <v-card>
           <v-card-text class="d-flex flex-wrap ga-4 pb-0">
             <div>
-              <div class="text-caption text-grey">Ventas</div>
+              <div class="text-caption text-medium-emphasis">Ventas</div>
               <div class="text-h6">{{ tableReport?.summary.sales_count ?? 0 }}</div>
             </div>
             <div v-if="hasTimeBilling">
-              <div class="text-caption text-grey">Tiempo de billar</div>
+              <div class="text-caption text-medium-emphasis">Tiempo de billar</div>
               <div class="text-h6">{{ money(tableReport?.summary.time_total) }}</div>
             </div>
             <div>
-              <div class="text-caption text-grey">Total</div>
-              <div class="text-h6 text-success">{{ money(tableReport?.summary.total) }}</div>
+              <div class="text-caption text-medium-emphasis">Total</div>
+              <div class="text-h6 tabular-nums">{{ money(tableReport?.summary.total) }}</div>
             </div>
           </v-card-text>
           <v-data-table
@@ -191,16 +192,16 @@
             <template #item.time_total="{ item }">
               <template v-if="item.time_minutes > 0">
                 {{ money(item.time_total) }}
-                <span class="text-caption text-grey">({{ formatMinutes(item.time_minutes) }})</span>
+                <span class="text-caption text-medium-emphasis">({{ formatMinutes(item.time_minutes) }})</span>
               </template>
-              <span v-else class="text-grey">—</span>
+              <span v-else class="text-medium-emphasis">—</span>
             </template>
             <template #item.tips="{ item }">{{ item.tips ? money(item.tips) : '—' }}</template>
             <template #item.total="{ item }">
-              <span class="font-weight-bold text-success">{{ money(item.total) }}</span>
+              <span class="font-weight-bold">{{ money(item.total) }}</span>
             </template>
             <template #no-data>
-              <p class="text-grey py-6">No hay ventas en el rango seleccionado</p>
+              <p class="text-medium-emphasis py-6">No hay ventas en el rango seleccionado</p>
             </template>
           </v-data-table>
         </v-card>
@@ -222,7 +223,7 @@
             class="elevation-0"
           >
             <template #item.invoice_number="{ item }">
-              <v-chip size="small" variant="tonal" :color="item.invoice_number ? 'primary' : 'grey'">
+              <v-chip size="small" variant="tonal" :color="item.invoice_number ? 'primary' : 'secondary'">
                 {{ item.invoice_number || `Pedido #${item.id}` }}
               </v-chip>
             </template>
@@ -239,10 +240,10 @@
               {{ item.tip ? '$' + item.tip.toLocaleString('es-CO') : '—' }}
             </template>
             <template #item.total="{ item }">
-              <span class="font-weight-bold text-success">${{ item.total.toLocaleString('es-CO') }}</span>
+              <span class="font-weight-bold">${{ item.total.toLocaleString('es-CO') }}</span>
             </template>
             <template #no-data>
-              <p class="text-grey py-6">No hay ventas en el rango seleccionado</p>
+              <p class="text-medium-emphasis py-6">No hay ventas en el rango seleccionado</p>
             </template>
           </v-data-table>
         </v-card>

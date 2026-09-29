@@ -1,0 +1,30 @@
+// Vuetify reads typography, radius and button shape from SASS at build time.
+// Colors and font names are not here: they live in src/theme.ts and reach
+// this file as CSS variables (--v-font-*), so rebranding never touches SASS.
+@use 'vuetify/settings' with (
+  $body-font-family: var(--v-font-body),
+  $heading-font-family: var(--v-font-heading),
+  $border-radius-root: 8px,
+  $rounded: (
+    'sm': 4px,
+    'lg': 12px,
+    'xl': 16px,
+  ),
+  $typography: (
+    'h1': ('size': 2.5rem, 'weight': 700, 'line-height': 1.2, 'letter-spacing': -0.02em),
+    'h2': ('size': 2rem, 'weight': 700, 'line-height': 1.25, 'letter-spacing': -0.015em),
+    'h3': ('size': 1.75rem, 'weight': 700, 'line-height': 1.2857, 'letter-spacing': -0.01em),
+    'h4': ('size': 1.5rem, 'weight': 700, 'line-height': 1.3333, 'letter-spacing': -0.01em),
+    'h5': ('size': 1.25rem, 'weight': 600, 'line-height': 1.4, 'letter-spacing': -0.005em),
+    'h6': ('size': 1.125rem, 'weight': 600, 'line-height': 1.4444, 'letter-spacing': 0),
+    'subtitle-1': ('size': 1rem, 'weight': 500, 'line-height': 1.5, 'letter-spacing': 0),
+    'subtitle-2': ('size': 0.875rem, 'weight': 600, 'line-height': 1.4286, 'letter-spacing': 0),
+    'body-1': ('size': 1rem, 'weight': 400, 'line-height': 1.5, 'letter-spacing': 0),
+    'body-2': ('size': 0.875rem, 'weight': 400, 'line-height': 1.4286, 'letter-spacing': 0),
+    'button': ('size': 0.875rem, 'weight': 600, 'line-height': 1.4286, 'letter-spacing': 0.01em, 'text-transform': none),
+    'caption': ('size': 0.75rem, 'weight': 500, 'line-height': 1.3333, 'letter-spacing': 0.01em),
+    'overline': ('size': 0.6875rem, 'weight': 700, 'line-height': 1.4545, 'letter-spacing': 0.08em),
+  ),
+  $list-item-nav-title-font-size: 0.875rem,
+  $toolbar-title-font-weight: 700,
+);

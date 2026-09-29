@@ -25,12 +25,12 @@
           @click="$emit('add', item, guest)"
         >
           <template #append>
-            <v-icon color="success">mdi-plus-circle</v-icon>
+            <v-icon color="primary">mdi-plus-circle</v-icon>
           </template>
         </v-list-item>
 
         <v-list-item v-if="filteredItems.length === 0">
-          <v-list-item-title class="text-grey">
+          <v-list-item-title class="text-medium-emphasis">
             {{ items.length === 0 ? 'No hay productos en el menú' : 'Sin resultados' }}
           </v-list-item-title>
         </v-list-item>
@@ -47,7 +47,7 @@
         "compartido" y la mesa paga junta.
       -->
       <div class="d-flex align-center flex-wrap ga-1 mb-2">
-        <span class="text-caption text-grey-darken-1 mr-1">Para:</span>
+        <span class="text-caption text-medium-emphasis mr-1">Para:</span>
         <v-chip
           size="small"
           :color="guest === null ? 'primary' : undefined"
@@ -92,7 +92,7 @@
         <v-btn size="small" variant="text" @click="editingGuest = null">Cancelar</v-btn>
       </div>
 
-      <p v-if="selection.length === 0" class="text-grey text-body-2">
+      <p v-if="selection.length === 0" class="text-medium-emphasis text-body-2">
         Todavía no has agregado productos.
       </p>
 
@@ -124,6 +124,7 @@
                 icon="mdi-minus"
                 size="x-small"
                 variant="tonal"
+                color="secondary"
                 @click="$emit('remove', line)"
               />
               <span class="mx-2 font-weight-bold">{{ line.quantity }}</span>
@@ -131,7 +132,7 @@
                 icon="mdi-plus"
                 size="x-small"
                 variant="tonal"
-                color="success"
+                color="secondary"
                 @click="$emit('add', { id: line.menu_item_id, name: line.name, final_price: line.unit_price }, line.guest_number)"
               />
             </div>

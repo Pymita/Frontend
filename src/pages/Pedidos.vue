@@ -5,7 +5,7 @@
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
             <h1 class="text-h4">Pedidos</h1>
-            <p class="text-body-1 text-grey-darken-1">
+            <p class="text-body-1 text-medium-emphasis">
               Primero lo pendiente de cobro; los de otros días quedan marcados.
             </p>
           </div>
@@ -14,7 +14,7 @@
               v-if="canManageOrders"
               icon="mdi-plus"
               class="mr-2"
-              color="success"
+              color="primary"
               size="large"
               @click="openNuevoPedidoDialog"
             >
@@ -108,7 +108,7 @@
             <template #item.dining_table="{ item }">
               <div class="d-flex align-center">
                 <v-avatar color="primary" size="32" class="mr-2">
-                  <span class="text-white text-caption">{{ item.dining_table?.number || '?' }}</span>
+                  <span class="text-caption">{{ item.dining_table?.number || '?' }}</span>
                 </v-avatar>
                 <span>{{ item.dining_table?.display_name || 'Sin mesa' }}</span>
               </div>
@@ -127,7 +127,7 @@
             </template>
             
             <template #item.total="{ item }">
-              <span class="font-weight-bold text-success text-no-wrap">
+              <span class="font-weight-bold tabular-nums text-no-wrap">
                 {{ money(item.total) }}
               </span>
               <div
@@ -163,7 +163,7 @@
                 <LockableButton
                   v-if="isOpen(item)"
                   icon="mdi-cash-check"
-                  color="success"
+                  color="primary"
                   size="small"
                   variant="flat"
                   @click="openPayDialog(item)"
@@ -186,10 +186,11 @@
                       <v-icon>mdi-dots-vertical</v-icon>
                     </v-btn>
                   </template>
+                  <!-- Neutral icons; only the destructive entries are colored. -->
                   <v-list density="compact">
                     <v-list-item v-if="item.payment_status === 'paid'" @click="openTipDialog(item)">
                       <template #prepend>
-                        <v-icon color="success">mdi-hand-coin</v-icon>
+                        <v-icon>mdi-hand-coin</v-icon>
                       </template>
                       <v-list-item-title>Agregar propina</v-list-item-title>
                     </v-list-item>
@@ -201,19 +202,19 @@
                     </v-list-item>
                     <v-list-item v-if="isOpen(item)" @click="printPreBill(item)">
                       <template #prepend>
-                        <v-icon color="primary">mdi-receipt-text</v-icon>
+                        <v-icon>mdi-receipt-text</v-icon>
                       </template>
                       <v-list-item-title>Imprimir cuenta</v-list-item-title>
                     </v-list-item>
                     <v-list-item v-if="isOpen(item) && isAdmin" @click="openDiscountDialog(item)">
                       <template #prepend>
-                        <v-icon color="warning">mdi-percent</v-icon>
+                        <v-icon>mdi-percent</v-icon>
                       </template>
                       <v-list-item-title>Aplicar descuento</v-list-item-title>
                     </v-list-item>
                     <v-list-item v-if="isOpen(item)" @click="openPagoDialog(item)">
                       <template #prepend>
-                        <v-icon color="info">mdi-cash-plus</v-icon>
+                        <v-icon>mdi-cash-plus</v-icon>
                       </template>
                       <v-list-item-title>Registrar pago parcial</v-list-item-title>
                     </v-list-item>
@@ -233,7 +234,7 @@
             
             <template #expanded-row="{ columns, item }">
               <tr>
-                <td :colspan="columns.length" class="pa-4 bg-grey-lighten-5">
+                <td :colspan="columns.length" class="pa-4 bg-surface-light">
                   <v-row>
                     <v-col cols="12" md="8">
                       <div class="d-flex justify-space-between align-center mb-2">
@@ -265,7 +266,7 @@
                             <td>{{ orderItem.quantity }}</td>
                             <td>
                               {{ orderItem.product_name }}
-                              <span v-if="orderItem.variant" class="text-grey"> ({{ orderItem.variant }})</span>
+                              <span v-if="orderItem.variant" class="text-medium-emphasis"> ({{ orderItem.variant }})</span>
                             </td>
                             <td v-if="hasGuests(item)">
                               <v-chip size="x-small" :color="orderItem.guest_number ? 'primary' : undefined" variant="tonal">
@@ -304,7 +305,7 @@
                                 >
                                   {{ elapsedLabel(item.time) }}
                                 </v-chip>
-                                <span v-else class="text-caption text-grey">({{ item.time.minutes_billed }} min)</span>
+                                <span v-else class="text-caption text-medium-emphasis">({{ item.time.minutes_billed }} min)</span>
                               </span>
                               <span class="font-weight-medium">
                                 {{ money(item.time.running ? liveTimeAmount(item.time) : item.time.amount) }}
@@ -342,16 +343,16 @@
                           <v-divider class="my-2" />
                           <div class="d-flex justify-space-between font-weight-bold">
                             <span>Total:</span>
-                            <span class="text-success">{{ money(item.total) }}</span>
+                            <span class="tabular-nums">{{ money(item.total) }}</span>
                           </div>
-                          <div v-if="item.invoice_number" class="d-flex justify-space-between text-caption text-grey-darken-1 mt-1">
+                          <div v-if="item.invoice_number" class="d-flex justify-space-between text-caption text-medium-emphasis mt-1">
                             <span>Factura:</span>
                             <span>{{ item.invoice_number }}</span>
                           </div>
                           <!-- Cuentas separadas: lo que debe cada persona. -->
                           <template v-if="hasGuests(item)">
                             <v-divider class="my-2" />
-                            <div class="text-caption text-grey-darken-1 mb-1">Por persona</div>
+                            <div class="text-caption text-medium-emphasis mb-1">Por persona</div>
                             <div
                               v-for="guest in item.guests"
                               :key="guest.number ?? 0"
@@ -361,7 +362,7 @@
                                 {{ guest.label }}
                                 <v-icon v-if="guest.paid" size="small" color="success">mdi-check-circle</v-icon>
                               </span>
-                              <span :class="guest.paid ? 'text-grey' : ''">{{ money(guest.amount) }}</span>
+                              <span :class="guest.paid ? 'text-medium-emphasis' : ''">{{ money(guest.amount) }}</span>
                             </div>
                           </template>
                           <div v-if="Number(item.amount_paid) > 0 && item.payment_status !== 'paid'" class="d-flex justify-space-between mt-2">
@@ -376,7 +377,7 @@
                       </v-card>
                       <div v-if="item.notes" class="mt-3">
                         <strong>Notas:</strong>
-                        <p class="text-grey-darken-1">{{ item.notes }}</p>
+                        <p class="text-medium-emphasis">{{ item.notes }}</p>
                       </div>
                     </v-col>
                   </v-row>
@@ -416,7 +417,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="tipDialog = false">Cancelar</v-btn>
-          <v-btn color="success" :loading="saving" :disabled="!(tipAmount > 0)" @click="saveTip">
+          <v-btn color="primary" :loading="saving" :disabled="!(tipAmount > 0)" @click="saveTip">
             Agregar propina
           </v-btn>
         </v-card-actions>
@@ -463,7 +464,7 @@
       <v-card v-if="selectedOrder">
         <v-card-title class="d-flex align-center">
           Cobrar pedido #{{ selectedOrder.id }}
-          <span v-if="selectedOrder.dining_table" class="text-body-2 text-grey ml-2">
+          <span v-if="selectedOrder.dining_table" class="text-body-2 text-medium-emphasis ml-2">
             {{ selectedOrder.dining_table.display_name }}
           </span>
           <v-spacer />
@@ -518,7 +519,7 @@
                 />
               </v-col>
             </v-row>
-            <p v-if="tipEnabled" class="text-caption text-grey-darken-1 mb-2">
+            <p v-if="tipEnabled" class="text-caption text-medium-emphasis mb-2">
               La propina es voluntaria (Ley 1935 de 2018). El monto sugerido es solo una
               referencia: a cada persona se le cobra la propina que escribas, o ninguna.
             </p>
@@ -526,16 +527,16 @@
               <v-list-item v-for="guest in selectedOrder.guests" :key="guest.number ?? 0">
                 <v-list-item-title>
                   {{ guest.label }}
-                  <span class="text-caption text-grey"> · {{ guest.items_count }} prod.</span>
+                  <span class="text-caption text-medium-emphasis"> · {{ guest.items_count }} prod.</span>
                 </v-list-item-title>
                 <v-list-item-subtitle>
                   <span v-if="guest.paid" class="text-success">Pagado</span>
                   <template v-else>
                     <strong>{{ money(guest.pending_amount) }}</strong>
-                    <span v-if="tipEnabled && guestTip(guest) > 0" class="text-grey">
+                    <span v-if="tipEnabled && guestTip(guest) > 0" class="text-medium-emphasis">
                       · con propina {{ money(guest.pending_amount + guestTip(guest)) }}
                     </span>
-                    <span v-else-if="tipEnabled && guestSuggestedTip(guest) > 0" class="text-grey">
+                    <span v-else-if="tipEnabled && guestSuggestedTip(guest) > 0" class="text-medium-emphasis">
                       · sugerida {{ tipPercent }}%: {{ money(guestSuggestedTip(guest)) }}
                       <a href="#" class="text-primary text-decoration-none" @click.prevent="useGuestSuggested(guest)">usar</a>
                     </span>
@@ -643,25 +644,25 @@
                 />
               </v-col>
             </v-row>
-            <p class="text-caption text-grey-darken-1 mt-2 mb-0">
+            <p class="text-caption text-medium-emphasis mt-2 mb-0">
               La propina es voluntaria (Ley 1935 de 2018). Primero
               <strong>imprime la cuenta</strong>: el cliente ve el total con y sin
               propina y decide; después cobras con la opción que eligió.
             </p>
           </template>
 
-          <v-card flat color="grey-lighten-4" class="pa-3 mt-3">
-            <div v-if="Number(selectedOrder.amount_paid) > 0" class="d-flex justify-space-between text-grey-darken-1 mb-1">
+          <v-card flat color="surface-light" class="pa-3 mt-3">
+            <div v-if="Number(selectedOrder.amount_paid) > 0" class="d-flex justify-space-between text-medium-emphasis mb-1">
               <span>Ya pagado (personas que pagaron aparte):</span>
               <span>{{ money(selectedOrder.amount_paid) }}</span>
             </div>
-            <div class="d-flex justify-space-between">
+            <div class="d-flex justify-space-between tabular-nums">
               <span>Total sin propina:</span>
-              <strong :class="tipOffered ? '' : 'text-success'">{{ money(payBase) }}</strong>
+              <strong>{{ money(payBase) }}</strong>
             </div>
-            <div v-if="tipOffered" class="d-flex justify-space-between mt-1">
+            <div v-if="tipOffered" class="d-flex justify-space-between mt-1 tabular-nums">
               <span>Total con propina:</span>
-              <strong class="text-success">{{ money(payBase + payTip) }}</strong>
+              <strong>{{ money(payBase + payTip) }}</strong>
             </div>
           </v-card>
 
@@ -691,14 +692,14 @@
           <template v-if="payMode === 'together'">
             <v-btn
               v-if="tipOffered"
-              color="success"
+              color="primary"
               variant="tonal"
               :loading="saving"
               @click="confirmarCobro(true)"
             >
               Cobrar con propina
             </v-btn>
-            <v-btn color="success" variant="flat" :loading="saving" @click="confirmarCobro(false)">
+            <v-btn color="primary" variant="flat" :loading="saving" @click="confirmarCobro(false)">
               {{ tipOffered ? 'Cobrar sin propina' : 'Confirmar cobro' }}
             </v-btn>
           </template>
@@ -730,7 +731,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="discountDialog = false">Cancelar</v-btn>
-          <v-btn color="warning" :loading="saving" @click="applyDiscount">Aplicar</v-btn>
+          <v-btn color="primary" :loading="saving" @click="applyDiscount">Aplicar</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -741,12 +742,12 @@
         <v-card-title>Registrar Pago</v-card-title>
         <v-card-text>
           <!-- Total a pagar, lo que ya entró y el saldo, para no perder la cuenta. -->
-          <v-card flat color="grey-lighten-4" class="pa-3 mb-3">
+          <v-card flat color="surface-light" class="pa-3 mb-3 tabular-nums">
             <div class="d-flex justify-space-between text-body-2">
               <span>Total a pagar:</span>
               <strong>{{ money(selectedOrder?.total) }}</strong>
             </div>
-            <div class="d-flex justify-space-between text-body-2 text-grey-darken-1">
+            <div class="d-flex justify-space-between text-body-2 text-medium-emphasis">
               <span>Ya pagado:</span>
               <span>{{ money(selectedOrder?.amount_paid) }}</span>
             </div>
@@ -767,7 +768,7 @@
             <v-list-item v-for="pay in selectedOrder!.payments!" :key="pay.id" class="px-3">
               <template #prepend>
                 <v-chip
-                  :color="pay.kind === 'sale' ? 'success' : 'grey'"
+                  :color="pay.kind === 'sale' ? 'success' : 'secondary'"
                   size="x-small"
                   label
                   class="mr-2"
@@ -777,12 +778,12 @@
               </template>
               <v-list-item-title class="text-body-2">
                 {{ pay.invoice_number || pay.reference || ('#' + selectedOrder!.id) }}
-                <span class="text-caption text-grey"> · {{ paymentMethodLabel(pay.payment_method) }}</span>
+                <span class="text-caption text-medium-emphasis"> · {{ paymentMethodLabel(pay.payment_method) }}</span>
               </v-list-item-title>
               <template #append>
                 <div class="text-right">
                   <strong>{{ money(pay.amount) }}</strong>
-                  <div v-if="Number(pay.tip) > 0" class="text-caption text-grey">
+                  <div v-if="Number(pay.tip) > 0" class="text-caption text-medium-emphasis">
                     propina {{ money(pay.tip) }}
                   </div>
                 </div>
@@ -813,7 +814,7 @@
                   </td>
                   <td>
                     {{ orderItem.product_name }}
-                    <span v-if="orderItem.variant" class="text-grey"> ({{ orderItem.variant }})</span>
+                    <span v-if="orderItem.variant" class="text-medium-emphasis"> ({{ orderItem.variant }})</span>
                     <div v-if="orderItem.paid_quantity > 0" class="text-caption text-success">
                       {{ orderItem.paid_quantity }} de {{ orderItem.quantity }} ya pagadas
                     </div>
@@ -835,7 +836,7 @@
                         :disabled="selectedQty(orderItem) >= orderItem.unpaid_quantity"
                         @click="adjustSelection(orderItem, 1)"
                       />
-                      <span class="text-caption text-grey">/ {{ orderItem.unpaid_quantity }}</span>
+                      <span class="text-caption text-medium-emphasis">/ {{ orderItem.unpaid_quantity }}</span>
                     </div>
                   </td>
                   <td class="text-right" style="width: 90px">
@@ -882,7 +883,7 @@
           <v-spacer />
           <v-btn @click="pagoDialog = false">Cancelar</v-btn>
           <v-btn
-            color="success"
+            color="primary"
             :loading="saving"
             :disabled="paymentMode === 'items' ? selectionCount === 0 : !paymentAmount"
             @click="registrarPago"
@@ -945,7 +946,7 @@
     <!-- Dialog Nuevo Pedido -->
     <v-dialog v-model="nuevoPedidoDialog" max-width="900" persistent scrollable>
       <v-card>
-        <v-card-title class="bg-success">
+        <v-card-title class="bg-primary">
           <v-icon start>mdi-receipt-text-plus</v-icon>
           Nuevo Pedido
         </v-card-title>
@@ -998,7 +999,7 @@
           <v-spacer />
           <v-btn @click="nuevoPedidoDialog = false">Cancelar</v-btn>
           <v-btn
-            color="success"
+            color="primary"
             :loading="saving"
             :disabled="nuevoPedido.items.length === 0"
             @click="crearPedido"
@@ -1069,6 +1070,7 @@ import {
 import { billingService, type Customer } from '@/services/billingService';
 import {
   orderStatusLabels,
+  orderStatusColors,
   paymentStatusLabels,
   paymentStatusColors,
   orderPaymentMethodLabels,
@@ -1129,7 +1131,7 @@ const verTodosLosPendientes = () => {
 };
 
 const rowProps = ({ item }: { item: Order }) => ({
-  class: isOverdue(item) ? 'bg-orange-lighten-5' : '',
+  class: isOverdue(item) ? 'bg-warning-container' : '',
 });
 
 const selectedOrder = ref<Order | null>(null);
@@ -1430,20 +1432,11 @@ const loadOrders = async (silent = false) => {
 
 watch([soloHoy, filterPago], () => loadOrders());
 
-const getStatusColor = (status: string) => {
-  const colors: Record<string, string> = {
-    pending: 'warning',
-    preparing: 'info',
-    ready: 'success',
-    delivered: 'grey',
-    cancelled: 'error',
-  };
-  return colors[status] || 'grey';
-};
+const getStatusColor = (status: string) => orderStatusColors[status] || 'secondary';
 
 const getStatusText = (status: string) => label(orderStatusLabels, status) || status;
 
-const getPagoColor = (estado: string) => paymentStatusColors[estado] || 'grey';
+const getPagoColor = (estado: string) => paymentStatusColors[estado] || 'secondary';
 
 const getPagoText = (estado: string) => label(paymentStatusLabels, estado) || estado;
 

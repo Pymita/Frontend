@@ -3,7 +3,7 @@
     <v-row>
       <v-col cols="12">
         <h1 class="text-h4 mb-1">Finanzas</h1>
-        <p class="text-body-1 text-grey-darken-1 mb-4">
+        <p class="text-body-1 text-medium-emphasis mb-4">
           Estado de resultados y balance de tu negocio
         </p>
       </v-col>
@@ -46,37 +46,37 @@
                 <td class="text-right font-weight-medium">{{ money(income.sales) }}</td>
               </tr>
               <tr>
-                <td class="pl-8 text-grey-darken-1">(−) Costo de ventas (kardex)</td>
+                <td class="pl-8 text-medium-emphasis">(−) Costo de ventas (kardex)</td>
                 <td class="text-right text-error">{{ money(income.cost_of_sales) }}</td>
               </tr>
-              <tr class="bg-grey-lighten-4">
+              <tr class="bg-surface-light">
                 <td class="font-weight-bold">Utilidad bruta</td>
                 <td class="text-right font-weight-bold">
                   {{ money(income.gross_profit) }}
-                  <span class="text-caption text-grey ml-1">({{ income.gross_margin }}%)</span>
+                  <span class="text-caption text-medium-emphasis ml-1">({{ income.gross_margin }}%)</span>
                 </td>
               </tr>
               <tr>
-                <td class="pl-8 text-grey-darken-1">(−) Gastos operativos</td>
+                <td class="pl-8 text-medium-emphasis">(−) Gastos operativos</td>
                 <td class="text-right text-error">{{ money(income.operating_expenses) }}</td>
               </tr>
               <tr v-for="e in income.expenses_by_category" :key="e.category">
-                <td class="pl-12 text-caption text-grey">{{ e.category }}</td>
-                <td class="text-right text-caption text-grey">{{ money(e.total) }}</td>
+                <td class="pl-12 text-caption text-medium-emphasis">{{ e.category }}</td>
+                <td class="text-right text-caption text-medium-emphasis">{{ money(e.total) }}</td>
               </tr>
               <tr v-if="income.other_income">
-                <td class="pl-8 text-grey-darken-1">(+) Otros ingresos</td>
+                <td class="pl-8 text-medium-emphasis">(+) Otros ingresos</td>
                 <td class="text-right">{{ money(income.other_income) }}</td>
               </tr>
               <tr v-if="income.other_expenses">
-                <td class="pl-8 text-grey-darken-1">(−) Otros egresos</td>
+                <td class="pl-8 text-medium-emphasis">(−) Otros egresos</td>
                 <td class="text-right text-error">{{ money(income.other_expenses) }}</td>
               </tr>
-              <tr :class="income.net_profit >= 0 ? 'bg-green-lighten-5' : 'bg-red-lighten-5'">
+              <tr :class="income.net_profit >= 0 ? 'bg-success-container' : 'bg-error-container'">
                 <td class="font-weight-bold">Utilidad neta</td>
                 <td class="text-right font-weight-bold" :class="income.net_profit >= 0 ? 'text-success' : 'text-error'">
                   {{ money(income.net_profit) }}
-                  <span class="text-caption text-grey ml-1">({{ income.net_margin }}%)</span>
+                  <span class="text-caption text-medium-emphasis ml-1">({{ income.net_margin }}%)</span>
                 </td>
               </tr>
             </tbody>
@@ -90,12 +90,12 @@
           <div class="d-flex align-center mb-3">
             <h2 class="text-h6">Balance</h2>
             <v-spacer />
-            <span v-if="balance" class="text-caption text-grey">al {{ balance.as_of }}</span>
+            <span v-if="balance" class="text-caption text-medium-emphasis">al {{ balance.as_of }}</span>
           </div>
 
           <v-table v-if="balance" density="comfortable">
             <tbody>
-              <tr class="bg-grey-lighten-4">
+              <tr class="bg-surface-light">
                 <td class="font-weight-bold" colspan="2">Activos</td>
               </tr>
               <tr>
@@ -110,7 +110,7 @@
                 <td class="font-weight-medium">Total activos</td>
                 <td class="text-right font-weight-medium">{{ money(balance.assets.total) }}</td>
               </tr>
-              <tr class="bg-grey-lighten-4">
+              <tr class="bg-surface-light">
                 <td class="font-weight-bold" colspan="2">Pasivos</td>
               </tr>
               <tr>
@@ -121,7 +121,7 @@
                 <td class="pl-8">Préstamos por pagar</td>
                 <td class="text-right">{{ money(balance.liabilities.loans) }}</td>
               </tr>
-              <tr :class="balance.equity >= 0 ? 'bg-green-lighten-5' : 'bg-red-lighten-5'">
+              <tr :class="balance.equity >= 0 ? 'bg-success-container' : 'bg-error-container'">
                 <td class="font-weight-bold">Patrimonio</td>
                 <td class="text-right font-weight-bold" :class="balance.equity >= 0 ? 'text-success' : 'text-error'">
                   {{ money(balance.equity) }}
@@ -144,7 +144,7 @@
               Registrar movimiento
             </LockableButton>
           </div>
-          <p class="text-caption text-grey mb-3">
+          <p class="text-caption text-medium-emphasis mb-3">
             Plata que entra o sale sin ser una venta ni una compra: aportes tuyos,
             retiros, préstamos u otros ingresos y egresos sueltos.
           </p>
@@ -172,7 +172,7 @@
                 <td class="text-right" :class="movement.cash_effect >= 0 ? 'text-success' : 'text-error'">
                   {{ movement.cash_effect >= 0 ? '+' : '−' }}{{ money(Math.abs(movement.cash_effect)) }}
                 </td>
-                <td class="text-caption text-grey">{{ effectLabel(movement) }}</td>
+                <td class="text-caption text-medium-emphasis">{{ effectLabel(movement) }}</td>
                 <td class="text-right">
                   <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" @click="openMovementDialog(movement)">
                     <v-icon size="small">mdi-pencil</v-icon>
@@ -183,7 +183,7 @@
                 </td>
               </tr>
               <tr v-if="!movements.length">
-                <td colspan="6" class="text-center text-grey py-4">
+                <td colspan="6" class="text-center text-medium-emphasis py-4">
                   Todavía no has registrado movimientos manuales
                 </td>
               </tr>

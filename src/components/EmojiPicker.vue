@@ -28,7 +28,7 @@
 
         <div class="emoji-scroll pa-2">
           <template v-for="group in filteredGroups" :key="group.name">
-            <p class="text-caption text-grey px-1 mb-1">{{ group.name }}</p>
+            <p class="text-caption text-medium-emphasis px-1 mb-1">{{ group.name }}</p>
             <div class="d-flex flex-wrap mb-2">
               <v-btn
                 v-for="item in group.items"
@@ -44,7 +44,7 @@
             </div>
           </template>
 
-          <p v-if="!filteredGroups.length" class="text-caption text-grey text-center py-4">
+          <p v-if="!filteredGroups.length" class="text-caption text-medium-emphasis text-center py-4">
             Sin resultados para "{{ search }}"
           </p>
         </div>

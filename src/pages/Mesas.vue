@@ -5,7 +5,7 @@
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
             <h1 class="text-h4">Mesas</h1>
-            <p class="text-body-1 text-grey-darken-1">
+            <p class="text-body-1 text-medium-emphasis">
               Gestiona las mesas del restaurante
             </p>
           </div>
@@ -32,25 +32,26 @@
       >
         <v-card
           :color="getCardColor(table)"
-          :variant="table.status === 'available' ? 'outlined' : 'flat'"
+          :variant="table.status === 'available' ? undefined : 'flat'"
           class="text-center pa-4"
           @click="isReadOnly || openDialog(table)"
         >
           <v-card-text>
-            <div class="text-h3 font-weight-bold" :class="getTextColor(table)">
+            <div class="text-h3 tabular-nums">
               {{ table.number }}
             </div>
-            <div class="text-caption" :class="getTextColor(table)">
+            <div class="text-caption">
               {{ table.nickname || `Mesa ${table.number}` }}
             </div>
             <v-chip
               :color="getStatusColor(table.status)"
               size="x-small"
+              variant="flat"
               class="mt-2"
             >
               {{ getStatusLabel(table.status).toUpperCase() }}
             </v-chip>
-            <div class="text-caption mt-1" :class="getTextColor(table)">
+            <div class="text-caption mt-1">
               <template v-if="table.table_type === 'billiard'">
                 🎱 ${{ Number(table.hourly_rate ?? 0).toLocaleString('es-CO') }}/hora
               </template>
@@ -186,7 +187,7 @@
       <v-card>
         <v-card-title>Crear varias mesas</v-card-title>
         <v-card-text>
-          <p class="text-body-2 text-grey-darken-1 mb-4">
+          <p class="text-body-2 text-medium-emphasis mb-4">
             Se numeran seguidas a partir de la última que tengas. Después puedes
             renombrar las que quieras.
           </p>
@@ -269,7 +270,7 @@ import { errorMessage } from '@/utils/errors';
 import { computed, ref, onMounted } from 'vue';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
 import { tablesService, type DiningTable, type DiningTableStatus } from '@/services/tablesService';
-import { tableStatusLabels, label } from '@/utils/labels';
+import { tableStatusColors, tableStatusLabels, label } from '@/utils/labels';
 import { useAuthStore } from '@/stores/auth';
 import { effectiveFeatures } from '@/types/auth';
 import LockableButton from '../components/LockableButton.vue'
@@ -336,22 +337,11 @@ const loadTables = async () => {
   }
 };
 
-const getCardColor = (table: DiningTable) => {
-  if (table.status === 'occupied') return 'warning';
-  if (table.status === 'reserved') return 'info';
-  return undefined;
-};
+// A free table stays plain; busy ones take the soft background of their role.
+const getCardColor = (table: DiningTable) =>
+  table.status === 'available' ? undefined : `${getStatusColor(table.status)}-container`;
 
-const getTextColor = (table: DiningTable) => {
-  if (table.status === 'available') return 'text-grey-darken-2';
-  return 'text-white';
-};
-
-const getStatusColor = (status: string) => {
-  if (status === 'occupied') return 'warning';
-  if (status === 'reserved') return 'info';
-  return 'success';
-};
+const getStatusColor = (status: string) => tableStatusColors[status] ?? 'secondary';
 
 const getStatusLabel = (status: string) => label(tableStatusLabels, status);
 

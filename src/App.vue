@@ -6,35 +6,40 @@
       app
       :permanent="!smAndDown"
       :temporary="smAndDown"
-      width="280"
-      color="primary"
-      theme="dark"
+      width="264"
+      color="chrome"
     >
-      <v-list-item class="px-2">
-        <v-list-item-avatar>
-          <v-icon color="white" size="40">mdi-bread-slice</v-icon>
-        </v-list-item-avatar>
-        <v-list-item-title class="text-h6 text-white">
-          {{ companyName }}
-        </v-list-item-title>
-      </v-list-item>
+      <div class="d-flex align-center ga-3 px-4 pt-5 pb-2">
+        <v-avatar color="accent" rounded="lg" size="36">
+          <v-icon icon="mdi-bread-slice" size="22" />
+        </v-avatar>
+        <div class="text-truncate">
+          <div class="text-h6 font-weight-bold text-truncate">{{ companyName }}</div>
+          <div class="text-overline text-chrome-overline">{{ APP_NAME }}</div>
+        </div>
+      </div>
 
-      <v-divider></v-divider>
-
-      <v-list nav density="compact" color="white">
-        <v-list-item
-          v-for="item in availableMenuItems"
-          :key="item.title"
-          :to="item.route"
-          :prepend-icon="item.icon"
-          :title="item.title"
-          class="mb-1"
-        />
+      <v-list nav density="compact" base-color="chrome-text" color="on-chrome-active">
+        <template v-for="group in menuGroups" :key="group.title">
+          <v-list-subheader v-if="menuGroups.length > 1" class="text-overline text-chrome-overline">
+            {{ group.title }}
+          </v-list-subheader>
+          <v-list-item
+            v-for="item in group.items"
+            :key="item.title"
+            :to="item.route"
+            :exact="item.route === '/plataforma'"
+            :prepend-icon="item.icon"
+            :title="item.title"
+            active-class="bg-chrome-active"
+            class="mb-1"
+          />
+        </template>
       </v-list>
 
       <template v-slot:append>
         <v-divider></v-divider>
-        <v-list density="compact" color="white">
+        <v-list nav base-color="chrome-text">
           <v-list-item
             :prepend-icon="loading ? 'mdi-loading' : 'mdi-logout'"
             :title="loading ? 'Cerrando sesión...' : 'Cerrar Sesión'"
@@ -53,20 +58,16 @@
     </v-navigation-drawer>
 
     <!-- App Bar -->
-    <v-app-bar v-if="$route.name !== 'Login' && isAuthenticated" app color="white" elevation="1">
+    <v-app-bar v-if="$route.name !== 'Login' && isAuthenticated" app color="surface" flat border="b">
       <v-app-bar-nav-icon v-if="smAndDown" aria-label="Abrir menú" @click="drawer = !drawer" />
       <v-app-bar-title>{{ pageTitle }}</v-app-bar-title>
-      <v-spacer></v-spacer>
-      <v-chip color="primary" variant="outlined" class="mr-2">
-        <v-icon :start="!smAndDown">mdi-account</v-icon>
-        <template v-if="!smAndDown">{{ currentUser?.name || 'Usuario' }}</template>
-        <v-chip-text v-if="currentUser?.role === 'admin'" class="ml-2" color="warning" size="x-small">
-          Admin
-        </v-chip-text>
-        <v-chip-text v-else-if="isSuperAdmin" class="ml-2" color="error" size="x-small">
-          Plataforma
-        </v-chip-text>
-      </v-chip>
+      <div class="d-flex align-center ga-2 mr-4">
+        <v-avatar color="primary-container" size="32">
+          <span class="text-caption font-weight-bold">{{ userInitials }}</span>
+        </v-avatar>
+        <span v-if="!smAndDown" class="text-body-2 font-weight-medium">{{ currentUser?.name || 'Usuario' }}</span>
+        <v-chip v-if="roleLabel" size="small" color="secondary" variant="tonal">{{ roleLabel }}</v-chip>
+      </div>
     </v-app-bar>
 
     <!-- Main Content -->
@@ -169,26 +170,28 @@ const onSubscriptionBlocked = (event: Event) => {
   authStore.markBlocked((event as CustomEvent).detail)
 }
 
+const MENU_GROUPS = ['Operación', 'Catálogo', 'Administración', 'Plataforma']
+
 const allMenuItems: MenuItem[] = [
-  { title: 'Dashboard', icon: 'mdi-view-dashboard', route: '/dashboard', feature: 'reports' },
-  { title: 'Pedidos', icon: 'mdi-receipt', route: '/pedidos', feature: 'orders' },
-  { title: 'Ventas', icon: 'mdi-cash-register', route: '/ventas', feature: 'reports' },
-  { title: 'Mesas', icon: 'mdi-table-chair', route: '/mesas', feature: 'orders' },
-  { title: 'Plano del Salón', icon: 'mdi-floor-plan', route: '/plano', feature: 'orders' },
-  { title: 'Menú', icon: 'mdi-book-open-variant', route: '/menu', feature: 'menu' },
-  { title: 'Categorías', icon: 'mdi-shape', route: '/categorias', feature: 'menu' },
-  { title: 'Productos', icon: 'mdi-package-variant', route: '/productos-base', feature: 'inventory' },
-  { title: 'Recetas', icon: 'mdi-food-variant', route: '/recetas', feature: 'recipes' },
-  { title: 'Kardex', icon: 'mdi-clipboard-text-clock', route: '/kardex', feature: 'inventory' },
-  { title: 'Tipos de Producto', icon: 'mdi-tag-multiple', route: '/tipos-producto', requiresAdmin: true },
-  { title: 'Clientes', icon: 'mdi-account-multiple', route: '/clientes', feature: 'customers' },
-  { title: 'Gastos', icon: 'mdi-cash-multiple', route: '/gastos', feature: 'expenses' },
-  { title: 'Finanzas', icon: 'mdi-finance', route: '/finanzas', requiresAdmin: true },
-  { title: 'Empleados', icon: 'mdi-account-cog', route: '/empleados', requiresAdmin: true },
-  { title: 'Configuración', icon: 'mdi-cog', route: '/configuracion', requiresAdmin: true },
-  { title: 'Empresas', icon: 'mdi-domain', route: '/plataforma', superAdminOnly: true },
-  { title: 'Vendedores', icon: 'mdi-account-tie', route: '/plataforma/vendedores', superAdminOnly: true },
-  { title: 'Ventas por vendedor', icon: 'mdi-chart-line', route: '/plataforma/ventas', superAdminOnly: true },
+  { title: 'Dashboard', icon: 'mdi-view-dashboard', route: '/dashboard', feature: 'reports', group: 'Operación' },
+  { title: 'Pedidos', icon: 'mdi-receipt', route: '/pedidos', feature: 'orders', group: 'Operación' },
+  { title: 'Ventas', icon: 'mdi-cash-register', route: '/ventas', feature: 'reports', group: 'Operación' },
+  { title: 'Mesas', icon: 'mdi-table-chair', route: '/mesas', feature: 'orders', group: 'Operación' },
+  { title: 'Plano del Salón', icon: 'mdi-floor-plan', route: '/plano', feature: 'orders', group: 'Operación' },
+  { title: 'Menú', icon: 'mdi-book-open-variant', route: '/menu', feature: 'menu', group: 'Catálogo' },
+  { title: 'Categorías', icon: 'mdi-shape', route: '/categorias', feature: 'menu', group: 'Catálogo' },
+  { title: 'Productos', icon: 'mdi-package-variant', route: '/productos-base', feature: 'inventory', group: 'Catálogo' },
+  { title: 'Recetas', icon: 'mdi-food-variant', route: '/recetas', feature: 'recipes', group: 'Catálogo' },
+  { title: 'Kardex', icon: 'mdi-clipboard-text-clock', route: '/kardex', feature: 'inventory', group: 'Catálogo' },
+  { title: 'Tipos de Producto', icon: 'mdi-tag-multiple', route: '/tipos-producto', requiresAdmin: true, group: 'Catálogo' },
+  { title: 'Clientes', icon: 'mdi-account-multiple', route: '/clientes', feature: 'customers', group: 'Administración' },
+  { title: 'Gastos', icon: 'mdi-cash-multiple', route: '/gastos', feature: 'expenses', group: 'Administración' },
+  { title: 'Finanzas', icon: 'mdi-finance', route: '/finanzas', requiresAdmin: true, group: 'Administración' },
+  { title: 'Empleados', icon: 'mdi-account-cog', route: '/empleados', requiresAdmin: true, group: 'Administración' },
+  { title: 'Configuración', icon: 'mdi-cog', route: '/configuracion', requiresAdmin: true, group: 'Administración' },
+  { title: 'Empresas', icon: 'mdi-domain', route: '/plataforma', superAdminOnly: true, group: 'Plataforma' },
+  { title: 'Vendedores', icon: 'mdi-account-tie', route: '/plataforma/vendedores', superAdminOnly: true, group: 'Plataforma' },
+  { title: 'Ventas por vendedor', icon: 'mdi-chart-line', route: '/plataforma/ventas', superAdminOnly: true, group: 'Plataforma' },
 ]
 
 const availableMenuItems = computed((): MenuItem[] => {
@@ -213,6 +216,24 @@ const availableMenuItems = computed((): MenuItem[] => {
     }
     return true
   })
+})
+
+// A single visible section needs no heading (employees with one area, platform staff).
+const menuGroups = computed(() =>
+  MENU_GROUPS
+    .map(title => ({ title, items: availableMenuItems.value.filter(item => item.group === title) }))
+    .filter(group => group.items.length > 0)
+)
+
+const userInitials = computed((): string => {
+  const words = (currentUser.value?.name || 'Usuario').trim().split(/\s+/)
+  return words.slice(0, 2).map(word => word.charAt(0).toUpperCase()).join('')
+})
+
+const roleLabel = computed((): string | null => {
+  if (isSuperAdmin.value) return 'Plataforma'
+  if (currentUser.value?.role === 'admin') return 'Admin'
+  return null
 })
 
 const pageTitle = computed((): string => {
@@ -275,6 +296,16 @@ onUnmounted(() => {
 <style scoped>
 .v-navigation-drawer {
   border-right: none !important;
+}
+
+.v-list-item--active::before {
+  content: '';
+  position: absolute;
+  inset-block: 8px;
+  inset-inline-start: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: rgb(var(--v-theme-chrome-indicator));
 }
 
 .rotating {

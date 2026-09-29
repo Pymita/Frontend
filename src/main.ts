@@ -7,6 +7,10 @@ import { createRouter, createWebHistory } from 'vue-router'
 import 'vuetify/styles'
 import '@mdi/font/css/materialdesignicons.css'
 import { aliases, mdi } from 'vuetify/iconsets/mdi'
+import '@fontsource-variable/inter'
+import '@fontsource-variable/plus-jakarta-sans'
+import './style.css'
+import { componentDefaults, lightTheme } from './theme'
 
 // Components
 import App from './App.vue'
@@ -21,20 +25,9 @@ const pinia = createPinia()
 const vuetify = createVuetify({
   theme: {
     defaultTheme: 'light',
-    themes: {
-      light: {
-        colors: {
-          primary: '#f26916',
-          secondary: '#6b7280',
-          accent: '#e3530c',
-          error: '#ef4444',
-          warning: '#f59e0b',
-          info: '#3b82f6',
-          success: '#10b981',
-        },
-      },
-    },
+    themes: { light: lightTheme },
   },
+  defaults: componentDefaults,
   icons: {
     defaultSet: 'mdi',
     aliases,

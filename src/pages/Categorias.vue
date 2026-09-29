@@ -5,7 +5,7 @@
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
             <h1 class="text-h4">Categorías</h1>
-            <p class="text-body-1 text-grey-darken-1">
+            <p class="text-body-1 text-medium-emphasis">
               Gestiona las categorías del menú (aparecen en la app móvil)
             </p>
           </div>
@@ -27,7 +27,7 @@
           >
             <template #item.name="{ item }">
               <span :style="{ paddingLeft: `${((item.depth ?? 1) - 1) * 24}px` }">
-                <span v-if="(item.depth ?? 1) > 1" class="text-grey mr-1">└</span>
+                <span v-if="(item.depth ?? 1) > 1" class="text-medium-emphasis mr-1">└</span>
                 <v-avatar v-if="item.image_url" size="24" rounded="sm" class="mr-1">
                   <v-img :src="resolveImageUrl(item.image_url)" cover />
                 </v-avatar>
@@ -41,7 +41,7 @@
               </v-chip>
             </template>
             <template #item.visible_in_app="{ item }">
-              <v-chip :color="item.visible_effective ? 'success' : 'grey'" size="small">
+              <v-chip :color="item.visible_effective ? 'success' : 'secondary'" size="small">
                 {{ item.visible_effective ? 'Visible' : 'Oculta' }}
               </v-chip>
               <v-tooltip
@@ -138,7 +138,7 @@
               <template #label>
                 <div>
                   <div class="font-weight-bold">Visible en app móvil</div>
-                  <div class="text-caption text-grey">
+                  <div class="text-caption text-medium-emphasis">
                     Si está desactivada, esta categoría no aparecerá en la aplicación móvil de pedidos
                   </div>
                 </div>

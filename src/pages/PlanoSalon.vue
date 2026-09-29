@@ -2,7 +2,7 @@
   <v-container fluid>
     <div class="d-flex align-center justify-space-between flex-wrap mb-4">
       <div>
-        <h1 class="text-h5 font-weight-bold">Plano del Salón</h1>
+        <h1 class="text-h4">Plano del Salón</h1>
         <p class="text-body-2 text-medium-emphasis mb-0">
           {{ editMode ? 'Arrastra las mesas para ubicarlas como están en el local' : 'Estado de las mesas en tiempo real' }}
         </p>
@@ -10,9 +10,15 @@
 
       <div class="d-flex align-center ga-3">
         <template v-if="!editMode">
-          <v-chip size="small" color="success" variant="flat">Disponible</v-chip>
-          <v-chip size="small" color="orange-darken-1" variant="flat">Ocupada</v-chip>
-          <v-chip size="small" color="blue" variant="flat">Reservada</v-chip>
+          <v-chip
+            v-for="(role, status) in tableStatusColors"
+            :key="status"
+            size="small"
+            :color="role"
+            variant="tonal"
+          >
+            {{ label(tableStatusLabels, status) }}
+          </v-chip>
         </template>
         <v-btn
           v-if="editMode"
@@ -80,7 +86,7 @@
         >
           <defs>
             <pattern id="grid" :width="GRID" :height="GRID" patternUnits="userSpaceOnUse">
-              <path :d="`M ${GRID} 0 L 0 0 0 ${GRID}`" fill="none" stroke="#00000014" stroke-width="1" />
+              <path :d="`M ${GRID} 0 L 0 0 0 ${GRID}`" fill="none" class="grid-line" stroke-width="1" />
             </pattern>
           </defs>
           <rect x="0" y="0" width="1000" height="620" :fill="editMode ? 'url(#grid)' : 'transparent'" />
@@ -97,8 +103,7 @@
             <circle
               v-if="table.shape === 'round'"
               r="46"
-              :fill="fillFor(table)"
-              :stroke="strokeFor(table)"
+              :style="shapeStyle(table)"
               stroke-width="3"
             />
             <rect
@@ -108,8 +113,7 @@
               :width="shapeWidth(table)"
               :height="shapeHeight(table)"
               rx="10"
-              :fill="fillFor(table)"
-              :stroke="strokeFor(table)"
+              :style="shapeStyle(table)"
               stroke-width="3"
             />
             <text text-anchor="middle" dy="-2" class="table-number">{{ table.table_type === 'billiard' ? '🎱' + table.number : table.number }}</text>
@@ -222,7 +226,7 @@ import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'v
 import { useRouter } from 'vue-router';
 import { tablesService } from '@/services/tablesService';
 import type { DiningTable, DiningTableShape, DiningTableStatus } from '@/services/tablesService';
-import { label, paymentStatusLabels, tableStatusLabels } from '@/utils/labels';
+import { label, paymentStatusLabels, tableStatusColors, tableStatusLabels } from '@/utils/labels';
 import { useAuthStore } from '@/stores/auth';
 
 const GRID = 20;
@@ -273,27 +277,22 @@ const billiardTimerLabel = (table: DiningTable): string | null => {
 const shapeWidth = (table: DiningTable) => (table.shape === 'rect' ? 132 : 84);
 const shapeHeight = (table: DiningTable) => (table.shape === 'rect' ? 76 : 84);
 
-const statusFills: Record<DiningTableStatus, string> = {
-  available: '#66BB6A',
-  occupied: '#FB8C00',
-  reserved: '#42A5F5',
-};
-const statusStrokes: Record<DiningTableStatus, string> = {
-  available: '#2E7D32',
-  occupied: '#E65100',
-  reserved: '#1565C0',
-};
+const statusColor = (status: DiningTableStatus) => tableStatusColors[status] ?? 'secondary';
 
-const fillFor = (table: DiningTable) =>
-  editMode.value ? '#ECEFF1' : statusFills[table.status];
-const strokeFor = (table: DiningTable) => {
+// SVG presentation attributes cannot read CSS variables; inline styles can,
+// so the plan follows the theme like any other component.
+const themeColor = (name: string) => `rgb(var(--v-theme-${name}))`;
+
+const shapeStyle = (table: DiningTable) => {
   if (editMode.value) {
-    return selectedId.value === table.id ? '#1976D2' : '#90A4AE';
+    return {
+      fill: themeColor('surface-light'),
+      stroke: themeColor(selectedId.value === table.id ? 'primary' : 'secondary'),
+    };
   }
-  return statusStrokes[table.status];
+  const role = statusColor(table.status);
+  return { fill: themeColor(`${role}-container`), stroke: themeColor(role) };
 };
-const statusColor = (status: DiningTableStatus) =>
-  ({ available: 'success', occupied: 'orange-darken-1', reserved: 'blue' })[status];
 
 // ---- Carga y refresco ----
 
@@ -479,17 +478,22 @@ const notify = (text: string, color: string) => {
 }
 
 .table-node.selected {
-  filter: drop-shadow(0 0 4px rgba(25, 118, 210, 0.7));
+  filter: drop-shadow(0 0 4px rgba(var(--v-theme-primary), 0.7));
+}
+
+.grid-line {
+  stroke: rgba(var(--v-border-color), var(--v-border-opacity));
 }
 
 .table-number {
+  font-family: var(--v-font-heading);
   font-size: 22px;
   font-weight: 700;
-  fill: #263238;
+  fill: rgb(var(--v-theme-on-surface));
 }
 
 .table-name {
   font-size: 11px;
-  fill: #37474f;
+  fill: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
 }
 </style>

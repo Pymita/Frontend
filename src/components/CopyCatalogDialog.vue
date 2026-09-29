@@ -7,7 +7,7 @@
       </v-card-title>
 
       <v-card-text class="pt-4">
-        <p class="text-body-2 text-grey-darken-1 mb-4">
+        <p class="text-body-2 text-medium-emphasis mb-4">
           Elige una plantilla y marca lo que quieras llevarte. Los productos llegan
           <strong>sin inventario</strong>: cada negocio registra el suyo.
         </p>
@@ -58,7 +58,7 @@
               </v-expansion-panel-title>
 
               <v-expansion-panel-text>
-                <p v-if="group.products.length === 0" class="text-grey text-body-2">
+                <p v-if="group.products.length === 0" class="text-medium-emphasis text-body-2">
                   Esta categoría no tiene productos.
                 </p>
                 <v-checkbox

@@ -3,7 +3,7 @@
     <v-row>
       <v-col cols="12">
         <h1 class="text-h4 mb-1">Configuración</h1>
-        <p class="text-body-1 text-grey-darken-1 mb-4">
+        <p class="text-body-1 text-medium-emphasis mb-4">
           Catálogos del negocio: tipos de documento del kardex e impuestos
         </p>
       </v-col>
@@ -36,7 +36,7 @@
                 <td>{{ dt.name }}</td>
                 <td class="text-caption">{{ directionLabel(dt.direction) }}</td>
                 <td>
-                  <v-chip :color="dt.active ? 'success' : 'grey'" size="x-small">
+                  <v-chip :color="dt.active ? 'success' : 'secondary'" size="x-small">
                     {{ dt.active ? 'Activo' : 'Inactivo' }}
                   </v-chip>
                 </td>
@@ -58,7 +58,7 @@
               </tr>
             </tbody>
           </v-table>
-          <p class="text-caption text-grey mt-2">
+          <p class="text-caption text-medium-emphasis mt-2">
             SI, FC, FV y AJ los usa el sistema y no se pueden eliminar.
           </p>
         </v-card>
@@ -88,7 +88,7 @@
                 <td>{{ tax.name }}</td>
                 <td class="text-right">{{ tax.rate }}%</td>
                 <td>
-                  <v-chip :color="tax.active ? 'success' : 'grey'" size="x-small">
+                  <v-chip :color="tax.active ? 'success' : 'secondary'" size="x-small">
                     {{ tax.active ? 'Activo' : 'Inactivo' }}
                   </v-chip>
                 </td>
@@ -103,7 +103,7 @@
               </tr>
             </tbody>
           </v-table>
-          <p class="text-caption text-grey mt-2">
+          <p class="text-caption text-medium-emphasis mt-2">
             Estos porcentajes alimentan los selectores de impuesto en productos y menú.
           </p>
         </v-card>
@@ -130,13 +130,13 @@
                 : `Quedan ${resolutionStatus.remaining} consecutivos` }}
             </v-chip>
           </div>
-          <p class="text-caption text-grey mb-4">
+          <p class="text-caption text-medium-emphasis mb-4">
             Cada venta toma el siguiente consecutivo del rango y queda como referencia en el kardex.
             Te avisaremos con tiempo cuando el rango esté por agotarse, según el ritmo de ventas del negocio.
           </p>
 
           <v-form @submit.prevent="saveResolution">
-            <p class="text-caption text-grey-darken-1 mb-3">
+            <p class="text-caption text-medium-emphasis mb-3">
               Los campos con
               <span class="text-error font-weight-bold">*</span>
               son obligatorios.
@@ -199,7 +199,7 @@
                 />
               </v-col>
               <v-col cols="12" md="6">
-                <p class="text-caption text-grey-darken-1 mb-1">Vigencia hasta</p>
+                <p class="text-caption text-medium-emphasis mb-1">Vigencia hasta</p>
                 <v-btn-toggle
                   v-model="validityMode"
                   color="primary"
