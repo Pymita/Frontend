@@ -89,7 +89,7 @@
               :disabled="!isFormValid"
               class="mb-3"
             >
-              Iniciar Sesión
+              Iniciar sesión
             </v-btn>
           </v-form>
 

@@ -5,7 +5,7 @@
  */
 export const APP_NAME = import.meta.env.VITE_APP_NAME || 'Servify POS'
 
-export const APP_TAGLINE = import.meta.env.VITE_APP_TAGLINE || 'Sistema de Gestión'
+export const APP_TAGLINE = import.meta.env.VITE_APP_TAGLINE || 'Sistema de gestión'
 
 /** Ícono de la marca: el mismo en la barra, el login y la app móvil. */
 export const APP_ICON = 'mdi-storefront'

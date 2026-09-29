@@ -344,7 +344,7 @@ export const billingService = {
     return { data: response.data.data, message: response.data.message ?? '' }
   },
 
-  /** Abono al tercero: paga sus documentos del más viejo al más nuevo, en un recibo. */
+  /** Abono al cliente: paga sus documentos del más viejo al más nuevo, en un recibo. */
   async payCustomer(customerId: number, data: CustomerPaymentPayload): Promise<{ data: CashReceipt; message: string }> {
     const response = await api.post<ApiResponse<CashReceipt>>(`/recurring-billing/customers/${customerId}/payments`, data)
     return { data: response.data.data, message: response.data.message ?? '' }

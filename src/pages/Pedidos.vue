@@ -33,7 +33,7 @@
               size="large"
               @click="openNuevoPedidoDialog"
             >
-              Nuevo Pedido
+              Nuevo pedido
             </LockableButton>
             <v-btn-toggle v-model="filterPago" color="primary" mandatory>
               <v-btn value="pending">Pendientes</v-btn>
@@ -152,7 +152,7 @@
             
             <template #item.payment_status="{ item }">
               <v-chip :color="getPagoColor(item.payment_status)" size="small">
-                {{ getPagoText(item.payment_status).toUpperCase() }}
+                {{ getPagoText(item.payment_status) }}
               </v-chip>
             </template>
             
@@ -286,7 +286,7 @@
                             <th>Cantidad</th>
                             <th>Producto</th>
                             <th v-if="hasGuests(item)">Persona</th>
-                            <th>Precio Unit.</th>
+                            <th>Precio unit.</th>
                             <th>Total</th>
                             <th>Acciones</th>
                           </tr>
@@ -740,7 +740,7 @@
     <!-- Dialog Descuento -->
     <v-dialog v-model="discountDialog" max-width="400">
       <v-card>
-        <v-card-title>Aplicar Descuento</v-card-title>
+        <v-card-title>Aplicar descuento</v-card-title>
         <v-card-text>
           <v-radio-group v-model="discountType" inline>
             <v-radio label="Porcentaje" value="percentage" />
@@ -769,7 +769,7 @@
     <!-- Dialog Pago Parcial / División de cuenta -->
     <v-dialog v-model="pagoDialog" max-width="560">
       <v-card>
-        <v-card-title>Registrar Pago</v-card-title>
+        <v-card-title>Registrar pago</v-card-title>
         <v-card-text>
           <!-- Total a pagar, lo que ya entró y el saldo, para no perder la cuenta. -->
           <v-card flat color="surface-light" class="pa-3 mb-3 tabular-nums">
@@ -924,10 +924,10 @@
       </v-card>
     </v-dialog>
 
-    <!-- Dialog Editar Item -->
+    <!-- Dialog Editar item -->
     <v-dialog v-model="editItemDialog" max-width="400">
       <v-card>
-        <v-card-title>Editar Item</v-card-title>
+        <v-card-title>Editar item</v-card-title>
         <v-card-text>
           <p class="mb-4 font-weight-bold">{{ selectedItem?.product_name }}</p>
           <v-text-field
@@ -973,12 +973,12 @@
       </v-card>
     </v-dialog>
 
-    <!-- Dialog Nuevo Pedido -->
+    <!-- Dialog Nuevo pedido -->
     <v-dialog v-model="nuevoPedidoDialog" max-width="900" persistent scrollable>
       <v-card>
         <v-card-title class="bg-primary">
           <v-icon start>mdi-receipt-text-plus</v-icon>
-          Nuevo Pedido
+          Nuevo pedido
         </v-card-title>
         <v-card-text class="pt-4">
           <v-row dense>
@@ -1035,7 +1035,7 @@
             @click="crearPedido"
           >
             <v-icon start>mdi-check</v-icon>
-            Crear Pedido
+            Crear pedido
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -1808,7 +1808,7 @@ const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {})
     r.customer.document ? `CC/NIT  : ${r.customer.document}` : '',
     `FECHA   : ${new Date((!opts.preBill && r.paid_at) || r.created_at).toLocaleString('es-CO')}`,
     r.dining_table ? `MESA    : ${r.dining_table}` : '',
-    r.waiter ? `ATENDIO : ${r.waiter}` : '',
+    r.waiter ? `ATENDIÓ: ${r.waiter}` : '',
     line,
     'CANT ARTICULO                    VALOR',
     line,

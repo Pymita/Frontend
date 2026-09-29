@@ -10,7 +10,7 @@
             </p>
           </div>
           <LockableButton icon="mdi-account-plus" color="primary" size="large" @click="openDialog()">
-            Nuevo Empleado
+            Nuevo empleado
           </LockableButton>
         </div>
       </v-col>
@@ -70,7 +70,7 @@
     <!-- Dialog crear/editar empleado -->
     <v-dialog v-model="dialog" max-width="640" persistent>
       <v-card>
-        <v-card-title>{{ editing ? 'Editar Empleado' : 'Nuevo Empleado' }}</v-card-title>
+        <v-card-title>{{ editing ? 'Editar empleado' : 'Nuevo empleado' }}</v-card-title>
         <v-card-text>
           <v-form ref="form" @submit.prevent="save">
             <v-row dense>
@@ -95,9 +95,9 @@
               <v-col cols="6">
                 <v-text-field
                   v-model="formData.email"
-                  :label="formData.role === 'admin' ? 'Email de acceso' : 'Email (opcional)'"
+                  :label="formData.role === 'admin' ? 'Correo de acceso' : 'Correo (opcional)'"
                   type="email"
-                  :rules="formData.role === 'admin' ? [(v: string) => !!v || 'Email requerido'] : []"
+                  :rules="formData.role === 'admin' ? [(v: string) => !!v || 'El correo es obligatorio'] : []"
                 />
               </v-col>
               <v-col cols="6">
@@ -163,7 +163,7 @@
           <v-spacer />
           <v-btn variant="text" @click="dialog = false">Cancelar</v-btn>
           <v-btn color="primary" :loading="saving" @click="save">
-            {{ editing ? 'Guardar cambios' : 'Crear Empleado' }}
+            {{ editing ? 'Guardar cambios' : 'Crear empleado' }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -216,7 +216,7 @@ const featureLabels: Record<Feature, string> = {
   recipes: 'Recetas y costeo',
   customers: 'Clientes',
   expenses: 'Gastos',
-  reports: 'Dashboard',
+  reports: 'Inicio, ventas y reportes',
   recurring_billing: 'Facturación automática y cartera',
 }
 const featureLabel = (feature: Feature): string => featureLabels[feature] || feature

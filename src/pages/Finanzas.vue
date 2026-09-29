@@ -14,7 +14,7 @@
       <v-col cols="12" md="7">
         <v-card class="pa-4">
           <div class="d-flex align-center mb-3">
-            <h2 class="text-h6">Estado de Resultados</h2>
+            <h2 class="text-h6">Estado de resultados</h2>
             <v-spacer />
             <DateField
               v-model="from"

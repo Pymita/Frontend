@@ -6,27 +6,27 @@
         <div class="d-flex align-center">
           <v-icon size="40" class="mr-3" color="primary">mdi-cash-multiple</v-icon>
           <div>
-            <h1 class="text-h4">Gestión de Gastos</h1>
-            <p class="text-body-1 text-medium-emphasis">Controla y administra todos los expenses del negocio</p>
+            <h1 class="text-h4">Gastos</h1>
+            <p class="text-body-1 text-medium-emphasis">Lo que sale de caja: arriendo, servicios, nómina y compras</p>
           </div>
         </div>
       </v-col>
     </v-row>
 
     <v-row>
-      <!-- Resumen de Gastos -->
+      <!-- Resumen de gastos -->
       <v-col cols="14">
         <v-card>
           <v-card-title class="d-flex align-center">
             <v-icon class="mr-2">mdi-chart-box</v-icon>
-            Resumen Financiero
+            Resumen financiero
           </v-card-title>
           <v-card-text  class="mt-4" >
             <v-row>
               <v-col md="3">
                 <DateField
                   v-model="fechaInicio"
-                  label="Fecha Inicio"
+                  label="Fecha inicio"
                   variant="outlined"
                   density="compact"
                   hide-details />
@@ -34,7 +34,7 @@
               <v-col md="3">
                 <DateField
                   v-model="fechaFin"
-                  label="Fecha Fin"
+                  label="Fecha fin"
                   variant="outlined"
                   density="compact"
                   hide-details />
@@ -57,7 +57,7 @@
                   <v-card-text class="text-center py-6">
                     <v-icon size="40" class="mb-2 text-medium-emphasis">mdi-cash-remove</v-icon>
                     <div class="text-h3 tabular-nums">${{ Number(resumen.total_expenses || 0).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</div>
-                    <div class="text-subtitle-1 font-weight-bold mt-2">Total Gastos</div>
+                    <div class="text-subtitle-1 font-weight-bold mt-2">Total gastos</div>
                   </v-card-text>
                 </v-card>
               </v-col>
@@ -89,17 +89,17 @@
         </v-card>
       </v-col>
 
-      <!-- Tabs: Categorías y Gastos -->
+      <!-- Tabs: Categorías y gastos -->
       <v-col cols="12">
         <v-card>
           <v-tabs v-model="tab" color="primary" class="mb-4">
             <v-tab value="expenses">
               <v-icon start>mdi-receipt</v-icon>
-              Registro de Gastos
+              Registro de gastos
             </v-tab>
             <v-tab value="categorias">
               <v-icon start>mdi-shape</v-icon>
-              Gestión de Categorías
+              Gestión de categorías
             </v-tab>
           </v-tabs>
 
@@ -109,11 +109,11 @@
               <v-window-item value="expenses">
                 <div class="d-flex justify-space-between align-center mb-4">
                   <LockableButton icon="mdi-plus" color="primary" size="large" @click="openExpenseDialog()">
-                    Registrar Gasto
+                    Registrar gasto
                   </LockableButton>
                   <v-btn color="primary" variant="outlined" @click="tab = 'categorias'">
                     <v-icon start>mdi-shape</v-icon>
-                    Gestionar Categorías
+                    Gestionar categorías
                   </v-btn>
                 </div>
 
@@ -167,12 +167,12 @@
               <!-- Tab: Categorías -->
               <v-window-item value="categorias">
                 <v-alert type="info" variant="tonal" density="compact" class="mb-4">
-                  <strong>Gestión de Categorías:</strong> Aquí puedes crear, editar y eliminar las categorías de expenses. 
+                  <strong>Gestión de categorías:</strong> Aquí puedes crear, editar y eliminar las categorías de expenses. 
                   Cada categoría tiene un tipo que determina cómo se clasifica el expense en los reportes.
                 </v-alert>
 
                 <LockableButton icon="mdi-plus" color="primary" class="mb-4" @click="openCategoriaDialog()">
-                  Nueva Categoría
+                  Nueva categoría
                 </LockableButton>
 
                 <v-data-table
@@ -218,7 +218,7 @@
     <v-dialog v-model="expenseDialog" max-width="700px" persistent>
       <v-card>
         <v-card-title>
-          {{ editingExpense ? 'Editar Gasto' : 'Registrar Nuevo Gasto' }}
+          {{ editingExpense ? 'Editar gasto' : 'Registrar nuevo gasto' }}
         </v-card-title>
         <v-card-text>
           <v-form ref="expenseForm">
@@ -263,7 +263,7 @@
                   persistent-hint
                 >
                   <template #label>
-                    Fecha del Gasto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                    Fecha del gasto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
                 </DateField>
               </v-col>
@@ -308,7 +308,7 @@
               <v-col cols="12" md="6">
                 <v-text-field
                   v-model="expenseFormData.invoice_number"
-                  label="Número de Factura"
+                  label="Número de factura"
                   placeholder="Opcional"
                   variant="outlined"
                   density="comfortable" />
@@ -318,7 +318,7 @@
             <v-divider class="my-4" />
             
             <v-alert v-if="esCompraInventario" type="info" density="compact" class="mb-3">
-              <strong>💡 Compra de Inventario:</strong> Asocia este expense a un producto para actualizar su stock automáticamente
+              <strong>💡 Compra de inventario:</strong> Asocia este expense a un producto para actualizar su stock automáticamente
             </v-alert>
 
             <v-row v-if="esCompraInventario">
@@ -361,7 +361,7 @@
                   persistent-hint
                 >
                   <template #label>
-                    Cantidad Comprada <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                    Cantidad comprada <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
                 </v-text-field>
               </v-col>
@@ -384,7 +384,7 @@
               <v-col cols="12">
                 <v-textarea
                   v-model="expenseFormData.notes"
-                  label="Notas Adicionales"
+                  label="Notas adicionales"
                   placeholder="Opcional"
                   rows="2"
                   variant="outlined"
@@ -407,7 +407,7 @@
     <v-dialog v-model="categoriaDialog" max-width="600px" persistent>
       <v-card>
         <v-card-title>
-          {{ editingCategoria ? 'Editar Categoría' : 'Nueva Categoría' }}
+          {{ editingCategoria ? 'Editar categoría' : 'Nueva categoría' }}
         </v-card-title>
         <v-card-text>
           <v-form ref="categoriaForm">
@@ -422,7 +422,7 @@
             <v-select
               v-model="categoriaFormData.type"
               :items="expenseTypeOptions"
-              label="Tipo de Gasto"
+              label="Tipo de gasto"
               variant="outlined"
               density="comfortable"
               :rules="[rules.required]"
@@ -438,7 +438,7 @@
 
             <v-switch
               v-model="categoriaFormData.active"
-              label="Categoría Activa"
+              label="Categoría activa"
               color="primary" />
           </v-form>
         </v-card-text>
@@ -516,10 +516,10 @@ const categoriasHeaders = [
 ]
 
 const expenseTypeOptions = [
-  { value: 'inventory_purchase', title: 'Compra de Inventario / Materia Prima' },
-  { value: 'variable_expense', title: 'Gasto Variable (ej: empaques, domicilio)' },
-  { value: 'fixed_expense', title: 'Gasto Fijo (ej: arriendo, servicios)' },
-  { value: 'administrative_expense', title: 'Gasto Administrativo' },
+  { value: 'inventory_purchase', title: 'Compra de inventario / Materia prima' },
+  { value: 'variable_expense', title: 'Gasto variable (ej: empaques, domicilio)' },
+  { value: 'fixed_expense', title: 'Gasto fijo (ej: arriendo, servicios)' },
+  { value: 'administrative_expense', title: 'Gasto administrativo' },
   { value: 'payroll', title: 'Nómina' },
   { value: 'taxes', title: 'Impuestos' },
 ]
@@ -651,7 +651,7 @@ const saveExpense = async () => {
 }
 
 const deleteExpense = async (expense: Expense) => {
-  if (!confirm(`¿Está seguro de eliminar el gasto "${expense.concept}"?`)) return
+  if (!confirm(`¿Seguro que quieres eliminar el gasto "${expense.concept}"?`)) return
 
   try {
     await expensesService.deleteExpense(expense.id)
@@ -703,7 +703,7 @@ const saveCategoria = async () => {
 }
 
 const deleteCategoria = async (categoria: ExpenseCategory) => {
-  if (!confirm(`¿Está seguro de eliminar la categoría "${categoria.name}"?`)) return
+  if (!confirm(`¿Seguro que quieres eliminar la categoría "${categoria.name}"?`)) return
 
   try {
     await expensesService.deleteCategory(categoria.id)

@@ -71,3 +71,30 @@ test('las ventas pagadas aparecen con su total y el filtro de método funciona',
   const download = await downloadPromise
   expect(download.suggestedFilename()).toMatch(/^ventas_.*\.xlsx$/)
 })
+
+test('una venta sin nombre es de un consumidor final y se identifica con su comprobante', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `Consumidor E2E ${Date.now()}` } })
+  const product = await request.post(`${API}/products`, {
+    headers: auth,
+    data: {
+      name: 'Tinto Anónimo E2E', type: 'final', unit: 'unidad', unit_cost: 500, sale_price: 2347,
+      current_stock: 10, tracks_stock: true, category_id: (await category.json()).data.id,
+    },
+  })
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { items: [{ product_id: (await product.json()).data.id, quantity: 1 }] },
+  })
+  const orderId = (await order.json()).data.id
+  expect((await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: {} })).ok()).toBeTruthy()
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/ventas')
+
+  await expect(page.getByRole('columnheader', { name: 'Comprobante' })).toBeVisible()
+  const row = page.locator('tr', { hasText: '$2.347' })
+  await expect(row).toContainText('Consumidor final')
+  await expect(row).not.toContainText(/^Cliente$/)
+})

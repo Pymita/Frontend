@@ -59,7 +59,7 @@ interface ApiResponse<T> {
 }
 
 export const expensesService = {
-  // ===== Categorías de Gastos =====
+  // ===== Categorías de gastos =====
   async getCategories(): Promise<ExpenseCategory[]> {
     const response = await api.get<ApiResponse<ExpenseCategory[]>>('/expense-categories')
     return response.data.data

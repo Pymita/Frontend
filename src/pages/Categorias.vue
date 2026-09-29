@@ -10,7 +10,7 @@
             </p>
           </div>
           <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
-            Nueva Categoría
+            Nueva categoría
           </LockableButton>
         </div>
       </v-col>
@@ -83,7 +83,7 @@
     <!-- Dialog Categoría -->
     <v-dialog v-model="dialog" max-width="600" persistent>
       <v-card>
-        <v-card-title>{{ editing ? 'Editar Categoría' : 'Nueva Categoría' }}</v-card-title>
+        <v-card-title>{{ editing ? 'Editar categoría' : 'Nueva categoría' }}</v-card-title>
         <v-card-text>
           <v-form ref="form" @submit.prevent="save">
             <v-text-field
@@ -211,7 +211,7 @@ const headers = [
   { title: 'Nombre', key: 'name' },
   { title: 'Descripción', key: 'description' },
   { title: 'Productos', key: 'products_count' },
-  { title: 'App Móvil', key: 'visible_in_app' },
+  { title: 'App móvil', key: 'visible_in_app' },
   { title: 'Acciones', key: 'actions', sortable: false },
 ];
 

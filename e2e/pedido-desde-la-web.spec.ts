@@ -45,7 +45,7 @@ test('crear un pedido con productos desde la web', async ({ page, request }) => 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/pedidos')
 
-  await page.getByRole('button', { name: 'Nuevo Pedido' }).click()
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
 
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill('Limonada Pedidos Web')
@@ -54,7 +54,7 @@ test('crear un pedido con productos desde la web', async ({ page, request }) => 
   // El total del diálogo refleja lo elegido antes de guardar.
   await expect(dialog.getByText('Total: $7.300')).toBeVisible()
 
-  await dialog.getByRole('button', { name: 'Crear Pedido' }).click()
+  await dialog.getByRole('button', { name: 'Crear pedido' }).click()
   await expect(page.getByText('Pedido creado')).toBeVisible()
 
   // El pedido existe con su producto, no con un total escrito a mano.

@@ -71,7 +71,7 @@
         <v-list nav density="compact" base-color="chrome-text">
           <v-list-item
             :prepend-icon="loading ? 'mdi-loading' : 'mdi-logout'"
-            :title="loading ? 'Cerrando sesión...' : 'Cerrar Sesión'"
+            :title="loading ? 'Cerrando sesión...' : 'Cerrar sesión'"
             @click="logout"
             :disabled="loading"
           >
@@ -202,17 +202,17 @@ const onSubscriptionBlocked = (event: Event) => {
 const MENU_GROUPS = ['Operación', 'Catálogo', 'Administración', 'Plataforma']
 
 const allMenuItems: MenuItem[] = [
-  { title: 'Dashboard', icon: 'mdi-view-dashboard', route: '/dashboard', feature: 'reports', group: 'Operación' },
+  { title: 'Inicio', icon: 'mdi-view-dashboard', route: '/dashboard', feature: 'reports', group: 'Operación' },
   { title: 'Pedidos', icon: 'mdi-receipt-text', route: '/pedidos', feature: 'orders', group: 'Operación' },
   { title: 'Ventas', icon: 'mdi-cash-register', route: '/ventas', feature: 'reports', group: 'Operación' },
   { title: 'Mesas', icon: 'mdi-table-chair', route: '/mesas', feature: 'orders', group: 'Operación' },
-  { title: 'Plano del Salón', icon: 'mdi-floor-plan', route: '/plano', feature: 'orders', group: 'Operación' },
+  { title: 'Plano del salón', icon: 'mdi-floor-plan', route: '/plano', feature: 'orders', group: 'Operación' },
   { title: 'Menú', icon: 'mdi-book-open-variant', route: '/menu', feature: 'menu', group: 'Catálogo' },
   { title: 'Categorías', icon: 'mdi-shape', route: '/categorias', feature: 'menu', group: 'Catálogo' },
   { title: 'Productos', icon: 'mdi-package-variant', route: '/productos-base', feature: 'inventory', group: 'Catálogo' },
   { title: 'Recetas', icon: 'mdi-food-variant', route: '/recetas', feature: 'recipes', group: 'Catálogo' },
   { title: 'Kardex', icon: 'mdi-clipboard-text-clock', route: '/kardex', feature: 'inventory', group: 'Catálogo' },
-  { title: 'Tipos de Producto', icon: 'mdi-tag-multiple', route: '/tipos-producto', requiresAdmin: true, feature: 'menu', group: 'Catálogo' },
+  { title: 'Variantes', icon: 'mdi-tag-multiple', route: '/tipos-producto', requiresAdmin: true, feature: 'menu', group: 'Catálogo' },
   { title: 'Facturación automática', icon: 'mdi-calendar-sync', route: '/facturacion-automatica', feature: 'recurring_billing', group: 'Operación' },
   { title: 'Clientes', icon: 'mdi-account-multiple', route: '/clientes', feature: 'customers', group: 'Administración' },
   { title: 'Gastos', icon: 'mdi-cash-multiple', route: '/gastos', feature: 'expenses', group: 'Administración' },

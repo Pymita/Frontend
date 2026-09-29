@@ -231,12 +231,17 @@
             class="elevation-0"
           >
             <template #item.invoice_number="{ item }">
-              <v-chip size="small" variant="tonal" :color="item.invoice_number ? 'primary' : 'secondary'">
+              <v-chip
+                size="small"
+                variant="tonal"
+                :color="item.invoice_number ? 'primary' : 'secondary'"
+                :title="item.invoice_number ? 'Factura con consecutivo DIAN' : 'Sin resolución DIAN: se identifica con el número del pedido'"
+              >
                 {{ item.invoice_number || `Pedido #${item.id}` }}
               </v-chip>
             </template>
             <template #item.customer_name="{ item }">
-              {{ item.customer_name || item.dining_table || '—' }}
+              {{ customerLabel(item.customer_name) }}
             </template>
             <template #item.paid_at="{ item }">
               {{ formatDate(item.paid_at) }}
@@ -278,6 +283,7 @@ import salesService, {
 } from '../services/salesService'
 import { useAuthStore } from '@/stores/auth'
 import { effectiveFeatures } from '@/types/auth'
+import { customerLabel } from '@/utils/labels'
 
 // Hoy en local (los inputs date usan YYYY-MM-DD): el día de trabajo actual
 // es lo primero que quiere ver quien abre la pestaña.
@@ -347,7 +353,7 @@ const exporting = ref(false)
 const snackbar = ref({ show: false, text: '' })
 
 const headers = [
-  { title: 'Factura', key: 'invoice_number', sortable: false },
+  { title: 'Comprobante', key: 'invoice_number', sortable: false },
   { title: 'Cliente', key: 'customer_name', sortable: false },
   { title: 'Fecha de pago', key: 'paid_at' },
   { title: 'Mesero', key: 'waiter' },

@@ -4,7 +4,7 @@
       <v-col cols="12">
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
-            <h1 class="text-h4">{{ hasRecipes ? 'Gestión de Productos Base' : 'Productos' }}</h1>
+            <h1 class="text-h4">Productos</h1>
             <p class="text-body-1 text-medium-emphasis">
               {{ hasRecipes
                 ? 'Materias primas, productos intermedios y finales'
@@ -23,7 +23,7 @@
               Importar Excel
             </LockableButton>
             <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
-              Nuevo Producto
+              Nuevo producto
             </LockableButton>
           </div>
         </div>
@@ -39,7 +39,7 @@
               <v-col cols="12" md="3">
                 <v-tabs v-if="hasRecipes" v-model="tipoFilter" color="primary" density="compact">
                   <v-tab value="">Todos</v-tab>
-                  <v-tab value="raw_material">Materias Primas</v-tab>
+                  <v-tab value="raw_material">Materias primas</v-tab>
                   <v-tab value="intermediate">Intermedios</v-tab>
                   <v-tab value="final">Finales</v-tab>
                 </v-tabs>
@@ -224,7 +224,7 @@
     <!-- Dialog Producto: ancho a propósito para que quepa sin scrollear -->
     <v-dialog v-model="dialog" max-width="1100" persistent>
       <v-card>
-        <v-card-title>{{ editing ? 'Editar Producto' : 'Nuevo Producto' }}</v-card-title>
+        <v-card-title>{{ editing ? 'Editar producto' : 'Nuevo producto' }}</v-card-title>
         <v-card-text>
           <v-alert type="info" density="compact" class="mb-4" closable>
             <strong>💡 Consejo:</strong> El <strong>código SKU</strong> se genera automáticamente. Solo necesitas completar el nombre y la unidad de medida.
@@ -327,7 +327,7 @@
                 <v-select
                   v-model="formData.tax_id"
                   :items="taxOptions"
-                  hint="Catálogo en Configuración"
+                  hint="Catálogo en configuración"
                   persistent-hint
                   :rules="[v => v !== null && v !== undefined || 'Selecciona el impuesto (hay opción Exento)']"
                 >
@@ -378,7 +378,7 @@
             </v-row>
 
             <v-divider class="my-4" />
-            <h4 class="mb-3">Control de Inventario</h4>
+            <h4 class="mb-3">Control de inventario</h4>
 
             <v-switch
               v-model="formData.tracks_stock"
@@ -419,14 +419,14 @@
                 </v-col>
               </template>
               <!-- Edición: el stock es consecuencia del kardex; se cambia
-                   solo con el botón Ajustar Stock, que pide motivo. -->
+                   solo con el botón Ajustar stock, que pide motivo. -->
               <v-col v-else cols="12" md="4">
                 <v-text-field
                   :model-value="`${editing.current_stock ?? 0} ${editing.unit}`"
                   label="Stock actual"
                   readonly
                   disabled
-                  hint="Se mueve con pedidos o con Ajustar Stock (queda en el kardex)"
+                  hint="Se mueve con pedidos o con Ajustar stock (queda en el kardex)"
                   persistent-hint
                 />
               </v-col>
@@ -455,7 +455,7 @@
             </v-alert>
 
             <v-alert v-if="formData.type === 'intermediate'" type="info" density="compact" class="mt-2">
-              <strong>Producto Intermedio:</strong> El costo de este producto se calculará automáticamente desde su receta
+              <strong>Producto intermedio:</strong> El costo de este producto se calculará automáticamente desde su receta
             </v-alert>
 
             <template v-if="formData.type === 'final'">
@@ -502,7 +502,7 @@
     <!-- Dialog Ajuste Rápido de Stock -->
     <v-dialog v-model="stockDialog" max-width="500">
       <v-card v-if="stockProduct">
-        <v-card-title>Ajustar Stock: {{ stockProduct.name }}</v-card-title>
+        <v-card-title>Ajustar stock: {{ stockProduct.name }}</v-card-title>
         <v-card-text>
           <v-alert
             :type="getStockAlertType(stockProduct)"
@@ -566,7 +566,7 @@
             :disabled="stockAjuste === 0"
             @click="updateStock"
           >
-            Actualizar Stock
+            Actualizar stock
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -693,9 +693,9 @@ const snackbarText = ref('');
 const snackbarColor = ref('success');
 
 const productTypeOptions = [
-  { title: 'Materia Prima', value: 'raw_material' },
-  { title: 'Producto Intermedio', value: 'intermediate' },
-  { title: 'Producto Final', value: 'final' },
+  { title: 'Materia prima', value: 'raw_material' },
+  { title: 'Producto intermedio', value: 'intermediate' },
+  { title: 'Producto final', value: 'final' },
 ];
 
 const headers = [
@@ -704,12 +704,12 @@ const headers = [
   { title: 'Cód. barras', key: 'barcode' },
   { title: 'Nombre', key: 'name' },
   ...(hasRecipes.value ? [{ title: 'Tipo', key: 'type' }] : []),
-  { title: 'Stock Actual', key: 'current_stock' },
-  { title: 'Stock Mínimo', key: 'minimum_stock' },
+  { title: 'Stock actual', key: 'current_stock' },
+  { title: 'Stock mínimo', key: 'minimum_stock' },
   { title: 'Unidad', key: 'unit' },
-  { title: 'Costo Unitario', key: 'unit_cost' },
-  { title: 'Precio Venta', key: 'sale_price' },
-  { title: 'Costo Estimado', key: 'estimated_cost' },
+  { title: 'Costo unitario', key: 'unit_cost' },
+  { title: 'Precio venta', key: 'sale_price' },
+  { title: 'Costo estimado', key: 'estimated_cost' },
   { title: 'Categoría', key: 'category' },
   { title: 'Menú', key: 'in_menu', sortable: false },
   { title: 'Acciones', key: 'actions', sortable: false },
@@ -1025,7 +1025,7 @@ const save = async () => {
 
     if (editing.value) {
       // El stock nunca viaja en la edición: solo se mueve por pedidos o
-      // por el botón Ajustar Stock (que lo deja en el kardex).
+      // por el botón Ajustar stock (que lo deja en el kardex).
       delete dataToSend.initial_stock_date;
     } else {
       // El saldo inicial puede ser 0 (nace agotado); solo entonces se manda

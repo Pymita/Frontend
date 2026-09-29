@@ -43,7 +43,7 @@ test('empleado con acceso limitado solo ve sus secciones', async ({ page, reques
   await loginUI(page, cashier.username, cashier.password)
 
   await expect(sidebarItem(page, 'Pedidos')).toBeVisible()
-  await expect(sidebarItem(page, 'Dashboard')).toBeVisible()
+  await expect(sidebarItem(page, 'Inicio')).toBeVisible()
 
   // No ve lo que no le habilitaron:
   for (const hidden of ['Categorías', 'Productos', 'Recetas', 'Kardex', 'Clientes', 'Gastos', 'Finanzas', 'Empleados', 'Configuración']) {
@@ -68,7 +68,7 @@ test('admin ve todas las secciones incluidas las administrativas', async ({ page
   await expect(page.locator('.v-app-bar').getByText('Admin', { exact: true })).toBeVisible()
 
   // Operación siempre está abierta; Catálogo y Administración se despliegan.
-  for (const item of ['Dashboard', 'Pedidos']) {
+  for (const item of ['Inicio', 'Pedidos']) {
     await expect(sidebarItem(page, item)).toBeVisible()
   }
   await openSidebarGroup(page, 'Catálogo')
@@ -111,8 +111,8 @@ test('las secciones del menú se despliegan de a una y el menú no necesita scro
   // Se abre con la transición de Vuetify: se espera a que termine.
   await expect(page.locator('.v-list-group--open .v-list-group__items')).not.toHaveClass(/expand-transition/)
   await expect(page.locator('.v-navigation-drawer .v-list-item--active', { hasText: 'Kardex' })).toBeVisible()
-  await expect(sidebarItem(page, 'Tipos de Producto')).toBeInViewport()
-  await expect(sidebarItem(page, 'Cerrar Sesión')).toBeInViewport()
+  await expect(sidebarItem(page, 'Variantes')).toBeInViewport()
+  await expect(sidebarItem(page, 'Cerrar sesión')).toBeInViewport()
   await expect.poll(fits).toBe(true)
 
   await page.screenshot({ path: '../screenshots/menu-desplegable-1366x700.png' })
@@ -122,7 +122,7 @@ test('el panel del login presenta el producto a la altura del formulario', async
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/login')
 
-  const tagline = page.getByRole('heading', { name: 'Sistema de Gestión' })
+  const tagline = page.getByRole('heading', { name: 'Sistema de gestión' })
   await expect(tagline).toBeVisible()
   for (const feature of ['Pedidos y mesas', 'Inventario al día', 'Ventas y reportes', 'Facturación']) {
     await expect(page.getByText(feature, { exact: true })).toBeVisible()
@@ -142,7 +142,7 @@ test('el panel del login presenta el producto a la altura del formulario', async
 
 test('la app se llama Servify POS y habla español en tablas, paginación y fechas', async ({ page }) => {
   await page.goto('/login')
-  await expect(page).toHaveTitle('Servify POS — Sistema de Gestión')
+  await expect(page).toHaveTitle('Servify POS — Sistema de gestión')
   await expect(page.getByRole('heading', { name: 'Servify POS', level: 1 })).toBeVisible()
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', /favicon\.svg$/)
 
@@ -175,7 +175,7 @@ test('la app se llama Servify POS y habla español en tablas, paginación y fech
   await page.getByLabel('Desde').fill('01/01/2001')
   await page.getByLabel('Desde').blur()
   await expect(page.getByLabel('Desde')).toHaveValue('01/01/2001')
-  await expect(table).toContainText('No hay datos disponibles')
+  await expect(page.locator('.v-data-table--loading')).toHaveCount(0)
   await page.waitForTimeout(300)
   await page.screenshot({ path: '../screenshots/fechas-en-espanol-390.png' })
 })
@@ -187,7 +187,7 @@ test('en el celular el menú no tapa la página: se abre con el botón y se cier
   const menu = page.locator('.v-navigation-drawer')
   const openMenu = page.getByRole('button', { name: 'Abrir menú' })
   await expect(menu).not.toBeInViewport()
-  await expect(page.locator('.v-main').getByText('Pedidos Hoy', { exact: true })).toBeInViewport()
+  await expect(page.locator('.v-main').getByText('Pedidos hoy', { exact: true })).toBeInViewport()
 
   await openMenu.click()
   await expect(menu).toBeInViewport()
@@ -202,6 +202,6 @@ test('en escritorio el menú sigue fijo y sin botón para abrirlo', async ({ pag
   await page.setViewportSize({ width: 1440, height: 900 })
   await loginUI(page, ADMIN.email, ADMIN.password)
 
-  await expect(sidebarItem(page, 'Dashboard')).toBeInViewport()
+  await expect(sidebarItem(page, 'Inicio')).toBeInViewport()
   await expect(page.getByRole('button', { name: 'Abrir menú' })).toHaveCount(0)
 })

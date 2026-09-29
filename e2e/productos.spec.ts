@@ -123,11 +123,11 @@ test('el ajuste manual pide motivo y queda en el kardex con documento AJ', async
   await page.getByLabel('Ajuste', { exact: true }).fill('-2')
 
   // Sin motivo no hay ajuste: el kardex exige saber por qué.
-  await page.getByRole('button', { name: /Actualizar Stock/ }).click()
+  await page.getByRole('button', { name: /Actualizar stock/ }).click()
   await expect(page.getByText(/Indica el motivo/)).toBeVisible()
 
   await page.getByLabel('Motivo del ajuste *').fill('Merma E2E')
-  await page.getByRole('button', { name: /Actualizar Stock/ }).click()
+  await page.getByRole('button', { name: /Actualizar stock/ }).click()
   await expect(row.getByText('8 kg')).toBeVisible()
 
   // El movimiento queda en el kardex como AJ.
@@ -204,7 +204,7 @@ test('un producto con saldo inicial 0 se crea, se vende y el kardex queda en neg
 
   // Alta por interfaz: por defecto es producto final en "unidad" y el saldo
   // inicial viene en 0, así que se crea sin existencias (ya no es obligatorio).
-  await page.getByRole('button', { name: 'Nuevo Producto' }).click()
+  await page.getByRole('button', { name: 'Nuevo producto' }).click()
   await field(page, 'Nombre del producto *').locator('input').fill('Gaseosa Sin Saldo E2E')
 
   await field(page, 'Categoría *').click()

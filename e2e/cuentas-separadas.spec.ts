@@ -28,7 +28,7 @@ test('armar un pedido por personas desde la web', async ({ page, request }) => {
 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/pedidos')
-  await page.getByRole('button', { name: 'Nuevo Pedido' }).click()
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
 
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill('Arepa Separada')
@@ -43,7 +43,7 @@ test('armar un pedido por personas desde la web', async ({ page, request }) => {
   await expect(dialog.getByText('P1')).toBeVisible()
   await expect(dialog.getByText('P2')).toBeVisible()
   await expect(dialog.getByText('Total: $15.000')).toBeVisible()
-  await dialog.getByRole('button', { name: 'Crear Pedido' }).click()
+  await dialog.getByRole('button', { name: 'Crear pedido' }).click()
   await expect(page.getByText('Pedido creado')).toBeVisible()
 
   const orders = await request.get(`${API}/orders`, { headers: auth })
@@ -63,7 +63,7 @@ test('poner nombre a una persona con el lapicito', async ({ page, request }) => 
 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/pedidos')
-  await page.getByRole('button', { name: 'Nuevo Pedido' }).click()
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
 
   const dialog = page.getByRole('dialog')
   await dialog.getByText('Persona', { exact: true }).click()
@@ -79,7 +79,7 @@ test('poner nombre a una persona con el lapicito', async ({ page, request }) => 
   await valeChip.click()
   await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill('Empanada Nombre')
   await dialog.getByText('Empanada Nombre').first().click()
-  await dialog.getByRole('button', { name: 'Crear Pedido' }).click()
+  await dialog.getByRole('button', { name: 'Crear pedido' }).click()
   await expect(page.getByText('Pedido creado')).toBeVisible()
 
   const orders = await request.get(`${API}/orders`, { headers: auth })

@@ -6,7 +6,7 @@
           <div>
             <h1 class="text-h4">Mesas</h1>
             <p class="text-body-1 text-medium-emphasis">
-              Gestiona las mesas del restaurante
+              Gestiona las mesas de tu negocio
             </p>
           </div>
           <div class="d-flex ga-2">
@@ -14,7 +14,7 @@
               Crear varias
             </LockableButton>
             <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
-              Nueva Mesa
+              Nueva mesa
             </LockableButton>
           </div>
         </div>
@@ -49,7 +49,7 @@
               variant="flat"
               class="mt-2"
             >
-              {{ getStatusLabel(table.status).toUpperCase() }}
+              {{ getStatusLabel(table.status) }}
             </v-chip>
             <div class="text-caption mt-1">
               <template v-if="table.table_type === 'billiard'">
@@ -84,7 +84,7 @@
     <!-- Dialog Mesa -->
     <v-dialog v-model="dialog" max-width="500" persistent>
       <v-card>
-        <v-card-title>{{ editing ? 'Editar Mesa' : 'Nueva Mesa' }}</v-card-title>
+        <v-card-title>{{ editing ? 'Editar mesa' : 'Nueva mesa' }}</v-card-title>
         <v-card-text>
           <v-form ref="form" @submit.prevent="save">
             <v-row>

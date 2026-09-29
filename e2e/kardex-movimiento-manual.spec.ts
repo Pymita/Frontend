@@ -33,7 +33,7 @@ test('una devolución de ventas se registra desde el kardex y aparece como DV', 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/kardex')
 
-  await page.getByRole('button', { name: /Registrar Movimiento/ }).click()
+  await page.getByRole('button', { name: /Registrar movimiento/ }).click()
   await field(page, 'Producto *').locator('input').fill('Vino E2E')
   await page.getByRole('option', { name: 'Vino E2E' }).click()
   await field(page, 'Tipo de documento *').click()

@@ -4,13 +4,13 @@
       <v-col cols="12">
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
-            <h1 class="text-h4">Gestión de Recetas</h1>
+            <h1 class="text-h4">Recetas</h1>
             <p class="text-body-1 text-medium-emphasis">
               Define los ingredientes y cantidades de cada producto
             </p>
           </div>
           <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
-            Nueva Receta
+            Nueva receta
           </LockableButton>
         </div>
       </v-col>
@@ -71,7 +71,7 @@
     <!-- Dialog Receta -->
     <v-dialog v-model="dialog" max-width="900" persistent scrollable>
       <v-card>
-        <v-card-title>{{ editing ? 'Editar Receta' : 'Nueva Receta' }}</v-card-title>
+        <v-card-title>{{ editing ? 'Editar receta' : 'Nueva receta' }}</v-card-title>
         <v-divider />
         <v-card-text style="max-height: 70vh">
           <v-form ref="form">
@@ -82,7 +82,7 @@
             </p>
 
             <!-- Información básica -->
-            <h3 class="mb-3">Información General</h3>
+            <h3 class="mb-3">Información general</h3>
             <v-alert type="info" variant="tonal" density="compact" class="mb-4">
               Primero define cuanto produce esta receta. Si es una receta por unidad, deja
               <strong>1</strong>. Ejemplo: una pizza produce <strong>1 unidad</strong>;
@@ -183,7 +183,7 @@
               </div>
               <v-btn color="primary" variant="tonal" size="small" @click="addIngrediente">
                 <v-icon start>mdi-plus</v-icon>
-                Agregar Ingrediente
+                Agregar ingrediente
               </v-btn>
             </div>
 
@@ -320,11 +320,11 @@
               <v-card-text>
                 <v-row>
                   <v-col cols="6">
-                    <div class="text-subtitle-2 text-medium-emphasis">Costo Total</div>
+                    <div class="text-subtitle-2 text-medium-emphasis">Costo total</div>
                     <div class="text-h3 tabular-nums">${{ Number(totalCost).toFixed(2) }}</div>
                   </v-col>
                   <v-col cols="6">
-                    <div class="text-subtitle-2 text-medium-emphasis">Costo por Unidad</div>
+                    <div class="text-subtitle-2 text-medium-emphasis">Costo por unidad</div>
                     <div class="text-h3 tabular-nums">
                       ${{ Number(costPerUnit).toFixed(2) }}/{{ formData.yield_unit || 'unidad' }}
                     </div>
@@ -338,7 +338,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="closeDialog">Cancelar</v-btn>
-          <v-btn color="primary" :loading="saving" @click="save">Guardar Receta</v-btn>
+          <v-btn color="primary" :loading="saving" @click="save">Guardar receta</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -407,7 +407,7 @@ const headers = [
   { title: 'Variante', key: 'variant' },
   { title: 'Rendimiento', key: 'rendimiento' },
   { title: 'Ingredientes', key: 'ingredients' },
-  { title: 'Costo Total', key: 'total_cost' },
+  { title: 'Costo total', key: 'total_cost' },
   { title: 'Acciones', key: 'actions', sortable: false },
 ];
 

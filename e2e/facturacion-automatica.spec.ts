@@ -4,9 +4,9 @@ import { API, PLATFORM, apiLogin, displayDate, field, loginUI, sidebarItem } fro
 /**
  * Facturación automática: un conjunto cobra la misma cuota cada mes. Se
  * factura a seleccionados, a todos o a uno (editando lo que cambia para esa
- * persona) y la cartera muestra valor, abonos y saldo por tercero.
+ * persona) y la cartera muestra valor, abonos y saldo por cliente.
  *
- * Patrón: empresa y terceros por API, verificación por la interfaz.
+ * Patrón: empresa y clientes por API, verificación por la interfaz.
  */
 
 // Enero de 2025 ya pasó: sus cuotas vencen el 10 y aparecen como vencidas.
@@ -118,7 +118,7 @@ test('factura a los seleccionados editando a una persona y después a todos', as
   await expect(row(page, 'Carla Parqueadero 7')).toContainText('CC-3 · Por pagar')
   await expect(page.getByRole('button', { name: 'Facturar a todos (0)' })).toBeDisabled()
 
-  // La factura de Beto guardó lo editado; su ficha de tercero quedó igual.
+  // La factura de Beto guardó lo editado; su ficha de cliente quedó igual.
   const invoices = await (
     await request.get(`${API}/recurring-billing/invoices?period=${PERIOD}`, {
       headers: { Authorization: `Bearer ${company.token}` },
@@ -130,7 +130,7 @@ test('factura a los seleccionados editando a una persona y después a todos', as
   expect(beto.total).toBe(310000)
 })
 
-test('la cartera muestra el saldo por tercero y registra abonos hasta pagar', async ({ page, request }) => {
+test('la cartera muestra el saldo por cliente y registra abonos hasta pagar', async ({ page, request }) => {
   const company = await createRecurringCompany(request, 'cartera')
   const ana = await createResident(request, company.token, { name: 'Ana Apto 101', document_number: '1001' })
   const generated = await request.post(`${API}/recurring-billing/invoices/generate`, {
@@ -186,15 +186,15 @@ test('la cartera muestra el saldo por tercero y registra abonos hasta pagar', as
   await expect(page.locator('.v-expansion-panel', { hasText: 'Ana Apto 101' })).toContainText('Saldo $0')
 })
 
-test('crea un tercero con su cuota y le factura solo a él', async ({ page, request }) => {
+test('crea un cliente con su cuota y le factura solo a él', async ({ page, request }) => {
   const company = await createRecurringCompany(request, 'individual')
 
   await loginUI(page, company.credentials.email, company.credentials.password)
   await sidebarItem(page, 'Facturación automática').click()
-  await expect(page.getByText('Aún no hay terceros con cobro automático.')).toBeVisible()
+  await expect(page.getByText('Aún no hay clientes con cobro automático.')).toBeVisible()
 
-  await page.getByRole('tab', { name: /Terceros/ }).click()
-  await page.getByRole('button', { name: 'Nuevo tercero' }).click()
+  await page.getByRole('tab', { name: /Clientes/ }).click()
+  await page.getByRole('button', { name: 'Nuevo cliente' }).click()
 
   const dialog = page.getByRole('dialog')
   await field(page, 'NIT / Número de documento *').locator('input').fill('900123456')
@@ -209,11 +209,11 @@ test('crea un tercero con su cuota y le factura solo a él', async ({ page, requ
   await field(page, 'Día de corte (vence)').locator('input').fill('15')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
 
-  await expect(page.getByText('Tercero creado exitosamente')).toBeVisible()
-  const tercero = row(page, 'Local 3 - Panadería')
-  await expect(tercero).toContainText('$95.000')
-  await expect(tercero).toContainText('Día 15')
-  await expect(tercero).toContainText('Activo')
+  await expect(page.getByText('Cliente creado exitosamente')).toBeVisible()
+  const cliente = row(page, 'Local 3 - Panadería')
+  await expect(cliente).toContainText('$95.000')
+  await expect(cliente).toContainText('Día 15')
+  await expect(cliente).toContainText('Activo')
 
   await page.getByRole('tab', { name: /Facturar/ }).click()
   await field(page, 'Mes a facturar').locator('input').fill(PERIOD)
@@ -277,7 +277,7 @@ test('el día a facturar marca a quienes tienen el corte ese día', async ({ pag
   await expect(field(page, 'Día a facturar').locator('input')).toHaveValue(displayDate(today))
   await expect(row(page, 'Ana Corte Hoy').locator('input[type="checkbox"]')).toBeChecked()
   await expect(row(page, 'Beto Corte Otro').locator('input[type="checkbox"]')).not.toBeChecked()
-  await expect(page.getByText(/Quedó marcado 1 tercero con corte el/)).toBeVisible()
+  await expect(page.getByText(/Quedó marcado 1 cliente con corte el/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Facturar seleccionados (1)' })).toBeEnabled()
 
   // Otro día del mismo mes: la selección cambia sola.
@@ -292,7 +292,7 @@ test('el día a facturar marca a quienes tienen el corte ese día', async ({ pag
   await expect(page.getByText(/Nadie tiene su corte el/)).toBeVisible()
 })
 
-test('un abono al tercero paga lo más viejo primero e imprime su recibo de caja', async ({ page, request }) => {
+test('un abono al cliente paga lo más viejo primero e imprime su recibo de caja', async ({ page, request }) => {
   const company = await createRecurringCompany(request, 'recibo')
   const ana = await createResident(request, company.token, { name: 'Ana Recibo', document_number: '3001' })
   for (const period of ['2025-01', '2025-02']) {

@@ -2,9 +2,9 @@
   <v-container fluid>
     <v-row>
       <v-col cols="12">
-        <h1 class="text-h4 mb-4">Tipos de Producto</h1>
+        <h1 class="text-h4 mb-4">Variantes</h1>
         <p class="text-body-1 text-medium-emphasis mb-6">
-          Gestiona los grupos de tipos (ej: Tamaño, Sabor) y sus variantes
+          Opciones que el mesero elige al pedir un producto (ej: Tamaño: pequeño, grande; Sabor: fresa, mora)
         </p>
       </v-col>
     </v-row>
@@ -65,7 +65,7 @@
               :disabled="!selectedGrupo"
               @click="openTipoDialog()"
             >
-              Nuevo Tipo
+              Nuevo tipo
             </LockableButton>
           </v-card-title>
           <v-divider />
@@ -111,7 +111,7 @@
     <!-- Dialog Grupo -->
     <v-dialog v-model="grupoDialog" max-width="500">
       <v-card>
-        <v-card-title>{{ editingGrupo ? 'Editar Grupo' : 'Nuevo Grupo' }}</v-card-title>
+        <v-card-title>{{ editingGrupo ? 'Editar grupo' : 'Nuevo grupo' }}</v-card-title>
         <v-card-text>
           <v-form ref="grupoForm" @submit.prevent="saveGrupo">
             <v-text-field
@@ -138,7 +138,7 @@
     <!-- Dialog Tipo -->
     <v-dialog v-model="tipoDialog" max-width="600">
       <v-card>
-        <v-card-title>{{ editingTipo ? 'Editar Tipo' : 'Nuevo Tipo' }}</v-card-title>
+        <v-card-title>{{ editingTipo ? 'Editar tipo' : 'Nuevo tipo' }}</v-card-title>
         <v-card-text>
           <v-form ref="tipoForm" @submit.prevent="saveTipo">
             <v-text-field
@@ -244,7 +244,7 @@ const snackbarColor = ref('success');
 
 const tipoHeaders = [
   { title: 'Nombre', key: 'name' },
-  { title: 'Diferencia Precio', key: 'price_difference' },
+  { title: 'Diferencia precio', key: 'price_difference' },
   { title: 'Multiplicador', key: 'price_multiplier' },
   { title: 'Orden', key: 'sort_order' },
   { title: 'Estado', key: 'active' },

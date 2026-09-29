@@ -8,7 +8,7 @@
             <v-icon size="40" class="mr-3" color="primary">mdi-account-multiple</v-icon>
             <div>
               <h1 class="text-h4">Clientes y proveedores</h1>
-              <p class="text-body-1 text-medium-emphasis">Gestiona los terceros para facturación y compras</p>
+              <p class="text-body-1 text-medium-emphasis">A quién le vendes y a quién le compras</p>
             </div>
           </div>
           <LockableButton
@@ -16,7 +16,7 @@
             color="primary"
             size="large"
             @click="activeTab === 'clientes' ? openDialog() : openSupplierDialog()">
-            {{ activeTab === 'clientes' ? 'Nuevo Cliente' : 'Nuevo Proveedor' }}
+            {{ activeTab === 'clientes' ? 'Nuevo cliente' : 'Nuevo proveedor' }}
           </LockableButton>
         </div>
       </v-col>
@@ -177,7 +177,7 @@
     <v-dialog v-model="dialog" max-width="800px" persistent>
       <v-card>
         <v-card-title class="bg-primary">
-          {{ editing ? 'Editar Cliente' : 'Nuevo Cliente' }}
+          {{ editing ? 'Editar cliente' : 'Nuevo cliente' }}
         </v-card-title>
         <v-card-text class="pt-4">
           <v-alert type="info" density="compact" class="mb-4">
@@ -201,7 +201,7 @@
                   :rules="[rules.required]"
                 >
                   <template #label>
-                    Tipo de Documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                    Tipo de documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
                 </v-select>
               </v-col>
@@ -214,7 +214,7 @@
                   :rules="[rules.required]"
                 >
                   <template #label>
-                    Número de Documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                    Número de documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
                 </v-text-field>
               </v-col>
@@ -227,7 +227,7 @@
                   :rules="[rules.required]"
                 >
                   <template #label>
-                    Nombre / Razón Social <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                    Nombre / Razón social <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
                 </v-text-field>
               </v-col>
@@ -235,7 +235,7 @@
               <v-col cols="12" md="6">
                 <v-text-field
                   v-model="formData.email"
-                  label="Email"
+                  label="Correo"
                   type="email"
                   variant="outlined"
                   density="comfortable" />
@@ -261,7 +261,7 @@
                 <v-select
                   v-model="formData.person_type"
                   :items="tiposPersona"
-                  label="Tipo de Persona"
+                  label="Tipo de persona"
                   variant="outlined"
                   density="comfortable" />
               </v-col>
@@ -269,7 +269,7 @@
               <v-col cols="12" md="8">
                 <v-switch
                   v-model="formData.frequent_customer"
-                  label="Marcar como Cliente Frecuente"
+                  label="Marcar como cliente frecuente"
                   color="success" />
               </v-col>
             </v-row>
@@ -289,7 +289,7 @@
     <v-dialog v-model="supplierDialog" max-width="700px" persistent>
       <v-card>
         <v-card-title class="bg-primary">
-          {{ supplierEditing ? 'Editar Proveedor' : 'Nuevo Proveedor' }}
+          {{ supplierEditing ? 'Editar proveedor' : 'Nuevo proveedor' }}
         </v-card-title>
         <v-card-text class="pt-4">
           <v-form ref="supplierFormRef">
@@ -326,7 +326,7 @@
               <v-col cols="12" md="6">
                 <v-text-field
                   v-model="supplierForm.email"
-                  label="Email"
+                  label="Correo"
                   type="email"
                   variant="outlined"
                   density="comfortable" />
@@ -404,10 +404,10 @@ const snackbarColor = ref('success')
 const form = ref<any>(null)
 
 const headers = [
-  { title: 'Tipo Doc', key: 'document_type', sortable: true },
+  { title: 'Tipo doc', key: 'document_type', sortable: true },
   { title: 'Documento', key: 'document_number', sortable: true },
-  { title: 'Nombre / Razón Social', key: 'name', sortable: true },
-  { title: 'Email', key: 'email', sortable: false },
+  { title: 'Nombre / Razón social', key: 'name', sortable: true },
+  { title: 'Correo', key: 'email', sortable: false },
   { title: 'Teléfono', key: 'phone', sortable: false },
   { title: 'Tipo', key: 'person_type', sortable: true },
   { title: 'Frecuente', key: 'frequent_customer', sortable: true },
@@ -415,15 +415,15 @@ const headers = [
 ]
 
 const tiposDocumento = [
-  { value: 'CC', title: 'Cédula de Ciudadanía (CC)' },
-  { value: 'CE', title: 'Cédula de Extranjería (CE)' },
+  { value: 'CC', title: 'Cédula de ciudadanía (CC)' },
+  { value: 'CE', title: 'Cédula de extranjería (CE)' },
   { value: 'NIT', title: 'NIT' },
   { value: 'Pasaporte', title: 'Pasaporte' },
 ]
 
 const tiposPersona = [
-  { value: 'natural', title: 'Persona Natural' },
-  { value: 'legal', title: 'Persona Jurídica' },
+  { value: 'natural', title: 'Persona natural' },
+  { value: 'legal', title: 'Persona jurídica' },
 ]
 
 const emptyForm = (): ClienteForm => ({
@@ -510,7 +510,7 @@ const save = async () => {
 }
 
 const deleteCliente = async (cliente: Customer) => {
-  if (!confirm(`¿Está seguro de eliminar el cliente "${cliente.name}"?`)) return
+  if (!confirm(`¿Seguro que quieres eliminar el cliente "${cliente.name}"?`)) return
 
   try {
     await billingService.deleteCustomer(cliente.id)
@@ -551,7 +551,7 @@ const supplierHeaders = [
   { title: 'Nombre', key: 'name', sortable: true },
   { title: 'Documento / NIT', key: 'document_number', sortable: true },
   { title: 'Teléfono', key: 'phone', sortable: false },
-  { title: 'Email', key: 'email', sortable: false },
+  { title: 'Correo', key: 'email', sortable: false },
   { title: 'Acciones', key: 'actions', sortable: false, align: 'end' as const },
 ]
 
@@ -621,7 +621,7 @@ const saveSupplier = async () => {
 
 const deleteSupplier = async (supplier: Supplier) => {
   if (supplier.is_default) return
-  if (!confirm(`¿Está seguro de eliminar el proveedor "${supplier.name}"?`)) return
+  if (!confirm(`¿Seguro que quieres eliminar el proveedor "${supplier.name}"?`)) return
 
   try {
     await billingService.deleteSupplier(supplier.id)

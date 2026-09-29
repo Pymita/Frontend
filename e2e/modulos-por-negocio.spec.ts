@@ -47,7 +47,7 @@ test('un billar no ve recetas pero sí cobro por tiempo', async ({ page, request
 
   // En cambio sí puede crear mesas de billar (tiene cobro por tiempo).
   await page.goto('/mesas')
-  await page.getByRole('button', { name: /Nueva Mesa/i }).click()
+  await page.getByRole('button', { name: /Nueva mesa/i }).click()
   await expect(page.getByRole('dialog').getByText('Tipo de mesa').first()).toBeVisible()
 })
 
@@ -61,7 +61,7 @@ test('un restaurante ve recetas y no ofrece mesas de billar', async ({ page, req
 
   // El selector de tipo de mesa no aparece: no tiene cobro por tiempo.
   await page.goto('/mesas')
-  await page.getByRole('button', { name: /Nueva Mesa/i }).click()
+  await page.getByRole('button', { name: /Nueva mesa/i }).click()
   await expect(page.getByRole('dialog').getByText('Tipo de mesa')).toHaveCount(0)
 })
 
@@ -81,8 +81,8 @@ test('la facturación automática es del cobro mensual: un restaurante no la ve'
   await expect(sidebarItem(page, 'Facturación automática')).toBeVisible()
   await expect(sidebarItem(page, 'Pedidos')).toHaveCount(0)
   await expect(sidebarItem(page, 'Productos')).toHaveCount(0)
-  // Tipos de producto es del menú: sin ese módulo no aparece ni para el admin.
-  await expect(sidebarItem(page, 'Tipos de Producto')).toHaveCount(0)
+  // Variantes es del menú: sin ese módulo no aparece ni para el admin.
+  await expect(sidebarItem(page, 'Variantes')).toHaveCount(0)
 })
 
 test('la plataforma puede personalizar los módulos de una empresa', async ({ page, request }) => {

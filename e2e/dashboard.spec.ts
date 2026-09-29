@@ -57,13 +57,13 @@ test('stock bajo muestra el saldo real y más vendidos solo cuenta lo cobrado', 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/dashboard')
 
-  const lowStock = page.locator('.v-card', { hasText: 'Stock Bajo' }).filter({ has: page.locator('.v-list') })
+  const lowStock = page.locator('.v-card', { hasText: 'Stock bajo' }).filter({ has: page.locator('.v-list') })
   const flourRow = lowStock.locator('.v-list-item', { hasText: flourName })
   await expect(flourRow).toContainText('Actual: 0,5 kg')
   await expect(flourRow).toContainText('Mínimo: 500 kg')
 
   // 25 + 15 cobradas a $2.500 en 2 pedidos; las 30 del cancelado no suman.
-  const topProducts = page.locator('.v-card', { hasText: 'Más Vendidos' })
+  const topProducts = page.locator('.v-card', { hasText: 'Más vendidos' })
   await expect(topProducts).toContainText('Últimos 7 días')
   const empanadaRow = topProducts.locator('.v-list-item', { hasText: empanadaName })
   await expect(empanadaRow).toContainText('40 vendidos · 2 pedidos')
@@ -96,7 +96,7 @@ test('el gráfico cambia entre semana, mes y rango, y más vendidos sigue el per
   await page.goto('/dashboard')
 
   const chart = page.locator('.v-card').filter({ has: page.getByRole('button', { name: 'Semana' }) })
-  const topProducts = page.locator('.v-card', { hasText: 'Más Vendidos' })
+  const topProducts = page.locator('.v-card', { hasText: 'Más vendidos' })
 
   const week = await expected(localDate(weekFrom), localDate(today))
   await expect(chart).toContainText('Ventas de la Semana')
@@ -105,14 +105,14 @@ test('el gráfico cambia entre semana, mes y rango, y más vendidos sigue el per
 
   await chart.getByRole('button', { name: 'Mes' }).click()
   const month = await expected(monthFrom, localDate(today))
-  await expect(chart).toContainText('Ventas del Mes')
+  await expect(chart).toContainText('Ventas del mes')
   await expect(chart).toContainText(`Este mes: ${money(month.total)} en ${month.orders_count}`)
   await expect(topProducts).toContainText('Este mes')
   await expect(topProducts.locator('.v-list-item', { hasText: juiceName })).toContainText('3 vendidos · 1 pedido')
 
   // El rango arranca con el periodo que se estaba viendo.
   await chart.getByRole('button', { name: 'Rango' }).click()
-  await expect(chart).toContainText('Ventas del Periodo')
+  await expect(chart).toContainText('Ventas del periodo')
   const from = chart.getByLabel('Desde')
   const to = chart.getByLabel('Hasta')
   await expect(from).toHaveValue(displayDate(monthFrom))

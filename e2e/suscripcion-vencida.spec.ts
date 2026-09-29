@@ -74,7 +74,7 @@ test('una empresa vencida ve el motivo y las acciones apagadas, no escondidas', 
   await expect(page.getByRole('heading', { name: /mesas/i }).first()).toBeVisible()
 
   // ...y sigue viendo los botones, pero apagados.
-  const nuevaMesa = page.getByRole('button', { name: 'Nueva Mesa' })
+  const nuevaMesa = page.getByRole('button', { name: 'Nueva mesa' })
   await expect(nuevaMesa).toBeVisible()
   await expect(nuevaMesa).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Crear varias' })).toBeDisabled()
@@ -91,13 +91,13 @@ test('una empresa vencida ve el motivo y las acciones apagadas, no escondidas', 
   await expect(page.getByRole('dialog')).toHaveCount(0)
 
   await page.goto('/productos-base')
-  await expect(page.getByRole('button', { name: 'Nuevo Producto' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Nuevo producto' })).toBeDisabled()
 
   await page.goto('/categorias')
-  await expect(page.getByRole('button', { name: 'Nueva Categoría' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Nueva categoría' })).toBeDisabled()
 
   await page.goto('/pedidos')
-  await expect(page.getByRole('button', { name: 'Nuevo Pedido' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Nuevo pedido' })).toBeDisabled()
 
   await page.goto('/empleados')
   await expect(page.getByRole('button', { name: /nuevo empleado/i })).toBeDisabled()
@@ -133,17 +133,17 @@ test('la misma empresa al día sí ofrece esas acciones', async ({ page, request
   // Mismos localizadores que el test anterior: si cambian, este falla y
   // deja en evidencia que el otro pasaba por buscar algo inexistente.
   await page.goto('/mesas')
-  await expect(page.getByRole('button', { name: 'Nueva Mesa' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Nueva mesa' })).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Crear varias' })).toBeEnabled()
 
   await page.goto('/productos-base')
-  await expect(page.getByRole('button', { name: 'Nuevo Producto' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Nuevo producto' })).toBeEnabled()
 
   await page.goto('/categorias')
-  await expect(page.getByRole('button', { name: 'Nueva Categoría' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Nueva categoría' })).toBeEnabled()
 
   await page.goto('/pedidos')
-  await expect(page.getByRole('button', { name: 'Nuevo Pedido' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Nuevo pedido' })).toBeEnabled()
 
   await page.goto('/empleados')
   await expect(page.getByRole('button', { name: /nuevo empleado/i })).toBeEnabled()
@@ -153,7 +153,7 @@ test('la misma empresa al día sí ofrece esas acciones', async ({ page, request
 
   // Y el formulario sí abre.
   await page.goto('/mesas')
-  await page.getByRole('button', { name: 'Nueva Mesa' }).click()
+  await page.getByRole('button', { name: 'Nueva mesa' }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
 })
 

@@ -9,11 +9,11 @@
           </div>
           <v-btn v-if="tab === 'companies'" color="primary" size="large" @click="openCreateDialog">
             <v-icon start>mdi-domain-plus</v-icon>
-            Nueva Empresa
+            Nueva empresa
           </v-btn>
           <v-btn v-else-if="tab === 'sellers'" color="primary" size="large" @click="openSellerDialog()">
             <v-icon start>mdi-account-plus</v-icon>
-            Nuevo Vendedor
+            Nuevo vendedor
           </v-btn>
         </div>
       </v-col>
@@ -167,7 +167,7 @@
     <!-- Dialog: crear/editar vendedor -->
     <v-dialog v-model="sellerDialog" max-width="480" persistent>
       <v-card>
-        <v-card-title>{{ editingSeller ? 'Editar Vendedor' : 'Nuevo Vendedor' }}</v-card-title>
+        <v-card-title>{{ editingSeller ? 'Editar vendedor' : 'Nuevo vendedor' }}</v-card-title>
         <v-card-text>
           <v-text-field
             v-model="sellerForm.name"
@@ -177,7 +177,7 @@
               Nombre <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
             </template>
           </v-text-field>
-          <v-text-field v-model="sellerForm.email" label="Email (opcional)" type="email" />
+          <v-text-field v-model="sellerForm.email" label="Correo (opcional)" type="email" />
           <v-text-field v-model="sellerForm.phone" label="Teléfono (opcional)" />
           <v-switch
             v-if="editingSeller"
@@ -200,7 +200,7 @@
          sin scrollear (empresa a la izquierda, admin y acuerdo a la derecha) -->
     <v-dialog v-model="createDialog" max-width="960" persistent>
       <v-card>
-        <v-card-title>Nueva Empresa</v-card-title>
+        <v-card-title>Nueva empresa</v-card-title>
         <v-card-text>
           <v-form ref="createForm" @submit.prevent="saveCompany">
             <p class="text-caption text-medium-emphasis mb-3">
@@ -245,7 +245,7 @@
                 </v-row>
                 <v-row dense class="mt-3">
                   <v-col cols="6">
-                    <v-text-field v-model="createData.email" label="Email (opcional)" type="email" />
+                    <v-text-field v-model="createData.email" label="Correo (opcional)" type="email" />
                   </v-col>
                   <v-col cols="6">
                     <v-text-field v-model="createData.phone" label="Teléfono (opcional)" />
@@ -266,9 +266,9 @@
                     <v-text-field
                       v-model="createData.admin.email"
                       type="email"
-                      :rules="[(v: string) => !!v || 'Email requerido']"
+                      :rules="[(v: string) => !!v || 'El correo es obligatorio']"
                     >
-                      <template #label>Email de acceso <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                      <template #label>Correo de acceso <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
                     </v-text-field>
                   </v-col>
                   <v-col cols="6">
@@ -341,7 +341,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="createDialog = false">Cancelar</v-btn>
-          <v-btn color="primary" :loading="saving" @click="saveCompany">Crear Empresa</v-btn>
+          <v-btn color="primary" :loading="saving" @click="saveCompany">Crear empresa</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -398,7 +398,7 @@
                   </v-text-field>
                 </v-col>
                 <v-col cols="6">
-                  <v-text-field v-model="editData.email" label="Email" type="email" />
+                  <v-text-field v-model="editData.email" label="Correo" type="email" />
                 </v-col>
                 <v-col cols="6">
                   <v-text-field v-model="editData.phone" label="Teléfono" />
@@ -468,7 +468,7 @@
                 <div>{{ formatDate(detail.created_at) }}</div>
               </v-col>
               <v-col cols="6">
-                <div class="text-caption text-medium-emphasis">Email</div>
+                <div class="text-caption text-medium-emphasis">Correo</div>
                 <div>{{ detail.email || '—' }}</div>
               </v-col>
               <v-col cols="6">
@@ -499,7 +499,7 @@
               <thead>
                 <tr>
                   <th>Nombre</th>
-                  <th>Email</th>
+                  <th>Correo</th>
                   <th>Rol</th>
                   <th>Estado</th>
                   <th>Último ingreso</th>
@@ -1083,7 +1083,7 @@ const route = useRoute()
 const tab = computed(() => (route.meta.section as 'companies' | 'sellers' | 'stats') ?? 'companies')
 
 const sectionTitle = computed(() =>
-  ({ companies: 'Empresas', sellers: 'Vendedores', stats: 'Ventas por Vendedor' })[tab.value],
+  ({ companies: 'Empresas', sellers: 'Vendedores', stats: 'Ventas por vendedor' })[tab.value],
 )
 const sectionSubtitle = computed(() =>
   ({
@@ -1099,7 +1099,7 @@ const loadingStats = ref(false)
 
 const sellerHeaders = [
   { title: 'Nombre', key: 'name' },
-  { title: 'Email', key: 'email' },
+  { title: 'Correo', key: 'email' },
   { title: 'Teléfono', key: 'phone' },
   { title: 'Estado', key: 'active' },
   { title: '', key: 'actions', sortable: false },

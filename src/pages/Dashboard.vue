@@ -107,7 +107,7 @@
         <v-card class="h-100">
           <v-card-title class="d-flex align-center">
             <v-icon class="mr-2">mdi-trophy</v-icon>
-            Más Vendidos
+            Más vendidos
           </v-card-title>
           <v-card-subtitle v-if="topPeriod">{{ periodCaption }}</v-card-subtitle>
           <v-card-text>
@@ -159,7 +159,7 @@
         <v-card class="h-100">
           <v-card-title>
             <v-icon class="mr-2" color="warning">mdi-alert-circle</v-icon>
-            Stock Bajo
+            Stock bajo
           </v-card-title>
           <v-card-text>
             <v-list v-if="!loading && lowStockProducts.length > 0" density="compact">
@@ -198,7 +198,7 @@
         <v-card class="h-100">
           <v-card-title>
             <v-icon class="mr-2">mdi-clock-outline</v-icon>
-            Pedidos Recientes
+            Pedidos recientes
           </v-card-title>
           <v-card-text>
             <v-list v-if="!loading && recentOrders.length > 0" density="compact">
@@ -214,7 +214,7 @@
                 </template>
                 <v-list-item-title>Pedido #{{ order.id }}</v-list-item-title>
                 <v-list-item-subtitle>
-                  {{ order.customer_name }} - {{ money(order.total) }}
+                  {{ customerLabel(order.customer_name) }} · {{ money(order.total) }}
                 </v-list-item-subtitle>
                 <template v-slot:append>
                   <v-chip :color="getStatusInfo(order.status).color" size="small" variant="tonal">
@@ -248,7 +248,7 @@ import {
   type TopProductsPeriod,
 } from '@/services/dashboardService'
 import { ordersService, type Order } from '@/services/ordersService'
-import { label, orderStatusColors, orderStatusLabels } from '@/utils/labels'
+import { customerLabel, label, orderStatusColors, orderStatusLabels } from '@/utils/labels'
 import { fonts } from '@/theme'
 import { useTheme } from 'vuetify'
 import { Line } from 'vue-chartjs'
@@ -327,8 +327,8 @@ const shortDate = (value: string): string => {
 
 const periodTitle = computed(() => ({
   week: 'Ventas de la Semana',
-  month: 'Ventas del Mes',
-  range: 'Ventas del Periodo',
+  month: 'Ventas del mes',
+  range: 'Ventas del periodo',
 })[period.value])
 
 const periodCaption = computed(() => {
@@ -382,25 +382,25 @@ watch([period, () => range.from, () => range.to], () => {
 
 const stats = computed(() => [
   {
-    title: 'Pedidos Hoy',
+    title: 'Pedidos hoy',
     value: dashStats.value.orders_today.toString(),
     subtitle: `${dashStats.value.orders_month} este mes`,
     trend: { icon: 'mdi-receipt', text: 'Pedidos del día', color: 'primary' }
   },
   {
-    title: 'Ventas Hoy',
+    title: 'Ventas hoy',
     value: money(dashStats.value.sales_today),
     subtitle: `${money(dashStats.value.sales_month)} este mes`,
     trend: { icon: 'mdi-cash', text: 'Ventas pagadas', color: 'success' }
   },
   {
-    title: 'Productos Activos',
+    title: 'Productos activos',
     value: dashStats.value.active_products.toString(),
     subtitle: 'En el menú',
     trend: { icon: 'mdi-silverware-fork-knife', text: 'Disponibles', color: 'info' }
   },
   {
-    title: 'Stock Bajo',
+    title: 'Stock bajo',
     value: dashStats.value.low_stock.toString(),
     subtitle: dashStats.value.low_stock > 0 ? 'Requiere atención' : 'Todo bien',
     trend: {

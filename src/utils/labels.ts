@@ -76,14 +76,14 @@ export const tableStatusColors: Record<string, string> = {
 
 // ===== Productos =====
 export const productTypeLabels: Record<string, string> = {
-  raw_material: 'Materia Prima',
+  raw_material: 'Materia prima',
   intermediate: 'Intermedio',
   final: 'Final',
 }
 
 // ===== Gastos =====
 export const expenseCategoryTypeLabels: Record<string, string> = {
-  inventory_purchase: 'Compra Inventario',
+  inventory_purchase: 'Compra inventario',
   variable_expense: 'Variable',
   fixed_expense: 'Fijo',
   administrative_expense: 'Administrativo',
@@ -117,4 +117,10 @@ export const expensePaymentMethodLabels: Record<string, string> = {
 export const label = (map: Record<string, string>, value?: string | null): string => {
   if (!value) return ''
   return map[value] ?? value
+}
+
+/** Un pedido nace con "Cliente" cuando nadie dio su nombre: es un consumidor final. */
+export const customerLabel = (name?: string | null): string => {
+  const trimmed = name?.trim()
+  return trimmed && trimmed !== 'Cliente' ? trimmed : 'Consumidor final'
 }

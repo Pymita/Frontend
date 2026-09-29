@@ -11,7 +11,7 @@
           </div>
           <div class="d-flex ga-2">
             <LockableButton icon="mdi-plus" color="primary" size="large" @click="openMovementDialog">
-              Registrar Movimiento
+              Registrar movimiento
             </LockableButton>
             <v-btn
               color="primary"
@@ -34,7 +34,7 @@
          genera el sistema con las ventas y los saldos iniciales. -->
     <v-dialog v-model="movementDialog" max-width="560" persistent>
       <v-card>
-        <v-card-title>Registrar Movimiento de Inventario</v-card-title>
+        <v-card-title>Registrar movimiento de inventario</v-card-title>
         <v-card-text>
           <v-autocomplete
             v-model="movementForm.product_id"

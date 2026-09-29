@@ -65,7 +65,7 @@
                 <v-text-field v-model="businessForm.department" label="Departamento" />
               </v-col>
               <v-col cols="12" md="6">
-                <v-text-field v-model="businessForm.email" label="Email (opcional)" type="email" />
+                <v-text-field v-model="businessForm.email" label="Correo (opcional)" type="email" />
               </v-col>
               <v-col cols="12">
                 <v-textarea
@@ -94,7 +94,7 @@
       <v-col cols="12" md="6">
         <v-card class="pa-4">
           <div class="d-flex align-center mb-3">
-            <h2 class="text-h6">Tipos de Documento</h2>
+            <h2 class="text-h6">Tipos de documento</h2>
             <v-spacer />
             <LockableButton icon="mdi-plus" color="primary" size="small" @click="openDocDialog()">
               Nuevo
@@ -197,7 +197,7 @@
       <v-col cols="12">
         <v-card class="pa-4">
           <div class="d-flex align-center mb-1">
-            <h2 class="text-h6">Resolución de Facturación (DIAN)</h2>
+            <h2 class="text-h6">Resolución de facturación (DIAN)</h2>
             <v-spacer />
             <v-chip
               v-if="resolutionStatus?.configured"
@@ -327,7 +327,7 @@
     <!-- Dialog tipo de documento -->
     <v-dialog v-model="docDialog" max-width="480" persistent>
       <v-card>
-        <v-card-title>{{ editingDoc ? 'Editar Tipo de Documento' : 'Nuevo Tipo de Documento' }}</v-card-title>
+        <v-card-title>{{ editingDoc ? 'Editar tipo de documento' : 'Nuevo tipo de documento' }}</v-card-title>
         <v-card-text>
           <v-text-field
             v-model="docForm.code"
@@ -369,7 +369,7 @@
     <!-- Dialog impuesto -->
     <v-dialog v-model="taxDialog" max-width="480" persistent>
       <v-card>
-        <v-card-title>{{ editingTax ? 'Editar Impuesto' : 'Nuevo Impuesto' }}</v-card-title>
+        <v-card-title>{{ editingTax ? 'Editar impuesto' : 'Nuevo impuesto' }}</v-card-title>
         <v-card-text>
           <v-text-field
             v-model="taxForm.name"

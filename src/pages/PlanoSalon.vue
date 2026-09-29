@@ -2,7 +2,7 @@
   <v-container fluid>
     <div class="d-flex align-center justify-space-between flex-wrap mb-4">
       <div>
-        <h1 class="text-h4">Plano del Salón</h1>
+        <h1 class="text-h4">Plano del salón</h1>
         <p class="text-body-2 text-medium-emphasis mb-0">
           {{ editMode ? 'Arrastra las mesas para ubicarlas como están en el local' : 'Estado de las mesas en tiempo real' }}
         </p>
