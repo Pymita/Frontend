@@ -946,7 +946,7 @@
     <!-- Dialog Nuevo Pedido -->
     <v-dialog v-model="nuevoPedidoDialog" max-width="900" persistent scrollable>
       <v-card>
-        <v-card-title class="bg-success">
+        <v-card-title class="bg-primary">
           <v-icon start>mdi-receipt-text-plus</v-icon>
           Nuevo Pedido
         </v-card-title>
