@@ -14,6 +14,20 @@
       </v-col>
     </v-row>
 
+    <v-alert
+      v-if="business && !business.complete"
+      type="warning"
+      variant="tonal"
+      density="compact"
+      class="mb-4">
+      Tus facturas y recibos salen solo con el nombre de la empresa.
+      <template v-if="isAdmin">
+        Completa el NIT, la dirección y los teléfonos en
+        <router-link to="/configuracion">Configuración › Datos del negocio</router-link>.
+      </template>
+      <template v-else>Pídele al administrador que complete los datos del negocio.</template>
+    </v-alert>
+
     <v-tabs v-model="activeTab" color="primary" class="mb-4">
       <v-tab value="facturar"><v-icon start>mdi-file-document-multiple</v-icon>Facturar</v-tab>
       <v-tab value="cartera"><v-icon start>mdi-wallet</v-icon>Cartera</v-tab>
@@ -28,19 +42,21 @@
             <v-row dense>
               <v-col cols="12" sm="4" md="3">
                 <v-text-field
+                  v-model="issueDate"
+                  label="Día a facturar"
+                  type="date"
+                  density="compact"
+                  hint="Es la fecha de emisión; se marcan los terceros con corte ese día"
+                  persistent-hint />
+              </v-col>
+              <v-col cols="12" sm="4" md="3">
+                <v-text-field
                   v-model="period"
                   label="Mes a facturar"
                   type="month"
                   density="compact"
-                  hide-details />
-              </v-col>
-              <v-col cols="12" sm="4" md="3">
-                <v-text-field
-                  v-model="issueDate"
-                  label="Fecha de emisión"
-                  type="date"
-                  density="compact"
-                  hide-details />
+                  hint="Sigue al día a facturar; cámbialo para facturar otro mes"
+                  persistent-hint />
               </v-col>
               <v-col cols="12" sm="4" md="6">
                 <v-text-field
@@ -106,11 +122,27 @@
               @click="openConfirm('all')">
               Facturar a todos ({{ pendingRows.length }})
             </LockableButton>
+            <v-btn
+              variant="outlined"
+              color="primary"
+              prepend-icon="mdi-printer"
+              :disabled="billedRows.length === 0"
+              @click="printInvoices(billedRows.map(r => r.billed!.id))">
+              Imprimir los del mes ({{ billedRows.length }})
+            </v-btn>
             <v-spacer />
             <span class="text-caption text-medium-emphasis">
               Usa el lápiz para cambiar el nombre, el valor o el concepto de una persona antes de facturar.
             </span>
           </v-card-text>
+          <v-alert
+            v-if="preview && preview.rows.length"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mx-4 mb-2">
+            {{ cutoffHint }}
+          </v-alert>
 
           <v-data-table
             v-model="selected"
@@ -153,7 +185,14 @@
 
             <template #item.actions="{ item }">
               <v-btn
-                v-if="!item.billed"
+                v-if="item.billed"
+                icon="mdi-printer"
+                size="small"
+                variant="text"
+                :aria-label="`Imprimir ${item.billed.document_number}`"
+                @click="printInvoices([item.billed.id])" />
+              <v-btn
+                v-else
                 icon="mdi-pencil"
                 size="small"
                 variant="text"
@@ -253,6 +292,17 @@
                   Vencido {{ money(customer.overdue_balance) }}
                 </v-chip>
                 <span class="text-body-1 font-weight-bold tabular-nums">Saldo {{ money(customer.balance) }}</span>
+                <!-- El abono va al tercero: paga sus documentos del más viejo al más nuevo. -->
+                <v-btn
+                  v-if="customer.balance > 0 && customer.customer_id"
+                  color="primary"
+                  size="small"
+                  variant="flat"
+                  prepend-icon="mdi-cash-plus"
+                  :disabled="isReadOnly"
+                  @click.stop="openCustomerPayment(customer)">
+                  Registrar abono
+                </v-btn>
               </div>
             </v-expansion-panel-title>
             <v-expansion-panel-text>
@@ -290,6 +340,12 @@
                       </v-chip>
                     </td>
                     <td class="text-end text-no-wrap">
+                      <v-btn
+                        icon="mdi-printer"
+                        size="small"
+                        variant="text"
+                        :aria-label="`Imprimir ${doc.document_number}`"
+                        @click="printInvoices([doc.id])" />
                       <v-btn
                         size="small"
                         variant="text"
@@ -500,6 +556,7 @@
           <v-table v-if="paymentInvoice.payments.length" density="compact" class="mb-4">
             <thead>
               <tr>
+                <th>Recibo</th>
                 <th>Fecha</th>
                 <th>Método</th>
                 <th class="text-end">Valor</th>
@@ -508,6 +565,17 @@
             </thead>
             <tbody>
               <tr v-for="payment in paymentInvoice.payments" :key="payment.id">
+                <td>
+                  <v-btn
+                    v-if="payment.receipt_number"
+                    size="small"
+                    variant="text"
+                    color="primary"
+                    prepend-icon="mdi-printer"
+                    @click="printReceipt(payment.receipt_number)">
+                    RC-{{ payment.receipt_number }}
+                  </v-btn>
+                </td>
                 <td>{{ formatDay(payment.paid_at) }}</td>
                 <td>{{ PAYMENT_METHOD_LABELS[payment.payment_method] ?? payment.payment_method }}</td>
                 <td class="text-end tabular-nums">{{ money(payment.amount) }}</td>
@@ -551,6 +619,14 @@
           </v-form>
         </v-card-text>
         <v-card-actions>
+          <v-btn
+            v-if="lastReceiptNumber"
+            variant="outlined"
+            color="primary"
+            prepend-icon="mdi-printer"
+            @click="printReceipt(lastReceiptNumber)">
+            Imprimir recibo RC-{{ lastReceiptNumber }}
+          </v-btn>
           <v-spacer />
           <v-btn @click="paymentDialog = false">Cerrar</v-btn>
           <LockableButton
@@ -558,6 +634,89 @@
             color="primary"
             :loading="savingPayment"
             @click="savePayment">
+            Registrar abono
+          </LockableButton>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Abono al tercero: se reparte del documento más viejo al más nuevo -->
+    <v-dialog v-model="customerPaymentDialog" max-width="640">
+      <v-card v-if="customerPaymentTarget">
+        <v-card-title class="bg-primary">Abono de {{ customerPaymentTarget.customer_name }}</v-card-title>
+        <v-card-text class="pt-4">
+          <template v-if="!customerReceipt">
+            <p class="text-body-2 mb-3">
+              Debe <strong class="tabular-nums">{{ money(customerPaymentTarget.balance) }}</strong>.
+              El abono paga primero los documentos más viejos.
+            </p>
+            <v-form ref="customerPaymentFormRef">
+              <v-row dense>
+                <v-col cols="12" md="4">
+                  <v-text-field
+                    v-model.number="customerPaymentForm.amount"
+                    label="Valor del abono"
+                    type="number"
+                    prefix="$"
+                    min="0"
+                    :rules="[(v: number) => v > 0 || 'Escribe el valor del abono']"
+                    density="comfortable" />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-select
+                    v-model="customerPaymentForm.payment_method"
+                    :items="methodOptions"
+                    label="Método de pago"
+                    density="comfortable" />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-text-field v-model="customerPaymentForm.paid_at" label="Fecha" type="date" :max="today" density="comfortable" />
+                </v-col>
+                <v-col cols="12">
+                  <v-text-field v-model="customerPaymentForm.notes" label="Nota (opcional)" density="comfortable" />
+                </v-col>
+              </v-row>
+            </v-form>
+            <v-table density="compact">
+              <thead>
+                <tr>
+                  <th>Documento</th>
+                  <th>Vence</th>
+                  <th class="text-end">Saldo</th>
+                  <th class="text-end">Se abona</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="line in distribution" :key="line.id">
+                  <td>{{ line.document_number }} <span class="text-medium-emphasis">({{ periodName(line.period) }})</span></td>
+                  <td>{{ formatDay(line.due_date) }}</td>
+                  <td class="text-end tabular-nums">{{ money(line.balance) }}</td>
+                  <td class="text-end tabular-nums font-weight-bold">{{ line.applied ? money(line.applied) : '—' }}</td>
+                </tr>
+              </tbody>
+            </v-table>
+          </template>
+          <v-alert v-else type="success" variant="tonal">
+            Abono registrado en el recibo de caja <strong>{{ customerReceipt.reference }}</strong>
+            por <strong class="tabular-nums">{{ money(customerReceipt.total) }}</strong>.
+          </v-alert>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn
+            v-if="customerReceipt"
+            variant="outlined"
+            color="primary"
+            prepend-icon="mdi-printer"
+            @click="printReceipt(customerReceipt.number)">
+            Imprimir recibo {{ customerReceipt.reference }}
+          </v-btn>
+          <v-spacer />
+          <v-btn @click="customerPaymentDialog = false">{{ customerReceipt ? 'Cerrar' : 'Cancelar' }}</v-btn>
+          <LockableButton
+            v-if="!customerReceipt"
+            color="primary"
+            :loading="savingCustomerPayment"
+            @click="saveCustomerPayment">
             Registrar abono
           </LockableButton>
         </v-card-actions>
@@ -708,14 +867,23 @@ import LockableButton from '../components/LockableButton.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 import {
   billingService,
+  type CashReceipt,
   type Customer,
   type GenerateItem,
+  type ReceivableCustomer,
   type ReceivableDocument,
   type Receivables,
   type RecurringInvoice,
   type RecurringPreview,
   type RecurringPreviewRow,
 } from '../services/billingService'
+import {
+  fillDocumentWindow,
+  invoiceHtml,
+  openDocumentWindow,
+  receiptHtml,
+  type DocumentBusiness,
+} from '../utils/printDocuments'
 import kardexService, { type Tax } from '../services/kardexService'
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from '../services/salesService'
 import { useAuthStore } from '../stores/auth'
@@ -824,6 +992,31 @@ const rowTotal = (row: RecurringPreviewRow): number => totalOf(rowValue(row))
 const pendingRows = computed(() => (preview.value?.rows ?? []).filter(r => !r.billed))
 const pendingTotal = computed(() => pendingRows.value.reduce((sum, row) => sum + rowTotal(row), 0))
 
+const billedRows = computed(() => (preview.value?.rows ?? []).filter(r => r.billed))
+
+// Los que tienen el corte el día a facturar van marcados de entrada: es a
+// quienes les toca hoy. Se recalcula solo al cambiar el día o el mes, para
+// no deshacer lo que el usuario marcó a mano.
+const dueOnIssueDate = computed(() => pendingRows.value.filter(r => r.due_date === issueDate.value))
+let autoSelectedFor = ''
+const autoSelect = () => {
+  const key = `${period.value}|${issueDate.value}`
+  if (key === autoSelectedFor || !preview.value) return
+  autoSelectedFor = key
+  selected.value = dueOnIssueDate.value.map(r => r.customer_id)
+}
+
+const cutoffHint = computed(() => {
+  const count = dueOnIssueDate.value.length
+  const day = formatDay(issueDate.value)
+  if (count === 0) {
+    return `Nadie tiene su corte el ${day}: marca a mano a quién facturar o usa "Facturar a todos".`
+  }
+  return count === 1
+    ? `Quedó marcado 1 tercero con corte el ${day}. Puedes marcar o desmarcar otros.`
+    : `Quedaron marcados ${count} terceros con corte el ${day}. Puedes marcar o desmarcar otros.`
+})
+
 const loadPreview = async () => {
   if (!period.value) return
   loadingPreview.value = true
@@ -833,6 +1026,7 @@ const loadPreview = async () => {
     // La selección y las ediciones son de un mes: al cambiar de mes se limpian.
     const billable = new Set(pendingRows.value.map(r => r.customer_id))
     selected.value = selected.value.filter(id => billable.has(id))
+    autoSelect()
   } catch (error) {
     notify(errorMessage(error, 'Error al cargar los terceros para facturar'), 'error')
   } finally {
@@ -845,6 +1039,48 @@ watch(period, () => {
   selected.value = []
   loadPreview()
 })
+
+// El mes sigue al día a facturar; si el mes no cambia, solo se remarca.
+watch(issueDate, value => {
+  if (!value) return
+  const month = value.slice(0, 7)
+  if (month !== period.value) {
+    period.value = month
+  } else {
+    autoSelect()
+  }
+})
+
+// --- Impresión (cuenta de cobro / factura y recibo de caja) ---
+const business = ref<DocumentBusiness | null>(null)
+const printBlocked = () =>
+  notify('El navegador bloqueó la ventana de impresión: permite las ventanas emergentes para este sitio', 'error')
+
+const printInvoices = async (ids: number[]) => {
+  if (!ids.length) return
+  const win = openDocumentWindow()
+  if (!win) return printBlocked()
+  try {
+    const docs = await Promise.all(ids.map(id => billingService.getInvoiceDocument(id)))
+    const title = docs.length === 1 ? docs[0]!.invoice.document_number : `${docs.length} documentos de ${periodLabel.value}`
+    fillDocumentWindow(win, title, docs.map(d => invoiceHtml(d.business, d.invoice, d.resolution)).join(''))
+  } catch (error) {
+    win.close()
+    notify(errorMessage(error, 'No se pudo generar el documento para imprimir'), 'error')
+  }
+}
+
+const printReceipt = async (receiptNumber: number) => {
+  const win = openDocumentWindow()
+  if (!win) return printBlocked()
+  try {
+    const { business: header, receipt } = await billingService.getReceipt(receiptNumber)
+    fillDocumentWindow(win, receipt.reference, receiptHtml(header, receipt))
+  } catch (error) {
+    win.close()
+    notify(errorMessage(error, 'No se pudo generar el recibo para imprimir'), 'error')
+  }
+}
 
 /** Solo se envía lo que cambió respecto a lo que el servidor ya sabe. */
 const itemFor = (row: RecurringPreviewRow): GenerateItem => {
@@ -974,10 +1210,14 @@ const resetPaymentForm = (invoice: RecurringInvoice) => {
   paymentForm.value = { amount: invoice.balance, payment_method: 'cash', paid_at: today }
 }
 
+// El recibo del abono recién registrado, para imprimirlo con un clic.
+const lastReceiptNumber = ref<number | null>(null)
+
 const openPaymentDialog = async (invoiceId: number) => {
   try {
     paymentInvoice.value = await billingService.getRecurringInvoice(invoiceId)
     resetPaymentForm(paymentInvoice.value)
+    lastReceiptNumber.value = null
     paymentDialog.value = true
   } catch (error) {
     notify(errorMessage(error, 'Error al cargar el documento'), 'error')
@@ -993,6 +1233,7 @@ const savePayment = async () => {
   try {
     const { data, message } = await billingService.addRecurringPayment(paymentInvoice.value.id, paymentForm.value)
     paymentInvoice.value = data
+    lastReceiptNumber.value = data.receipt_number ?? null
     resetPaymentForm(data)
     notify(message)
     await Promise.all([loadReceivables(), loadPreview()])
@@ -1000,6 +1241,55 @@ const savePayment = async () => {
     notify(errorMessage(error, 'No se pudo registrar el abono'), 'error')
   } finally {
     savingPayment.value = false
+  }
+}
+
+// --- Abono al tercero ---
+const customerPaymentDialog = ref(false)
+const customerPaymentTarget = ref<ReceivableCustomer | null>(null)
+const customerPaymentFormRef = ref<any>(null)
+const savingCustomerPayment = ref(false)
+const customerReceipt = ref<CashReceipt | null>(null)
+const customerPaymentForm = ref({ amount: 0, payment_method: 'cash' as PaymentMethod, paid_at: today, notes: '' })
+
+const openCustomerPayment = (customer: ReceivableCustomer) => {
+  customerPaymentTarget.value = customer
+  customerReceipt.value = null
+  customerPaymentForm.value = { amount: customer.balance, payment_method: 'cash', paid_at: today, notes: '' }
+  customerPaymentDialog.value = true
+}
+
+/** Cómo se repartiría el abono: primero lo más viejo (igual que el servidor). */
+const distribution = computed(() => {
+  let left = Number(customerPaymentForm.value.amount) || 0
+  return (customerPaymentTarget.value?.documents ?? [])
+    .filter(doc => doc.balance > 0)
+    .map(doc => {
+      const applied = Math.max(0, Math.min(left, doc.balance))
+      left -= applied
+      return { ...doc, applied }
+    })
+})
+
+const saveCustomerPayment = async () => {
+  const target = customerPaymentTarget.value
+  if (!target?.customer_id) return
+  const { valid } = await customerPaymentFormRef.value.validate()
+  if (!valid) return
+
+  savingCustomerPayment.value = true
+  try {
+    const { data, message } = await billingService.payCustomer(target.customer_id, {
+      ...customerPaymentForm.value,
+      notes: customerPaymentForm.value.notes || undefined,
+    })
+    customerReceipt.value = data
+    notify(message)
+    await Promise.all([loadReceivables(), loadPreview()])
+  } catch (error) {
+    notify(errorMessage(error, 'No se pudo registrar el abono'), 'error')
+  } finally {
+    savingCustomerPayment.value = false
   }
 }
 
@@ -1183,6 +1473,7 @@ onMounted(async () => {
   } catch {
     taxes.value = []
   }
+  billingService.getBusiness().then(b => (business.value = b)).catch(() => {})
   await Promise.all([loadPreview(), loadReceivables(), loadCustomers()])
 })
 </script>

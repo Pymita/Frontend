@@ -4,8 +4,88 @@
       <v-col cols="12">
         <h1 class="text-h4 mb-1">Configuración</h1>
         <p class="text-body-1 text-medium-emphasis mb-4">
-          Catálogos del negocio: tipos de documento del kardex e impuestos
+          Datos del negocio y catálogos: tipos de documento del kardex, impuestos y resolución DIAN
         </p>
+      </v-col>
+    </v-row>
+
+    <!-- Encabezado de las facturas, cuentas de cobro y recibos de caja: una
+         sola plantilla para todas las empresas, con los datos de cada una. -->
+    <v-row>
+      <v-col cols="12">
+        <v-card class="pa-4">
+          <div class="d-flex align-center mb-1">
+            <h2 class="text-h6">Datos del negocio</h2>
+            <v-spacer />
+            <v-chip v-if="business" size="small" variant="tonal" :color="business.complete ? 'success' : 'warning'">
+              {{ business.complete ? 'Completo' : 'Faltan datos' }}
+            </v-chip>
+          </div>
+          <p class="text-body-2 text-medium-emphasis mb-4">
+            Van en el encabezado de las facturas, cuentas de cobro y recibos de caja que imprimes.
+            Los campos con <span class="text-error font-weight-bold">*</span> son obligatorios.
+          </p>
+          <v-form ref="businessFormRef">
+            <v-row dense>
+              <v-col cols="12" md="6">
+                <v-text-field v-model="businessForm.legal_name" :rules="[required]">
+                  <template #label>Nombre o razón social <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                </v-text-field>
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-text-field v-model="businessForm.trade_name" label="Nombre comercial (opcional)" />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="businessForm.nit" :rules="[required]">
+                  <template #label>NIT o documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                </v-text-field>
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-select
+                  v-model="businessForm.tax_regime"
+                  :items="taxRegimeOptions"
+                  label="Régimen"
+                  clearable
+                />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="businessForm.phone" :rules="[required]" hint="Puedes poner varios: 3159276091 - 3001571023" persistent-hint>
+                  <template #label>Teléfonos <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                </v-text-field>
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-text-field v-model="businessForm.address" :rules="[required]">
+                  <template #label>Dirección <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                </v-text-field>
+              </v-col>
+              <v-col cols="6" md="3">
+                <v-text-field v-model="businessForm.city" label="Ciudad" />
+              </v-col>
+              <v-col cols="6" md="3">
+                <v-text-field v-model="businessForm.department" label="Departamento" />
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-text-field v-model="businessForm.email" label="Email (opcional)" type="email" />
+              </v-col>
+              <v-col cols="12">
+                <v-textarea
+                  v-model="businessForm.document_notes"
+                  label="Observaciones de los documentos"
+                  placeholder="Ej.: Favor consignar en Cta ahorros 37342931449 Bancolombia a nombre de…"
+                  hint="Salen al pie de cada factura, cuenta de cobro y recibo"
+                  persistent-hint
+                  rows="2"
+                  auto-grow
+                />
+              </v-col>
+            </v-row>
+          </v-form>
+          <div class="d-flex justify-end mt-3">
+            <LockableButton color="primary" :loading="savingBusiness" @click="saveBusiness">
+              Guardar datos del negocio
+            </LockableButton>
+          </div>
+        </v-card>
       </v-col>
     </v-row>
 
@@ -333,6 +413,10 @@ import kardexService, { type DocumentType, type Tax } from '../services/kardexSe
 import invoicingService, { type InvoicingResolution, type ResolutionStatus } from '../services/invoicingService'
 import LockableButton from '../components/LockableButton.vue'
 import { useReadOnly } from '../composables/useReadOnly'
+import { billingService, type BusinessForm } from '../services/billingService'
+import type { DocumentBusiness } from '../utils/printDocuments'
+import { taxRegimeLabels } from '../utils/labels'
+import { errorMessage } from '../utils/errors'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
 const isReadOnly = useReadOnly()
@@ -360,6 +444,51 @@ const load = async () => {
     notify('Error al cargar los catálogos', 'error')
   }
   loadResolution()
+  loadBusiness()
+}
+
+// --- Datos del negocio (encabezado de los documentos) ---
+const business = ref<DocumentBusiness | null>(null)
+const businessFormRef = ref<any>(null)
+const savingBusiness = ref(false)
+const emptyBusiness = (): BusinessForm => ({
+  legal_name: '',
+  trade_name: '',
+  nit: '',
+  tax_regime: null,
+  address: '',
+  city: '',
+  department: '',
+  phone: '',
+  email: '',
+  document_notes: '',
+})
+const businessForm = ref<BusinessForm>(emptyBusiness())
+const required = (v: string | null | undefined) => !!(v && String(v).trim()) || 'Este campo es obligatorio'
+const taxRegimeOptions = Object.entries(taxRegimeLabels).map(([value, title]) => ({ value, title }))
+
+const loadBusiness = async () => {
+  try {
+    business.value = await billingService.getBusiness()
+    const { complete: _complete, ...data } = business.value
+    businessForm.value = { ...emptyBusiness(), ...data }
+  } catch {
+    // Sin la sección no se bloquea el resto de la configuración.
+  }
+}
+
+const saveBusiness = async () => {
+  const { valid } = await businessFormRef.value.validate()
+  if (!valid) return
+  savingBusiness.value = true
+  try {
+    business.value = await billingService.updateBusiness(businessForm.value)
+    notify('Datos del negocio guardados')
+  } catch (error) {
+    notify(errorMessage(error, 'No se pudieron guardar los datos del negocio'), 'error')
+  } finally {
+    savingBusiness.value = false
+  }
 }
 
 // --- Resolución de facturación ---
