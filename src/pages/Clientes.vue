@@ -7,8 +7,8 @@
           <div class="d-flex align-center">
             <v-icon size="40" class="mr-3" color="primary">mdi-account-multiple</v-icon>
             <div>
-              <h1 class="text-h3">Clientes y proveedores</h1>
-              <p class="text-body-1 text-grey">Gestiona los terceros para facturación y compras</p>
+              <h1 class="text-h4">Clientes y proveedores</h1>
+              <p class="text-body-1 text-medium-emphasis">Gestiona los terceros para facturación y compras</p>
             </div>
           </div>
           <LockableButton
@@ -69,14 +69,18 @@
                 <template #item.person_type="{ item }">
                   <v-chip
                     size="small"
-                    :color="item.person_type === 'legal' ? 'purple' : 'blue'"
+                    color="secondary"
+                    :prepend-icon="item.person_type === 'legal' ? 'mdi-domain' : 'mdi-account'"
                     variant="tonal">
                     {{ item.person_type === 'legal' ? 'Jurídica' : 'Natural' }}
                   </v-chip>
                 </template>
 
                 <template #item.frequent_customer="{ item }">
-                  <v-icon :color="item.frequent_customer ? 'success' : 'grey'">
+                  <v-icon
+                    :color="item.frequent_customer ? 'warning' : undefined"
+                    :class="{ 'text-medium-emphasis': !item.frequent_customer }"
+                  >
                     {{ item.frequent_customer ? 'mdi-star' : 'mdi-star-outline' }}
                   </v-icon>
                 </template>
@@ -181,7 +185,7 @@
           </v-alert>
 
           <v-form ref="form">
-            <p class="text-caption text-grey-darken-1 mb-3">
+            <p class="text-caption text-medium-emphasis mb-3">
               Los campos con
               <span class="text-error font-weight-bold">*</span>
               son obligatorios.
@@ -289,7 +293,7 @@
         </v-card-title>
         <v-card-text class="pt-4">
           <v-form ref="supplierFormRef">
-            <p class="text-caption text-grey-darken-1 mb-3">
+            <p class="text-caption text-medium-emphasis mb-3">
               Solo el nombre es obligatorio; el resto es opcional.
             </p>
             <v-row>

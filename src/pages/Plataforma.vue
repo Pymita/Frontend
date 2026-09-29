@@ -5,7 +5,7 @@
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
             <h1 class="text-h4">{{ sectionTitle }}</h1>
-            <p class="text-body-1 text-grey-darken-1">{{ sectionSubtitle }}</p>
+            <p class="text-body-1 text-medium-emphasis">{{ sectionSubtitle }}</p>
           </div>
           <v-btn v-if="tab === 'companies'" color="primary" size="large" @click="openCreateDialog">
             <v-icon start>mdi-domain-plus</v-icon>
@@ -34,7 +34,7 @@
                 <v-chip v-if="item.is_template" size="x-small" color="primary" variant="flat" class="ml-2">
                   Plantilla
                 </v-chip>
-                <div class="text-caption text-grey">{{ item.slug }}</div>
+                <div class="text-caption text-medium-emphasis">{{ item.slug }}</div>
               </div>
             </template>
             <template #item.business_type="{ item }">
@@ -58,7 +58,7 @@
               >
                 {{ statusLabel(item.subscription.status) }}
               </v-chip>
-              <v-chip v-else color="grey" size="small" variant="outlined">
+              <v-chip v-else color="secondary" size="small" variant="outlined">
                 Sin suscripción
               </v-chip>
             </template>
@@ -118,7 +118,7 @@
             class="elevation-0"
           >
             <template #item.active="{ item }">
-              <v-chip :color="item.active ? 'success' : 'grey'" size="small">
+              <v-chip :color="item.active ? 'success' : 'secondary'" size="small">
                 {{ item.active ? 'Activo' : 'Inactivo' }}
               </v-chip>
             </template>
@@ -128,7 +128,7 @@
               </v-btn>
             </template>
             <template #no-data>
-              <p class="text-grey py-6">Aún no hay vendedores registrados</p>
+              <p class="text-medium-emphasis py-6">Aún no hay vendedores registrados</p>
             </template>
           </v-data-table>
         </v-card>
@@ -149,7 +149,7 @@
               ${{ item.monthly_recurring.toLocaleString('es-CO') }}
             </template>
             <template #item.total_collected="{ item }">
-              <span class="font-weight-bold text-success">
+              <span class="font-weight-bold">
                 ${{ item.total_collected.toLocaleString('es-CO') }}
               </span>
             </template>
@@ -157,7 +157,7 @@
               {{ item.last_sale_at || '—' }}
             </template>
             <template #no-data>
-              <p class="text-grey py-6">Sin ventas asociadas a vendedores todavía</p>
+              <p class="text-medium-emphasis py-6">Sin ventas asociadas a vendedores todavía</p>
             </template>
           </v-data-table>
         </v-card>
@@ -203,7 +203,7 @@
         <v-card-title>Nueva Empresa</v-card-title>
         <v-card-text>
           <v-form ref="createForm" @submit.prevent="saveCompany">
-            <p class="text-caption text-grey-darken-1 mb-3">
+            <p class="text-caption text-medium-emphasis mb-3">
               Los campos con
               <span class="text-error font-weight-bold">*</span>
               son obligatorios.
@@ -410,7 +410,7 @@
               />
 
               <p class="text-subtitle-2 mt-4 mb-1">Módulos activos</p>
-              <p class="text-caption text-grey mb-2">
+              <p class="text-caption text-medium-emphasis mb-2">
                 Desmarca todos para volver a los del tipo de negocio
                 ({{ presetModules(editData.business_type).map(featureLabel).join(', ') }}).
               </p>
@@ -433,11 +433,11 @@
 
             <v-row v-else dense>
               <v-col cols="6">
-                <div class="text-caption text-grey">Slug</div>
+                <div class="text-caption text-medium-emphasis">Slug</div>
                 <div>{{ detail.slug }}</div>
               </v-col>
               <v-col cols="6">
-                <div class="text-caption text-grey">Tipo de negocio</div>
+                <div class="text-caption text-medium-emphasis">Tipo de negocio</div>
                 <div>
                   {{ businessTypeLabel(detail.business_type) }}
                   <v-chip v-if="detail.modules_customized" size="x-small" class="ml-1" color="info" variant="tonal">
@@ -446,7 +446,7 @@
                 </div>
               </v-col>
               <v-col cols="12">
-                <div class="text-caption text-grey">Módulos activos</div>
+                <div class="text-caption text-medium-emphasis">Módulos activos</div>
                 <v-chip
                   v-for="feature in detail.modules"
                   :key="feature"
@@ -458,19 +458,19 @@
                 </v-chip>
               </v-col>
               <v-col cols="6">
-                <div class="text-caption text-grey">Creada</div>
+                <div class="text-caption text-medium-emphasis">Creada</div>
                 <div>{{ formatDate(detail.created_at) }}</div>
               </v-col>
               <v-col cols="6">
-                <div class="text-caption text-grey">Email</div>
+                <div class="text-caption text-medium-emphasis">Email</div>
                 <div>{{ detail.email || '—' }}</div>
               </v-col>
               <v-col cols="6">
-                <div class="text-caption text-grey">Teléfono</div>
+                <div class="text-caption text-medium-emphasis">Teléfono</div>
                 <div>{{ detail.phone || '—' }}</div>
               </v-col>
               <v-col cols="6">
-                <div class="text-caption text-grey">Suscripción</div>
+                <div class="text-caption text-medium-emphasis">Suscripción</div>
                 <v-chip
                   v-if="detail.subscription"
                   :color="statusColor(detail.subscription.status)"
@@ -481,7 +481,7 @@
                 <span v-else>Sin suscripción</span>
               </v-col>
               <v-col cols="6">
-                <div class="text-caption text-grey">Pagada hasta</div>
+                <div class="text-caption text-medium-emphasis">Pagada hasta</div>
                 <div>{{ detail.subscription?.current_period_end || '—' }}</div>
               </v-col>
             </v-row>
@@ -505,7 +505,7 @@
                   <td>{{ user.email }}</td>
                   <td>{{ user.role === 'admin' ? 'Admin' : 'Empleado' }}</td>
                   <td>
-                    <v-chip :color="user.active ? 'success' : 'grey'" size="x-small">
+                    <v-chip :color="user.active ? 'success' : 'secondary'" size="x-small">
                       {{ user.active ? 'Activo' : 'Inactivo' }}
                     </v-chip>
                   </td>
@@ -537,7 +537,7 @@
                 </tr>
               </tbody>
             </v-table>
-            <p v-else class="text-body-2 text-grey">Sin pagos registrados todavía.</p>
+            <p v-else class="text-body-2 text-medium-emphasis">Sin pagos registrados todavía.</p>
           </template>
         </v-card-text>
 
@@ -678,10 +678,10 @@
             </template>
           </v-textarea>
 
-          <v-btn
-            color="success"
-            block
-            :loading="saving"
+                <v-btn
+                  color="primary"
+                  block
+                  :loading="saving"
             :disabled="!selectedCompany.subscription || !paymentData.amount || (paymentDiffers && !paymentData.discrepancy_reason.trim())"
             @click="savePayment"
           >
@@ -774,7 +774,7 @@ const statusColor = (status: SubscriptionStatus): string => ({
   active: 'success',
   grace: 'warning',
   suspended: 'error',
-}[status] || 'grey')
+}[status] || 'secondary')
 
 const statusLabel = (status: SubscriptionStatus): string => ({
   trial: 'Prueba',

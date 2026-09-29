@@ -5,7 +5,7 @@
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
             <h1 class="text-h4">Empleados</h1>
-            <p class="text-body-1 text-grey-darken-1">
+            <p class="text-body-1 text-medium-emphasis">
               Crea las cuentas de tu equipo y decide a qué funciones tiene acceso cada uno
             </p>
           </div>
@@ -34,13 +34,13 @@
               </v-chip>
             </template>
             <template #item.active="{ item }">
-              <v-chip :color="item.active ? 'success' : 'grey'" size="small">
+              <v-chip :color="item.active ? 'success' : 'secondary'" size="small">
                 {{ item.active ? 'Activo' : 'Inactivo' }}
               </v-chip>
             </template>
             <template #item.features="{ item }">
               <template v-if="item.role === 'admin'">
-                <span class="text-caption text-grey">Acceso total</span>
+                <span class="text-caption text-medium-emphasis">Acceso total</span>
               </template>
               <template v-else>
                 <v-chip
@@ -139,7 +139,7 @@
             <template v-if="formData.role === 'employee'">
               <v-divider class="my-3" />
               <p class="text-subtitle-2 mb-1">Funciones habilitadas</p>
-              <p class="text-caption text-grey mb-2">
+              <p class="text-caption text-medium-emphasis mb-2">
                 El empleado solo verá y podrá usar las funciones marcadas
               </p>
               <v-row dense>
@@ -154,7 +154,7 @@
                 </v-col>
               </v-row>
             </template>
-            <p v-else class="text-caption text-grey mt-3">
+            <p v-else class="text-caption text-medium-emphasis mt-3">
               Los administradores tienen acceso a todas las funciones.
             </p>
           </v-form>

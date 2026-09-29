@@ -6,11 +6,11 @@
           <v-img :src="resolveImageUrl(category.image_url)" :alt="category.name" />
         </v-avatar>
         <span v-else-if="category.icon" class="text-h6">{{ category.icon }}</span>
-        <v-icon v-else color="grey">mdi-folder-outline</v-icon>
+        <v-icon v-else class="text-medium-emphasis">mdi-folder-outline</v-icon>
 
         <div>
           <div class="font-weight-medium">{{ category.name }}</div>
-          <div class="text-caption text-grey">{{ summary }}</div>
+          <div class="text-caption text-medium-emphasis">{{ summary }}</div>
         </div>
       </div>
     </v-expansion-panel-title>

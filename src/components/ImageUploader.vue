@@ -17,10 +17,10 @@
         :width="size"
         :height="size"
         rounded="lg"
-        color="grey-lighten-3"
+        color="surface-light"
         class="d-flex align-center justify-center"
       >
-        <v-icon color="grey">mdi-image-outline</v-icon>
+        <v-icon class="text-medium-emphasis">mdi-image-outline</v-icon>
       </v-sheet>
 
       <div class="flex-grow-1">
@@ -38,7 +38,7 @@
           @update:model-value="onSelect"
         />
         <div class="d-flex align-center ga-2 mt-1">
-          <span class="text-caption text-grey">JPG, PNG o WEBP · máximo 8 MB</span>
+          <span class="text-caption text-medium-emphasis">JPG, PNG o WEBP · máximo 8 MB</span>
           <v-spacer />
           <v-btn
             v-if="modelValue"

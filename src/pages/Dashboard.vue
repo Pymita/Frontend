@@ -30,21 +30,22 @@
 
     <v-row>
       <!-- Estadísticas principales -->
+      <!-- The figure stays in text color; only the chip, which means something, is colored. -->
       <v-col cols="12" md="3" v-for="stat in stats" :key="stat.title">
-        <v-card elevation="2" class="text-center pa-4">
-          <div class="text-h4 mb-1" :class="stat.color">
-            {{ stat.value }}
-          </div>
-          <div class="text-body-1 font-weight-bold text-grey-darken-1 mb-1">
+        <v-card class="pa-4 h-100">
+          <div class="text-subtitle-2 text-medium-emphasis">
             {{ stat.title }}
           </div>
-          <div class="text-caption text-grey mb-2">
+          <div class="text-h3 tabular-nums my-1">
+            {{ stat.value }}
+          </div>
+          <div class="text-caption text-medium-emphasis mb-3">
             {{ stat.subtitle }}
           </div>
-          <v-chip 
-            :color="stat.trend.color" 
-            size="small" 
-            variant="outlined"
+          <v-chip
+            :color="stat.trend.color"
+            size="small"
+            variant="tonal"
           >
             <v-icon start :icon="stat.trend.icon"></v-icon>
             {{ stat.trend.text }}
@@ -56,7 +57,7 @@
     <v-row class="mt-4">
       <!-- Gráfico de ventas -->
       <v-col cols="12" md="8">
-        <v-card elevation="2" class="h-100">
+        <v-card class="h-100">
           <v-card-title class="d-flex align-center flex-wrap ga-2">
             <v-icon class="mr-2">mdi-chart-line</v-icon>
             {{ periodTitle }}
@@ -94,7 +95,7 @@
             <div v-else-if="salesPoints.length > 0" style="height: 300px; position: relative;">
               <Line :data="chartData" :options="chartOptions" />
             </div>
-            <div v-else class="text-center pa-8 text-grey">
+            <div v-else class="text-center pa-8 text-medium-emphasis">
               No hay datos de ventas disponibles
             </div>
           </v-card-text>
@@ -103,9 +104,9 @@
 
       <!-- Productos más vendidos: en el periodo del gráfico -->
       <v-col cols="12" md="4">
-        <v-card elevation="2" class="h-100">
+        <v-card class="h-100">
           <v-card-title class="d-flex align-center">
-            <v-icon class="mr-2" color="success">mdi-trophy</v-icon>
+            <v-icon class="mr-2">mdi-trophy</v-icon>
             Más Vendidos
           </v-card-title>
           <v-card-subtitle v-if="topPeriod">{{ periodCaption }}</v-card-subtitle>
@@ -118,8 +119,8 @@
                 class="px-0"
               >
                 <template v-slot:prepend>
-                  <v-avatar :color="getRankColor(index)" size="32">
-                    <span class="text-white font-weight-bold">{{ index + 1 }}</span>
+                  <v-avatar :color="index === 0 ? 'accent' : 'primary-container'" size="32">
+                    <span class="font-weight-bold">{{ index + 1 }}</span>
                   </v-avatar>
                 </template>
                 <v-list-item-title class="font-weight-medium text-wrap">{{ product.name }}</v-list-item-title>
@@ -128,14 +129,14 @@
                 </v-list-item-subtitle>
                 <v-progress-linear
                   :model-value="product.share"
-                  color="success"
+                  color="primary"
                   height="4"
                   rounded
                   class="mt-1"
                 />
                 <template v-slot:append>
                   <div class="text-right ml-2">
-                    <div class="font-weight-bold text-success">{{ money(product.total) }}</div>
+                    <div class="font-weight-bold tabular-nums">{{ money(product.total) }}</div>
                     <div class="text-caption text-medium-emphasis">{{ percent(product.share) }} de las ventas</div>
                   </div>
                 </template>
@@ -144,7 +145,7 @@
             <div v-else-if="loading || periodLoading" class="text-center pa-4">
               <v-progress-circular indeterminate color="primary" />
             </div>
-            <div v-else class="text-center pa-4 text-grey">
+            <div v-else class="text-center pa-4 text-medium-emphasis">
               No hay ventas en este periodo
             </div>
           </v-card-text>
@@ -155,7 +156,7 @@
     <v-row class="mt-4">
       <!-- Productos con stock bajo -->
       <v-col cols="12" md="6">
-        <v-card elevation="2" class="h-100">
+        <v-card class="h-100">
           <v-card-title>
             <v-icon class="mr-2" color="warning">mdi-alert-circle</v-icon>
             Stock Bajo
@@ -194,7 +195,7 @@
 
       <!-- Pedidos recientes -->
       <v-col cols="12" md="6">
-        <v-card elevation="2" class="h-100">
+        <v-card class="h-100">
           <v-card-title>
             <v-icon class="mr-2">mdi-clock-outline</v-icon>
             Pedidos Recientes
@@ -208,7 +209,7 @@
               >
                 <template v-slot:prepend>
                   <v-avatar :color="getStatusInfo(order.status).color" size="32">
-                    <v-icon color="white" size="16">{{ getStatusInfo(order.status).icon }}</v-icon>
+                    <v-icon size="16">{{ getStatusInfo(order.status).icon }}</v-icon>
                   </v-avatar>
                 </template>
                 <v-list-item-title>Pedido #{{ order.id }}</v-list-item-title>
@@ -216,7 +217,7 @@
                   {{ order.customer_name }} - {{ money(order.total) }}
                 </v-list-item-subtitle>
                 <template v-slot:append>
-                  <v-chip :color="getStatusInfo(order.status).color" size="small" variant="outlined">
+                  <v-chip :color="getStatusInfo(order.status).color" size="small" variant="tonal">
                     {{ getStatusInfo(order.status).text }}
                   </v-chip>
                 </template>
@@ -225,7 +226,7 @@
             <div v-else-if="loading" class="text-center pa-4">
               <v-progress-circular indeterminate color="primary" />
             </div>
-            <div v-else class="text-center pa-4 text-grey">
+            <div v-else class="text-center pa-4 text-medium-emphasis">
               No hay pedidos recientes
             </div>
           </v-card-text>
@@ -246,11 +247,17 @@ import {
   type TopProductsPeriod,
 } from '@/services/dashboardService'
 import { ordersService, type Order } from '@/services/ordersService'
+import { label, orderStatusColors, orderStatusLabels } from '@/utils/labels'
+import { fonts } from '@/theme'
+import { useTheme } from 'vuetify'
 import { Line } from 'vue-chartjs'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from 'chart.js'
 
 // Registrar componentes de Chart.js
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
+ChartJS.defaults.font.family = fonts.body
+
+const theme = useTheme()
 
 const dashStats = ref<DashboardStats>({
   orders_today: 0,
@@ -377,28 +384,24 @@ const stats = computed(() => [
     title: 'Pedidos Hoy',
     value: dashStats.value.orders_today.toString(),
     subtitle: `${dashStats.value.orders_month} este mes`,
-    color: 'text-primary',
     trend: { icon: 'mdi-receipt', text: 'Pedidos del día', color: 'primary' }
   },
   {
     title: 'Ventas Hoy',
     value: money(dashStats.value.sales_today),
     subtitle: `${money(dashStats.value.sales_month)} este mes`,
-    color: 'text-success',
     trend: { icon: 'mdi-cash', text: 'Ventas pagadas', color: 'success' }
   },
   {
     title: 'Productos Activos',
     value: dashStats.value.active_products.toString(),
     subtitle: 'En el menú',
-    color: 'text-info',
     trend: { icon: 'mdi-silverware-fork-knife', text: 'Disponibles', color: 'info' }
   },
   {
     title: 'Stock Bajo',
     value: dashStats.value.low_stock.toString(),
     subtitle: dashStats.value.low_stock > 0 ? 'Requiere atención' : 'Todo bien',
-    color: dashStats.value.low_stock > 0 ? 'text-warning' : 'text-success',
     trend: {
       icon: dashStats.value.low_stock > 0 ? 'mdi-alert' : 'mdi-check-circle',
       text: 'Inventario',
@@ -407,31 +410,41 @@ const stats = computed(() => [
   }
 ])
 
-const getStatusInfo = (status: string): { text: string; color: string; icon: string } => {
-  const statusMap: Record<string, { text: string; color: string; icon: string }> = {
-    pending: { text: 'Pendiente', color: 'grey', icon: 'mdi-clock' },
-    preparing: { text: 'Preparando', color: 'warning', icon: 'mdi-chef-hat' },
-    ready: { text: 'Listo', color: 'success', icon: 'mdi-check' },
-    delivered: { text: 'Entregado', color: 'info', icon: 'mdi-truck' },
-    cancelled: { text: 'Cancelado', color: 'error', icon: 'mdi-close' },
-  }
-  return statusMap[status] || { text: 'Pendiente', color: 'grey', icon: 'mdi-clock' }
+const statusIcons: Record<string, string> = {
+  pending: 'mdi-clock',
+  preparing: 'mdi-chef-hat',
+  ready: 'mdi-check',
+  delivered: 'mdi-truck',
+  cancelled: 'mdi-close',
 }
 
-const chartData = computed(() => ({
-  labels: salesPoints.value.map(d => d.day),
-  datasets: [
-    {
-      label: 'Ventas ($)',
-      data: salesPoints.value.map(d => d.total),
-      backgroundColor: 'rgba(255, 138, 0, 0.2)',
-      borderColor: 'rgba(255, 138, 0, 1)',
-      borderWidth: 2,
-      fill: true,
-      tension: 0.4,
-    }
-  ]
-}))
+const getStatusInfo = (status: string): { text: string; color: string; icon: string } => {
+  const known = status in orderStatusColors ? status : 'pending'
+  return {
+    text: label(orderStatusLabels, known),
+    color: orderStatusColors[known] ?? 'warning',
+    icon: statusIcons[known] ?? 'mdi-clock',
+  }
+}
+
+const chartData = computed(() => {
+  const primary = theme.current.value.colors.primary
+  return {
+    labels: salesPoints.value.map(d => d.day),
+    datasets: [
+      {
+        label: 'Ventas ($)',
+        data: salesPoints.value.map(d => d.total),
+        // Canvas cannot read CSS variables: the theme color plus a hex alpha.
+        backgroundColor: `${primary}24`,
+        borderColor: primary,
+        borderWidth: 2,
+        fill: true,
+        tension: 0.4,
+      },
+    ],
+  }
+})
 
 const chartOptions = computed(() => ({
   responsive: true,
@@ -488,11 +501,6 @@ const loadData = async () => {
   } finally {
     loading.value = false
   }
-}
-
-const getRankColor = (index: number) => {
-  const colors = ['warning', 'grey-darken-1', 'brown', 'grey']
-  return colors[index] || 'grey'
 }
 
 onMounted(() => {

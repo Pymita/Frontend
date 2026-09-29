@@ -5,7 +5,7 @@
         <div class="d-flex justify-space-between align-center mb-4 flex-wrap ga-3">
           <div>
             <h1 class="text-h4">Menú</h1>
-            <p class="text-body-1 text-grey-darken-1">
+            <p class="text-body-1 text-medium-emphasis">
               Así ven el menú los meseros en la app móvil y la tablet
             </p>
           </div>
@@ -46,19 +46,19 @@
         <v-card class="pa-4">
           <h2 class="text-subtitle-1 font-weight-bold mb-3">Resumen</h2>
           <div class="d-flex justify-space-between mb-2">
-            <span class="text-grey-darken-1">Categorías visibles</span>
+            <span class="text-medium-emphasis">Categorías visibles</span>
             <strong>{{ stats.categories }}</strong>
           </div>
           <div class="d-flex justify-space-between mb-2">
-            <span class="text-grey-darken-1">Productos en el menú</span>
+            <span class="text-medium-emphasis">Productos en el menú</span>
             <strong>{{ stats.items }}</strong>
           </div>
           <div class="d-flex justify-space-between">
-            <span class="text-grey-darken-1">Niveles usados</span>
+            <span class="text-medium-emphasis">Niveles usados</span>
             <strong>{{ stats.depth }}</strong>
           </div>
           <v-divider class="my-3" />
-          <p class="text-caption text-grey">
+          <p class="text-caption text-medium-emphasis">
             Solo aparecen las categorías visibles en la app que tienen productos
             (propios o en sus subcategorías). Si ocultas una categoría, sus
             subcategorías también se ocultan.

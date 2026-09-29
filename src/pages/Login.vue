@@ -1,12 +1,27 @@
 <template>
   <v-container fluid class="fill-height pa-0">
     <v-row no-gutters class="fill-height">
-      <v-col cols="12" class="d-flex align-center justify-center" style="background: linear-gradient(135deg, #f26916 0%, #e3530c 100%);">
-        <v-card width="400" elevation="10" class="pa-6">
-          <div class="text-center mb-6">
-            <v-icon size="60" color="primary" class="mb-4">mdi-bread-slice</v-icon>
-            <h1 class="text-h4 text-primary mb-2">{{ APP_NAME }}</h1>
-            <p class="text-body-1 text-grey-darken-1">{{ APP_TAGLINE }}</p>
+      <v-col md="5" class="d-none d-md-flex flex-column justify-space-between bg-chrome pa-12">
+        <div class="d-flex align-center ga-3">
+          <v-avatar color="accent" rounded="lg" size="44">
+            <v-icon icon="mdi-bread-slice" size="26" />
+          </v-avatar>
+          <span class="text-h5 font-weight-bold">{{ APP_NAME }}</span>
+        </div>
+        <div>
+          <h2 class="text-h2 mb-4">{{ APP_TAGLINE }}</h2>
+          <p class="text-body-1 text-chrome-text">Pedidos, mesas, inventario y ventas de tu negocio en un solo lugar.</p>
+        </div>
+      </v-col>
+
+      <v-col cols="12" md="7" class="d-flex align-center justify-center bg-background pa-6">
+        <v-card width="400" class="pa-8">
+          <div class="mb-6">
+            <v-avatar color="accent" rounded="lg" size="44" class="d-md-none mb-4">
+              <v-icon icon="mdi-bread-slice" size="26" />
+            </v-avatar>
+            <h1 class="text-h4 mb-1">{{ APP_NAME }}</h1>
+            <p class="text-body-1 text-medium-emphasis">Ingresa con tu cuenta para continuar</p>
           </div>
 
           <v-form @submit.prevent="login">

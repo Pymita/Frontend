@@ -3,7 +3,7 @@
     <v-row>
       <v-col cols="12">
         <h1 class="text-h4 mb-4">Tipos de Producto</h1>
-        <p class="text-body-1 text-grey-darken-1 mb-6">
+        <p class="text-body-1 text-medium-emphasis mb-6">
           Gestiona los grupos de tipos (ej: Tamaño, Sabor) y sus variantes
         </p>
       </v-col>
@@ -42,7 +42,7 @@
               </template>
             </v-list-item>
           </v-list>
-          <v-card-text v-else class="text-center text-grey">
+          <v-card-text v-else class="text-center text-medium-emphasis">
             No hay grupos creados
           </v-card-text>
         </v-card>
@@ -101,7 +101,7 @@
             </template>
           </v-data-table>
           
-          <v-card-text v-else class="text-center text-grey py-10">
+          <v-card-text v-else class="text-center text-medium-emphasis py-10">
             {{ selectedGrupo ? 'No hay tipos en este grupo' : 'Selecciona un grupo para ver sus tipos' }}
           </v-card-text>
         </v-card>

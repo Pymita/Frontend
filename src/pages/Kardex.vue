@@ -5,7 +5,7 @@
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
             <h1 class="text-h4">Kardex</h1>
-            <p class="text-body-1 text-grey-darken-1">
+            <p class="text-body-1 text-medium-emphasis">
               Movimientos de inventario con costos y saldos (promedio ponderado)
             </p>
           </div>
@@ -14,7 +14,8 @@
               Registrar Movimiento
             </LockableButton>
             <v-btn
-              color="success"
+              color="secondary"
+              variant="tonal"
               size="large"
               :loading="exporting"
               :disabled="!report || report.movements.length === 0"
@@ -205,19 +206,19 @@
     <v-row v-if="report?.product">
       <v-col cols="12" md="4">
         <v-card class="pa-4 text-center">
-          <div class="text-caption text-grey">Existencia actual</div>
+          <div class="text-caption text-medium-emphasis">Existencia actual</div>
           <div class="text-h5" :class="{ 'text-error': report.product.current_stock <= 0 }">{{ report.product.current_stock }} {{ report.product.unit }}</div>
         </v-card>
       </v-col>
       <v-col cols="12" md="4">
         <v-card class="pa-4 text-center">
-          <div class="text-caption text-grey">Costo promedio</div>
+          <div class="text-caption text-medium-emphasis">Costo promedio</div>
           <div class="text-h5">{{ money(report.product.unit_cost) }}</div>
         </v-card>
       </v-col>
       <v-col cols="12" md="4">
         <v-card class="pa-4 text-center">
-          <div class="text-caption text-grey">Valor del inventario</div>
+          <div class="text-caption text-medium-emphasis">Valor del inventario</div>
           <div class="text-h5" :class="{ 'text-error': report.product.current_stock < 0 }">{{ money(report.product.current_stock * report.product.unit_cost) }}</div>
         </v-card>
       </v-col>
@@ -254,7 +255,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-if="report?.opening_balance" class="bg-grey-lighten-4 font-weight-medium">
+              <tr v-if="report?.opening_balance" class="bg-surface-light font-weight-medium">
                 <td>{{ loadedFilters.from }}</td>
                 <td>—</td>
                 <td>SALDO ANTERIOR</td>
@@ -283,7 +284,7 @@
                 </td>
                 <td>
                   {{ m.reference || '—' }}
-                  <div v-if="m.counterparty" class="text-caption text-grey">{{ m.counterparty }}</div>
+                  <div v-if="m.counterparty" class="text-caption text-medium-emphasis">{{ m.counterparty }}</div>
                 </td>
                 <td v-if="showProductColumn">{{ m.product.name }}</td>
                 <td class="text-right text-success">
@@ -300,13 +301,13 @@
                 <td class="text-caption">{{ m.user || '—' }}</td>
               </tr>
               <tr v-if="report && report.movements.length === 0">
-                <td colspan="12" class="text-center text-grey py-6">
+                <td colspan="12" class="text-center text-medium-emphasis py-6">
                   No hay movimientos con los filtros seleccionados
                 </td>
               </tr>
             </tbody>
             <tfoot v-if="report && report.movements.length > 0">
-              <tr class="font-weight-bold bg-grey-lighten-4">
+              <tr class="font-weight-bold bg-surface-light">
                 <td :colspan="showProductColumn ? 4 : 3">Totales del periodo</td>
                 <td class="text-right text-success">{{ report.totals.in_quantity }}</td>
                 <td class="text-right text-error">{{ report.totals.out_quantity }}</td>
