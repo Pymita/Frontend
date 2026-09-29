@@ -150,6 +150,24 @@ test('el gráfico cambia entre semana, mes y rango, y más vendidos sigue el per
   await expect(juiceRow).toContainText('$7.500')
 })
 
+/**
+ * Finanzas valoriza el inventario desde el kardex. Los productos sembrados
+ * (como en staging) tenían stock sin kardex y el balance mostraba $0; los que
+ * tienen existencias sin costo se nombran para que el dueño sepa por qué.
+ */
+test('finanzas valoriza el inventario sembrado y avisa lo que no tiene costo', async ({ page }) => {
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/finanzas')
+
+  const inventoryRow = page.locator('tr', { hasText: 'Inventario valorizado (costo promedio)' })
+  await expect(inventoryRow).toBeVisible()
+  await expect(inventoryRow.locator('td').last()).not.toHaveText('$0')
+
+  const warning = page.getByText('Estos productos tienen existencias pero su costo en el kardex es $0')
+  await expect(warning).toBeVisible()
+  await expect(page.locator('.v-alert', { has: warning })).toContainText('Masa de Pan (12 kg)')
+})
+
 test('capturas del tablero en escritorio y en celular', async ({ page }) => {
   await loginUI(page, ADMIN.email, ADMIN.password)
 
