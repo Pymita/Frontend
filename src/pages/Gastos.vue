@@ -151,6 +151,7 @@
                       icon="mdi-pencil"
                       size="small"
                       variant="text"
+                      :aria-label="`Editar el gasto ${item.concept}`"
                       :disabled="isReadOnly"
                       @click="openExpenseDialog(item)" />
                     <v-btn
@@ -158,6 +159,7 @@
                       size="small"
                       variant="text"
                       color="error"
+                      :aria-label="`Eliminar el gasto ${item.concept}`"
                       :disabled="isReadOnly"
                       @click="deleteExpense(item)" />
                   </template>
@@ -167,8 +169,8 @@
               <!-- Tab: Categorías -->
               <v-window-item value="categorias">
                 <v-alert type="info" variant="tonal" density="compact" class="mb-4">
-                  <strong>Gestión de categorías:</strong> Aquí puedes crear, editar y eliminar las categorías de expenses. 
-                  Cada categoría tiene un tipo que determina cómo se clasifica el expense en los reportes.
+                  Aquí creas, editas y eliminas las categorías de gastos. El tipo de cada una decide cómo
+                  se clasifica el gasto en los reportes.
                 </v-alert>
 
                 <LockableButton icon="mdi-plus" color="primary" class="mb-4" @click="openCategoriaDialog()">
@@ -317,68 +319,10 @@
 
             <v-divider class="my-4" />
             
-            <v-alert v-if="esCompraInventario" type="info" density="compact" class="mb-3">
-              <strong>💡 Compra de inventario:</strong> Asocia este expense a un producto para actualizar su stock automáticamente
+            <v-alert v-if="esCompraInventario" type="info" variant="tonal" density="compact" class="mb-3">
+              Este gasto registra el dinero de la compra. Para que las unidades entren al inventario con su costo,
+              regístralas en <router-link to="/kardex">Kardex › Registrar movimiento</router-link> como una compra (FC).
             </v-alert>
-
-            <v-row v-if="esCompraInventario">
-              <v-col cols="12" md="6">
-                <v-autocomplete
-                  v-model="expenseFormData.product_id"
-                  :items="products"
-                  item-title="name"
-                  item-value="id"
-                  label="Producto (Opcional)"
-                  variant="outlined"
-                  density="comfortable"
-                  clearable
-                  hint="Si es compra de insumo/materia prima, selecciónalo aquí"
-                  persistent-hint>
-                  <template #item="{ props, item }">
-                    <v-list-item v-bind="props">
-                      <template #append>
-                        <v-chip size="x-small" variant="tonal">
-                          {{ item.raw.sku }}
-                        </v-chip>
-                      </template>
-                    </v-list-item>
-                  </template>
-                </v-autocomplete>
-              </v-col>
-
-              <v-col cols="12" md="6">
-                <v-text-field
-                  v-if="expenseFormData.product_id"
-                  v-model.number="expenseFormData.quantity_purchased"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  :suffix="selectedProduct?.unit || ''"
-                  variant="outlined"
-                  density="comfortable"
-                  :rules="expenseFormData.product_id ? [rules.required, rules.positive] : []"
-                  hint="Se sumará al stock actual"
-                  persistent-hint
-                >
-                  <template #label>
-                    Cantidad comprada <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
-                  </template>
-                </v-text-field>
-              </v-col>
-
-              <v-col v-if="expenseFormData.product_id && expenseFormData.quantity_purchased && expenseFormData.amount" cols="12">
-                <v-card color="success" variant="tonal" class="pa-3">
-                  <div class="text-caption">Costo unitario calculado:</div>
-                  <div class="text-h6">
-                    ${{ (expenseFormData.amount / expenseFormData.quantity_purchased).toFixed(2) }} / {{ selectedProduct?.unit }}
-                  </div>
-                  <div class="text-caption mt-1">
-                    Stock actual: {{ selectedProduct?.current_stock || 0 }} →
-                    Nuevo stock: {{ Number(selectedProduct?.current_stock || 0) + Number(expenseFormData.quantity_purchased) }}
-                  </div>
-                </v-card>
-              </v-col>
-            </v-row>
 
             <v-row>
               <v-col cols="12">
@@ -464,7 +408,6 @@ import { errorMessage } from '@/utils/errors';
 import { ref, computed, onMounted } from 'vue'
 import { expensesService, type Expense, type ExpenseCategory, type ExpenseSummary } from '@/services/expensesService'
 import { expenseCategoryTypeLabels, label } from '@/utils/labels'
-import { productsService, type Product } from '@/services/productsService'
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
@@ -485,7 +428,6 @@ const editingCategoria = ref<ExpenseCategory | null>(null)
 
 const expenses = ref<Expense[]>([])
 const categorias = ref<ExpenseCategory[]>([])
-const products = ref<Product[]>([])
 const resumen = ref<ExpenseSummary | null>(null)
 
 const fechaInicio = ref('')
@@ -536,8 +478,6 @@ const expenseFormData = ref<Partial<Expense>>({
   expense_date: toLocalDateInput(new Date()),
   invoice_number: '',
   supplier_name: '',
-  product_id: undefined,
-  quantity_purchased: undefined,
   notes: '',
 })
 
@@ -581,16 +521,6 @@ const loadCategorias = async () => {
   }
 }
 
-const loadProducts = async () => {
-  try {
-    products.value = await productsService.getAll()
-    console.log('[Gastos] Productos cargados:', products.value.length)
-  } catch (error) {
-    console.error('[Gastos] Error al cargar productos:', error)
-    showMessage(errorMessage(error, 'Error al cargar productos'), 'error')
-  }
-}
-
 const loadResumen = async () => {
   loadingResumen.value = true
   try {
@@ -618,8 +548,6 @@ const openExpenseDialog = (expense?: Expense) => {
       expense_date: toLocalDateInput(new Date()),
       invoice_number: '',
       supplier_name: '',
-      product_id: undefined,
-      quantity_purchased: undefined,
       notes: '',
     }
   }
@@ -722,12 +650,6 @@ const esCompraInventario = computed(() => {
   return categoria?.type === 'inventory_purchase'
 })
 
-// Computed: Obtener el producto seleccionado
-const selectedProduct = computed(() => {
-  if (!expenseFormData.value.product_id) return null
-  return products.value.find(p => p.id === expenseFormData.value.product_id)
-})
-
 // Categories are not states: they share one neutral color and differ by icon.
 const getCategoryIcon = (tipo?: string) => {
   const icons: Record<string, string> = {
@@ -774,6 +696,5 @@ onMounted(() => {
   loadCategorias()
   loadExpenses()
   loadResumen()
-  loadProducts()
 })
 </script>

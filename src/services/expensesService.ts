@@ -32,6 +32,7 @@ export interface Expense {
   expense_date: string
   invoice_number?: string
   supplier_name?: string
+  /** Solo en gastos anteriores a que las compras entraran por el kardex. */
   product_id?: number
   quantity_purchased?: number
   payment_method?: ExpensePaymentMethod
