@@ -15,33 +15,29 @@
       </LockableButton>
     </div>
 
-    <v-row v-if="!embedded">
-      <v-col cols="15">
-        <div class="d-flex justify-space-between align-center mb-4">
-          <div>
-            <h1 class="text-h4">Pedidos</h1>
-            <p class="text-body-1 text-medium-emphasis">
-              Primero lo pendiente de cobro; los de otros días quedan marcados.
-            </p>
-          </div>
-          <div class="d-flex justify-space-between">
-            <LockableButton
-              v-if="canManageOrders"
-              icon="mdi-plus"
-              class="mr-2"
-              color="primary"
-              size="large"
-              @click="openNuevoPedidoDialog"
-            >
-              Nuevo pedido
-            </LockableButton>
-            <v-btn-toggle v-model="filterPago" color="primary" mandatory>
-              <v-btn value="pending">Pendientes</v-btn>
-              <v-btn value="paid">Pagados</v-btn>
-              <v-btn value="all">Todos</v-btn>
-            </v-btn-toggle>
-          </div>
-        </div>
+    <v-row v-if="!embedded" align="center" class="mb-2">
+      <v-col cols="12" lg="5">
+        <h1 class="text-h4">Pedidos</h1>
+        <p class="text-body-1 text-medium-emphasis">
+          Primero lo pendiente de cobro; los de otros días quedan marcados.
+        </p>
+      </v-col>
+      <v-col cols="12" lg="7" class="d-flex flex-wrap align-center justify-lg-end ga-2">
+        <CashRegisterPanel v-if="canManageOrders" />
+        <LockableButton
+          v-if="canManageOrders"
+          icon="mdi-plus"
+          color="primary"
+          size="large"
+          @click="openNuevoPedidoDialog"
+        >
+          Nuevo pedido
+        </LockableButton>
+        <v-btn-toggle v-model="filterPago" color="primary" mandatory>
+          <v-btn value="pending">Pendientes</v-btn>
+          <v-btn value="paid">Pagados</v-btn>
+          <v-btn value="all">Todos</v-btn>
+        </v-btn-toggle>
       </v-col>
     </v-row>
 
@@ -1108,6 +1104,7 @@ import {
   label,
 } from '@/utils/labels';
 import LockableButton from '../components/LockableButton.vue'
+import CashRegisterPanel from '../components/CashRegisterPanel.vue'
 import DateField from '../components/DateField.vue'
 import ProductPicker from '../components/ProductPicker.vue'
 import { menuItemsService } from '@/services/menuService';

@@ -91,11 +91,14 @@ export const expenseCategoryTypeLabels: Record<string, string> = {
   taxes: 'Impuestos',
 }
 
+/** Cómo paga una mesa (mismo orden y nombres que OrderPayment::METHODS). */
 export const orderPaymentMethodLabels: Record<string, string> = {
   cash: 'Efectivo',
   credit_card: 'Tarjeta crédito',
   debit_card: 'Tarjeta débito',
   transfer: 'Transferencia',
+  nequi: 'Nequi',
+  daviplata: 'Daviplata',
   other: 'Otro',
 }
 

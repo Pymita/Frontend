@@ -1,9 +1,10 @@
 import api from './api';
+import type { PaymentMethod } from './salesService';
 
 export type PaymentStatus = 'pending' | 'paid' | 'partial';
 export type OrderItemStatus = 'pending' | 'preparing' | 'ready' | 'delivered';
 
-export type OrderPaymentMethod = 'cash' | 'credit_card' | 'debit_card' | 'transfer' | 'other';
+export type OrderPaymentMethod = PaymentMethod;
 
 /** Un pago es una VENTA (factura sus ítems, cuenta como ingreso) o un ABONO (anticipo en efectivo). */
 export type OrderPaymentKind = 'sale' | 'abono';

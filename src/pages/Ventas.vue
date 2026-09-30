@@ -119,11 +119,56 @@
           <v-btn value="sales" prepend-icon="mdi-receipt-text">Ventas</v-btn>
           <v-btn value="products" prepend-icon="mdi-food">Por producto</v-btn>
           <v-btn value="tables" prepend-icon="mdi-table-furniture">Por mesa</v-btn>
+          <v-btn value="cash" prepend-icon="mdi-cash-register">Cierres de caja</v-btn>
         </v-btn-toggle>
       </v-col>
     </v-row>
 
-    <v-row v-if="view === 'products'">
+    <v-row v-if="view === 'cash'">
+      <v-col cols="12">
+        <v-card>
+          <v-data-table
+            :headers="cashHeaders"
+            :items="cashSessions"
+            :loading="loading"
+            density="comfortable"
+            class="elevation-0"
+            :items-per-page="25"
+          >
+            <template #item.opened_at="{ item }">
+              {{ formatDate(item.opened_at) }}
+              <div class="text-caption text-medium-emphasis">{{ item.opened_by || '—' }}</div>
+            </template>
+            <template #item.closed_at="{ item }">
+              <template v-if="item.closed_at">
+                {{ formatDate(item.closed_at) }}
+                <div class="text-caption text-medium-emphasis">{{ item.closed_by || '—' }}</div>
+              </template>
+              <v-chip v-else size="small" color="info" variant="tonal">Abierta</v-chip>
+            </template>
+            <template #item.opening_amount="{ item }">{{ money(item.opening_amount) }}</template>
+            <template #item.methods="{ item }">
+              <span v-for="entry in collectedByMethod(item)" :key="entry.method" class="d-block text-caption">
+                {{ entry.label }}: {{ money(entry.amount) }}
+              </span>
+            </template>
+            <template #item.expected_cash="{ item }">{{ money(item.expected_cash) }}</template>
+            <template #item.counted_cash="{ item }">{{ item.counted_cash === null ? '—' : money(item.counted_cash) }}</template>
+            <template #item.difference="{ item }">
+              <span v-if="item.difference === null" class="text-medium-emphasis">—</span>
+              <span v-else :class="differenceClass(item.difference)" class="font-weight-bold">
+                {{ differenceLabel(item.difference) }}
+              </span>
+            </template>
+            <template #no-data>
+              <p class="text-medium-emphasis py-6">No hay cierres de caja en el rango seleccionado</p>
+            </template>
+          </v-data-table>
+        </v-card>
+      </v-col>
+    </v-row>
+
+    <v-row v-else-if="view === 'products'">
       <v-col cols="12">
         <v-card>
           <v-card-text class="d-flex flex-wrap ga-4 pb-0">
@@ -280,7 +325,9 @@ import salesService, {
   type SalesReport,
   type SalesView,
   type TableSalesReport,
+  type CashSession,
 } from '../services/salesService'
+import { errorMessage } from '@/utils/errors'
 import { useAuthStore } from '@/stores/auth'
 import { effectiveFeatures } from '@/types/auth'
 import { customerLabel } from '@/utils/labels'
@@ -300,7 +347,10 @@ const filters = ref<SalesFilters>({
 const report = ref<SalesReport | null>(null)
 const productReport = ref<ProductSalesReport | null>(null)
 const tableReport = ref<TableSalesReport | null>(null)
-const view = ref<SalesView>('sales')
+// "Cierres de caja" es otra lectura del mismo rango, sin Excel propio.
+type VentasView = SalesView | 'cash'
+const view = ref<VentasView>('sales')
+const cashSessions = ref<CashSession[]>([])
 const loading = ref(false)
 
 const money = (value: number | null | undefined): string =>
@@ -336,7 +386,29 @@ const tableHeaders = computed(() => [
   { title: 'Total', key: 'total', align: 'end' as const },
 ])
 
+const cashHeaders = [
+  { title: 'Apertura', key: 'opened_at', sortable: false },
+  { title: 'Cierre', key: 'closed_at', sortable: false },
+  { title: 'Base', key: 'opening_amount', align: 'end' as const, sortable: false },
+  { title: 'Recaudado por medio', key: 'methods', sortable: false },
+  { title: 'Efectivo esperado', key: 'expected_cash', align: 'end' as const, sortable: false },
+  { title: 'Contado', key: 'counted_cash', align: 'end' as const, sortable: false },
+  { title: 'Diferencia', key: 'difference', align: 'end' as const, sortable: false },
+]
+
+const collectedByMethod = (session: CashSession) =>
+  Object.entries(session.summary.by_method)
+    .filter(([, totals]) => totals.amount > 0)
+    .map(([method, totals]) => ({ method, label: PAYMENT_METHOD_LABELS[method as PaymentMethod] ?? method, amount: totals.amount }))
+
+// La diferencia es una cifra con signo: sobrante o faltante.
+const differenceLabel = (difference: number): string =>
+  Math.abs(difference) < 0.01 ? 'Cuadra' : difference > 0 ? `Sobran ${money(difference)}` : `Faltan ${money(Math.abs(difference))}`
+const differenceClass = (difference: number): string =>
+  Math.abs(difference) < 0.01 ? '' : difference > 0 ? 'text-success' : 'text-error'
+
 const canExport = computed(() => {
+  if (view.value === 'cash') return false
   if (view.value === 'products') return (productReport.value?.products.length ?? 0) > 0
   if (view.value === 'tables') return (tableReport.value?.tables.length ?? 0) > 0
   return (report.value?.sales.length ?? 0) > 0
@@ -346,9 +418,10 @@ const EXPORT_HINTS: Record<SalesView, string> = {
   products: 'Descarga el resumen por producto con los filtros de arriba',
   tables: 'Descarga el resumen por mesa con los filtros de arriba',
 }
-const exportHint = computed(() =>
-  canExport.value ? EXPORT_HINTS[view.value] : 'No hay ventas con estos filtros para descargar',
-)
+const exportHint = computed(() => {
+  if (view.value === 'cash') return 'Los cierres de caja se consultan aquí; el Excel es de las ventas'
+  return canExport.value ? EXPORT_HINTS[view.value] : 'No hay ventas con estos filtros para descargar'
+})
 const exporting = ref(false)
 const snackbar = ref({ show: false, text: '' })
 
@@ -400,12 +473,14 @@ const load = async () => {
       productReport.value = await salesService.byProduct(filters.value)
     } else if (view.value === 'tables') {
       tableReport.value = await salesService.byTable(filters.value)
+    } else if (view.value === 'cash') {
+      cashSessions.value = await salesService.cashSessions({ from: filters.value.from || undefined, to: filters.value.to || undefined })
     }
     if (view.value === 'sales' || !report.value) {
       report.value = await salesService.report(filters.value)
     }
-  } catch {
-    snackbar.value = { show: true, text: 'Error al cargar las ventas' }
+  } catch (error) {
+    snackbar.value = { show: true, text: errorMessage(error, 'No se pudieron cargar las ventas. Intenta de nuevo.') }
   } finally {
     loading.value = false
   }
@@ -416,9 +491,9 @@ watch(view, load)
 const exportExcel = async () => {
   exporting.value = true
   try {
-    await salesService.export(filters.value, view.value)
-  } catch {
-    snackbar.value = { show: true, text: 'Error al exportar las ventas' }
+    if (view.value !== 'cash') await salesService.export(filters.value, view.value)
+  } catch (error) {
+    snackbar.value = { show: true, text: errorMessage(error, 'No se pudo descargar el Excel. Intenta de nuevo.') }
   } finally {
     exporting.value = false
   }

@@ -1,6 +1,8 @@
 import api from './api'
 
-export type PaymentMethod = 'cash' | 'credit_card' | 'debit_card' | 'transfer' | 'other'
+import { orderPaymentMethodLabels } from '../utils/labels'
+
+export type PaymentMethod = 'cash' | 'credit_card' | 'debit_card' | 'transfer' | 'nequi' | 'daviplata' | 'other'
 
 export interface Sale {
   id: number
@@ -75,13 +77,7 @@ export interface TableSalesReport {
 
 export type SalesView = 'sales' | 'products' | 'tables'
 
-export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
-  cash: 'Efectivo',
-  credit_card: 'T. crédito',
-  debit_card: 'T. débito',
-  transfer: 'Transferencia',
-  other: 'Otro',
-}
+export const PAYMENT_METHOD_LABELS = orderPaymentMethodLabels as Record<PaymentMethod, string>
 
 const cleanFilters = (filters: SalesFilters): Record<string, string | number> => {
   const params: Record<string, string | number> = {}
@@ -99,7 +95,51 @@ const EXPORT_PATHS: Record<SalesView, { path: string; params?: Record<string, st
   tables: { path: '/sales/by-table', params: { format: 'xlsx' }, fallback: 'ventas_por_mesa.xlsx' },
 }
 
+/** Un turno de caja: base, lo cobrado por medio y el cuadre del efectivo. */
+export interface CashSession {
+  id: number
+  opened_at: string
+  opened_by: string | null
+  opening_amount: number
+  opening_notes: string | null
+  closed_at: string | null
+  closed_by: string | null
+  closing_notes: string | null
+  expected_cash: number
+  counted_cash: number | null
+  difference: number | null
+  summary: {
+    by_method: Record<PaymentMethod, { count: number; amount: number; tips: number }>
+    recurring_by_method: Partial<Record<PaymentMethod, number>>
+    cash_sales: number
+    cash_recurring: number
+    cash_expenses: number
+    expected_cash: number
+    total_collected: number
+  }
+}
+
 class SalesService {
+  async currentCashSession(): Promise<CashSession | null> {
+    const response = await api.get('/cash-register/current')
+    return response.data.data
+  }
+
+  async openCashSession(openingAmount: number, notes?: string): Promise<CashSession> {
+    const response = await api.post('/cash-register/open', { opening_amount: openingAmount, notes: notes || undefined })
+    return response.data.data
+  }
+
+  async closeCashSession(id: number, countedCash: number, notes?: string): Promise<{ session: CashSession; message: string }> {
+    const response = await api.post(`/cash-register/${id}/close`, { counted_cash: countedCash, notes: notes || undefined })
+    return { session: response.data.data, message: response.data.message }
+  }
+
+  async cashSessions(filters: { from?: string; to?: string } = {}): Promise<CashSession[]> {
+    const response = await api.get('/cash-register/sessions', { params: filters })
+    return response.data.data
+  }
+
   async report(filters: SalesFilters): Promise<SalesReport> {
     const response = await api.get('/sales', { params: cleanFilters(filters) })
     return response.data.data

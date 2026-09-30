@@ -5,7 +5,7 @@
  * Datos del negocio), así que cada negocio imprime con su nombre, NIT,
  * régimen, dirección, teléfonos y observaciones.
  */
-import { taxRegimeLabels } from './labels'
+import { orderPaymentMethodLabels, taxRegimeLabels } from './labels'
 import { APP_NAME } from './branding'
 
 export interface DocumentBusiness {
@@ -85,13 +85,7 @@ export interface PrintableReceipt {
   }[]
 }
 
-const METHOD_LABELS: Record<string, string> = {
-  cash: 'Efectivo',
-  credit_card: 'Tarjeta crédito',
-  debit_card: 'Tarjeta débito',
-  transfer: 'Transferencia',
-  other: 'Otro',
-}
+const METHOD_LABELS = orderPaymentMethodLabels
 
 // ===== Valor en letras =====
 
