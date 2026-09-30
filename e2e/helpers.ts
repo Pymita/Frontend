@@ -21,9 +21,11 @@ export async function apiLogin(
   request: APIRequestContext,
   email: string,
   password: string,
+  /** Código del negocio: lo necesita un empleado que entra con su usuario. */
+  company?: string,
 ): Promise<string> {
   const response = await request.post(`${API}/auth/login`, {
-    data: { email, password },
+    data: { email, password, ...(company ? { company } : {}) },
   })
   expect(response.ok()).toBeTruthy()
 

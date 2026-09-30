@@ -58,6 +58,47 @@ test('empleado con acceso limitado solo ve sus secciones', async ({ page, reques
   await expect(page).not.toHaveURL(/\/gastos/)
 })
 
+/**
+ * Quien toma pedidos crea mesas y cobra; editar o borrar mesas y cancelar un
+ * pedido que ya tiene productos es del admin (como revertir un cobro).
+ */
+test('un cajero crea mesas pero no las edita ni cancela pedidos con productos', async ({ page, request }) => {
+  const cashier = await createEmployee(request, 'cajero.mesas', ['orders', 'reports'])
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: 'Permisos E2E' } })
+  const product = await request.post(`${API}/products`, {
+    headers: auth,
+    data: { name: 'Jugo Permisos', type: 'final', unit: 'vaso', sale_price: 7531, tracks_stock: false, category_id: (await category.json()).data.id },
+  })
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { items: [{ product_id: (await product.json()).data.id, quantity: 1 }] },
+  })
+  const orderId = (await order.json()).data.id
+
+  await loginUI(page, cashier.username, cashier.password)
+  await page.goto('/mesas')
+  await expect(page.getByRole('button', { name: 'Nueva mesa' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Crear varias' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Editar la mesa/ })).toHaveCount(0)
+
+  await page.goto('/pedidos')
+  await page.getByRole('textbox', { name: 'Buscar mesa o pedido' }).fill(`#${orderId}`)
+  const row = page.locator('tbody tr', { hasText: '$7.531' })
+  await row.getByRole('button', { name: 'Más acciones del pedido' }).click()
+  await expect(page.getByRole('listitem').filter({ hasText: 'Imprimir cuenta' })).toBeVisible()
+  await expect(page.getByRole('listitem').filter({ hasText: 'Cancelar pedido' })).toHaveCount(0)
+
+  // Aunque se salte la pantalla, el backend dice por qué no.
+  const cashierToken = await apiLogin(request, cashier.username, cashier.password, COMPANY_SLUG)
+  const cancel = await request.post(`${API}/orders/${orderId}/cancel`, {
+    headers: { Authorization: `Bearer ${cashierToken}`, Accept: 'application/json' },
+  })
+  expect(cancel.status()).toBe(403)
+  expect((await cancel.json()).message).toBe('Solo el administrador puede cancelar un pedido con productos. Pídeselo a tu administrador.')
+})
+
 test('admin ve todas las secciones incluidas las administrativas', async ({ page }) => {
   await loginUI(page, ADMIN.email, ADMIN.password)
 

@@ -250,7 +250,8 @@
                       </template>
                       <v-list-item-title>Registrar pago parcial</v-list-item-title>
                     </v-list-item>
-                    <template v-if="isOpen(item)">
+                    <!-- Un pedido con productos lo cancela el admin; uno vacío, cualquiera. -->
+                    <template v-if="isOpen(item) && (isAdmin || !item.items?.length)">
                       <v-divider />
                       <v-list-item @click="cancelarPedido(item)">
                         <template #prepend>

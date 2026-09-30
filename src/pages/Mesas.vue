@@ -10,7 +10,7 @@
             </p>
           </div>
           <div class="d-flex ga-2">
-            <LockableButton icon="mdi-table-plus" variant="tonal" size="large" @click="bulkDialog = true">
+            <LockableButton v-if="isAdmin" icon="mdi-table-plus" variant="tonal" size="large" @click="bulkDialog = true">
               Crear varias
             </LockableButton>
             <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
@@ -34,7 +34,7 @@
           :color="getCardColor(table)"
           :variant="table.status === 'available' ? undefined : 'flat'"
           class="text-center pa-4"
-          @click="isReadOnly || openDialog(table)"
+          @click="canEditTables && openDialog(table)"
         >
           <v-card-text>
             <div class="text-h3 tabular-nums">
@@ -68,6 +68,7 @@
               Liberar
             </v-btn>
             <v-btn
+              v-if="isAdmin"
               icon
               size="small"
               variant="text"
@@ -282,6 +283,9 @@ const isReadOnly = useReadOnly()
 // El cobro por tiempo es un módulo: un restaurante no ofrece mesas de billar.
 const authStore = useAuthStore();
 const hasTimeBilling = computed(() => effectiveFeatures(authStore.user).includes('time_billing'));
+// Quien toma pedidos puede crear una mesa; editarla, borrarla o crear varias es del admin.
+const isAdmin = computed(() => authStore.isAdmin);
+const canEditTables = computed(() => isAdmin.value && !isReadOnly.value);
 
 const tables = ref<DiningTable[]>([]);
 const loading = ref(true);
