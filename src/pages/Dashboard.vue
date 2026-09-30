@@ -242,8 +242,9 @@
             <div v-else-if="loading" class="text-center pa-4">
               <v-progress-circular indeterminate color="primary" />
             </div>
-            <div v-else class="text-center pa-4 text-success">
-              ✓ Todo el stock está bien
+            <div v-else class="text-center pa-4">
+              <v-icon icon="mdi-check-circle" color="success" size="small" class="mr-1" />
+              Todo el stock está bien
             </div>
           </v-card-text>
         </v-card>

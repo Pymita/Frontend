@@ -191,7 +191,7 @@ test('cobrar por productos emite una factura de venta parcial', async ({ page, r
   await expect(dialog.getByText('factura de venta parcial')).toBeVisible()
   // Marcar selecciona las 2 unidades; se baja a 1 para dejar la cuenta abierta.
   await dialog.locator('.v-checkbox-btn').first().click()
-  await dialog.locator('.mdi-minus').click()
+  await dialog.getByRole('button', { name: 'Quitar una unidad del cobro' }).click()
   await dialog.getByRole('button', { name: /Cobrar/ }).click()
   await expect(page.getByText('Factura parcial registrada')).toBeVisible()
 

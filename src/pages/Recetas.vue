@@ -56,10 +56,10 @@
               <span v-else class="text-medium-emphasis">-</span>
             </template>
             <template #item.actions="{ item }">
-              <v-btn icon size="small" variant="text" :disabled="isReadOnly" @click="openDialog(item)">
+              <v-btn icon size="small" variant="text" :disabled="isReadOnly" aria-label="Editar la receta" @click="openDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
-              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" @click="deleteRecipe(item)">
+              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" aria-label="Eliminar la receta" @click="deleteRecipe(item)">
                 <v-icon size="small">mdi-delete</v-icon>
               </v-btn>
             </template>
@@ -305,7 +305,7 @@
                       size="small" 
                       variant="text" 
                       color="error"
-                      @click="removeIngrediente(index)"
+                      aria-label="Quitar el ingrediente" @click="removeIngrediente(index)"
                     >
                       <v-icon>mdi-delete</v-icon>
                     </v-btn>

@@ -68,21 +68,21 @@
             <template #item.actions="{ item }">
               <v-tooltip text="Copiar un catálogo base a esta empresa">
                 <template #activator="{ props }">
-                  <v-btn v-bind="props" icon size="small" variant="text" @click="openCopyCatalog(item)">
+                  <v-btn v-bind="props" icon size="small" variant="text" :aria-label="`Copiar catálogo a ${item.name}`" @click="openCopyCatalog(item)">
                     <v-icon size="small">mdi-content-duplicate</v-icon>
                   </v-btn>
                 </template>
               </v-tooltip>
               <v-tooltip text="Ver y editar empresa">
                 <template #activator="{ props }">
-                  <v-btn v-bind="props" icon size="small" variant="text" @click="openDetailDialog(item)">
+                  <v-btn v-bind="props" icon size="small" variant="text" :aria-label="`Ver detalle de ${item.name}`" @click="openDetailDialog(item)">
                     <v-icon size="small">mdi-eye-outline</v-icon>
                   </v-btn>
                 </template>
               </v-tooltip>
               <v-tooltip text="Gestionar suscripción y pagos">
                 <template #activator="{ props }">
-                  <v-btn v-bind="props" icon size="small" variant="text" @click="openSubscriptionDialog(item)">
+                  <v-btn v-bind="props" icon size="small" variant="text" :aria-label="`Suscripción de ${item.name}`" @click="openSubscriptionDialog(item)">
                     <v-icon size="small">mdi-credit-card-outline</v-icon>
                   </v-btn>
                 </template>
@@ -95,7 +95,7 @@
                     size="small"
                     variant="text"
                     :color="item.active ? 'error' : 'success'"
-                    @click="confirmToggle(item)"
+                    :aria-label="`${item.active ? 'Desactivar' : 'Activar'} ${item.name}`" @click="confirmToggle(item)"
                   >
                     <v-icon size="small">{{ item.active ? 'mdi-domain-off' : 'mdi-domain' }}</v-icon>
                   </v-btn>
@@ -123,7 +123,7 @@
               </v-chip>
             </template>
             <template #item.actions="{ item }">
-              <v-btn icon size="small" variant="text" @click="openSellerDialog(item)">
+              <v-btn icon size="small" variant="text" :aria-label="`Editar al vendedor ${item.name}`" @click="openSellerDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
             </template>

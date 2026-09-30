@@ -8,6 +8,7 @@
       :temporary="smAndDown"
       width="264"
       color="chrome"
+      border="0"
     >
       <div class="d-flex align-center ga-3 px-4 pt-4 pb-1">
         <v-avatar color="accent" rounded="lg" size="36">
@@ -354,10 +355,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.v-navigation-drawer {
-  border-right: none !important;
-}
-
 .v-list-item--active::before {
   content: '';
   position: absolute;

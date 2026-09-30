@@ -41,7 +41,7 @@
           <v-expansion-panels multiple variant="accordion">
             <v-expansion-panel v-for="group in grouped" :key="group.category.id">
               <v-expansion-panel-title>
-                <div class="d-flex align-center" style="width: 100%">
+                <div class="d-flex align-center w-100">
                   <v-checkbox
                     :model-value="selectedCategories.includes(group.category.id)"
                     hide-details

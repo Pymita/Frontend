@@ -72,7 +72,7 @@
               size="small"
               variant="text"
               :disabled="isReadOnly"
-              @click.stop="openDialog(table)"
+              :aria-label="`Editar la mesa ${table.number}`" @click.stop="openDialog(table)"
             >
               <v-icon size="small">mdi-pencil</v-icon>
             </v-btn>
@@ -162,7 +162,7 @@
               v-if="editing"
               v-model="formData.active"
               label="Mesa activa"
-              color="success"
+              color="primary"
             />
           </v-form>
         </v-card-text>

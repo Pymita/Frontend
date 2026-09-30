@@ -85,7 +85,7 @@
           hide-details
           autofocus
           maxlength="40"
-          style="max-width: 260px"
+          max-width="260"
           @keyup.enter="confirmEdit"
         />
         <v-btn size="small" color="primary" variant="tonal" @click="confirmEdit">Guardar</v-btn>
@@ -125,7 +125,7 @@
                 size="x-small"
                 variant="tonal"
                 color="secondary"
-                @click="$emit('remove', line)"
+                :aria-label="`Quitar una unidad de ${line.name}`" @click="$emit('remove', line)"
               />
               <span class="mx-2 font-weight-bold">{{ line.quantity }}</span>
               <v-btn
@@ -133,7 +133,7 @@
                 size="x-small"
                 variant="tonal"
                 color="secondary"
-                @click="$emit('add', { id: line.menu_item_id, name: line.name, final_price: line.unit_price }, line.guest_number)"
+                :aria-label="`Agregar una unidad de ${line.name}`" @click="$emit('add', { id: line.menu_item_id, name: line.name, final_price: line.unit_price }, line.guest_number)"
               />
             </div>
           </template>

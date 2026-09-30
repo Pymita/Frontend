@@ -135,16 +135,16 @@
           mandatory
           @update:model-value="setShape(selectedTable!, $event)"
         >
-          <v-btn value="square" icon="mdi-square-outline" size="small" />
-          <v-btn value="round" icon="mdi-circle-outline" size="small" />
-          <v-btn value="rect" icon="mdi-rectangle-outline" size="small" />
+          <v-btn value="square" icon="mdi-square-outline" size="small" aria-label="Mesa cuadrada" />
+          <v-btn value="round" icon="mdi-circle-outline" size="small" aria-label="Mesa redonda" />
+          <v-btn value="rect" icon="mdi-rectangle-outline" size="small" aria-label="Mesa rectangular" />
         </v-btn-toggle>
         <v-text-field
           :model-value="selectedTable.zone ?? ''"
           label="Zona (ej. Terraza, Pared derecha)"
           density="compact"
           hide-details
-          style="max-width: 280px"
+          max-width="280"
           @update:model-value="setZone(selectedTable!, $event)"
         />
         <v-btn

@@ -22,7 +22,7 @@
               density="compact"
               hide-details
               class="mr-2"
-              style="max-width: 160px"
+              max-width="160"
             />
             <DateField
               v-model="to"
@@ -30,7 +30,7 @@
               density="compact"
               hide-details
               class="mr-2"
-              style="max-width: 160px"
+              max-width="160"
             />
             <v-btn color="primary" :loading="loadingIncome" @click="loadIncome">
               <v-icon>mdi-magnify</v-icon>
@@ -45,7 +45,7 @@
               </tr>
               <tr>
                 <td class="pl-8 text-medium-emphasis">(−) Costo de ventas (kardex)</td>
-                <td class="text-right text-error">{{ money(income.cost_of_sales) }}</td>
+                <td class="text-right">{{ money(income.cost_of_sales) }}</td>
               </tr>
               <tr class="bg-surface-light">
                 <td class="font-weight-bold">Utilidad bruta</td>
@@ -56,7 +56,7 @@
               </tr>
               <tr>
                 <td class="pl-8 text-medium-emphasis">(−) Gastos operativos</td>
-                <td class="text-right text-error">{{ money(income.operating_expenses) }}</td>
+                <td class="text-right">{{ money(income.operating_expenses) }}</td>
               </tr>
               <tr v-for="e in income.expenses_by_category" :key="e.category">
                 <td class="pl-12 text-caption text-medium-emphasis">{{ e.category }}</td>
@@ -68,7 +68,7 @@
               </tr>
               <tr v-if="income.other_expenses">
                 <td class="pl-8 text-medium-emphasis">(−) Otros egresos</td>
-                <td class="text-right text-error">{{ money(income.other_expenses) }}</td>
+                <td class="text-right">{{ money(income.other_expenses) }}</td>
               </tr>
               <tr :class="income.net_profit >= 0 ? 'bg-success-container' : 'bg-error-container'">
                 <td class="font-weight-bold">Utilidad neta</td>
@@ -181,10 +181,10 @@
                 </td>
                 <td class="text-caption text-medium-emphasis">{{ effectLabel(movement) }}</td>
                 <td class="text-right">
-                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" @click="openMovementDialog(movement)">
+                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" :aria-label="`Editar el movimiento ${movement.concept}`" @click="openMovementDialog(movement)">
                     <v-icon size="small">mdi-pencil</v-icon>
                   </v-btn>
-                  <v-btn icon size="x-small" variant="text" color="error" :disabled="isReadOnly" @click="removeMovement(movement)">
+                  <v-btn icon size="x-small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar el movimiento ${movement.concept}`" @click="removeMovement(movement)">
                     <v-icon size="small">mdi-delete</v-icon>
                   </v-btn>
                 </td>

@@ -59,6 +59,7 @@
                   <v-btn
                     v-bind="props"
                     icon
+                    aria-label="Agregar subcategoría"
                     size="small"
                     variant="text"
                     :disabled="(item.depth ?? 1) >= 3"
@@ -68,10 +69,10 @@
                   </v-btn>
                 </template>
               </v-tooltip>
-              <v-btn icon size="small" variant="text" :disabled="isReadOnly" @click="openDialog(item)">
+              <v-btn icon size="small" variant="text" :disabled="isReadOnly" :aria-label="`Editar la categoría ${item.name}`" @click="openDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
-              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" @click="deleteCategoria(item)">
+              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar la categoría ${item.name}`" @click="deleteCategoria(item)">
                 <v-icon size="small">mdi-delete</v-icon>
               </v-btn>
             </template>

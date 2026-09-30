@@ -200,13 +200,13 @@
                       size="small"
                       variant="text"
                       :disabled="isReadOnly"
-                      @click="openCategoriaDialog(item)" />
+                      :aria-label="`Editar la categoría ${item.name}`" @click="openCategoriaDialog(item)" />
                     <v-btn
                       icon="mdi-delete"
                       size="small"
                       variant="text"
                       color="error"
-                      @click="deleteCategoria(item)" />
+                      :aria-label="`Eliminar la categoría ${item.name}`" @click="deleteCategoria(item)" />
                   </template>
                 </v-data-table>
               </v-window-item>

@@ -208,7 +208,7 @@
                 </v-btn>
                 <v-menu v-if="isOpen(item) || item.payment_status === 'paid'">
                   <template #activator="{ props }">
-                    <v-btn icon size="small" variant="text" v-bind="props">
+                    <v-btn icon size="small" variant="text" aria-label="Más acciones del pedido" v-bind="props">
                       <v-icon>mdi-dots-vertical</v-icon>
                     </v-btn>
                   </template>
@@ -307,7 +307,7 @@
                                 icon
                                 size="x-small"
                                 variant="text"
-                                @click="openEditItemDialog(item, orderItem)"
+                                :aria-label="`Editar ${orderItem.product_name ?? 'el producto'}`" @click="openEditItemDialog(item, orderItem)"
                               >
                                 <v-icon size="small">mdi-pencil</v-icon>
                               </v-btn>
@@ -579,7 +579,7 @@
                       prefix="$"
                       density="compact"
                       hide-details
-                      style="width: 120px"
+                      width="120"
                       @update:model-value="(v: string) => setGuestTip(guest, v)"
                     />
                     <v-btn
@@ -596,7 +596,7 @@
                       <v-btn
                         v-if="tipEnabled && guestTip(guest) > 0"
                         size="small"
-                        color="success"
+                        color="primary"
                         variant="tonal"
                         :loading="saving"
                         @click="cobrarPersona(guest, true)"
@@ -605,7 +605,7 @@
                       </v-btn>
                       <v-btn
                         size="small"
-                        :color="tipEnabled && guestTip(guest) > 0 ? undefined : 'success'"
+                        :color="tipEnabled && guestTip(guest) > 0 ? undefined : 'primary'"
                         :variant="tipEnabled && guestTip(guest) > 0 ? 'text' : 'tonal'"
                         :loading="saving"
                         @click="cobrarPersona(guest, false)"
@@ -852,13 +852,14 @@
                         size="x-small"
                         variant="tonal"
                         :disabled="selectedQty(orderItem) <= 1"
-                        @click="adjustSelection(orderItem, -1)"
+                        aria-label="Quitar una unidad del cobro" @click="adjustSelection(orderItem, -1)"
                       />
                       <span class="mx-1 font-weight-bold">{{ selectedQty(orderItem) }}</span>
                       <v-btn
                         icon="mdi-plus"
                         size="x-small"
                         variant="tonal"
+                        aria-label="Sumar una unidad al cobro"
                         :disabled="selectedQty(orderItem) >= orderItem.unpaid_quantity"
                         @click="adjustSelection(orderItem, 1)"
                       />

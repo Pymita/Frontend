@@ -91,14 +91,14 @@
                     size="small"
                     variant="text"
                     :disabled="isReadOnly"
-                    @click="openDialog(item)" />
+                    :aria-label="`Editar el cliente ${item.name}`" @click="openDialog(item)" />
                   <v-btn
                     icon="mdi-delete"
                     size="small"
                     variant="text"
                     color="error"
                     :disabled="isReadOnly"
-                    @click="deleteCliente(item)" />
+                    :aria-label="`Eliminar el cliente ${item.name}`" @click="deleteCliente(item)" />
                 </template>
               </v-data-table>
             </v-card>
@@ -156,7 +156,7 @@
                     size="small"
                     variant="text"
                     :disabled="isReadOnly"
-                    @click="openSupplierDialog(item)" />
+                    :aria-label="`Editar el proveedor ${item.name}`" @click="openSupplierDialog(item)" />
                   <v-btn
                     icon="mdi-delete"
                     size="small"

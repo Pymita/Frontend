@@ -33,10 +33,10 @@
                 {{ grupo.description }}
               </v-list-item-subtitle>
               <template #append>
-                <v-btn icon size="small" variant="text" @click.stop="openGrupoDialog(grupo)">
+                <v-btn icon size="small" variant="text" :aria-label="`Editar el grupo ${grupo.name}`" @click.stop="openGrupoDialog(grupo)">
                   <v-icon size="small">mdi-pencil</v-icon>
                 </v-btn>
-                <v-btn icon size="small" variant="text" color="error" @click.stop="deleteGrupo(grupo)">
+                <v-btn icon size="small" variant="text" color="error" :aria-label="`Eliminar el grupo ${grupo.name}`" @click.stop="deleteGrupo(grupo)">
                   <v-icon size="small">mdi-delete</v-icon>
                 </v-btn>
               </template>
@@ -92,10 +92,10 @@
               </v-chip>
             </template>
             <template #item.actions="{ item }">
-              <v-btn icon size="small" variant="text" :disabled="isReadOnly" @click="openTipoDialog(item)">
+              <v-btn icon size="small" variant="text" :disabled="isReadOnly" :aria-label="`Editar la variante ${item.name}`" @click="openTipoDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
-              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" @click="deleteTipo(item)">
+              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar la variante ${item.name}`" @click="deleteTipo(item)">
                 <v-icon size="small">mdi-delete</v-icon>
               </v-btn>
             </template>

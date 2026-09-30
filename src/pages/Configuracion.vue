@@ -121,7 +121,7 @@
                   </v-chip>
                 </td>
                 <td class="text-right">
-                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" @click="openDocDialog(dt)">
+                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" :aria-label="`Editar el tipo de documento ${dt.code}`" @click="openDocDialog(dt)">
                     <v-icon size="small">mdi-pencil</v-icon>
                   </v-btn>
                   <v-btn
@@ -130,7 +130,7 @@
                     size="x-small"
                     variant="text"
                     color="error"
-                    @click="deleteDocType(dt)"
+                    :aria-label="`Eliminar el tipo de documento ${dt.code}`" @click="deleteDocType(dt)"
                   >
                     <v-icon size="small">mdi-delete</v-icon>
                   </v-btn>
@@ -173,10 +173,10 @@
                   </v-chip>
                 </td>
                 <td class="text-right">
-                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" @click="openTaxDialog(tax)">
+                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" :aria-label="`Editar el impuesto ${tax.name}`" @click="openTaxDialog(tax)">
                     <v-icon size="small">mdi-pencil</v-icon>
                   </v-btn>
-                  <v-btn icon size="x-small" variant="text" color="error" :disabled="isReadOnly" @click="deleteTax(tax)">
+                  <v-btn icon size="x-small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar el impuesto ${tax.name}`" @click="deleteTax(tax)">
                     <v-icon size="small">mdi-delete</v-icon>
                   </v-btn>
                 </td>
@@ -354,7 +354,7 @@
             v-if="editingDoc && !isSystemCode(editingDoc.code)"
             v-model="docForm.active"
             label="Activo"
-            color="success"
+            color="primary"
             hide-details
           />
         </v-card-text>
@@ -387,7 +387,7 @@
             v-if="editingTax"
             v-model="taxForm.active"
             label="Activo"
-            color="success"
+            color="primary"
             hide-details
           />
         </v-card-text>

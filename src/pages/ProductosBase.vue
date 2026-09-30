@@ -111,7 +111,7 @@
                   :color="getStockColor(item)" 
                   size="small"
                   @click="openStockDialog(item)"
-                  style="cursor: pointer"
+                  class="cursor-pointer"
                 >
                   {{ item.current_stock }} {{ item.unit }}
                 </v-chip>
@@ -166,7 +166,7 @@
                     v-bind="props"
                     :color="item.menu_item.available ? 'success' : 'secondary'"
                     size="small"
-                    style="cursor: pointer"
+                    class="cursor-pointer"
                     @click="toggleMenuAvailability(item)"
                   >
                     {{ item.menu_item.available ? 'En el menú' : 'Oculto' }}
@@ -193,7 +193,7 @@
                     size="small"
                     variant="text"
                     color="info"
-                    @click="goToRecipe(item)"
+                    :aria-label="`Receta de ${item.name}`" @click="goToRecipe(item)"
                   >
                     <v-icon size="small">mdi-food-variant</v-icon>
                   </v-btn>
@@ -202,7 +202,7 @@
 
               <v-tooltip text="Editar producto">
                 <template #activator="{ props }">
-                  <v-btn v-bind="props" icon size="small" variant="text" :disabled="isReadOnly" @click="openDialog(item)">
+                  <v-btn v-bind="props" icon size="small" variant="text" :disabled="isReadOnly" :aria-label="`Editar ${item.name}`" @click="openDialog(item)">
                     <v-icon size="small">mdi-pencil</v-icon>
                   </v-btn>
                 </template>
@@ -210,7 +210,7 @@
 
               <v-tooltip text="Eliminar producto">
                 <template #activator="{ props }">
-                  <v-btn v-bind="props" icon size="small" variant="text" color="error" :disabled="isReadOnly" @click="deleteProduct(item)">
+                  <v-btn v-bind="props" icon size="small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar ${item.name}`" @click="deleteProduct(item)">
                     <v-icon size="small">mdi-delete</v-icon>
                   </v-btn>
                 </template>

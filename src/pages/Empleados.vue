@@ -58,7 +58,7 @@
               {{ item.last_login_at ? formatDate(item.last_login_at) : 'Nunca' }}
             </template>
             <template #item.actions="{ item }">
-              <v-btn icon size="small" variant="text" :disabled="isReadOnly" @click="openDialog(item)">
+              <v-btn icon size="small" variant="text" :disabled="isReadOnly" :aria-label="`Editar a ${item.name}`" @click="openDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
             </template>
