@@ -33,6 +33,22 @@ export async function apiLogin(
 }
 
 /**
+ * Sube el cupo del plan del negocio sembrado, como lo haría soporte desde la
+ * plataforma: la base e2e trae 10 mesas y el plan estándar permite 10.
+ */
+export async function raisePlanLimits(
+  request: APIRequestContext,
+  limits: { max_tables?: number; max_users?: number },
+): Promise<void> {
+  const token = await apiLogin(request, PLATFORM.email, PLATFORM.password)
+  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' }
+  const companies = await (await request.get(`${API}/platform/companies`, { headers })).json()
+  const company = companies.data.find((c: { slug: string }) => c.slug === COMPANY_SLUG)
+  const response = await request.put(`${API}/platform/companies/${company.id}/subscription`, { headers, data: limits })
+  expect(response.ok()).toBeTruthy()
+}
+
+/**
  * Login por interfaz: para los tests que VERIFICAN la experiencia real.
  * Un login sin '@' es un usuario interno: la web pide además el negocio.
  */

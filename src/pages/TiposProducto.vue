@@ -16,7 +16,7 @@
           <v-card-title class="d-flex justify-space-between align-center">
             <span>Grupos</span>
             <LockableButton icon="mdi-plus" color="primary" size="small" @click="openGrupoDialog()">
-              Nuevo
+              Nuevo grupo
             </LockableButton>
           </v-card-title>
           <v-divider />
@@ -33,10 +33,10 @@
                 {{ grupo.description }}
               </v-list-item-subtitle>
               <template #append>
-                <v-btn icon size="small" variant="text" :aria-label="`Editar el grupo ${grupo.name}`" @click.stop="openGrupoDialog(grupo)">
+                <v-btn icon size="small" variant="text" :disabled="isReadOnly" :aria-label="`Editar el grupo ${grupo.name}`" @click.stop="openGrupoDialog(grupo)">
                   <v-icon size="small">mdi-pencil</v-icon>
                 </v-btn>
-                <v-btn icon size="small" variant="text" color="error" :aria-label="`Eliminar el grupo ${grupo.name}`" @click.stop="deleteGrupo(grupo)">
+                <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar el grupo ${grupo.name}`" @click.stop="deleteGrupo(grupo)">
                   <v-icon size="small">mdi-delete</v-icon>
                 </v-btn>
               </template>
@@ -48,12 +48,12 @@
         </v-card>
       </v-col>
 
-      <!-- Panel de Tipos -->
+      <!-- Variantes del grupo elegido -->
       <v-col cols="12" md="8">
         <v-card>
           <v-card-title class="d-flex justify-space-between align-center">
             <span>
-              Tipos
+              Variantes
               <v-chip v-if="selectedGrupo" class="ml-2" size="small" color="primary">
                 {{ selectedGrupo.name }}
               </v-chip>
@@ -65,7 +65,7 @@
               :disabled="!selectedGrupo"
               @click="openTipoDialog()"
             >
-              Nuevo tipo
+              Nueva variante
             </LockableButton>
           </v-card-title>
           <v-divider />
@@ -87,7 +87,7 @@
               x{{ Number(item.price_multiplier || 1).toFixed(2) }}
             </template>
             <template #item.active="{ item }">
-              <v-chip :color="item.active ? 'success' : 'error'" size="small">
+              <v-chip :color="item.active ? 'success' : 'secondary'" size="small">
                 {{ item.active ? 'Activo' : 'Inactivo' }}
               </v-chip>
             </template>
@@ -102,7 +102,7 @@
           </v-data-table>
           
           <v-card-text v-else class="text-center text-medium-emphasis py-10">
-            {{ selectedGrupo ? 'No hay tipos en este grupo' : 'Selecciona un grupo para ver sus tipos' }}
+            {{ selectedGrupo ? 'Este grupo todavía no tiene variantes' : 'Elige un grupo para ver sus variantes' }}
           </v-card-text>
         </v-card>
       </v-col>
@@ -135,10 +135,10 @@
       </v-card>
     </v-dialog>
 
-    <!-- Dialog Tipo -->
+    <!-- Dialog Variante -->
     <v-dialog v-model="tipoDialog" max-width="600">
       <v-card>
-        <v-card-title>{{ editingTipo ? 'Editar tipo' : 'Nuevo tipo' }}</v-card-title>
+        <v-card-title>{{ editingTipo ? 'Editar variante' : 'Nueva variante' }}</v-card-title>
         <v-card-text>
           <v-form ref="tipoForm" @submit.prevent="saveTipo">
             <v-text-field
@@ -167,8 +167,8 @@
                   v-model.number="tipoFormData.price_difference"
                   label="Diferencia de precio ($)"
                   type="number"
-                  step="0.01"
-                  hint="Ej: 5.00 para sumar $5 al precio base"
+                  step="100"
+                  hint="Ej: 2000 para sumar $2.000 al precio base"
                 />
               </v-col>
               <v-col cols="6">
@@ -262,7 +262,7 @@ const loadGrupos = async () => {
   try {
     grupos.value = await variantGroupsService.getAll();
   } catch (error) {
-    showMessage(errorMessage(error, 'No fue posible cargar los grupos de variantes. Inténtalo de nuevo.'), 'error');
+    showMessage(errorMessage(error, 'No fue posible cargar los grupos. Inténtalo de nuevo.'), 'error');
   }
 };
 
@@ -372,10 +372,10 @@ const saveTipo = async () => {
     };
     if (editingTipo.value) {
       await variantsService.update(editingTipo.value.id, data);
-      showMessage('Tipo actualizado');
+      showMessage('Variante actualizada');
     } else {
       await variantsService.create(data);
-      showMessage('Tipo creado');
+      showMessage('Variante creada');
     }
     tipoDialog.value = false;
     loadTipos();
@@ -387,10 +387,10 @@ const saveTipo = async () => {
 };
 
 const deleteTipo = async (tipo: Variant) => {
-  if (!confirm(`¿Eliminar el tipo "${tipo.name}"?`)) return;
+  if (!confirm(`¿Eliminar la variante "${tipo.name}"?`)) return;
   try {
     await variantsService.delete(tipo.id);
-    showMessage('Tipo eliminado');
+    showMessage('Variante eliminada');
     loadTipos();
   } catch (error) {
     showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');

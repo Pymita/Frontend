@@ -118,8 +118,9 @@
             />
             <text text-anchor="middle" dy="-2" class="table-number">{{ table.table_type === 'billiard' ? '🎱' + table.number : table.number }}</text>
             <text text-anchor="middle" dy="16" class="table-name">
-              {{ billiardTimerLabel(table) || table.nickname || (table.table_type === 'billiard' ? 'Billar' : `${table.capacity} pers.`) }}
+              {{ billiardTimerLabel(table) || shortName(table) || (table.table_type === 'billiard' ? 'Billar' : `${table.capacity} pers.`) }}
             </text>
+            <title>{{ displayName(table) }}</title>
           </g>
         </svg>
       </div>
@@ -244,6 +245,14 @@ const selectedTable = computed(() =>
 );
 
 const displayName = (table: DiningTable) => table.nickname || `Mesa ${table.number}`;
+
+// El nombre va dentro de la figura: si no cabe se corta; completo en el detalle.
+const PLAN_LABEL_MAX = 11;
+const shortName = (table: DiningTable): string | null => {
+  const name = table.nickname?.trim();
+  if (!name) return null;
+  return name.length > PLAN_LABEL_MAX ? `${name.slice(0, PLAN_LABEL_MAX - 1)}…` : name;
+};
 
 // --- Billar: tiempo transcurrido en vivo sobre el plano ---
 const nowTick = ref(Date.now());

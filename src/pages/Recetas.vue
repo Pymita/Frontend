@@ -17,8 +17,8 @@
     </v-row>
 
     <v-alert type="info" density="compact" variant="tonal" class="mb-4">
-      Define cuanto produce la receta y los ingredientes para ese lote. El sistema calcula
-      automaticamente el costo y el descuento proporcional por unidad vendida.
+      Define cuánto produce la receta y los ingredientes para ese lote. El sistema calcula
+      automáticamente el costo y el descuento proporcional por unidad vendida.
     </v-alert>
 
     <!-- Lista de recetas -->
@@ -56,10 +56,10 @@
               <span v-else class="text-medium-emphasis">-</span>
             </template>
             <template #item.actions="{ item }">
-              <v-btn icon size="small" variant="text" :disabled="isReadOnly" aria-label="Editar la receta" @click="openDialog(item)">
+              <v-btn icon size="small" variant="text" :disabled="isReadOnly" :aria-label="`Editar la receta ${item.name}`" @click="openDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
-              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" aria-label="Eliminar la receta" @click="deleteRecipe(item)">
+              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar la receta ${item.name}`" @click="deleteRecipe(item)">
                 <v-icon size="small">mdi-delete</v-icon>
               </v-btn>
             </template>
@@ -84,7 +84,7 @@
             <!-- Información básica -->
             <h3 class="mb-3">Información general</h3>
             <v-alert type="info" variant="tonal" density="compact" class="mb-4">
-              Primero define cuanto produce esta receta. Si es una receta por unidad, deja
+              Primero define cuánto produce esta receta. Si es una receta por unidad, deja
               <strong>1</strong>. Ejemplo: una pizza produce <strong>1 unidad</strong>;
               una salsa puede producir <strong>2 litros</strong>.
             </v-alert>
@@ -106,11 +106,11 @@
                   :items="variantsForSelectedProduct"
                   item-title="name"
                   item-value="id"
-                  :rules="[v => !!v || 'Tipo requerido para este producto']"
+                  :rules="[v => !!v || 'Elige la variante de este producto']"
                   required
                 >
                   <template #label>
-                    Variante / Tipo <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                    Variante <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
                 </v-autocomplete>
               </v-col>
@@ -262,7 +262,7 @@
                   <v-col v-if="ing.entry_mode === 'per_yield'" cols="12" md="3">
                     <v-text-field
                       v-model.number="ing.rinde_cantidad"
-                      :label="`Rinde cuantas ${formData.yield_unit || 'unidades'}`"
+                      :label="`Rinde cuántas ${formData.yield_unit || 'unidades'}`"
                       hint="Ej: 50 pizzas"
                       persistent-hint
                       type="number"
@@ -628,7 +628,7 @@ const save = async () => {
   }
 
   if (requiresRecipeVariant.value && !formData.value.variant_id) {
-    showMessage('Este producto tiene variantes. Selecciona el tipo para la receta.', 'error');
+    showMessage('Este producto tiene variantes: elige para cuál es la receta.', 'error');
     return;
   }
   

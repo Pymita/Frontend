@@ -422,7 +422,7 @@
 
 <script setup lang="ts">
 import { money } from '@/utils/money'
-import { formatDay } from '@/utils/dates'
+import { formatDay, toIsoDate } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors';
 import { ref, computed, onMounted, watch } from 'vue'
 import { expensesService, type Expense, type ExpenseCategory, type ExpenseSummary } from '@/services/expensesService'
@@ -484,16 +484,11 @@ const expenseTypeOptions = [
   { value: 'taxes', title: 'Impuestos' },
 ]
 
-const toLocalDateInput = (date: Date) => {
-  const offsetMs = date.getTimezoneOffset() * 60 * 1000
-  return new Date(date.getTime() - offsetMs).toISOString().split('T')[0] ?? ''
-}
-
 const expenseFormData = ref<Partial<Expense>>({
   expense_category_id: undefined,
   concept: '',
   amount: 0,
-  expense_date: toLocalDateInput(new Date()),
+  expense_date: toIsoDate(new Date()),
   invoice_number: '',
   supplier_name: '',
   notes: '',
@@ -576,7 +571,7 @@ const openExpenseDialog = (expense?: Expense) => {
       expense_category_id: undefined,
       concept: '',
       amount: 0,
-      expense_date: toLocalDateInput(new Date()),
+      expense_date: toIsoDate(new Date()),
       invoice_number: '',
       supplier_name: '',
       notes: '',
@@ -713,8 +708,8 @@ onMounted(() => {
   haceUnMes.setMonth(haceUnMes.getMonth() - 1)
   finRango.setDate(finRango.getDate() + 1)
 
-  fechaInicio.value = toLocalDateInput(haceUnMes)
-  fechaFin.value = toLocalDateInput(finRango)
+  fechaInicio.value = toIsoDate(haceUnMes)
+  fechaFin.value = toIsoDate(finRango)
 
   loadCategorias()
 })

@@ -415,6 +415,7 @@ import { useReadOnly } from '../composables/useReadOnly'
 import { billingService, type BusinessForm } from '../services/billingService'
 import type { DocumentBusiness } from '../utils/printDocuments'
 import { options, taxRegimeLabels } from '../utils/labels'
+import { toIsoDate } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
@@ -517,7 +518,7 @@ const computedValidUntil = computed(() => {
   const date = new Date(start + 'T00:00:00')
   if (Number.isNaN(date.getTime())) return ''
   date.setMonth(date.getMonth() + months)
-  return date.toISOString().slice(0, 10)
+  return toIsoDate(date)
 })
 
 // Si el usuario ya empezó a escribir, la carga asíncrona no debe pisar

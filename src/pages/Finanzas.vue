@@ -32,7 +32,7 @@
               class="mr-2"
               max-width="160"
             />
-            <v-btn color="primary" :loading="loadingIncome" @click="loadIncome">
+            <v-btn color="primary" :loading="loadingIncome" aria-label="Ver el estado de resultados de esas fechas" @click="loadIncome">
               <v-icon>mdi-magnify</v-icon>
             </v-btn>
           </div>
@@ -88,7 +88,7 @@
           <div class="d-flex align-center mb-3">
             <h2 class="text-h6">Balance</h2>
             <v-spacer />
-            <span v-if="balance" class="text-caption text-medium-emphasis">al {{ balance.as_of }}</span>
+            <span v-if="balance" class="text-caption text-medium-emphasis">al {{ formatDay(balance.as_of) }}</span>
           </div>
 
           <v-table v-if="balance" density="comfortable">
@@ -169,7 +169,7 @@
             </thead>
             <tbody>
               <tr v-for="movement in movements" :key="movement.id">
-                <td>{{ movement.occurred_at }}</td>
+                <td class="text-no-wrap">{{ formatDay(movement.occurred_at) }}</td>
                 <td>
                   <v-chip size="x-small" :color="movement.cash_effect >= 0 ? 'success' : 'error'" variant="tonal">
                     {{ movement.kind_label }}
@@ -262,7 +262,7 @@
       </v-card>
     </v-dialog>
 
-    <v-snackbar v-model="snackbar.show" color="error" timeout="4000">
+    <v-snackbar v-model="snackbar.show" :color="snackbar.color" :timeout="snackbar.color === 'error' ? 9000 : 3000">
       {{ snackbar.text }}
     </v-snackbar>
   </v-container>
@@ -270,6 +270,7 @@
 
 <script setup lang="ts">
 import { money } from '@/utils/money'
+import { formatDay, todayIso, toIsoDate } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref } from 'vue'
 import kardexService, {
@@ -298,12 +299,12 @@ const uncostedLabel = computed(() =>
 
 // Rango por defecto: el mes actual.
 const now = new Date()
-const from = ref(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10))
-const to = ref(now.toISOString().slice(0, 10))
+const from = ref(toIsoDate(new Date(now.getFullYear(), now.getMonth(), 1)))
+const to = ref(todayIso())
 
-const snackbar = ref({ show: false, text: '' })
-const notify = (text: string) => {
-  snackbar.value = { show: true, text }
+const snackbar = ref({ show: false, text: '', color: 'error' })
+const notify = (text: string, color: 'success' | 'error' = 'error') => {
+  snackbar.value = { show: true, text, color }
 }
 
 
@@ -329,7 +330,7 @@ const emptyMovement = () => ({
   kind: 'income' as MovementKind,
   concept: '',
   amount: 0,
-  occurred_at: new Date().toISOString().slice(0, 10),
+  occurred_at: todayIso(),
   payment_method: 'cash',
   notes: '',
 })
@@ -400,6 +401,7 @@ const saveMovement = async () => {
     }
 
     movementDialog.value = false
+    notify(editingMovement.value ? 'Movimiento actualizado' : 'Movimiento registrado', 'success')
     await refreshAll()
   } catch (error: any) {
     notify(errorMessage(error, 'No fue posible guardar el movimiento. Inténtalo de nuevo.'))
@@ -413,6 +415,7 @@ const removeMovement = async (movement: FinancialMovement) => {
 
   try {
     await kardexService.deleteMovement(movement.id)
+    notify('Movimiento eliminado', 'success')
     await refreshAll()
   } catch (error: any) {
     notify(errorMessage(error, 'No fue posible eliminar el movimiento. Inténtalo de nuevo.'))
