@@ -32,7 +32,7 @@
             </v-chip>
           </v-list-item-subtitle>
           <template #append>
-            <span class="font-weight-bold">${{ Number(item.price ?? 0).toLocaleString('es-CO') }}</span>
+            <span class="font-weight-bold">{{ money(item.price) }}</span>
           </template>
         </v-list-item>
       </v-list>
@@ -50,6 +50,7 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
 import { computed } from 'vue'
 import type { MenuCategoryNode } from '@/services/menuService'
 import { resolveImageUrl } from '@/utils/images'

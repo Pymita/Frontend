@@ -111,6 +111,8 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
+import { formatTime } from '@/utils/dates'
 import { computed, onMounted, ref } from 'vue'
 import LockableButton from './LockableButton.vue'
 import salesService, { PAYMENT_METHOD_LABELS, type CashSession, type PaymentMethod } from '../services/salesService'
@@ -127,11 +129,7 @@ const countedCash = ref<number | null>(null)
 const closingNotes = ref('')
 const snackbar = ref({ show: false, text: '', color: 'success' })
 
-const money = (value: number | null | undefined): string =>
-  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
 
-const formatTime = (iso: string): string =>
-  new Date(iso).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
 
 const methodRows = computed(() =>
   Object.entries(session.value?.summary.by_method ?? {})

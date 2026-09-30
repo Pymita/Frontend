@@ -153,11 +153,11 @@
             class="elevation-0"
           >
             <template #item.monthly_recurring="{ item }">
-              ${{ item.monthly_recurring.toLocaleString('es-CO') }}
+              {{ money(item.monthly_recurring) }}
             </template>
             <template #item.total_collected="{ item }">
               <span class="font-weight-bold">
-                ${{ item.total_collected.toLocaleString('es-CO') }}
+                {{ money(item.total_collected) }}
               </span>
             </template>
             <template #item.last_sale_at="{ item }">
@@ -472,7 +472,7 @@
               </v-col>
               <v-col cols="6">
                 <div class="text-caption text-medium-emphasis">Creada</div>
-                <div>{{ formatDate(detail.created_at) }}</div>
+                <div>{{ formatMomentDay(detail.created_at) }}</div>
               </v-col>
               <v-col cols="6">
                 <div class="text-caption text-medium-emphasis">Correo</div>
@@ -522,7 +522,7 @@
                       {{ user.active ? 'Activo' : 'Inactivo' }}
                     </v-chip>
                   </td>
-                  <td>{{ user.last_login_at ? formatDate(user.last_login_at) : 'Nunca' }}</td>
+                  <td>{{ user.last_login_at ? formatMomentDay(user.last_login_at) : 'Nunca' }}</td>
                 </tr>
               </tbody>
             </v-table>
@@ -543,7 +543,7 @@
               <tbody>
                 <tr v-for="payment in detail.payments" :key="payment.id">
                   <td>{{ payment.paid_at }}</td>
-                  <td>${{ payment.amount.toLocaleString('es-CO') }} {{ payment.currency }}</td>
+                  <td>{{ money(payment.amount) }} {{ payment.currency }}</td>
                   <td>{{ methodLabel(payment.method) }}</td>
                   <td>{{ payment.reference || '—' }}</td>
                   <td>{{ payment.period_start }} → {{ payment.period_end }}</td>
@@ -676,7 +676,7 @@
             density="compact"
             class="mb-2"
           >
-            El valor acordado es ${{ expectedPayment!.toLocaleString('es-CO') }} por
+            El valor acordado es {{ money(expectedPayment) }} por
             {{ paymentData.months }} mes(es). Indica el motivo de la diferencia.
           </v-alert>
           <v-textarea
@@ -724,6 +724,8 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
+import { formatMomentDay } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
@@ -805,11 +807,6 @@ const methodLabel = (method: string): string => ({
   other: 'Otro',
 }[method] || method)
 
-const formatDate = (iso: string): string => new Date(iso).toLocaleDateString('es-CO', {
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-})
 
 const loadCompanies = async () => {
   loading.value = true

@@ -414,7 +414,7 @@ import DateField from '../components/DateField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 import { billingService, type BusinessForm } from '../services/billingService'
 import type { DocumentBusiness } from '../utils/printDocuments'
-import { taxRegimeLabels } from '../utils/labels'
+import { options, taxRegimeLabels } from '../utils/labels'
 import { errorMessage } from '../utils/errors'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
@@ -464,7 +464,7 @@ const emptyBusiness = (): BusinessForm => ({
 })
 const businessForm = ref<BusinessForm>(emptyBusiness())
 const required = (v: string | null | undefined) => !!(v && String(v).trim()) || 'Este campo es obligatorio'
-const taxRegimeOptions = Object.entries(taxRegimeLabels).map(([value, title]) => ({ value, title }))
+const taxRegimeOptions = options(taxRegimeLabels)
 
 const loadBusiness = async () => {
   try {

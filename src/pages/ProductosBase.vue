@@ -140,19 +140,19 @@
             </template>
             <template #item.unit_cost="{ item }">
               <span v-if="item.unit_cost" class="font-weight-bold">
-                ${{ Number(item.unit_cost).toFixed(2) }}/{{ item.unit }}
+                {{ preciseMoney(item.unit_cost) }}/{{ item.unit }}
               </span>
               <span v-else class="text-medium-emphasis">-</span>
             </template>
             <template #item.sale_price="{ item }">
               <span v-if="item.sale_price" class="font-weight-bold">
-                ${{ Number(item.sale_price).toLocaleString('es-CO') }}
+                {{ money(item.sale_price) }}
               </span>
               <span v-else class="text-medium-emphasis">-</span>
             </template>
             <template #item.estimated_cost="{ item }">
               <span v-if="item.estimated_cost">
-                ${{ Number(item.estimated_cost).toFixed(2) }}
+                {{ preciseMoney(item.estimated_cost) }}
               </span>
               <span v-else class="text-medium-emphasis">-</span>
             </template>
@@ -606,6 +606,7 @@ const onImported = (created: number) => {
 };
 import ImageUploader from '@/components/ImageUploader.vue';
 import { resolveImageUrl } from '@/utils/images';
+import { money, preciseMoney } from '@/utils/money';
 import { useRouter } from 'vue-router';
 import { productsService, productCategoriesService, type Product, type Category, type ProductPayload } from '@/services/productsService';
 import { menuItemsService } from '@/services/menuService';
@@ -796,7 +797,7 @@ const marginHint = computed(() => {
 
   const profit = price - cost
   const margin = Math.round((profit / price) * 100)
-  return `Ganas $${profit.toLocaleString('es-CO')} por unidad (${margin}%)`
+  return `Ganas ${money(profit)} por unidad (${margin}%)`
 })
 
 const skuPreview = computed(() => {

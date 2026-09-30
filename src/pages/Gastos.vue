@@ -56,7 +56,7 @@
                 <v-card class="h-100">
                   <v-card-text class="text-center py-6">
                     <v-icon size="40" class="mb-2 text-medium-emphasis">mdi-cash-remove</v-icon>
-                    <div class="text-h3 tabular-nums">${{ Number(resumen.total_expenses || 0).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</div>
+                    <div class="text-h3 tabular-nums">{{ money(resumen.total_expenses) }}</div>
                     <div class="text-subtitle-1 font-weight-bold mt-2">Total gastos</div>
                   </v-card-text>
                 </v-card>
@@ -74,7 +74,7 @@
                         <v-chip color="secondary" :prepend-icon="getCategoryIcon(item.type)" size="x-small" class="mb-2">
                           {{ getTipoLabel(item.type) }}
                         </v-chip>
-                        <div class="text-h5 font-weight-bold">${{ Number(item.total || 0).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</div>
+                        <div class="text-h5 font-weight-bold">{{ money(item.total) }}</div>
                         <div class="text-subtitle-2 mt-1">{{ item.category }}</div>
                         <div class="text-caption text-medium-emphasis">
                           {{ item.count }} registro(s)
@@ -142,7 +142,7 @@
                   :loading="loadingExpenses"
                   class="elevation-0">
                   <template #item.expense_date="{ item }">
-                    {{ formatDate(item.expense_date) }}
+                    {{ formatDay(item.expense_date) }}
                   </template>
 
                   <template #item.category="{ item }">
@@ -155,9 +155,7 @@
                   </template>
 
                   <template #item.amount="{ item }">
-                    <strong class="text-error">
-                      ${{ Number(item.amount || 0).toFixed(2) }}
-                    </strong>
+                    <strong class="tabular-nums">{{ money(item.amount) }}</strong>
                   </template>
 
                   <template #item.invoice_number="{ item }">
@@ -423,6 +421,8 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
+import { formatDay } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors';
 import { ref, computed, onMounted, watch } from 'vue'
 import { expensesService, type Expense, type ExpenseCategory, type ExpenseSummary } from '@/services/expensesService'
@@ -696,17 +696,6 @@ const getCategoryIcon = (tipo?: string) => {
 
 const getTipoLabel = (tipo: string) => label(expenseCategoryTypeLabels, tipo)
 
-const formatDate = (date: string) => {
-  if (!date) return '-'
-  const normalized = date.includes('T') ? date : `${date}T00:00:00`
-  const parsed = new Date(normalized)
-  if (Number.isNaN(parsed.getTime())) return date
-  return parsed.toLocaleDateString('es-CO', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  })
-}
 
 const showMessage = (text: string, color: 'success' | 'error' | 'warning') => {
   snackbarText.value = text

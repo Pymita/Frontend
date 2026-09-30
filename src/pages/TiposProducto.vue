@@ -80,7 +80,7 @@
           >
             <template #item.price_difference="{ item }">
               <span :class="Number(item.price_difference || 0) > 0 ? 'text-success' : Number(item.price_difference || 0) < 0 ? 'text-error' : ''">
-                {{ Number(item.price_difference || 0) > 0 ? '+' : '' }}${{ Number(item.price_difference || 0).toFixed(2) }}
+                {{ Number(item.price_difference || 0) > 0 ? '+' : '' }}{{ money(item.price_difference) }}
               </span>
             </template>
             <template #item.price_multiplier="{ item }">
@@ -209,6 +209,7 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
 import { errorMessage } from '@/utils/errors';
 import { ref, onMounted, watch } from 'vue';
 import { variantGroupsService, variantsService, type VariantGroup, type Variant } from '@/services/variantsService';

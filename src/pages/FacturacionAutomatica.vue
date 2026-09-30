@@ -878,6 +878,8 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
+import { formatDay } from '@/utils/dates'
 import { computed, onMounted, ref, watch } from 'vue'
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
@@ -925,8 +927,6 @@ const notify = (text: string, color: 'success' | 'error' | 'warning' = 'success'
 }
 
 // ===== Formato =====
-const money = (value: number | null | undefined): string =>
-  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
 
 const localDate = (date = new Date()): string => {
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -935,11 +935,6 @@ const localDate = (date = new Date()): string => {
 
 // Las fechas llegan como AAAA-MM-DD: se arman a mano para que la zona horaria
 // del navegador no las corra un día.
-const formatDay = (value: string | null | undefined): string => {
-  if (!value) return '—'
-  const [y = 0, m = 1, d = 1] = value.slice(0, 10).split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
-}
 
 const periodName = (value: string): string => {
   const [y = 0, m = 1] = value.split('-').map(Number)

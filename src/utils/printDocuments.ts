@@ -1,3 +1,4 @@
+import { money } from './money'
 /**
  * Documentos imprimibles en hoja carta de la facturación automática: cuenta
  * de cobro / factura de venta y recibo de caja. Es UNA plantilla para todas
@@ -142,8 +143,6 @@ const escape = (value: unknown): string =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 
-const money = (value: number): string =>
-  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
 
 /** DD/MM/AAAA sin pasar por Date: la zona horaria no corre el día. */
 const dmy = (value: string | null | undefined): string => {

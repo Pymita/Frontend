@@ -117,6 +117,10 @@ export const expensePaymentMethodLabels: Record<string, string> = {
   credit: 'Crédito',
 }
 
+/** Opciones de un v-select a partir de un mapa de etiquetas, en su orden. */
+export const options = (map: Record<string, string>): { value: string; title: string }[] =>
+  Object.entries(map).map(([value, title]) => ({ value, title }))
+
 export const label = (map: Record<string, string>, value?: string | null): string => {
   if (!value) return ''
   return map[value] ?? value

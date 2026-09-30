@@ -51,7 +51,7 @@
             </template>
             <template #item.total_cost="{ item }">
               <span v-if="item.total_cost" class="font-weight-bold">
-                ${{ Number(item.total_cost).toFixed(2) }}
+                {{ preciseMoney(item.total_cost) }}
               </span>
               <span v-else class="text-medium-emphasis">-</span>
             </template>
@@ -296,7 +296,7 @@
                   <v-col cols="8" md="2">
                     <div class="text-caption text-medium-emphasis">Costo lote</div>
                     <div class="font-weight-bold tabular-nums">
-                      ${{ calcIngredientCost(ing).toFixed(2) }}
+                      {{ preciseMoney(calcIngredientCost(ing)) }}
                     </div>
                   </v-col>
                   <v-col cols="4" md="1" class="text-right">
@@ -321,12 +321,12 @@
                 <v-row>
                   <v-col cols="6">
                     <div class="text-subtitle-2 text-medium-emphasis">Costo total</div>
-                    <div class="text-h3 tabular-nums">${{ Number(totalCost).toFixed(2) }}</div>
+                    <div class="text-h3 tabular-nums">{{ preciseMoney(totalCost) }}</div>
                   </v-col>
                   <v-col cols="6">
                     <div class="text-subtitle-2 text-medium-emphasis">Costo por unidad</div>
                     <div class="text-h3 tabular-nums">
-                      ${{ Number(costPerUnit).toFixed(2) }}/{{ formData.yield_unit || 'unidad' }}
+                      {{ preciseMoney(costPerUnit) }}/{{ formData.yield_unit || 'unidad' }}
                     </div>
                   </v-col>
                 </v-row>
@@ -350,6 +350,7 @@
 </template>
 
 <script setup lang="ts">
+import { preciseMoney } from '@/utils/money'
 import { errorMessage } from '@/utils/errors';
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';

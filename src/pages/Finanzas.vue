@@ -269,6 +269,7 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
 import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref } from 'vue'
 import kardexService, {
@@ -305,8 +306,6 @@ const notify = (text: string) => {
   snackbar.value = { show: true, text }
 }
 
-const money = (value: number): string =>
-  '$' + Number(value ?? 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
 
 const loadIncome = async () => {
   loadingIncome.value = true

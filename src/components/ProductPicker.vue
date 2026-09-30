@@ -21,7 +21,7 @@
           v-for="item in filteredItems"
           :key="item.id"
           :title="item.name"
-          :subtitle="`$${priceOf(item).toLocaleString('es-CO')}`"
+          :subtitle="money(priceOf(item))"
           @click="$emit('add', item, guest)"
         >
           <template #append>
@@ -115,7 +115,7 @@
             {{ line.name }}
           </v-list-item-title>
           <v-list-item-subtitle>
-            ${{ (line.unit_price * line.quantity).toLocaleString('es-CO') }}
+            {{ money(line.unit_price * line.quantity) }}
           </v-list-item-subtitle>
 
           <template #append>
@@ -144,6 +144,7 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
 import { computed, ref, watch } from 'vue';
 import { guestsIn, priceOf, type PickedLine } from '@/utils/orderLines';
 

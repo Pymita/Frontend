@@ -37,7 +37,7 @@
         <v-card class="pa-4 text-center">
           <div class="text-caption text-medium-emphasis">Total vendido</div>
           <div class="text-h5 font-weight-bold tabular-nums">
-            ${{ (report?.summary.total ?? 0).toLocaleString('es-CO') }}
+            {{ money(report?.summary.total ?? 0) }}
           </div>
         </v-card>
       </v-col>
@@ -51,7 +51,7 @@
         <v-card class="pa-4 text-center">
           <div class="text-caption text-medium-emphasis">Propinas</div>
           <div class="text-h5 font-weight-bold">
-            ${{ (report?.summary.tips ?? 0).toLocaleString('es-CO') }}
+            {{ money(report?.summary.tips ?? 0) }}
           </div>
         </v-card>
       </v-col>
@@ -67,7 +67,7 @@
           variant="tonal"
           color="primary"
         >
-          {{ entry.label }}: ${{ entry.amount.toLocaleString('es-CO') }}
+          {{ entry.label }}: {{ money(entry.amount) }}
         </v-chip>
       </v-col>
     </v-row>
@@ -136,12 +136,12 @@
             :items-per-page="25"
           >
             <template #item.opened_at="{ item }">
-              {{ formatDate(item.opened_at) }}
+              {{ formatDateTime(item.opened_at) }}
               <div class="text-caption text-medium-emphasis">{{ item.opened_by || '—' }}</div>
             </template>
             <template #item.closed_at="{ item }">
               <template v-if="item.closed_at">
-                {{ formatDate(item.closed_at) }}
+                {{ formatDateTime(item.closed_at) }}
                 <div class="text-caption text-medium-emphasis">{{ item.closed_by || '—' }}</div>
               </template>
               <v-chip v-else size="small" color="info" variant="tonal">Abierta</v-chip>
@@ -289,16 +289,16 @@
               {{ customerLabel(item.customer_name) }}
             </template>
             <template #item.paid_at="{ item }">
-              {{ formatDate(item.paid_at) }}
+              {{ formatDateTime(item.paid_at) }}
             </template>
             <template #item.payment_methods="{ item }">
               {{ methodsLabel(item.payment_methods) }}
             </template>
             <template #item.tip="{ item }">
-              {{ item.tip ? '$' + item.tip.toLocaleString('es-CO') : '—' }}
+              {{ item.tip ? money(item.tip) : '—' }}
             </template>
             <template #item.total="{ item }">
-              <span class="font-weight-bold">${{ item.total.toLocaleString('es-CO') }}</span>
+              <span class="font-weight-bold">{{ money(item.total) }}</span>
             </template>
             <template #no-data>
               <p class="text-medium-emphasis py-6">No hay ventas en el rango seleccionado</p>
@@ -315,6 +315,8 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
+import { formatDateTime } from '@/utils/dates'
 import { computed, onMounted, ref, watch } from 'vue'
 import DateField from '../components/DateField.vue'
 import salesService, {
@@ -353,8 +355,6 @@ const view = ref<VentasView>('sales')
 const cashSessions = ref<CashSession[]>([])
 const loading = ref(false)
 
-const money = (value: number | null | undefined): string =>
-  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
 
 const formatMinutes = (minutes: number): string => {
   const hours = Math.floor(minutes / 60)
@@ -460,10 +460,6 @@ const methodBreakdown = computed(() =>
 const methodsLabel = (methods: PaymentMethod[]): string =>
   methods.map(m => PAYMENT_METHOD_LABELS[m] ?? m).join(' + ') || '—'
 
-const formatDate = (iso: string | null): string =>
-  iso
-    ? new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-    : '—'
 
 // Cada vista consulta lo suyo; los totales de arriba siempre son del listado.
 const load = async () => {

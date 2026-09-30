@@ -294,6 +294,8 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
+import { formatDay } from '@/utils/dates'
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import DateField from '../components/DateField.vue'
 import {
@@ -333,8 +335,6 @@ const dashStats = ref<DashboardStats>({
 const recentOrders = ref<Order[]>([])
 const lowStockProducts = ref<LowStockProduct[]>([])
 
-const money = (value: number | string | null | undefined): string =>
-  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
 
 // Stock can be fractional (kg, litros) but 12 units must not read "12.00".
 const quantity = (value: number | string | null | undefined): string =>
@@ -372,10 +372,6 @@ const requestedRange = (): DateRange | null => {
   return range.from && range.to ? { from: range.from, to: range.to } : null
 }
 
-const shortDate = (value: string): string => {
-  const [year = 0, month = 1, day = 1] = value.split('-').map(Number)
-  return new Date(year, month - 1, day).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })
-}
 
 const periodTitle = computed(() => ({
   week: 'Ventas de la Semana',
@@ -387,7 +383,7 @@ const periodCaption = computed(() => {
   if (period.value === 'week') return 'Últimos 7 días'
   if (period.value === 'month') return 'Este mes'
   const meta = salesPeriod.value?.meta
-  return meta ? `Del ${shortDate(meta.from)} al ${shortDate(meta.to)}` : 'Rango'
+  return meta ? `Del ${formatDay(meta.from)} al ${formatDay(meta.to)}` : 'Rango'
 })
 
 const percent = (value: number): string =>
@@ -512,11 +508,11 @@ const chartOptions = computed(() => ({
         title: function(items: any[]) {
           const point = salesPoints.value[items[0]?.dataIndex ?? -1]
           if (!point || salesPeriod.value?.meta.bucket === 'day') return items[0]?.label ?? ''
-          return `Del ${shortDate(point.date)} al ${shortDate(point.end)}`
+          return `Del ${formatDay(point.date)} al ${formatDay(point.end)}`
         },
         label: function(context: any) {
           // Pesos colombianos: sin decimales y con separador de miles.
-          return `Ventas: $${Number(context.parsed.y).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`
+          return `Ventas: ${money(context.parsed.y)}`
         }
       }
     }
@@ -530,7 +526,7 @@ const chartOptions = computed(() => ({
       ticks: {
         precision: 0,
         callback: function(value: any) {
-          return '$' + Number(value).toLocaleString('es-CO', { maximumFractionDigits: 0 })
+          return money(value)
         }
       }
     }

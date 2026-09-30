@@ -212,13 +212,13 @@
       <v-col cols="12" md="4">
         <v-card class="pa-4 text-center">
           <div class="text-caption text-medium-emphasis">Costo promedio</div>
-          <div class="text-h5">{{ money(report.product.unit_cost) }}</div>
+          <div class="text-h5">{{ preciseMoney(report.product.unit_cost) }}</div>
         </v-card>
       </v-col>
       <v-col cols="12" md="4">
         <v-card class="pa-4 text-center">
           <div class="text-caption text-medium-emphasis">Valor del inventario</div>
-          <div class="text-h5" :class="{ 'text-error': report.product.current_stock < 0 }">{{ money(report.product.current_stock * report.product.unit_cost) }}</div>
+          <div class="text-h5" :class="{ 'text-error': report.product.current_stock < 0 }">{{ preciseMoney(report.product.current_stock * report.product.unit_cost) }}</div>
         </v-card>
       </v-col>
     </v-row>
@@ -261,12 +261,12 @@
                 <td v-if="showProductColumn"></td>
                 <td colspan="4"></td>
                 <td class="text-right">{{ report.opening_balance.quantity }}</td>
-                <td class="text-right">{{ money(report.opening_balance.unit_cost) }}</td>
-                <td class="text-right">{{ money(report.opening_balance.total_cost) }}</td>
+                <td class="text-right">{{ preciseMoney(report.opening_balance.unit_cost) }}</td>
+                <td class="text-right">{{ preciseMoney(report.opening_balance.total_cost) }}</td>
                 <td></td>
               </tr>
               <tr v-for="m in report?.movements ?? []" :key="m.id">
-                <td>{{ formatDate(m.moved_at) }}</td>
+                <td>{{ formatDateTime(m.moved_at) }}</td>
                 <td>
                   <v-tooltip :text="m.document_name">
                     <template #activator="{ props }">
@@ -292,11 +292,11 @@
                 <td class="text-right text-error">
                   {{ m.movement_type === 'out' ? m.quantity : '' }}
                 </td>
-                <td class="text-right">{{ money(m.unit_cost) }}</td>
-                <td class="text-right">{{ money(m.total_cost) }}</td>
+                <td class="text-right">{{ preciseMoney(m.unit_cost) }}</td>
+                <td class="text-right">{{ preciseMoney(m.total_cost) }}</td>
                 <td class="text-right" :class="{ 'text-error font-weight-bold': m.balance_quantity < 0 }">{{ m.balance_quantity }}</td>
-                <td class="text-right">{{ money(m.balance_unit_cost) }}</td>
-                <td class="text-right" :class="{ 'text-error font-weight-bold': m.balance_total_cost < 0 }">{{ money(m.balance_total_cost) }}</td>
+                <td class="text-right">{{ preciseMoney(m.balance_unit_cost) }}</td>
+                <td class="text-right" :class="{ 'text-error font-weight-bold': m.balance_total_cost < 0 }">{{ preciseMoney(m.balance_total_cost) }}</td>
                 <td class="text-caption">{{ m.user || '—' }}</td>
               </tr>
               <tr v-if="report && report.movements.length === 0">
@@ -312,7 +312,7 @@
                 <td class="text-right text-error">{{ report.totals.out_quantity }}</td>
                 <td></td>
                 <td class="text-right">
-                  {{ money(report.totals.in_cost - report.totals.out_cost) }}
+                  {{ preciseMoney(report.totals.in_cost - report.totals.out_cost) }}
                 </td>
                 <td colspan="4"></td>
               </tr>
@@ -329,6 +329,8 @@
 </template>
 
 <script setup lang="ts">
+import { preciseMoney } from '@/utils/money'
+import { formatDateTime } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref, watch } from 'vue'
 import kardexService, { type DocumentType, type KardexFilters, type KardexReport } from '../services/kardexService'
@@ -491,11 +493,7 @@ const notify = (text: string, color = 'error') => {
   snackbar.value = { show: true, text, color }
 }
 
-const money = (value: number): string =>
-  '$' + Number(value ?? 0).toLocaleString('es-CO', { maximumFractionDigits: 2 })
 
-const formatDate = (iso: string): string =>
-  new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 // Cada consulta lleva su número: si una anterior responde tarde (staging es
 // lento), no pisa la tabla del filtro que el usuario eligió después.

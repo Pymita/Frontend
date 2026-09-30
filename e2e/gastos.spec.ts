@@ -92,7 +92,11 @@ test('los gastos se buscan por concepto o proveedor y siguen las fechas elegidas
   await expect(page.locator('tbody tr', { hasText: String(stamp) })).toHaveCount(2)
 
   await search.fill(`Acueducto ${stamp}`)
-  await expect(page.locator('tbody tr', { hasText: String(stamp) })).toHaveText([new RegExp(`Agua ${stamp}`)])
+  const row = page.locator('tbody tr', { hasText: String(stamp) })
+  await expect(row).toHaveText([new RegExp(`Agua ${stamp}`)])
+  // Pesos con separador de miles (no "$50000.00") y el día de calendario del gasto.
+  await expect(row).toContainText('$50.000')
+  await expect(row).toContainText(new Date().toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }))
 
   // Un rango en el pasado deja la tabla vacía: ya no se queda con los gastos del mes.
   await search.fill(String(stamp))

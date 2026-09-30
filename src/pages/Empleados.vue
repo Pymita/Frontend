@@ -55,7 +55,7 @@
               </template>
             </template>
             <template #item.last_login_at="{ item }">
-              {{ item.last_login_at ? formatDate(item.last_login_at) : 'Nunca' }}
+              {{ item.last_login_at ? formatMomentDay(item.last_login_at) : 'Nunca' }}
             </template>
             <template #item.actions="{ item }">
               <v-btn icon size="small" variant="text" :disabled="isReadOnly" :aria-label="`Editar a ${item.name}`" @click="openDialog(item)">
@@ -176,6 +176,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatMomentDay } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref } from 'vue'
 import usersService, { type CompanyUser } from '../services/usersService'
@@ -222,11 +223,6 @@ const featureLabels: Record<Feature, string> = {
 }
 const featureLabel = (feature: Feature): string => featureLabels[feature] || feature
 
-const formatDate = (iso: string): string => new Date(iso).toLocaleDateString('es-CO', {
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-})
 
 const snackbar = ref({ show: false, text: '', color: 'success' })
 const notify = (text: string, color: 'success' | 'error' = 'success') => {

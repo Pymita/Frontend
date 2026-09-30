@@ -53,7 +53,7 @@
             </v-chip>
             <div class="text-caption mt-1">
               <template v-if="table.table_type === 'billiard'">
-                🎱 ${{ Number(table.hourly_rate ?? 0).toLocaleString('es-CO') }}/hora
+                🎱 {{ money(table.hourly_rate) }}/hora
               </template>
               <template v-else>👥 {{ table.capacity }} personas</template>
             </div>
@@ -267,6 +267,7 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
 import { errorMessage } from '@/utils/errors';
 import { computed, ref, onMounted } from 'vue';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';

@@ -70,6 +70,49 @@ export const formatIsoDate = (iso: string): string => {
   return year && month && day ? `${day}/${month}/${year}` : iso
 }
 
+/**
+ * "05 de oct de 2026" para una fecha de calendario (vencimiento, fecha del
+ * gasto). Solo cuenta AAAA-MM-DD: el API la manda como medianoche en UTC y
+ * convertirla a la hora local podría mostrar el día anterior.
+ */
+export const formatDay = (value: string | null | undefined): string => {
+  if (!value) return '—'
+  const [year = 0, month = 1, day = 1] = value.slice(0, 10).split('-').map(Number)
+  const date = new Date(year, month - 1, day)
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+/** El día (hora local) de un instante: último ingreso, fecha de creación. */
+export const formatMomentDay = (value: string | null | undefined): string => {
+  if (!value) return '—'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+/** "05 oct, 14:30": un instante con su hora (cobros, movimientos, cierres). */
+export const formatDateTime = (value: string | null | undefined): string =>
+  value
+    ? new Date(value).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    : '—'
+
+/** "14:30". */
+export const formatTime = (value: string): string =>
+  new Date(value).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+
+/** Hoy solo la hora; otro día, "28/09 14:30". */
+export const formatRecent = (value: string): string => {
+  const date = new Date(value)
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const time = formatTime(value)
+  if (date.getTime() >= startOfToday) return time
+  return `${date.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit' })} ${time}`
+}
+
 /** "2025-01" → "enero de 2025". */
 export const formatIsoMonth = (iso: string): string => {
   const [year, month] = iso.split('-').map(Number)

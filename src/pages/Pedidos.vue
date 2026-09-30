@@ -176,7 +176,7 @@
 
             <template #item.created_at="{ item }">
               <div class="text-no-wrap text-caption">
-                {{ formatDate(item.created_at) }}
+                {{ formatRecent(item.created_at) }}
                 <v-chip
                   v-if="isOverdue(item)"
                   color="warning"
@@ -769,164 +769,13 @@
       </v-card>
     </v-dialog>
 
-    <!-- Dialog Pago Parcial / División de cuenta -->
-    <v-dialog v-model="pagoDialog" max-width="560">
-      <v-card>
-        <v-card-title>Registrar pago</v-card-title>
-        <v-card-text>
-          <!-- Total a pagar, lo que ya entró y el saldo, para no perder la cuenta. -->
-          <v-card flat color="surface-light" class="pa-3 mb-3 tabular-nums">
-            <div class="d-flex justify-space-between text-body-2">
-              <span>Total a pagar:</span>
-              <strong>{{ money(selectedOrder?.total) }}</strong>
-            </div>
-            <div class="d-flex justify-space-between text-body-2 text-medium-emphasis">
-              <span>Ya pagado:</span>
-              <span>{{ money(selectedOrder?.amount_paid) }}</span>
-            </div>
-            <v-divider class="my-2" />
-            <div class="d-flex justify-space-between">
-              <span>Saldo:</span>
-              <strong class="text-error">{{ money(selectedOrder?.pending_balance) }}</strong>
-            </div>
-          </v-card>
-
-          <!-- Historial: cada venta lleva su factura #pedido-n; los abonos son anticipos. -->
-          <v-list
-            v-if="(selectedOrder?.payments?.length ?? 0) > 0"
-            density="compact"
-            class="border rounded mb-3 py-0"
-          >
-            <v-list-subheader class="text-caption">Pagos registrados</v-list-subheader>
-            <v-list-item v-for="pay in selectedOrder!.payments!" :key="pay.id" class="px-3">
-              <template #prepend>
-                <v-chip
-                  :color="pay.kind === 'sale' ? 'success' : 'secondary'"
-                  size="x-small"
-                  label
-                  class="mr-2"
-                >
-                  {{ pay.kind === 'sale' ? 'Factura' : 'Abono' }}
-                </v-chip>
-              </template>
-              <v-list-item-title class="text-body-2">
-                {{ pay.invoice_number || pay.reference || ('#' + selectedOrder!.id) }}
-                <span class="text-caption text-medium-emphasis"> · {{ paymentMethodLabel(pay.payment_method) }}</span>
-              </v-list-item-title>
-              <template #append>
-                <div class="text-right">
-                  <strong>{{ money(pay.amount) }}</strong>
-                  <div v-if="Number(pay.tip) > 0" class="text-caption text-medium-emphasis">
-                    propina {{ money(pay.tip) }}
-                  </div>
-                </div>
-              </template>
-            </v-list-item>
-          </v-list>
-
-          <v-btn-toggle v-model="paymentMode" mandatory density="compact" color="primary" class="mb-4">
-            <v-btn value="items">Por productos</v-btn>
-            <v-btn value="amount">Por monto</v-btn>
-          </v-btn-toggle>
-
-          <!-- Modo por productos: dividir la cuenta -->
-          <template v-if="paymentMode === 'items'">
-            <p class="text-body-2 text-medium-emphasis mb-2">
-              Marca lo que va a pagar este grupo. Cada cobro por productos es una
-              <strong>factura de venta parcial</strong> (#{{ selectedOrder?.id }}-n) y
-              descuenta su inventario. Los descuentos del pedido se reparten proporcionalmente.
-            </p>
-            <v-table density="compact" class="mb-3">
-              <tbody>
-                <tr v-for="orderItem in payableItems" :key="orderItem.id">
-                  <td style="width: 40px">
-                    <v-checkbox-btn
-                      :model-value="selectedQty(orderItem) > 0"
-                      @update:model-value="(checked: boolean) => togglePaymentItem(orderItem, checked)"
-                    />
-                  </td>
-                  <td>
-                    {{ orderItem.product_name }}
-                    <span v-if="orderItem.variant" class="text-medium-emphasis"> ({{ orderItem.variant }})</span>
-                    <div v-if="orderItem.paid_quantity > 0" class="text-caption text-success">
-                      {{ orderItem.paid_quantity }} de {{ orderItem.quantity }} ya pagadas
-                    </div>
-                  </td>
-                  <td style="width: 150px">
-                    <div v-if="selectedQty(orderItem) > 0" class="d-flex align-center ga-1">
-                      <v-btn
-                        icon="mdi-minus"
-                        size="x-small"
-                        variant="tonal"
-                        :disabled="selectedQty(orderItem) <= 1"
-                        aria-label="Quitar una unidad del cobro" @click="adjustSelection(orderItem, -1)"
-                      />
-                      <span class="mx-1 font-weight-bold">{{ selectedQty(orderItem) }}</span>
-                      <v-btn
-                        icon="mdi-plus"
-                        size="x-small"
-                        variant="tonal"
-                        aria-label="Sumar una unidad al cobro"
-                        :disabled="selectedQty(orderItem) >= orderItem.unpaid_quantity"
-                        @click="adjustSelection(orderItem, 1)"
-                      />
-                      <span class="text-caption text-medium-emphasis">/ {{ orderItem.unpaid_quantity }}</span>
-                    </div>
-                  </td>
-                  <td class="text-right" style="width: 90px">
-                    {{ money(unitPriceOf(orderItem)) }} c/u
-                  </td>
-                </tr>
-              </tbody>
-            </v-table>
-            <v-alert v-if="selectionCount > 0" type="info" variant="tonal" density="compact" class="mb-2">
-              A cobrar por esta selección: <strong>{{ money(selectionEstimate) }}</strong>
-            </v-alert>
-          </template>
-
-          <!-- Modo por monto libre -->
-          <template v-else>
-            <v-text-field
-              v-model.number="paymentAmount"
-              label="Monto a pagar"
-              type="number"
-              min="0"
-              :max="selectedOrder?.pending_balance"
-              prefix="$"
-            />
-            <v-alert type="info" variant="tonal" density="compact" class="mb-2">
-              <template v-if="paymentAmount >= Number(selectedOrder?.pending_balance ?? 0) && Number(selectedOrder?.pending_balance ?? 0) > 0">
-                Cierra la cuenta: factura los productos que falten y aplica los abonos.
-              </template>
-              <template v-else>
-                Es un <strong>recibo de abono</strong> (anticipo): no genera factura ni
-                descuenta inventario. Se factura al cerrar la cuenta.
-              </template>
-            </v-alert>
-          </template>
-
-          <v-select
-            v-model="paymentMethod"
-            :items="paymentMethodOptions"
-            label="Medio de pago"
-            density="compact"
-            class="mt-2"
-          />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="pagoDialog = false">Cancelar</v-btn>
-          <v-btn
-            color="primary"
-            :loading="saving"
-            :disabled="paymentMode === 'items' ? selectionCount === 0 : !paymentAmount"
-            @click="registrarPago"
-          >
-            Cobrar{{ paymentMode === 'items' && selectionCount > 0 ? ` ${money(selectionEstimate)}` : '' }}
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <!-- Pago parcial / división de cuenta -->
+    <PartialPaymentDialog
+      v-model="pagoDialog"
+      :order="selectedOrder"
+      @paid="message => { showMessage(message); loadOrders(); }"
+      @failed="message => showMessage(message, 'error')"
+    />
 
     <!-- Dialog Editar item -->
     <v-dialog v-model="editItemDialog" max-width="400">
@@ -1028,7 +877,7 @@
         </v-card-text>
         <v-card-actions>
           <div class="text-h6 ml-4">
-            Total: ${{ totalNuevoPedido.toLocaleString('es-CO') }}
+            Total: {{ money(totalNuevoPedido) }}
           </div>
           <v-spacer />
           <v-btn @click="nuevoPedidoDialog = false">Cancelar</v-btn>
@@ -1066,7 +915,7 @@
         </v-card-text>
         <v-card-actions>
           <div class="text-h6 ml-4">
-            Total: ${{ totalParaAgregar.toLocaleString('es-CO') }}
+            Total: {{ money(totalParaAgregar) }}
           </div>
           <v-spacer />
           <v-btn @click="agregarItemsDialog = false">Cancelar</v-btn>
@@ -1099,7 +948,6 @@ import {
   type OrderItem,
   type OrderPaymentMethod,
   type OrderReceipt,
-  type PartialPaymentPayload,
 } from '@/services/ordersService';
 import { billingService, type Customer } from '@/services/billingService';
 import {
@@ -1110,9 +958,11 @@ import {
   orderPaymentMethodLabels,
   taxRegimeLabels,
   label,
+  options,
 } from '@/utils/labels';
 import LockableButton from '../components/LockableButton.vue'
 import CashRegisterPanel from '../components/CashRegisterPanel.vue'
+import PartialPaymentDialog from '../components/PartialPaymentDialog.vue'
 import DateField from '../components/DateField.vue'
 import ProductPicker from '../components/ProductPicker.vue'
 import { menuItemsService } from '@/services/menuService';
@@ -1120,6 +970,8 @@ import { tablesService } from '@/services/tablesService';
 import { effectiveFeatures } from '@/types/auth';
 import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/utils/orderLines';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
+import { money } from '@/utils/money';
+import { formatRecent } from '@/utils/dates';
 import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage';
 import type { PageQuery, PaginatedResponse } from '@/types/api';
 import type { OrderGuest } from '@/services/ordersService';
@@ -1149,9 +1001,6 @@ const clearDates = () => {
   dateTo.value = '';
 };
 
-/** Pesos colombianos: sin decimales y con separador de miles. */
-const money = (value: number | string | null | undefined): string =>
-  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 });
 
 /** Pedido abierto: se puede cobrar, descontar o cancelar. */
 const isOpen = (order: Order) =>
@@ -1196,69 +1045,6 @@ const discountValue = ref(0);
 const discountReason = ref('');
 
 const pagoDialog = ref(false);
-const paymentAmount = ref(0);
-const paymentMode = ref<'items' | 'amount'>('items');
-const paymentMethod = ref<OrderPaymentMethod>('cash');
-// order_item_id → unidades seleccionadas para cobrar
-const paymentSelection = ref<Record<number, number>>({});
-
-const paymentMethodOptions = Object.entries(orderPaymentMethodLabels).map(
-  ([value, title]) => ({ value, title }),
-);
-
-const paymentMethodLabel = (method?: string | null) =>
-  (method ? orderPaymentMethodLabels[method as OrderPaymentMethod] : undefined) ?? method ?? '';
-
-const payableItems = computed(() =>
-  (selectedOrder.value?.items ?? []).filter(i => i.unpaid_quantity > 0),
-);
-
-const selectionCount = computed(() =>
-  Object.values(paymentSelection.value).reduce((sum, qty) => sum + qty, 0),
-);
-
-const unitPriceOf = (item: OrderItem) =>
-  Number(item.total_price || 0) / Math.max(1, Number(item.quantity || 1));
-
-// Estimación con el mismo prorrateo del backend (factor total/subtotal);
-// el servidor calcula el valor definitivo.
-const selectionEstimate = computed(() => {
-  const order = selectedOrder.value;
-  if (!order) return 0;
-
-  const itemsBase = order.items.reduce((sum, i) => sum + Number(i.total_price || 0), 0);
-  if (itemsBase <= 0) return 0;
-  const factor = Number(order.total || 0) / itemsBase;
-
-  const base = order.items.reduce(
-    (sum, i) => sum + unitPriceOf(i) * (paymentSelection.value[i.id] || 0),
-    0,
-  );
-
-  const completesAll = order.items.every(
-    i => i.unpaid_quantity - (paymentSelection.value[i.id] || 0) <= 0,
-  );
-
-  return completesAll
-    ? Number(order.pending_balance || 0)
-    : Math.min(Math.round(base * factor * 100) / 100, Number(order.pending_balance || 0));
-});
-
-const selectedQty = (item: OrderItem) => paymentSelection.value[item.id] ?? 0;
-
-const adjustSelection = (item: OrderItem, delta: number) => {
-  const next = selectedQty(item) + delta;
-  paymentSelection.value[item.id] = Math.min(Math.max(next, 1), item.unpaid_quantity);
-};
-
-const togglePaymentItem = (item: OrderItem, checked: boolean) => {
-  if (checked) {
-    paymentSelection.value[item.id] = item.unpaid_quantity;
-  } else {
-    delete paymentSelection.value[item.id];
-  }
-};
-
 const editItemDialog = ref(false);
 const editItemData = ref({ quantity: 1, unit_price: 0, discount: 0, guest_number: null as number | null });
 
@@ -1499,12 +1285,6 @@ const getPagoColor = (estado: string) => paymentStatusColors[estado] || 'seconda
 const getPagoText = (estado: string) => label(paymentStatusLabels, estado) || estado;
 
 // Hoy solo la hora; otro día, día y mes también.
-const formatDate = (dateString: string) => {
-  const date = new Date(dateString);
-  const time = date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-  if (date.getTime() >= startOfToday()) return time;
-  return `${date.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit' })} ${time}`;
-};
 
 // --- Cobro: método, cliente y propina (voluntaria) ---
 const payDialog = ref(false);
@@ -1514,7 +1294,7 @@ const payTip = ref(0);
 const payCustomerId = ref<number | null>(null);
 const customers = ref<Customer[]>([]);
 
-const payMethodOptions = Object.entries(orderPaymentMethodLabels).map(([value, title]) => ({ value, title }));
+const payMethodOptions = options(orderPaymentMethodLabels);
 
 /**
  * Preferencias de caja, guardadas en este navegador: si el negocio sugiere
@@ -1950,43 +1730,7 @@ const applyDiscount = async () => {
 
 const openPagoDialog = (order: Order) => {
   selectedOrder.value = order;
-  paymentAmount.value = order.pending_balance;
-  paymentMode.value = order.items.length > 0 ? 'items' : 'amount';
-  paymentMethod.value = 'cash';
-  paymentSelection.value = {};
   pagoDialog.value = true;
-};
-
-const registrarPago = async () => {
-  if (!selectedOrder.value) return;
-
-  const payload: PartialPaymentPayload = { payment_method: paymentMethod.value };
-
-  if (paymentMode.value === 'items') {
-    if (selectionCount.value === 0) return;
-    payload.items = Object.entries(paymentSelection.value)
-      .filter(([, qty]) => qty > 0)
-      .map(([id, qty]) => ({ order_item_id: Number(id), quantity: qty }));
-  } else {
-    if (!paymentAmount.value || paymentAmount.value <= 0) return;
-    payload.amount = paymentAmount.value;
-  }
-
-  saving.value = true;
-  try {
-    const updated = await ordersService.recordPartialPayment(selectedOrder.value.id, payload);
-    showMessage(
-      updated.payment_status === 'paid'
-        ? 'Cuenta saldada: pedido pagado por completo'
-        : (payload.items ? 'Factura parcial registrada' : 'Abono registrado'),
-    );
-    pagoDialog.value = false;
-    loadOrders();
-  } catch (error: any) {
-    showMessage(errorMessage(error, 'No fue posible registrar el pago. Inténtalo de nuevo.'), 'error');
-  } finally {
-    saving.value = false;
-  }
 };
 
 const cancelarPedido = async (order: Order) => {
