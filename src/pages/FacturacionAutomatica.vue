@@ -1045,7 +1045,7 @@ const loadPreview = async () => {
     selected.value = selected.value.filter(id => billable.has(id))
     autoSelect()
   } catch (error) {
-    notify(errorMessage(error, 'Error al cargar los clientes para facturar'), 'error')
+    notify(errorMessage(error, 'No fue posible cargar los clientes para facturar. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingPreview.value = false
   }
@@ -1193,7 +1193,7 @@ const loadReceivables = async () => {
   try {
     receivables.value = await billingService.getReceivables(receivableFilters.value)
   } catch (error) {
-    notify(errorMessage(error, 'Error al cargar la cartera'), 'error')
+    notify(errorMessage(error, 'No fue posible cargar la cartera. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingReceivables.value = false
   }
@@ -1214,7 +1214,7 @@ const exportReceivables = async () => {
   try {
     await billingService.exportReceivables(receivableFilters.value)
   } catch (error) {
-    notify(errorMessage(error, 'Error al descargar la cartera'), 'error')
+    notify(errorMessage(error, 'No fue posible descargar la cartera. Inténtalo de nuevo.'), 'error')
   } finally {
     exporting.value = false
   }
@@ -1241,7 +1241,7 @@ const openPaymentDialog = async (invoiceId: number) => {
     lastReceiptNumber.value = null
     paymentDialog.value = true
   } catch (error) {
-    notify(errorMessage(error, 'Error al cargar el documento'), 'error')
+    notify(errorMessage(error, 'No fue posible cargar el documento. Inténtalo de nuevo.'), 'error')
   }
 }
 
@@ -1430,7 +1430,7 @@ const loadCustomers = async () => {
   try {
     customers.value = await billingService.getCustomers()
   } catch (error) {
-    notify(errorMessage(error, 'Error al cargar los clientes'), 'error')
+    notify(errorMessage(error, 'No fue posible cargar los clientes. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingCustomers.value = false
   }

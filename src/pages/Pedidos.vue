@@ -1448,7 +1448,7 @@ const stopTime = async (order: Order) => {
     showMessage('Tiempo detenido y agregado a la cuenta');
     await loadOrders();
   } catch (error: any) {
-    showMessage(error.response?.data?.message || 'Error al detener el tiempo', 'error');
+    showMessage(errorMessage(error, 'No fue posible detener el tiempo. Inténtalo de nuevo.'), 'error');
   }
 };
 
@@ -1479,7 +1479,7 @@ const loadOrders = async (silent = false) => {
       if (!silent) emit('changed');
     }
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al cargar pedidos'), 'error');
+    showMessage(errorMessage(error, 'No fue posible cargar los pedidos. Inténtalo de nuevo.'), 'error');
   } finally {
     loading.value = false;
   }
@@ -1635,7 +1635,7 @@ const confirmarCobro = async (withTip: boolean) => {
     }
   } catch (error) {
     win?.close();
-    showMessage(errorMessage(error, 'Error al cobrar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible cobrar el pedido. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -1855,7 +1855,7 @@ const printReceipt = async (order: Order, win: Window | null = openPrintWindow()
     fillPrintWindow(win, r.invoice_number || `Pedido #${order.id}`, buildTicket(r, order.id));
   } catch (error) {
     win.close();
-    showMessage(errorMessage(error, 'Error al generar la factura'), 'error');
+    showMessage(errorMessage(error, 'No fue posible generar la factura. Inténtalo de nuevo.'), 'error');
   }
 };
 
@@ -1879,7 +1879,7 @@ const printGuestBill = async (order: Order, guest: number | null) => {
     }));
   } catch (error) {
     win.close();
-    showMessage(errorMessage(error, 'Error al generar la cuenta'), 'error');
+    showMessage(errorMessage(error, 'No fue posible generar la cuenta. Inténtalo de nuevo.'), 'error');
   } finally {
     printing.value = false;
   }
@@ -1911,7 +1911,7 @@ const printPreBill = async (order: Order) => {
     }));
   } catch (error) {
     win.close();
-    showMessage(errorMessage(error, 'Error al generar la cuenta'), 'error');
+    showMessage(errorMessage(error, 'No fue posible generar la cuenta. Inténtalo de nuevo.'), 'error');
   } finally {
     printing.value = false;
   }
@@ -1939,7 +1939,7 @@ const applyDiscount = async () => {
     discountDialog.value = false;
     loadOrders();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al aplicar descuento'), 'error');
+    showMessage(errorMessage(error, 'No fue posible aplicar el descuento. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -1980,7 +1980,7 @@ const registrarPago = async () => {
     pagoDialog.value = false;
     loadOrders();
   } catch (error: any) {
-    showMessage(error.response?.data?.message || 'Error al registrar pago', 'error');
+    showMessage(errorMessage(error, 'No fue posible registrar el pago. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -1993,7 +1993,7 @@ const cancelarPedido = async (order: Order) => {
     showMessage('Pedido cancelado');
     loadOrders();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al cancelar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible cancelar el pedido. Inténtalo de nuevo.'), 'error');
   }
 };
 
@@ -2026,7 +2026,7 @@ const guardarItem = async () => {
     editItemDialog.value = false;
     loadOrders();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al actualizar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible actualizar. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -2042,7 +2042,7 @@ const eliminarItem = async () => {
     editItemDialog.value = false;
     loadOrders();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al eliminar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -2125,7 +2125,7 @@ const crearPedido = async () => {
     if (activo) {
       showMessage(`La mesa ya tiene el pedido #${activo.id} abierto: agrégale los productos desde ahí.`, 'error');
     } else {
-      showMessage(errorMessage(error, 'Error al crear el pedido: '), 'error');
+      showMessage(errorMessage(error, 'No fue posible crear el pedido. Inténtalo de nuevo.'), 'error');
     }
   } finally {
     saving.value = false;
@@ -2169,7 +2169,7 @@ const guardarItemsAgregados = async () => {
     agregarItemsDialog.value = false;
     loadOrders();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al agregar productos: '), 'error');
+    showMessage(errorMessage(error, 'No fue posible agregar los productos. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }

@@ -329,6 +329,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref, watch } from 'vue'
 import kardexService, { type DocumentType, type KardexFilters, type KardexReport } from '../services/kardexService'
 import { productsService } from '../services/productsService'
@@ -480,7 +481,7 @@ const saveMovement = async () => {
     movementDialog.value = false
     load()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al registrar el movimiento')
+    notify(errorMessage(error, 'No fue posible registrar el movimiento. Inténtalo de nuevo.'))
   } finally {
     savingMovement.value = false
   }
@@ -511,7 +512,7 @@ const load = async () => {
     loadedFilters.value = applied
   } catch (error: any) {
     if (requestId !== latestRequest) return
-    notify(error.response?.data?.message || 'Error al cargar el kardex')
+    notify(errorMessage(error, 'No fue posible cargar el kardex. Inténtalo de nuevo.'))
   } finally {
     if (requestId === latestRequest) loading.value = false
   }
@@ -521,8 +522,8 @@ const exportExcel = async () => {
   exporting.value = true
   try {
     await kardexService.export(filters.value)
-  } catch {
-    notify('Error al exportar el kardex')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible exportar el kardex. Inténtalo de nuevo.'))
   } finally {
     exporting.value = false
   }
@@ -549,8 +550,8 @@ onMounted(async () => {
     ])
     products.value = productList
     documentTypes.value = docTypes
-  } catch {
-    notify('Error al cargar los filtros')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar los filtros. Inténtalo de nuevo.'))
   }
   // Terceros para el selector; si fallan, el combobox queda como texto libre.
   try {

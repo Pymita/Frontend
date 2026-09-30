@@ -208,6 +208,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors'
 import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue';
 import { tablesService } from '@/services/tablesService';
 import type { DiningTable, DiningTableShape, DiningTableStatus } from '@/services/tablesService';
@@ -285,8 +286,8 @@ const load = async () => {
   loading.value = true;
   try {
     tables.value = await tablesService.getAll();
-  } catch {
-    notify('No se pudieron cargar las mesas', 'error');
+  } catch (error) {
+    notify(errorMessage(error, 'No se pudieron cargar las mesas'), 'error');
   } finally {
     loading.value = false;
   }
@@ -414,8 +415,8 @@ const saveLayout = async () => {
     );
     dirty.value = false;
     notify('Plano guardado exitosamente', 'success');
-  } catch {
-    notify('No se pudo guardar el plano', 'error');
+  } catch (error) {
+    notify(errorMessage(error, 'No se pudo guardar el plano'), 'error');
   } finally {
     saving.value = false;
   }

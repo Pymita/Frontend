@@ -439,8 +439,8 @@ const load = async () => {
     const [docs, taxList] = await Promise.all([kardexService.documentTypes(), kardexService.taxes()])
     documentTypes.value = docs
     taxes.value = taxList
-  } catch {
-    notify('Error al cargar los catálogos', 'error')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar los catálogos. Inténtalo de nuevo.'), 'error')
   }
   loadResolution()
   loadBusiness()
@@ -590,7 +590,7 @@ const saveResolution = async () => {
     await loadResolution()
     notify('Resolución guardada')
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al guardar la resolución', 'error')
+    notify(errorMessage(error, 'No fue posible guardar la resolución. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -629,7 +629,7 @@ const saveDocType = async () => {
     docDialog.value = false
     await load()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al guardar', 'error')
+    notify(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -642,7 +642,7 @@ const deleteDocType = async (dt: DocumentType) => {
     notify('Tipo de documento eliminado')
     await load()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al eliminar', 'error')
+    notify(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error')
   }
 }
 
@@ -671,7 +671,7 @@ const saveTax = async () => {
     taxDialog.value = false
     await load()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al guardar', 'error')
+    notify(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -684,7 +684,7 @@ const deleteTax = async (tax: Tax) => {
     notify('Impuesto eliminado')
     await load()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al eliminar', 'error')
+    notify(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error')
   }
 }
 

@@ -551,7 +551,7 @@ const loadData = async () => {
   } catch (error: any) {
     console.error('[Recetas] Error al cargar datos:', error);
     console.error('[Recetas] Error response:', error.response);
-    showMessage(errorMessage(error, 'Error al cargar datos: ') + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'No fue posible cargar la información. Inténtalo de nuevo.'), 'error');
   } finally {
     loading.value = false;
   }
@@ -669,7 +669,7 @@ const save = async () => {
     closeDialog();
     loadData();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al guardar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -682,7 +682,7 @@ const deleteRecipe = async (recipe: Recipe) => {
     showMessage('Receta eliminada');
     loadData();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al eliminar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
   }
 };
 

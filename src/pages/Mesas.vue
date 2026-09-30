@@ -331,7 +331,7 @@ const loadTables = async () => {
   try {
     tables.value = await tablesService.getAll();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al cargar mesas'), 'error');
+    showMessage(errorMessage(error, 'No fue posible cargar las mesas. Inténtalo de nuevo.'), 'error');
   } finally {
     loading.value = false;
   }
@@ -385,7 +385,7 @@ const save = async () => {
     dialog.value = false;
     loadTables();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al guardar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -408,7 +408,7 @@ const saveBulk = async () => {
     bulkDialog.value = false;
     loadTables();
   } catch (error: any) {
-    showMessage(error.response?.data?.message || 'Error al crear las mesas', 'error');
+    showMessage(errorMessage(error, 'No fue posible crear las mesas. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -423,7 +423,7 @@ const deleteTable = async () => {
     dialog.value = false;
     loadTables();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al eliminar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
   }
 };
 
@@ -433,7 +433,7 @@ const releaseTable = async (table: DiningTable) => {
     showMessage('Mesa liberada');
     loadTables();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al liberar mesa'), 'error');
+    showMessage(errorMessage(error, 'No fue posible liberar la mesa. Inténtalo de nuevo.'), 'error');
   }
 };
 

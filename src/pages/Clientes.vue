@@ -460,7 +460,7 @@ const loadClientes = async () => {
     clientes.value = await billingService.getCustomers()
   } catch (error) {
     console.error('[Clientes] Error al cargar:', error)
-    showMessage(errorMessage(error, 'Error al cargar clientes'), 'error')
+    showMessage(errorMessage(error, 'No fue posible cargar los clientes. Inténtalo de nuevo.'), 'error')
   } finally {
     loading.value = false
   }
@@ -503,7 +503,7 @@ const save = async () => {
     loadClientes()
   } catch (error) {
     console.error('[Clientes] Error al guardar:', error)
-    showMessage(errorMessage(error, 'Error al guardar cliente'), 'error')
+    showMessage(errorMessage(error, 'No fue posible guardar el cliente. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -518,7 +518,7 @@ const deleteCliente = async (cliente: Customer) => {
     loadClientes()
   } catch (error) {
     console.error('[Clientes] Error al eliminar:', error)
-    showMessage(errorMessage(error, 'Error al eliminar cliente'), 'error')
+    showMessage(errorMessage(error, 'No fue posible eliminar el cliente. Inténtalo de nuevo.'), 'error')
   }
 }
 
@@ -572,7 +572,7 @@ const loadSuppliers = async () => {
     suppliers.value = await billingService.getSuppliers()
   } catch (error) {
     console.error('[Proveedores] Error al cargar:', error)
-    showMessage(errorMessage(error, 'Error al cargar proveedores'), 'error')
+    showMessage(errorMessage(error, 'No fue posible cargar los proveedores. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingSuppliers.value = false
   }
@@ -613,7 +613,7 @@ const saveSupplier = async () => {
     loadSuppliers()
   } catch (error) {
     console.error('[Proveedores] Error al guardar:', error)
-    showMessage(errorMessage(error, 'Error al guardar proveedor'), 'error')
+    showMessage(errorMessage(error, 'No fue posible guardar el proveedor. Inténtalo de nuevo.'), 'error')
   } finally {
     savingSupplier.value = false
   }
@@ -629,7 +629,7 @@ const deleteSupplier = async (supplier: Supplier) => {
     loadSuppliers()
   } catch (error) {
     console.error('[Proveedores] Error al eliminar:', error)
-    showMessage(errorMessage(error, 'Error al eliminar proveedor'), 'error')
+    showMessage(errorMessage(error, 'No fue posible eliminar el proveedor. Inténtalo de nuevo.'), 'error')
   }
 }
 

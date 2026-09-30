@@ -422,8 +422,7 @@ const loadPeriod = async () => {
     if (current !== periodRequest) return
     salesPeriod.value = null
     topPeriod.value = null
-    periodError.value = error?.response?.data?.message
-      ?? 'No se pudieron cargar las ventas del periodo. Intenta de nuevo.'
+    periodError.value = errorMessage(error, 'No fue posible cargar las ventas del periodo. Inténtalo de nuevo.')
   } finally {
     if (current === periodRequest) periodLoading.value = false
   }

@@ -238,7 +238,7 @@ const loadData = async () => {
     itemsMenu.value = itemsData;
   } catch (error: any) {
     console.error('[Categorias] Error al cargar datos:', error);
-    showMessage(errorMessage(error, 'Error al cargar datos: ') + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'No fue posible cargar la información. Inténtalo de nuevo.'), 'error');
   } finally {
     loading.value = false;
   }
@@ -291,7 +291,7 @@ const save = async () => {
     loadData();
   } catch (error: any) {
     console.error('[Categorias] Error al guardar:', error);
-    showMessage(errorMessage(error, 'Error al guardar: ') + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -316,7 +316,7 @@ const deleteCategoria = async (categoria: Category) => {
     loadData();
   } catch (error: any) {
     console.error('[Categorias] Error al eliminar:', error);
-    showMessage(errorMessage(error, 'Error al eliminar: ') + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
   }
 };
 

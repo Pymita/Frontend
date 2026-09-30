@@ -480,7 +480,7 @@ const load = async () => {
       report.value = await salesService.report(filters.value)
     }
   } catch (error) {
-    snackbar.value = { show: true, text: errorMessage(error, 'No se pudieron cargar las ventas. Intenta de nuevo.') }
+    snackbar.value = { show: true, text: errorMessage(error, 'No fue posible cargar las ventas. Inténtalo de nuevo.') }
   } finally {
     loading.value = false
   }
@@ -493,7 +493,7 @@ const exportExcel = async () => {
   try {
     if (view.value !== 'cash') await salesService.export(filters.value, view.value)
   } catch (error) {
-    snackbar.value = { show: true, text: errorMessage(error, 'No se pudo descargar el Excel. Intenta de nuevo.') }
+    snackbar.value = { show: true, text: errorMessage(error, 'No fue posible descargar el Excel. Inténtalo de nuevo.') }
   } finally {
     exporting.value = false
   }

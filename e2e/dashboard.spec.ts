@@ -194,3 +194,17 @@ test('capturas del tablero en escritorio y en celular', async ({ page }) => {
   await page.waitForTimeout(300)
   await page.screenshot({ path: '../screenshots/mobile-sin-menu.png', fullPage: true })
 })
+
+test('si el resumen no carga lo dice y deja reintentar, en vez de quedar en blanco', async ({ page }) => {
+  await loginUI(page, ADMIN.email, ADMIN.password)
+
+  await page.route('**/api/dashboard/stats', route => route.abort())
+  await page.reload()
+  const alert = page.getByRole('alert').filter({ hasText: 'No hay conexión con el servidor' })
+  await expect(alert).toContainText('Revisa tu internet e inténtalo de nuevo.')
+
+  await page.unroute('**/api/dashboard/stats')
+  await alert.getByRole('button', { name: 'Reintentar' }).click()
+  await expect(alert).toHaveCount(0)
+  await expect(page.getByText('Pedidos hoy', { exact: true })).toBeVisible()
+})

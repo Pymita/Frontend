@@ -261,7 +261,7 @@ const loadGrupos = async () => {
   try {
     grupos.value = await variantGroupsService.getAll();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al cargar grupos'), 'error');
+    showMessage(errorMessage(error, 'No fue posible cargar los grupos de variantes. Inténtalo de nuevo.'), 'error');
   }
 };
 
@@ -271,7 +271,7 @@ const loadTipos = async () => {
   try {
     tipos.value = await variantsService.getAll(selectedGrupo.value.id);
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al cargar tipos'), 'error');
+    showMessage(errorMessage(error, 'No fue posible cargar las variantes. Inténtalo de nuevo.'), 'error');
   } finally {
     loadingTipos.value = false;
   }
@@ -311,7 +311,7 @@ const saveGrupo = async () => {
     grupoDialog.value = false;
     loadGrupos();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al guardar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -328,7 +328,7 @@ const deleteGrupo = async (grupo: VariantGroup) => {
     }
     loadGrupos();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al eliminar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
   }
 };
 
@@ -379,7 +379,7 @@ const saveTipo = async () => {
     tipoDialog.value = false;
     loadTipos();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al guardar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -392,7 +392,7 @@ const deleteTipo = async (tipo: Variant) => {
     showMessage('Tipo eliminado');
     loadTipos();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al eliminar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
   }
 };
 

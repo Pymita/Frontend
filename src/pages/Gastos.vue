@@ -502,7 +502,7 @@ const loadExpenses = async () => {
     })
   } catch (error) {
     console.error('[Gastos] Error al cargar:', error)
-    showMessage(errorMessage(error, 'Error al cargar gastos'), 'error')
+    showMessage(errorMessage(error, 'No fue posible cargar los gastos. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingExpenses.value = false
   }
@@ -515,7 +515,7 @@ const loadCategorias = async () => {
     console.log('[Gastos] Categorías cargadas:', categorias.value)
   } catch (error) {
     console.error('[Gastos] Error al cargar categorías:', error)
-    showMessage(errorMessage(error, 'Error al cargar categorías'), 'error')
+    showMessage(errorMessage(error, 'No fue posible cargar las categorías. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingCategorias.value = false
   }
@@ -530,7 +530,7 @@ const loadResumen = async () => {
     })
   } catch (error) {
     console.error('[Gastos] Error al cargar resumen:', error)
-    showMessage(errorMessage(error, 'Error al cargar resumen'), 'error')
+    showMessage(errorMessage(error, 'No fue posible cargar el resumen. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingResumen.value = false
   }
@@ -572,7 +572,7 @@ const saveExpense = async () => {
     loadResumen()
   } catch (error) {
     console.error('[Gastos] Error al guardar:', error)
-    showMessage(errorMessage(error, 'Error al guardar gasto'), 'error')
+    showMessage(errorMessage(error, 'No fue posible guardar el gasto. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -588,7 +588,7 @@ const deleteExpense = async (expense: Expense) => {
     loadResumen()
   } catch (error) {
     console.error('[Gastos] Error al eliminar:', error)
-    showMessage(errorMessage(error, 'Error al eliminar gasto'), 'error')
+    showMessage(errorMessage(error, 'No fue posible eliminar el gasto. Inténtalo de nuevo.'), 'error')
   }
 }
 
@@ -624,7 +624,7 @@ const saveCategoria = async () => {
     loadCategorias()
   } catch (error) {
     console.error('[Gastos] Error al guardar categoría:', error)
-    showMessage(errorMessage(error, 'Error al guardar categoría'), 'error')
+    showMessage(errorMessage(error, 'No fue posible guardar la categoría. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -639,7 +639,7 @@ const deleteCategoria = async (categoria: ExpenseCategory) => {
     loadCategorias()
   } catch (error) {
     console.error('[Gastos] Error al eliminar categoría:', error)
-    showMessage(errorMessage(error, 'Error al eliminar categoría'), 'error')
+    showMessage(errorMessage(error, 'No fue posible eliminar la categoría. Inténtalo de nuevo.'), 'error')
   }
 }
 

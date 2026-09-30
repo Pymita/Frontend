@@ -176,6 +176,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref } from 'vue'
 import usersService, { type CompanyUser } from '../services/usersService'
 import { ALL_FEATURES, type Feature } from '../types/auth'
@@ -236,8 +237,8 @@ const load = async () => {
   loading.value = true
   try {
     users.value = await usersService.list()
-  } catch {
-    notify('Error al cargar los empleados', 'error')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar los empleados. Inténtalo de nuevo.'), 'error')
   } finally {
     loading.value = false
   }
@@ -326,7 +327,7 @@ const save = async () => {
     dialog.value = false
     await load()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al guardar el empleado', 'error')
+    notify(errorMessage(error, 'No fue posible guardar el empleado. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }

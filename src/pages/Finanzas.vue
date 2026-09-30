@@ -269,6 +269,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref } from 'vue'
 import kardexService, {
   type BalanceReport,
@@ -312,7 +313,7 @@ const loadIncome = async () => {
   try {
     income.value = await kardexService.incomeStatement(from.value, to.value)
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al cargar el estado de resultados')
+    notify(errorMessage(error, 'No fue posible cargar el estado de resultados. Inténtalo de nuevo.'))
   } finally {
     loadingIncome.value = false
   }
@@ -364,7 +365,7 @@ const loadMovements = async () => {
     movements.value = data.movements
     kinds.value = data.kinds
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al cargar los movimientos')
+    notify(errorMessage(error, 'No fue posible cargar los movimientos. Inténtalo de nuevo.'))
   }
 }
 
@@ -402,7 +403,7 @@ const saveMovement = async () => {
     movementDialog.value = false
     await refreshAll()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al guardar el movimiento')
+    notify(errorMessage(error, 'No fue posible guardar el movimiento. Inténtalo de nuevo.'))
   } finally {
     savingMovement.value = false
   }
@@ -415,7 +416,7 @@ const removeMovement = async (movement: FinancialMovement) => {
     await kardexService.deleteMovement(movement.id)
     await refreshAll()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al eliminar el movimiento')
+    notify(errorMessage(error, 'No fue posible eliminar el movimiento. Inténtalo de nuevo.'))
   }
 }
 
@@ -428,7 +429,7 @@ const loadBalance = async () => {
   try {
     balance.value = await kardexService.balance()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al cargar el balance')
+    notify(errorMessage(error, 'No fue posible cargar el balance. Inténtalo de nuevo.'))
   }
 }
 

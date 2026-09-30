@@ -724,6 +724,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import platformService from '../services/platformService'
@@ -814,8 +815,8 @@ const loadCompanies = async () => {
   loading.value = true
   try {
     companies.value = await platformService.listCompanies()
-  } catch {
-    notify('Error al cargar las empresas', 'error')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar las empresas. Inténtalo de nuevo.'), 'error')
   } finally {
     loading.value = false
   }
@@ -909,7 +910,7 @@ const saveCompany = async () => {
     notify('Empresa creada exitosamente')
     await loadCompanies()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al crear la empresa', 'error')
+    notify(errorMessage(error, 'No fue posible crear la empresa. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -937,8 +938,8 @@ const openDetailDialog = async (company: PlatformCompany) => {
   loadingDetail.value = true
   try {
     detail.value = await platformService.getCompany(company.id)
-  } catch {
-    notify('Error al cargar el detalle de la empresa', 'error')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar el detalle de la empresa. Inténtalo de nuevo.'), 'error')
     detailDialog.value = false
   } finally {
     loadingDetail.value = false
@@ -980,7 +981,7 @@ const saveDetail = async () => {
     await loadCompanies()
     detail.value = await platformService.getCompany(detail.value.id)
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al actualizar la empresa', 'error')
+    notify(errorMessage(error, 'No fue posible actualizar la empresa. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -1042,7 +1043,7 @@ const saveSubscription = async () => {
     await loadCompanies()
     selectedCompany.value = companies.value.find(c => c.id === selectedCompany.value?.id) ?? null
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al guardar la suscripción', 'error')
+    notify(errorMessage(error, 'No fue posible guardar la suscripción. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -1066,7 +1067,7 @@ const savePayment = async () => {
     subscriptionDialog.value = false
     await loadCompanies()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al registrar el pago', 'error')
+    notify(errorMessage(error, 'No fue posible registrar el pago. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -1082,7 +1083,7 @@ const confirmToggle = async (company: PlatformCompany) => {
     notify(company.active ? 'Empresa desactivada' : 'Empresa reactivada')
     await loadCompanies()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al cambiar el estado', 'error')
+    notify(errorMessage(error, 'No fue posible cambiar el estado. Inténtalo de nuevo.'), 'error')
   }
 }
 
@@ -1127,8 +1128,8 @@ const loadSellers = async () => {
   loadingSellers.value = true
   try {
     sellers.value = await platformService.listSellers()
-  } catch {
-    notify('Error al cargar los vendedores', 'error')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar los vendedores. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingSellers.value = false
   }
@@ -1138,8 +1139,8 @@ const loadStats = async () => {
   loadingStats.value = true
   try {
     sellerStats.value = await platformService.sellerStats()
-  } catch {
-    notify('Error al cargar las estadísticas', 'error')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar las estadísticas. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingStats.value = false
   }
@@ -1180,7 +1181,7 @@ const saveSeller = async () => {
     sellerDialog.value = false
     await loadSellers()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al guardar el vendedor', 'error')
+    notify(errorMessage(error, 'No fue posible guardar el vendedor. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }

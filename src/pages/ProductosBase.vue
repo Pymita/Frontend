@@ -849,7 +849,7 @@ const updateStock = async () => {
     stockMotivo.value = '';
     loadData();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al registrar el ajuste'), 'error');
+    showMessage(errorMessage(error, 'No fue posible registrar el ajuste. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -924,7 +924,7 @@ const loadData = async () => {
   } catch (error: any) {
     console.error('[ProductosBase] Error al cargar datos:', error);
     console.error('[ProductosBase] Error response:', error.response);
-    showMessage(errorMessage(error, 'Error al cargar datos: ') + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'No fue posible cargar la información. Inténtalo de nuevo.'), 'error');
   } finally {
     loading.value = false;
   }
@@ -1066,7 +1066,7 @@ const save = async () => {
     loadData();
   } catch (error: any) {
     console.error('[ProductosBase] Error al guardar:', error);
-    showMessage(error.response?.data?.message || 'Error al guardar', 'error');
+    showMessage(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -1079,7 +1079,7 @@ const deleteProduct = async (product: Product) => {
     showMessage('Producto eliminado');
     loadData();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al eliminar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
   }
 };
 
@@ -1093,8 +1093,8 @@ const toggleMenuAvailability = async (product: Product) => {
     const updated = await menuItemsService.toggleAvailability(product.menu_item.id);
     product.menu_item.available = updated.available;
     showMessage(updated.available ? 'Visible en el menú' : 'Oculto del menú');
-  } catch {
-    showMessage('No se pudo cambiar la disponibilidad', 'error');
+  } catch (error) {
+    showMessage(errorMessage(error, 'No se pudo cambiar la disponibilidad'), 'error');
   }
 };
 
