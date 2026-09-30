@@ -3,7 +3,7 @@
     <!-- Pedidos sin cobrar de días anteriores: es plata que se pierde si
          nadie la ve. Va arriba de todo, antes de cualquier estadística. -->
     <v-alert
-      v-if="!loading && overduePending.length > 0"
+      v-if="!loading && overdueCount > 0"
       type="warning"
       variant="tonal"
       icon="mdi-alert-circle"
@@ -12,9 +12,9 @@
       <div class="d-flex align-center flex-wrap ga-3">
         <div>
           <div class="font-weight-bold">
-            {{ overduePending.length === 1
+            {{ overdueCount === 1
               ? 'Hay 1 pedido pendiente de cobro de un día anterior'
-              : `Hay ${overduePending.length} pedidos pendientes de cobro de días anteriores` }}
+              : `Hay ${overdueCount} pedidos pendientes de cobro de días anteriores` }}
           </div>
           <div class="text-body-2">
             Suman {{ money(overduePendingTotal) }} por cobrar. Revísalos y ciérralos para que la caja cuadre.
@@ -327,11 +327,10 @@ const dashStats = ref<DashboardStats>({
   sales_month: 0,
   active_products: 0,
   low_stock: 0,
+  overdue_pending: { count: 0, balance: 0 },
 })
 
 const recentOrders = ref<Order[]>([])
-// Pendientes de cobro creados antes de hoy (los cancelados no cuentan).
-const overduePending = ref<Order[]>([])
 const lowStockProducts = ref<LowStockProduct[]>([])
 
 const money = (value: number | string | null | undefined): string =>
@@ -341,16 +340,9 @@ const money = (value: number | string | null | undefined): string =>
 const quantity = (value: number | string | null | undefined): string =>
   Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 })
 
-const overduePendingTotal = computed(() =>
-  overduePending.value.reduce((sum, o) => sum + Number(o.pending_balance ?? o.total ?? 0), 0),
-)
-
-const isOverduePending = (order: Order): boolean => {
-  if (order.payment_status === 'paid' || order.status === 'cancelled') return false
-  const now = new Date()
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  return new Date(order.created_at).getTime() < startOfToday
-}
+// Pendientes de cobro creados antes de hoy (los cancelados no cuentan).
+const overdueCount = computed(() => dashStats.value.overdue_pending?.count ?? 0)
+const overduePendingTotal = computed(() => dashStats.value.overdue_pending?.balance ?? 0)
 const loading = ref(true)
 
 type Period = 'week' | 'month' | 'range'
@@ -564,17 +556,15 @@ const loadData = async () => {
   loadError.value = ''
   loadSetup()
   try {
-    const [stats, orders, pending, stock] = await Promise.all([
+    const [stats, recent, stock] = await Promise.all([
       dashboardService.getStats(),
-      ordersService.getAll({ today: true }),
-      ordersService.getAll({ pending_payment: true }),
+      ordersService.getPage({ page: 1, per_page: 4, today: true }),
       dashboardService.getLowStock(),
       loadPeriod(),
     ])
 
     dashStats.value = stats
-    recentOrders.value = orders.slice(0, 4) // Últimos 4 pedidos
-    overduePending.value = pending.filter(isOverduePending)
+    recentOrders.value = recent.data
     lowStockProducts.value = stock
   } catch (error) {
     loadError.value = errorMessage(error, 'No pudimos cargar el resumen del negocio. Revisa tu conexión y vuelve a intentar.')

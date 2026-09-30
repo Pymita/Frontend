@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, field, loginUI } from './helpers'
+import { ADMIN, API, apiLogin, field, loginUI } from './helpers'
 
 /**
  * El tipo de persona y "cliente frecuente" se guardan: antes el backend los
@@ -64,4 +64,44 @@ test('la pestaña Proveedores trae el proveedor por defecto y permite crear otro
 
   await expect(page.getByText('Proveedor creado exitosamente')).toBeVisible()
   await expect(page.locator('tr', { hasText: nombre })).toBeVisible()
+})
+
+/**
+ * La lista pagina en el servidor: el buscador consulta al backend, así que
+ * encuentra un cliente aunque esté en otra página, y el pie cuenta el total real.
+ */
+test('los clientes se ven por páginas y el buscador encuentra los de otra página', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const prefix = `Paginado ${Date.now()}`
+  for (let n = 1; n <= 12; n++) {
+    const created = await request.post(`${API}/customers`, {
+      headers: auth,
+      data: { document_type: 'CC', document_number: `${Date.now()}${n}`, name: `${prefix} ${String(n).padStart(2, '0')}` },
+    })
+    expect(created.status()).toBe(201)
+  }
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/clientes')
+  const searched = page.waitForRequest(r => r.url().includes('/api/customers?') && r.url().includes('q='))
+  await page.getByRole('textbox', { name: 'Buscar cliente' }).fill(prefix)
+  expect((await searched).url()).toContain('per_page=')
+
+  const rows = page.locator('tbody tr', { hasText: prefix })
+  await expect(page.getByText('1-12 de 12')).toBeVisible()
+
+  await page.locator('.v-data-table-footer__items-per-page .v-select').click()
+  await page.getByRole('option', { name: '10', exact: true }).click()
+  await expect(page.getByText('1-10 de 12')).toBeVisible()
+  await expect(rows).toHaveCount(10)
+
+  await page.getByRole('button', { name: 'Página siguiente' }).click()
+  await expect(page.getByText('11-12 de 12')).toBeVisible()
+  await expect(rows).toHaveCount(2)
+
+  // Lo más reciente va primero: el 01 quedó en la segunda página y el buscador lo trae.
+  await page.getByRole('textbox', { name: 'Buscar cliente' }).fill(`${prefix} 01`)
+  await expect(page.getByText('1-1 de 1')).toBeVisible()
+  await expect(rows).toHaveText([new RegExp(`${prefix} 01`)])
 })

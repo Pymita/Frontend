@@ -204,3 +204,50 @@ test('desde el plano se ve el pedido de la mesa y se gestiona ahí mismo', async
   expect(paid.payment_status).toBe('paid')
   expect(Number(paid.total)).toBe(6000)
 })
+
+/**
+ * Pedidos se refresca solo cada pocos segundos: pide únicamente la página
+ * visible (nunca la lista completa) y el buscador encuentra un pedido por su
+ * número aunque esté en otra página.
+ */
+test('la lista de pedidos pide solo la página visible, también al refrescarse sola', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const { productId } = await seedMenuItem(request, auth, `Empanada Página ${Date.now()}`, 2468)
+  const ids: number[] = []
+  for (let n = 0; n < 11; n++) {
+    const created = await request.post(`${API}/orders`, {
+      headers: auth,
+      data: { items: [{ product_id: productId, quantity: 1 }] },
+    })
+    expect(created.status()).toBe(201)
+    ids.push((await created.json()).data.id)
+  }
+
+  const listRequests: string[] = []
+  page.on('request', r => {
+    if (/\/api\/orders(\?|$)/.test(r.url())) listRequests.push(r.url())
+  })
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  await page.locator('.v-data-table-footer__items-per-page .v-select').click()
+  await page.getByRole('option', { name: '10', exact: true }).click()
+  await expect(page.getByText(/^1-10 de \d+$/)).toBeVisible()
+  await expect(page.locator('tbody tr', { hasText: '$2.468' })).toHaveCount(10)
+
+  await page.getByRole('button', { name: 'Página siguiente' }).click()
+  await expect(page.getByText(/^11-\d+ de \d+$/)).toBeVisible()
+
+  // El primero de los once quedó en la segunda página; por número aparece solo.
+  await page.getByRole('textbox', { name: 'Buscar mesa o pedido' }).fill(`#${ids[0]}`)
+  await expect(page.getByText('1-1 de 1')).toBeVisible()
+
+  // Un pedido nuevo llega por el refresco en vivo, que también pide una página.
+  const refreshed = page.waitForRequest(r => /\/api\/orders\?/.test(r.url()) && r.url().includes(`q=%23${ids[0]}`), { timeout: 15_000 })
+  await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: productId, quantity: 1 }] } })
+  await refreshed
+
+  expect(listRequests.length).toBeGreaterThan(0)
+  expect(listRequests.filter(url => !url.includes('per_page='))).toEqual([])
+})

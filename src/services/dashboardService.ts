@@ -7,6 +7,8 @@ export interface DashboardStats {
   sales_month: number;
   active_products: number;
   low_stock: number;
+  /** Pendientes de cobro creados antes de hoy. */
+  overdue_pending: { count: number; balance: number };
 }
 
 export interface TopProduct {

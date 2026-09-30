@@ -1,4 +1,5 @@
 import api from './api'
+import type { PageQuery, PaginatedResponse } from '@/types/api'
 import type { PaymentMethod } from './salesService'
 import type { DocumentBusiness, DocumentResolution, PrintableReceipt } from '../utils/printDocuments'
 
@@ -258,6 +259,12 @@ export const billingService = {
   async getCustomers(): Promise<Customer[]> {
     const response = await api.get<ApiResponse<Customer[]>>('/customers')
     return response.data.data
+  },
+
+  /** Una página de clientes (búsqueda por nombre, documento, correo o teléfono en `q`). */
+  async getCustomersPage(query: PageQuery): Promise<PaginatedResponse<Customer>> {
+    const response = await api.get<PaginatedResponse<Customer>>('/customers', { params: query })
+    return response.data
   },
 
   async getCustomer(id: number): Promise<Customer> {

@@ -3,10 +3,10 @@
     <!-- Dentro del plano del salón: la mesa elegida, sin encabezado ni filtros. -->
     <div v-if="embedded" class="d-flex align-center justify-space-between flex-wrap ga-2 mb-3">
       <span class="text-body-2 text-medium-emphasis">
-        {{ filteredOrders.length ? 'Pedido abierto de la mesa' : 'La mesa no tiene pedidos por cobrar.' }}
+        {{ orders.length ? 'Pedido abierto de la mesa' : 'La mesa no tiene pedidos por cobrar.' }}
       </span>
       <LockableButton
-        v-if="canManageOrders && !filteredOrders.length"
+        v-if="canManageOrders && !orders.length"
         icon="mdi-plus"
         color="primary"
         @click="openNuevoPedidoDialog"
@@ -43,7 +43,7 @@
 
     <!-- Pendientes de otros días: lo más urgente de la página. -->
     <v-alert
-      v-if="!embedded && overdueOrders.length > 0"
+      v-if="!embedded && overdueCount > 0"
       type="warning"
       variant="tonal"
       density="compact"
@@ -52,8 +52,8 @@
     >
       <div class="d-flex align-center flex-wrap ga-2">
         <span>
-          <strong>{{ overdueOrders.length }}</strong>
-          {{ overdueOrders.length === 1
+          <strong>{{ overdueCount }}</strong>
+          {{ overdueCount === 1
             ? 'pedido pendiente de cobro de un día anterior'
             : 'pedidos pendientes de cobro de días anteriores' }}:
           revísalos antes de seguir. En la lista quedan resaltados.
@@ -79,7 +79,8 @@
                 <v-text-field
                   v-model="search"
                   prepend-inner-icon="mdi-magnify"
-                  label="Buscar mesa (número o nombre)"
+                  label="Buscar mesa o pedido"
+                  placeholder="Mesa 3, Terraza o #120"
                   single-line
                   hide-details
                   clearable
@@ -120,10 +121,15 @@
             </v-row>
           </v-card-title>
           
-          <v-data-table
+          <v-data-table-server
             v-model:expanded="expanded"
+            v-model:page="page"
+            v-model:items-per-page="perPage"
+            v-model:sort-by="sortBy"
             :headers="headers"
-            :items="filteredOrders"
+            :items="orders"
+            :items-length="ordersTotal"
+            :items-per-page-options="PAGE_SIZE_OPTIONS"
             :loading="loading"
             :row-props="rowProps"
             :hide-default-footer="embedded"
@@ -410,7 +416,7 @@
                 </td>
               </tr>
             </template>
-          </v-data-table>
+          </v-data-table-server>
         </v-card>
       </v-col>
     </v-row>
@@ -1113,6 +1119,8 @@ import { tablesService } from '@/services/tablesService';
 import { effectiveFeatures } from '@/types/auth';
 import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/utils/orderLines';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
+import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage';
+import type { PageQuery, PaginatedResponse } from '@/types/api';
 import type { OrderGuest } from '@/services/ordersService';
 
 // El plano del salón monta esta misma página para una mesa: se gestiona el
@@ -1120,12 +1128,9 @@ import type { OrderGuest } from '@/services/ordersService';
 const props = defineProps<{ tableId?: number | null; embedded?: boolean }>();
 const emit = defineEmits<{ changed: [] }>();
 
-const orders = ref<Order[]>([]);
 // Vuetify lo tipa como string[], pero compara contra item-value (el id numérico).
 const expanded = ref<any[]>([]);
-const loading = ref(true);
 const saving = ref(false);
-const search = ref('');
 // Por defecto: TODO lo pendiente de cobro, de cualquier día. Un pedido de
 // ayer sin cobrar es plata que se pierde si solo se ve lo de hoy.
 const filterPago = ref<'pending' | 'paid' | 'all'>('pending');
@@ -1167,10 +1172,9 @@ const startOfToday = () => {
 const isOverdue = (order: Order) =>
   isOpen(order) && new Date(order.created_at).getTime() < startOfToday();
 
-// Pendientes de otros días. Cuando la lista ya trae todos los pendientes se
-// derivan de ahí; si no (pagados, solo hoy), se consultan aparte para que la
-// alerta no desaparezca al cambiar de filtro.
-const overdueOrders = ref<Order[]>([]);
+// Pendientes de otros días: solo el conteo, con una consulta aparte para que
+// la alerta no dependa de la página ni del filtro que se esté viendo.
+const overdueCount = ref(0);
 const showsAllPending = computed(() => filterPago.value === 'pending' && !hasDateRange.value);
 
 const verTodosLosPendientes = () => {
@@ -1288,9 +1292,9 @@ const snackbarText = ref('');
 const snackbarColor = ref('success');
 
 const headers = [
-  { title: 'Mesa', key: 'dining_table' },
+  { title: 'Mesa', key: 'dining_table', sortable: false },
   // Quién atiende la mesa es lo operativo; el cliente casi nunca se llena.
-  { title: 'Mesero', key: 'waiter' },
+  { title: 'Mesero', key: 'waiter', sortable: false },
   { title: 'Estado', key: 'status' },
   { title: 'Pago', key: 'payment_status' },
   { title: 'Total', key: 'total' },
@@ -1298,35 +1302,6 @@ const headers = [
   { title: 'Fecha', key: 'created_at', width: 130 },
   { title: '', key: 'actions', sortable: false, align: 'end' as const, width: 200 },
 ];
-
-const filteredOrders = computed(() => {
-  let result = orders.value;
-
-  if (filterPago.value === 'pending') {
-    // Un pedido cancelado no está "por cobrar" aunque su pago siga en pendiente.
-    result = result.filter(isOpen);
-  } else if (filterPago.value === 'paid') {
-    result = result.filter(o => o.payment_status === 'paid');
-  }
-
-  // Búsqueda por mesa (contiene, sin distinguir mayúsculas): "3" encuentra
-  // "Mesa 3" y "Mesa 13"; "terra" encuentra "Terraza 1". También por # de pedido.
-  const query = (search.value || '').trim().toLowerCase();
-  if (query) {
-    result = result.filter(o => {
-      const table = o.dining_table;
-      const haystack = [
-        table?.display_name ?? '',
-        table ? `mesa ${table.number}` : 'sin mesa',
-        `#${o.id}`,
-        String(o.id),
-      ].join(' ').toLowerCase();
-      return haystack.includes(query);
-    });
-  }
-
-  return result;
-});
 
 const showMessage = (text: string, color = 'success') => {
   snackbarText.value = text;
@@ -1453,40 +1428,66 @@ const stopTime = async (order: Order) => {
   }
 };
 
-const loadOrders = async (silent = false) => {
-  if (!silent) loading.value = true;
-  try {
-    // El filtro de pago se manda al backend: "todos" sin fechas sería
-    // traer el histórico completo cada vez que se abre la página.
-    const filters = {
+// La lista pagina en el servidor: el refresco en vivo trae solo la página
+// visible. Desde el plano del salón van completos los pedidos abiertos de la mesa.
+const fetchOrders = async (query: PageQuery): Promise<PaginatedResponse<Order>> => {
+  if (props.embedded) {
+    const data = await ordersService.getAll({
       ...(props.tableId ? { dining_table_id: props.tableId } : {}),
-      ...(dateFrom.value ? { from: dateFrom.value } : {}),
-      ...(dateTo.value ? { to: dateTo.value } : {}),
-      ...(filterPago.value === 'pending' ? { pending_payment: true } : {}),
-      ...(filterPago.value === 'paid' ? { payment_status: 'paid' } : {}),
-    };
+      open: true,
+    });
+    return { data, meta: { current_page: 1, per_page: data.length, total: data.length, last_page: 1 } };
+  }
 
-    const [list, pending] = await Promise.all([
-      ordersService.getAll(filters),
-      showsAllPending.value || props.embedded ? null : ordersService.getAll({ pending_payment: true }),
-    ]);
+  return ordersService.getPage({
+    ...query,
+    ...(dateFrom.value ? { from: dateFrom.value } : {}),
+    ...(dateTo.value ? { to: dateTo.value } : {}),
+    // Un pedido cancelado no está "por cobrar" aunque su pago siga en pendiente.
+    ...(filterPago.value === 'pending' ? { open: true } : {}),
+    ...(filterPago.value === 'paid' ? { payment_status: 'paid' } : {}),
+  });
+};
 
-    orders.value = list;
-    overdueOrders.value = (pending ?? list).filter(isOverdue);
+const {
+  items: orders,
+  total: ordersTotal,
+  page,
+  perPage,
+  sortBy,
+  search,
+  loading,
+  load,
+} = useServerPage<Order>(fetchOrders, {
+  filters: [dateFrom, dateTo, filterPago],
+  onError: error =>
+    showMessage(errorMessage(error, 'No fue posible cargar los pedidos. Inténtalo de nuevo.'), 'error'),
+});
 
-    if (props.embedded) {
-      // Con una sola mesa, el detalle del pedido va abierto de entrada.
-      expanded.value = list.filter(isOpen).map(order => order.id);
-      if (!silent) emit('changed');
-    }
-  } catch (error) {
-    showMessage(errorMessage(error, 'No fue posible cargar los pedidos. Inténtalo de nuevo.'), 'error');
-  } finally {
-    loading.value = false;
+const localYesterday = () => {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  return date.toLocaleDateString('en-CA');
+};
+
+const loadOverdueCount = async () => {
+  try {
+    const result = await ordersService.getPage({ page: 1, per_page: 1, open: true, to: localYesterday() });
+    overdueCount.value = result.meta.total;
+  } catch {
+    // Sin conexión la lista ya muestra el error; el aviso se actualiza en el siguiente refresco.
   }
 };
 
-watch([dateFrom, dateTo, filterPago], () => loadOrders());
+const loadOrders = async (silent = false) => {
+  await Promise.all([load({ silent }), props.embedded ? null : loadOverdueCount()]);
+
+  if (props.embedded) {
+    // Con una sola mesa, el detalle del pedido va abierto de entrada.
+    expanded.value = orders.value.filter(isOpen).map(order => order.id);
+    if (!silent) emit('changed');
+  }
+};
 
 const getStatusColor = (status: string) => orderStatusColors[status] || 'secondary';
 

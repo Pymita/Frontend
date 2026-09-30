@@ -1,4 +1,5 @@
 import api from './api';
+import type { PageQuery, PaginatedResponse } from '@/types/api';
 
 export type ProductType = 'raw_material' | 'intermediate' | 'final';
 
@@ -77,6 +78,14 @@ class ProductsService {
     if (inMenu !== undefined) params.in_menu = inMenu ? 1 : 0;
     const response = await api.get('/products', { params });
     return response.data.data;
+  }
+
+  /** Una página de la tabla de productos (búsqueda por nombre, SKU o código en `q`). */
+  async getPage(
+    query: PageQuery & { type?: string; category_id?: number; in_menu?: 0 | 1 },
+  ): Promise<PaginatedResponse<Product>> {
+    const response = await api.get<PaginatedResponse<Product>>('/products', { params: query });
+    return response.data;
   }
 
   async getById(id: number): Promise<Product> {

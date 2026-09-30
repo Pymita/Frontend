@@ -1,4 +1,5 @@
 import api from './api';
+import type { PageQuery, PaginatedResponse } from '@/types/api';
 import type { PaymentMethod } from './salesService';
 
 export type PaymentStatus = 'pending' | 'paid' | 'partial';
@@ -174,6 +175,8 @@ interface ApiResponse<T> {
 interface OrderFilters {
   active?: boolean;
   pending_payment?: boolean;
+  /** Por cobrar: pendiente o parcial y no cancelado. */
+  open?: boolean;
   today?: boolean;
   dining_table_id?: number;
   /** Creado desde / hasta (AAAA-MM-DD) */
@@ -187,6 +190,12 @@ export const ordersService = {
   async getAll(filters?: OrderFilters): Promise<Order[]> {
     const response = await api.get<ApiResponse<Order[]>>('/orders', { params: filters });
     return response.data.data;
+  },
+
+  /** Una página de la lista (búsqueda por mesa o número de pedido en `q`). */
+  async getPage(query: PageQuery & OrderFilters): Promise<PaginatedResponse<Order>> {
+    const response = await api.get<PaginatedResponse<Order>>('/orders', { params: query });
+    return response.data;
   },
 
   async getById(id: number): Promise<Order> {

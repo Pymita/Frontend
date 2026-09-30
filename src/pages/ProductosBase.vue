@@ -49,6 +49,7 @@
                   v-model="search"
                   prepend-inner-icon="mdi-magnify"
                   label="Buscar"
+                  placeholder="Nombre, SKU o código de barras"
                   clearable
                   hide-details
                   density="compact"
@@ -86,11 +87,15 @@
     <v-row>
       <v-col cols="12">
         <v-card>
-          <v-data-table
+          <v-data-table-server
+            v-model:page="page"
+            v-model:items-per-page="perPage"
+            v-model:sort-by="sortBy"
             :headers="headers"
-            :items="filteredProducts"
+            :items="products"
+            :items-length="total"
+            :items-per-page-options="PAGE_SIZE_OPTIONS"
             :loading="loading"
-            :search="search"
             class="elevation-0"
           >
             <template #item.image_url="{ item }">
@@ -216,7 +221,7 @@
                 </template>
               </v-tooltip>
             </template>
-          </v-data-table>
+          </v-data-table-server>
         </v-card>
       </v-col>
     </v-row>
@@ -610,17 +615,15 @@ import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
 import ProductImportDialog from '../components/ProductImportDialog.vue'
 import { useReadOnly } from '../composables/useReadOnly'
+import { PAGE_SIZE_OPTIONS, useServerPage } from '../composables/useServerPage'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
 const isReadOnly = useReadOnly()
 
 const router = useRouter();
 
-const products = ref<Product[]>([]);
 const categorias = ref<Category[]>([]);
-const loading = ref(true);
 const saving = ref(false);
-const search = ref('');
 const tipoFilter = ref('');
 const filterCategoria = ref<number | null>(null);
 const menuFilter = ref<'in_menu' | 'not_in_menu' | null>(null);
@@ -629,6 +632,29 @@ const menuFilterOptions = [
   { title: 'En el menú', value: 'in_menu' },
   { title: 'Sin publicar', value: 'not_in_menu' },
 ];
+
+const {
+  items: products,
+  total,
+  page,
+  perPage,
+  sortBy,
+  search,
+  loading,
+  load: loadProducts,
+} = useServerPage<Product>(
+  query => productsService.getPage({
+    ...query,
+    ...(tipoFilter.value ? { type: tipoFilter.value } : {}),
+    ...(filterCategoria.value ? { category_id: filterCategoria.value } : {}),
+    ...(menuFilter.value ? { in_menu: menuFilter.value === 'in_menu' ? 1 : 0 } : {}),
+  }),
+  {
+    filters: [tipoFilter, filterCategoria, menuFilter],
+    onError: error =>
+      showMessage(errorMessage(error, 'No fue posible cargar los productos. Inténtalo de nuevo.'), 'error'),
+  },
+);
 
 const dialog = ref(false);
 const editing = ref<Product | null>(null);
@@ -709,31 +735,11 @@ const headers = [
   { title: 'Unidad', key: 'unit' },
   { title: 'Costo unitario', key: 'unit_cost' },
   { title: 'Precio venta', key: 'sale_price' },
-  { title: 'Costo estimado', key: 'estimated_cost' },
-  { title: 'Categoría', key: 'category' },
+  { title: 'Costo estimado', key: 'estimated_cost', sortable: false },
+  { title: 'Categoría', key: 'category', sortable: false },
   { title: 'Menú', key: 'in_menu', sortable: false },
   { title: 'Acciones', key: 'actions', sortable: false },
 ];
-
-const filteredProducts = computed(() => {
-  let filtered = products.value;
-  
-  if (tipoFilter.value) {
-    filtered = filtered.filter(p => p.type === tipoFilter.value);
-  }
-  
-  if (filterCategoria.value) {
-    filtered = filtered.filter(p => p.category_id === filterCategoria.value);
-  }
-
-  if (menuFilter.value === 'in_menu') {
-    filtered = filtered.filter(p => p.in_menu);
-  } else if (menuFilter.value === 'not_in_menu') {
-    filtered = filtered.filter(p => !p.in_menu);
-  }
-
-  return filtered;
-});
 
 // Product types are not states: one neutral color, told apart by icon.
 const getTipoIcon = (tipo: string) => {
@@ -847,7 +853,7 @@ const updateStock = async () => {
     stockDialog.value = false;
     stockAjuste.value = 0;
     stockMotivo.value = '';
-    loadData();
+    loadProducts();
   } catch (error) {
     showMessage(errorMessage(error, 'No fue posible registrar el ajuste. Inténtalo de nuevo.'), 'error');
   } finally {
@@ -908,25 +914,16 @@ const formatStockField = (field: 'current_stock' | 'minimum_stock') => {
 };
 
 const loadData = async () => {
-  loading.value = true;
+  loadProducts();
   try {
-    console.log('[ProductosBase] Cargando datos...');
-    const [productsData, categoriasData, taxesData] = await Promise.all([
-      productsService.getAll(),
+    const [categoriasData, taxesData] = await Promise.all([
       productCategoriesService.getAll(),
       kardexService.taxes(),
     ]);
     taxes.value = taxesData;
-    console.log('[ProductosBase] Productos cargados:', productsData.length);
-    console.log('[ProductosBase] Categorías cargadas:', categoriasData.length);
-    products.value = productsData;
     categorias.value = categoriasData;
-  } catch (error: any) {
-    console.error('[ProductosBase] Error al cargar datos:', error);
-    console.error('[ProductosBase] Error response:', error.response);
+  } catch (error) {
     showMessage(errorMessage(error, 'No fue posible cargar la información. Inténtalo de nuevo.'), 'error');
-  } finally {
-    loading.value = false;
   }
 };
 
@@ -1063,7 +1060,7 @@ const save = async () => {
       showMessage('Producto creado');
     }
     dialog.value = false;
-    loadData();
+    loadProducts();
   } catch (error: any) {
     console.error('[ProductosBase] Error al guardar:', error);
     showMessage(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error');
@@ -1077,7 +1074,7 @@ const deleteProduct = async (product: Product) => {
   try {
     await productsService.delete(product.id);
     showMessage('Producto eliminado');
-    loadData();
+    loadProducts();
   } catch (error) {
     showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
   }

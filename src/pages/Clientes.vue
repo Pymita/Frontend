@@ -3,7 +3,7 @@
     <!-- Título -->
     <v-row class="mb-2">
       <v-col cols="12">
-        <div class="d-flex align-center justify-space-between">
+        <div class="d-flex align-center justify-space-between flex-wrap ga-3">
           <div class="d-flex align-center">
             <v-icon size="40" class="mr-3" color="primary">mdi-account-multiple</v-icon>
             <div>
@@ -39,7 +39,8 @@
                     <v-text-field
                       v-model="search"
                       prepend-inner-icon="mdi-magnify"
-                      label="Buscar por nombre o documento"
+                      label="Buscar cliente"
+                      placeholder="Nombre, documento, correo o teléfono"
                       variant="outlined"
                       density="compact"
                       hide-details
@@ -54,11 +55,15 @@
         <v-row class="mt-4">
           <v-col cols="12">
             <v-card>
-              <v-data-table
+              <v-data-table-server
+                v-model:page="page"
+                v-model:items-per-page="perPage"
+                v-model:sort-by="sortBy"
                 :headers="headers"
-                :items="filteredClientes"
+                :items="clientes"
+                :items-length="total"
+                :items-per-page-options="PAGE_SIZE_OPTIONS"
                 :loading="loading"
-                :search="search"
                 class="elevation-0">
                 <template #item.document_type="{ item }">
                   <v-chip size="small" color="primary" variant="outlined">
@@ -100,7 +105,7 @@
                     :disabled="isReadOnly"
                     :aria-label="`Eliminar el cliente ${item.name}`" @click="deleteCliente(item)" />
                 </template>
-              </v-data-table>
+              </v-data-table-server>
             </v-card>
           </v-col>
         </v-row>
@@ -367,10 +372,11 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/errors';
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { billingService, type Customer, type PersonType, type Supplier } from '@/services/billingService'
 import LockableButton from '../components/LockableButton.vue'
 import { useReadOnly } from '../composables/useReadOnly'
+import { PAGE_SIZE_OPTIONS, useServerPage } from '../composables/useServerPage'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
 const isReadOnly = useReadOnly()
@@ -390,12 +396,9 @@ interface ClienteForm {
   frequent_customer: boolean
 }
 
-const clientes = ref<Customer[]>([])
-const loading = ref(false)
 const dialog = ref(false)
 const editing = ref<Customer | null>(null)
 const saving = ref(false)
-const search = ref('')
 
 const snackbar = ref(false)
 const snackbarText = ref('')
@@ -443,28 +446,19 @@ const rules = {
   required: (v: any) => !!v || 'Este campo es requerido',
 }
 
-const filteredClientes = computed(() => {
-  if (!search.value) return clientes.value
-
-  const searchLower = search.value.toLowerCase()
-  return clientes.value.filter(
-    c =>
-      c.name?.toLowerCase().includes(searchLower) ||
-      c.document_number?.toLowerCase().includes(searchLower)
-  )
+const {
+  items: clientes,
+  total,
+  page,
+  perPage,
+  sortBy,
+  search,
+  loading,
+  load: loadClientes,
+} = useServerPage<Customer>(query => billingService.getCustomersPage(query), {
+  onError: error =>
+    showMessage(errorMessage(error, 'No fue posible cargar los clientes. Inténtalo de nuevo.'), 'error'),
 })
-
-const loadClientes = async () => {
-  loading.value = true
-  try {
-    clientes.value = await billingService.getCustomers()
-  } catch (error) {
-    console.error('[Clientes] Error al cargar:', error)
-    showMessage(errorMessage(error, 'No fue posible cargar los clientes. Inténtalo de nuevo.'), 'error')
-  } finally {
-    loading.value = false
-  }
-}
 
 const openDialog = (cliente?: Customer) => {
   editing.value = cliente || null

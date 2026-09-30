@@ -44,7 +44,7 @@
                   color="primary"
                   block
                   :loading="loadingResumen"
-                  @click="loadResumen()">
+                  @click="refresh()">
                   <v-icon start>mdi-refresh</v-icon>
                   Actualizar
                 </v-btn>
@@ -107,7 +107,7 @@
             <v-window v-model="tab">
               <!-- Tab: Gastos -->
               <v-window-item value="expenses">
-                <div class="d-flex justify-space-between align-center mb-4">
+                <div class="d-flex justify-space-between align-center flex-wrap ga-2 mb-4">
                   <LockableButton icon="mdi-plus" color="primary" size="large" @click="openExpenseDialog()">
                     Registrar gasto
                   </LockableButton>
@@ -117,9 +117,28 @@
                   </v-btn>
                 </div>
 
-                <v-data-table
+                <v-row class="mb-2">
+                  <v-col cols="12" md="6">
+                    <v-text-field
+                      v-model="expenseSearch"
+                      prepend-inner-icon="mdi-magnify"
+                      label="Buscar gasto"
+                      placeholder="Concepto, proveedor o factura"
+                      variant="outlined"
+                      density="compact"
+                      hide-details
+                      clearable />
+                  </v-col>
+                </v-row>
+
+                <v-data-table-server
+                  v-model:page="expensePage"
+                  v-model:items-per-page="expensePerPage"
+                  v-model:sort-by="expenseSortBy"
                   :headers="expensesHeaders"
                   :items="expenses"
+                  :items-length="expenseTotal"
+                  :items-per-page-options="PAGE_SIZE_OPTIONS"
                   :loading="loadingExpenses"
                   class="elevation-0">
                   <template #item.expense_date="{ item }">
@@ -163,7 +182,7 @@
                       :disabled="isReadOnly"
                       @click="deleteExpense(item)" />
                   </template>
-                </v-data-table>
+                </v-data-table-server>
               </v-window-item>
 
               <!-- Tab: Categorías -->
@@ -405,18 +424,18 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/errors';
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { expensesService, type Expense, type ExpenseCategory, type ExpenseSummary } from '@/services/expensesService'
 import { expenseCategoryTypeLabels, label } from '@/utils/labels'
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
+import { PAGE_SIZE_OPTIONS, useServerPage } from '../composables/useServerPage'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
 const isReadOnly = useReadOnly()
 
 const tab = ref('expenses')
-const loadingExpenses = ref(false)
 const loadingCategorias = ref(false)
 const loadingResumen = ref(false)
 const saving = ref(false)
@@ -426,7 +445,6 @@ const categoriaDialog = ref(false)
 const editingExpense = ref<Expense | null>(null)
 const editingCategoria = ref<ExpenseCategory | null>(null)
 
-const expenses = ref<Expense[]>([])
 const categorias = ref<ExpenseCategory[]>([])
 const resumen = ref<ExpenseSummary | null>(null)
 
@@ -443,7 +461,7 @@ const categoriaForm = ref<any>(null)
 const expensesHeaders = [
   { title: 'Fecha', key: 'expense_date', sortable: true },
   { title: 'Categoría', key: 'category', sortable: false },
-  { title: 'Concepto', key: 'concept', sortable: false },
+  { title: 'Concepto', key: 'concept', sortable: true },
   { title: 'Monto', key: 'amount', sortable: true },
   { title: 'Factura', key: 'invoice_number', sortable: false },
   { title: 'Acciones', key: 'actions', sortable: false, align: 'end' as const },
@@ -493,19 +511,32 @@ const rules = {
   positive: (v: any) => (v && v > 0) || 'Debe ser mayor a 0',
 }
 
-const loadExpenses = async () => {
-  loadingExpenses.value = true
-  try {
-    expenses.value = await expensesService.getExpenses({
-      start_date: fechaInicio.value || undefined,
-      end_date: fechaFin.value || undefined,
-    })
-  } catch (error) {
-    console.error('[Gastos] Error al cargar:', error)
-    showMessage(errorMessage(error, 'No fue posible cargar los gastos. Inténtalo de nuevo.'), 'error')
-  } finally {
-    loadingExpenses.value = false
-  }
+// La tabla sigue las mismas fechas del resumen.
+const {
+  items: expenses,
+  total: expenseTotal,
+  page: expensePage,
+  perPage: expensePerPage,
+  sortBy: expenseSortBy,
+  search: expenseSearch,
+  loading: loadingExpenses,
+  load: loadExpenses,
+} = useServerPage<Expense>(
+  query => expensesService.getExpensesPage({
+    ...query,
+    start_date: fechaInicio.value || undefined,
+    end_date: fechaFin.value || undefined,
+  }),
+  {
+    filters: [fechaInicio, fechaFin],
+    onError: error =>
+      showMessage(errorMessage(error, 'No fue posible cargar los gastos. Inténtalo de nuevo.'), 'error'),
+  },
+)
+
+const refresh = () => {
+  loadExpenses()
+  loadResumen()
 }
 
 const loadCategorias = async () => {
@@ -683,18 +714,19 @@ const showMessage = (text: string, color: 'success' | 'error' | 'warning') => {
   snackbar.value = true
 }
 
+// Cambiar las fechas recarga la tabla (filtro de useServerPage) y el resumen.
+watch([fechaInicio, fechaFin], () => loadResumen())
+
 onMounted(() => {
-  // Establecer rango de fechas por defecto (último mes)
+  // Rango por defecto: el último mes. Fijarlo dispara la primera carga.
   const haceUnMes = new Date()
   const finRango = new Date()
   haceUnMes.setMonth(haceUnMes.getMonth() - 1)
   finRango.setDate(finRango.getDate() + 1)
-  
+
   fechaInicio.value = toLocalDateInput(haceUnMes)
   fechaFin.value = toLocalDateInput(finRango)
 
   loadCategorias()
-  loadExpenses()
-  loadResumen()
 })
 </script>
