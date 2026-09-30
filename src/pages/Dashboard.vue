@@ -28,6 +28,62 @@
       </div>
     </v-alert>
 
+    <v-alert v-if="loadError" type="error" variant="tonal" class="mb-4">
+      <div class="d-flex align-center flex-wrap ga-3">
+        <span>{{ loadError }}</span>
+        <v-spacer />
+        <v-btn variant="text" @click="loadData">Reintentar</v-btn>
+      </div>
+    </v-alert>
+
+    <!-- Primeros pasos: lo que un negocio nuevo aún no configura. Cada paso
+         se marca solo al hacerlo y la tarjeta desaparece al terminar. -->
+    <v-card v-if="setup && setup.completed < setup.total" class="mb-4" data-testid="setup-guide">
+      <v-card-title class="d-flex align-center flex-wrap ga-2">
+        <v-icon icon="mdi-flag-checkered" />
+        Primeros pasos
+        <v-spacer />
+        <span class="text-body-2 text-medium-emphasis">{{ setup.completed }} de {{ setup.total }} listos</span>
+      </v-card-title>
+      <v-card-text>
+        <p class="text-body-2 text-medium-emphasis mb-2">
+          Con esto tu negocio vende con costos reales: el kardex, el costo de ventas y las finanzas cuadran.
+        </p>
+        <v-progress-linear
+          :model-value="(100 * setup.completed) / setup.total"
+          color="primary"
+          height="8"
+          rounded
+          class="mb-2"
+          aria-label="Avance de los primeros pasos"
+        />
+        <v-list density="compact">
+          <v-list-item
+            v-for="step in setup.steps"
+            :key="step.key"
+            :lines="false"
+            :data-testid="`setup-step-${step.key}`"
+          >
+            <template #prepend>
+              <v-icon
+                :icon="step.done ? 'mdi-check-circle' : 'mdi-circle-outline'"
+                :color="step.done ? 'success' : undefined"
+                :aria-label="step.done ? 'Listo' : 'Pendiente'"
+              />
+            </template>
+            <v-list-item-title class="text-wrap" :class="{ 'text-medium-emphasis': step.done }">
+              {{ step.title }}
+              <v-chip v-if="step.optional" size="x-small" class="ml-1">Opcional</v-chip>
+            </v-list-item-title>
+            <v-list-item-subtitle class="text-wrap">{{ step.description }}</v-list-item-subtitle>
+            <template v-if="!step.done" #append>
+              <v-btn size="small" variant="text" color="primary" :to="step.link" :aria-label="`Ir a: ${step.title}`">Ir</v-btn>
+            </template>
+          </v-list-item>
+        </v-list>
+      </v-card-text>
+    </v-card>
+
     <v-row>
       <!-- Estadísticas principales -->
       <!-- The figure stays in text color; only the chip, which means something, is colored. -->
@@ -246,8 +302,11 @@ import {
   type LowStockProduct,
   type SalesPeriod,
   type TopProductsPeriod,
+  type SetupChecklist,
 } from '@/services/dashboardService'
 import { ordersService, type Order } from '@/services/ordersService'
+import { useAuthStore } from '@/stores/auth'
+import { errorMessage } from '@/utils/errors'
 import { customerLabel, label, orderStatusColors, orderStatusLabels } from '@/utils/labels'
 import { fonts } from '@/theme'
 import { useTheme } from 'vuetify'
@@ -473,7 +532,11 @@ const chartOptions = computed(() => ({
   scales: {
     y: {
       beginAtZero: true,
+      // Sin ventas el eje iba de $0 a $1 en décimas y el formato en pesos
+      // las redondeaba: "$1" repetido. Pesos enteros y una escala mínima.
+      suggestedMax: salesPoints.value.some(d => d.total > 0) ? undefined : 100000,
       ticks: {
+        precision: 0,
         callback: function(value: any) {
           return '$' + Number(value).toLocaleString('es-CO', { maximumFractionDigits: 0 })
         }
@@ -482,8 +545,24 @@ const chartOptions = computed(() => ({
   }
 }))
 
+const authStore = useAuthStore()
+const setup = ref<SetupChecklist | null>(null)
+const loadError = ref('')
+
+// Solo el admin configura el negocio; un fallo aquí no tapa el resto.
+const loadSetup = async () => {
+  if (!authStore.isAdmin) return
+  try {
+    setup.value = await dashboardService.getSetup()
+  } catch {
+    setup.value = null
+  }
+}
+
 const loadData = async () => {
   loading.value = true
+  loadError.value = ''
+  loadSetup()
   try {
     const [stats, orders, pending, stock] = await Promise.all([
       dashboardService.getStats(),
@@ -498,7 +577,7 @@ const loadData = async () => {
     overduePending.value = pending.filter(isOverduePending)
     lowStockProducts.value = stock
   } catch (error) {
-    console.error('[Dashboard] Error al cargar datos:', error)
+    loadError.value = errorMessage(error, 'No pudimos cargar el resumen del negocio. Revisa tu conexión y vuelve a intentar.')
   } finally {
     loading.value = false
   }
