@@ -11,7 +11,7 @@
           </div>
           <div class="d-flex ga-2">
             <LockableButton icon="mdi-plus" color="primary" size="large" @click="openMovementDialog">
-              Registrar Movimiento
+              Registrar movimiento
             </LockableButton>
             <v-btn
               color="primary"
@@ -34,7 +34,7 @@
          genera el sistema con las ventas y los saldos iniciales. -->
     <v-dialog v-model="movementDialog" max-width="560" persistent>
       <v-card>
-        <v-card-title>Registrar Movimiento de Inventario</v-card-title>
+        <v-card-title>Registrar movimiento de inventario</v-card-title>
         <v-card-text>
           <v-autocomplete
             v-model="movementForm.product_id"
@@ -98,15 +98,14 @@
             </v-col>
             <v-col cols="4">
               <!-- Los documentos no siempre se registran el día que ocurren -->
-              <v-text-field
+              <DateField
                 v-model="movementForm.moved_at"
-                type="date"
                 :max="today"
               >
                 <template #label>
                   Fecha del movimiento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                 </template>
-              </v-text-field>
+              </DateField>
             </v-col>
           </v-row>
           <v-row dense>
@@ -164,10 +163,10 @@
               />
             </v-col>
             <v-col cols="6" md="2">
-              <v-text-field v-model="filters.from" label="Desde" type="date" hide-details />
+              <DateField v-model="filters.from" label="Desde" hide-details />
             </v-col>
             <v-col cols="6" md="2">
-              <v-text-field v-model="filters.to" label="Hasta" type="date" hide-details />
+              <DateField v-model="filters.to" label="Hasta" hide-details />
             </v-col>
             <v-col cols="6" md="2">
               <v-select
@@ -213,13 +212,13 @@
       <v-col cols="12" md="4">
         <v-card class="pa-4 text-center">
           <div class="text-caption text-medium-emphasis">Costo promedio</div>
-          <div class="text-h5">{{ money(report.product.unit_cost) }}</div>
+          <div class="text-h5">{{ preciseMoney(report.product.unit_cost) }}</div>
         </v-card>
       </v-col>
       <v-col cols="12" md="4">
         <v-card class="pa-4 text-center">
           <div class="text-caption text-medium-emphasis">Valor del inventario</div>
-          <div class="text-h5" :class="{ 'text-error': report.product.current_stock < 0 }">{{ money(report.product.current_stock * report.product.unit_cost) }}</div>
+          <div class="text-h5" :class="{ 'text-error': report.product.current_stock < 0 }">{{ preciseMoney(report.product.current_stock * report.product.unit_cost) }}</div>
         </v-card>
       </v-col>
     </v-row>
@@ -262,12 +261,12 @@
                 <td v-if="showProductColumn"></td>
                 <td colspan="4"></td>
                 <td class="text-right">{{ report.opening_balance.quantity }}</td>
-                <td class="text-right">{{ money(report.opening_balance.unit_cost) }}</td>
-                <td class="text-right">{{ money(report.opening_balance.total_cost) }}</td>
+                <td class="text-right">{{ preciseMoney(report.opening_balance.unit_cost) }}</td>
+                <td class="text-right">{{ preciseMoney(report.opening_balance.total_cost) }}</td>
                 <td></td>
               </tr>
               <tr v-for="m in report?.movements ?? []" :key="m.id">
-                <td>{{ formatDate(m.moved_at) }}</td>
+                <td>{{ formatDateTime(m.moved_at) }}</td>
                 <td>
                   <v-tooltip :text="m.document_name">
                     <template #activator="{ props }">
@@ -293,11 +292,11 @@
                 <td class="text-right text-error">
                   {{ m.movement_type === 'out' ? m.quantity : '' }}
                 </td>
-                <td class="text-right">{{ money(m.unit_cost) }}</td>
-                <td class="text-right">{{ money(m.total_cost) }}</td>
+                <td class="text-right">{{ preciseMoney(m.unit_cost) }}</td>
+                <td class="text-right">{{ preciseMoney(m.total_cost) }}</td>
                 <td class="text-right" :class="{ 'text-error font-weight-bold': m.balance_quantity < 0 }">{{ m.balance_quantity }}</td>
-                <td class="text-right">{{ money(m.balance_unit_cost) }}</td>
-                <td class="text-right" :class="{ 'text-error font-weight-bold': m.balance_total_cost < 0 }">{{ money(m.balance_total_cost) }}</td>
+                <td class="text-right">{{ preciseMoney(m.balance_unit_cost) }}</td>
+                <td class="text-right" :class="{ 'text-error font-weight-bold': m.balance_total_cost < 0 }">{{ preciseMoney(m.balance_total_cost) }}</td>
                 <td class="text-caption">{{ m.user || '—' }}</td>
               </tr>
               <tr v-if="report && report.movements.length === 0">
@@ -313,7 +312,7 @@
                 <td class="text-right text-error">{{ report.totals.out_quantity }}</td>
                 <td></td>
                 <td class="text-right">
-                  {{ money(report.totals.in_cost - report.totals.out_cost) }}
+                  {{ preciseMoney(report.totals.in_cost - report.totals.out_cost) }}
                 </td>
                 <td colspan="4"></td>
               </tr>
@@ -330,11 +329,15 @@
 </template>
 
 <script setup lang="ts">
+import { preciseMoney } from '@/utils/money'
+import { formatDateTime } from '@/utils/dates'
+import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref, watch } from 'vue'
 import kardexService, { type DocumentType, type KardexFilters, type KardexReport } from '../services/kardexService'
 import { productsService } from '../services/productsService'
 import { billingService, type Customer, type Supplier } from '../services/billingService'
 import LockableButton from '../components/LockableButton.vue'
+import DateField from '../components/DateField.vue'
 
 // Documentos que el sistema genera solo: no se pueden registrar a mano.
 const AUTOMATIC_CODES = ['SI', 'FV', 'NC']
@@ -480,7 +483,7 @@ const saveMovement = async () => {
     movementDialog.value = false
     load()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al registrar el movimiento')
+    notify(errorMessage(error, 'No fue posible registrar el movimiento. Inténtalo de nuevo.'))
   } finally {
     savingMovement.value = false
   }
@@ -490,11 +493,7 @@ const notify = (text: string, color = 'error') => {
   snackbar.value = { show: true, text, color }
 }
 
-const money = (value: number): string =>
-  '$' + Number(value ?? 0).toLocaleString('es-CO', { maximumFractionDigits: 2 })
 
-const formatDate = (iso: string): string =>
-  new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 // Cada consulta lleva su número: si una anterior responde tarde (staging es
 // lento), no pisa la tabla del filtro que el usuario eligió después.
@@ -511,7 +510,7 @@ const load = async () => {
     loadedFilters.value = applied
   } catch (error: any) {
     if (requestId !== latestRequest) return
-    notify(error.response?.data?.message || 'Error al cargar el kardex')
+    notify(errorMessage(error, 'No fue posible cargar el kardex. Inténtalo de nuevo.'))
   } finally {
     if (requestId === latestRequest) loading.value = false
   }
@@ -521,8 +520,8 @@ const exportExcel = async () => {
   exporting.value = true
   try {
     await kardexService.export(filters.value)
-  } catch {
-    notify('Error al exportar el kardex')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible exportar el kardex. Inténtalo de nuevo.'))
   } finally {
     exporting.value = false
   }
@@ -549,8 +548,8 @@ onMounted(async () => {
     ])
     products.value = productList
     documentTypes.value = docTypes
-  } catch {
-    notify('Error al cargar los filtros')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar los filtros. Inténtalo de nuevo.'))
   }
   // Terceros para el selector; si fallan, el combobox queda como texto libre.
   try {

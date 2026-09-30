@@ -33,6 +33,8 @@ export type {
   ApiResponse,
   ApiError,
   PaginatedResponse,
+  PageMeta,
+  PageQuery,
   ApiRequestConfig,
   HttpMethod,
   ApiEndpoint

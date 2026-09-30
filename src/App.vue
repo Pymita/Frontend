@@ -8,10 +8,11 @@
       :temporary="smAndDown"
       width="264"
       color="chrome"
+      border="0"
     >
       <div class="d-flex align-center ga-3 px-4 pt-4 pb-1">
         <v-avatar color="accent" rounded="lg" size="36">
-          <v-icon icon="mdi-bread-slice" size="22" />
+          <v-icon :icon="APP_ICON" size="22" />
         </v-avatar>
         <div class="text-truncate">
           <div class="text-h6 font-weight-bold text-truncate">{{ companyName }}</div>
@@ -71,7 +72,7 @@
         <v-list nav density="compact" base-color="chrome-text">
           <v-list-item
             :prepend-icon="loading ? 'mdi-loading' : 'mdi-logout'"
-            :title="loading ? 'Cerrando sesión...' : 'Cerrar Sesión'"
+            :title="loading ? 'Cerrando sesión...' : 'Cerrar sesión'"
             @click="logout"
             :disabled="loading"
           >
@@ -145,8 +146,8 @@ import { useDisplay } from 'vuetify'
 import invoicingService from './services/invoicingService'
 import { useAuthStore } from './stores/auth'
 import { effectiveFeatures } from './types/auth'
-import { APP_NAME } from './utils/branding'
-import { SUBSCRIPTION_BLOCKED_EVENT } from './services/api'
+import { APP_ICON, APP_NAME } from './utils/branding'
+import { SUBSCRIPTION_BLOCKED_EVENT, TWO_FACTOR_REQUIRED_EVENT } from './services/api'
 import type { MenuItem } from './types'
 
 const route = useRoute()
@@ -199,20 +200,27 @@ const onSubscriptionBlocked = (event: Event) => {
   authStore.markBlocked((event as CustomEvent).detail)
 }
 
+// El backend cerró el panel porque la cuenta de plataforma no tiene su
+// segundo factor (p. ej. se activó la exigencia con la sesión abierta).
+const onTwoFactorRequired = async () => {
+  await authStore.getCurrentUser()
+  router.push('/plataforma/seguridad')
+}
+
 const MENU_GROUPS = ['Operación', 'Catálogo', 'Administración', 'Plataforma']
 
 const allMenuItems: MenuItem[] = [
-  { title: 'Dashboard', icon: 'mdi-view-dashboard', route: '/dashboard', feature: 'reports', group: 'Operación' },
+  { title: 'Inicio', icon: 'mdi-view-dashboard', route: '/dashboard', feature: 'reports', group: 'Operación' },
   { title: 'Pedidos', icon: 'mdi-receipt-text', route: '/pedidos', feature: 'orders', group: 'Operación' },
   { title: 'Ventas', icon: 'mdi-cash-register', route: '/ventas', feature: 'reports', group: 'Operación' },
   { title: 'Mesas', icon: 'mdi-table-chair', route: '/mesas', feature: 'orders', group: 'Operación' },
-  { title: 'Plano del Salón', icon: 'mdi-floor-plan', route: '/plano', feature: 'orders', group: 'Operación' },
+  { title: 'Plano del salón', icon: 'mdi-floor-plan', route: '/plano', feature: 'orders', group: 'Operación' },
   { title: 'Menú', icon: 'mdi-book-open-variant', route: '/menu', feature: 'menu', group: 'Catálogo' },
   { title: 'Categorías', icon: 'mdi-shape', route: '/categorias', feature: 'menu', group: 'Catálogo' },
   { title: 'Productos', icon: 'mdi-package-variant', route: '/productos-base', feature: 'inventory', group: 'Catálogo' },
   { title: 'Recetas', icon: 'mdi-food-variant', route: '/recetas', feature: 'recipes', group: 'Catálogo' },
   { title: 'Kardex', icon: 'mdi-clipboard-text-clock', route: '/kardex', feature: 'inventory', group: 'Catálogo' },
-  { title: 'Tipos de Producto', icon: 'mdi-tag-multiple', route: '/tipos-producto', requiresAdmin: true, feature: 'menu', group: 'Catálogo' },
+  { title: 'Variantes', icon: 'mdi-tag-multiple', route: '/tipos-producto', requiresAdmin: true, feature: 'menu', group: 'Catálogo' },
   { title: 'Facturación automática', icon: 'mdi-calendar-sync', route: '/facturacion-automatica', feature: 'recurring_billing', group: 'Operación' },
   { title: 'Clientes', icon: 'mdi-account-multiple', route: '/clientes', feature: 'customers', group: 'Administración' },
   { title: 'Gastos', icon: 'mdi-cash-multiple', route: '/gastos', feature: 'expenses', group: 'Administración' },
@@ -222,6 +230,7 @@ const allMenuItems: MenuItem[] = [
   { title: 'Empresas', icon: 'mdi-domain', route: '/plataforma', superAdminOnly: true, group: 'Plataforma' },
   { title: 'Vendedores', icon: 'mdi-account-tie', route: '/plataforma/vendedores', superAdminOnly: true, group: 'Plataforma' },
   { title: 'Ventas por vendedor', icon: 'mdi-chart-line', route: '/plataforma/ventas', superAdminOnly: true, group: 'Plataforma' },
+  { title: 'Seguridad', icon: 'mdi-shield-key', route: '/plataforma/seguridad', superAdminOnly: true, group: 'Plataforma' },
 ]
 
 const availableMenuItems = computed((): MenuItem[] => {
@@ -335,19 +344,17 @@ onMounted(() => {
   // Inicializar el store con datos del localStorage
   authStore.initializeAuth()
   window.addEventListener(SUBSCRIPTION_BLOCKED_EVENT, onSubscriptionBlocked)
+  window.addEventListener(TWO_FACTOR_REQUIRED_EVENT, onTwoFactorRequired)
   checkResolutionStatus()
 })
 
 onUnmounted(() => {
   window.removeEventListener(SUBSCRIPTION_BLOCKED_EVENT, onSubscriptionBlocked)
+  window.removeEventListener(TWO_FACTOR_REQUIRED_EVENT, onTwoFactorRequired)
 })
 </script>
 
 <style scoped>
-.v-navigation-drawer {
-  border-right: none !important;
-}
-
 .v-list-item--active::before {
   content: '';
   position: absolute;

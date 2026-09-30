@@ -7,6 +7,8 @@ export interface DashboardStats {
   sales_month: number;
   active_products: number;
   low_stock: number;
+  /** Pendientes de cobro creados antes de hoy. */
+  overdue_pending: { count: number; balance: number };
 }
 
 export interface TopProduct {
@@ -70,7 +72,29 @@ interface ApiResponse<T, M = undefined> {
   message: string;
 }
 
+/** Un paso de "Primeros pasos": se marca solo cuando el dato existe. */
+export interface SetupStep {
+  key: string
+  title: string
+  description: string
+  link: string
+  done: boolean
+  optional: boolean
+  pending: number
+}
+
+export interface SetupChecklist {
+  steps: SetupStep[]
+  completed: number
+  total: number
+}
+
 export const dashboardService = {
+  async getSetup(): Promise<SetupChecklist> {
+    const response = await api.get<ApiResponse<SetupChecklist>>('/dashboard/setup');
+    return response.data.data;
+  },
+
   async getStats(): Promise<DashboardStats> {
     const response = await api.get<ApiResponse<DashboardStats>>('/dashboard/stats');
     return response.data.data;

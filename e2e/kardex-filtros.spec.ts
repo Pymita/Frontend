@@ -82,7 +82,7 @@ test('al elegir un producto el kardex solo muestra sus movimientos', async ({ pa
   await expect(page.getByRole('columnheader', { name: 'Producto' })).toHaveCount(0)
 
   // Al limpiar el filtro vuelven los dos y vuelve la columna.
-  await page.getByRole('button', { name: 'Clear Producto' }).click()
+  await page.getByRole('button', { name: 'Borrar Producto' }).click()
   await expect(page.getByRole('columnheader', { name: 'Producto' })).toBeVisible()
   await expect(rows.filter({ hasText: levadura })).not.toHaveCount(0)
 })
@@ -146,7 +146,7 @@ test('los filtros de movimiento, documento y fechas se aplican solos', async ({ 
   await expect(rows.filter({ hasText: 'SI' })).toHaveCount(1)
   await expect(rows.filter({ hasText: 'AJ' })).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Clear Movimiento' }).click()
+  await page.getByRole('button', { name: 'Borrar Movimiento' }).click()
   await expect(rows.filter({ hasText: 'AJ' })).toHaveCount(1)
 
   // Tipo de documento: solo el ajuste.
@@ -155,7 +155,7 @@ test('los filtros de movimiento, documento y fechas se aplican solos', async ({ 
   await expect(rows.filter({ hasText: 'SI' })).toHaveCount(0)
   await expect(rows.filter({ hasText: 'AJ' })).toHaveCount(1)
 
-  await page.getByRole('button', { name: 'Clear Tipo de documento' }).click()
+  await page.getByRole('button', { name: 'Borrar Tipo de documento' }).click()
   await expect(rows.filter({ hasText: 'SI' })).toHaveCount(1)
 
   // Fechas: un rango que ya pasó no puede traer los movimientos de hoy.

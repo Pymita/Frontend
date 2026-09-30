@@ -10,7 +10,7 @@
             </p>
           </div>
           <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
-            Nueva Categoría
+            Nueva categoría
           </LockableButton>
         </div>
       </v-col>
@@ -59,6 +59,7 @@
                   <v-btn
                     v-bind="props"
                     icon
+                    aria-label="Agregar subcategoría"
                     size="small"
                     variant="text"
                     :disabled="(item.depth ?? 1) >= 3"
@@ -68,10 +69,10 @@
                   </v-btn>
                 </template>
               </v-tooltip>
-              <v-btn icon size="small" variant="text" :disabled="isReadOnly" @click="openDialog(item)">
+              <v-btn icon size="small" variant="text" :disabled="isReadOnly" :aria-label="`Editar la categoría ${item.name}`" @click="openDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
-              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" @click="deleteCategoria(item)">
+              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar la categoría ${item.name}`" @click="deleteCategoria(item)">
                 <v-icon size="small">mdi-delete</v-icon>
               </v-btn>
             </template>
@@ -83,7 +84,7 @@
     <!-- Dialog Categoría -->
     <v-dialog v-model="dialog" max-width="600" persistent>
       <v-card>
-        <v-card-title>{{ editing ? 'Editar Categoría' : 'Nueva Categoría' }}</v-card-title>
+        <v-card-title>{{ editing ? 'Editar categoría' : 'Nueva categoría' }}</v-card-title>
         <v-card-text>
           <v-form ref="form" @submit.prevent="save">
             <v-text-field
@@ -211,7 +212,7 @@ const headers = [
   { title: 'Nombre', key: 'name' },
   { title: 'Descripción', key: 'description' },
   { title: 'Productos', key: 'products_count' },
-  { title: 'App Móvil', key: 'visible_in_app' },
+  { title: 'App móvil', key: 'visible_in_app' },
   { title: 'Acciones', key: 'actions', sortable: false },
 ];
 
@@ -238,7 +239,7 @@ const loadData = async () => {
     itemsMenu.value = itemsData;
   } catch (error: any) {
     console.error('[Categorias] Error al cargar datos:', error);
-    showMessage(errorMessage(error, 'Error al cargar datos: ') + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'No fue posible cargar la información. Inténtalo de nuevo.'), 'error');
   } finally {
     loading.value = false;
   }
@@ -291,7 +292,7 @@ const save = async () => {
     loadData();
   } catch (error: any) {
     console.error('[Categorias] Error al guardar:', error);
-    showMessage(errorMessage(error, 'Error al guardar: ') + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -316,7 +317,7 @@ const deleteCategoria = async (categoria: Category) => {
     loadData();
   } catch (error: any) {
     console.error('[Categorias] Error al eliminar:', error);
-    showMessage(errorMessage(error, 'Error al eliminar: ') + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
   }
 };
 

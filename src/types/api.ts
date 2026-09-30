@@ -14,22 +14,26 @@ export interface ApiError {
   status: number
 }
 
+/** Página de una lista paginada en el servidor (`?per_page=`). */
+export interface PageMeta {
+  current_page: number
+  per_page: number
+  total: number
+  last_page: number
+}
+
 export interface PaginatedResponse<T = any> {
   data: T[]
-  meta: {
-    current_page: number
-    from: number
-    last_page: number
-    per_page: number
-    to: number
-    total: number
-  }
-  links: {
-    first: string
-    last: string
-    prev: string | null
-    next: string | null
-  }
+  meta: PageMeta
+}
+
+/** Lo que una tabla paginada pide: página, tamaño, búsqueda y orden. */
+export interface PageQuery {
+  page: number
+  per_page: number
+  q?: string
+  sort_by?: string
+  sort_dir?: 'asc' | 'desc'
 }
 
 export interface ApiRequestConfig {

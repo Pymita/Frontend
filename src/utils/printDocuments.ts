@@ -1,3 +1,4 @@
+import { money } from './money'
 /**
  * Documentos imprimibles en hoja carta de la facturación automática: cuenta
  * de cobro / factura de venta y recibo de caja. Es UNA plantilla para todas
@@ -5,7 +6,8 @@
  * Datos del negocio), así que cada negocio imprime con su nombre, NIT,
  * régimen, dirección, teléfonos y observaciones.
  */
-import { taxRegimeLabels } from './labels'
+import { orderPaymentMethodLabels, taxRegimeLabels } from './labels'
+import { APP_NAME } from './branding'
 
 export interface DocumentBusiness {
   legal_name: string
@@ -84,13 +86,7 @@ export interface PrintableReceipt {
   }[]
 }
 
-const METHOD_LABELS: Record<string, string> = {
-  cash: 'Efectivo',
-  credit_card: 'Tarjeta crédito',
-  debit_card: 'Tarjeta débito',
-  transfer: 'Transferencia',
-  other: 'Otro',
-}
+const METHOD_LABELS = orderPaymentMethodLabels
 
 // ===== Valor en letras =====
 
@@ -147,8 +143,6 @@ const escape = (value: unknown): string =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 
-const money = (value: number): string =>
-  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
 
 /** DD/MM/AAAA sin pasar por Date: la zona horaria no corre el día. */
 const dmy = (value: string | null | undefined): string => {
@@ -195,7 +189,7 @@ const footer = (left: string, right: string) => `
     <div class="signature">${left}</div>
     <div class="signature">${right}</div>
   </div>
-  <div class="printed-by">Documento impreso por computador · Pymita</div>`
+  <div class="printed-by">Documento impreso por computador · ${escape(APP_NAME)}</div>`
 
 export const invoiceHtml = (
   business: DocumentBusiness,

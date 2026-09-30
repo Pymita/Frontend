@@ -109,7 +109,7 @@ test('por producto carga cuando se vendieron varios ítems del menú', async ({ 
   await expect(burgerRow).toContainText('$36.000')
   await expect(burgerRow).toContainText('$22.000')
   await expect(page.locator('tr', { hasText: 'Jugo Menú E2E' })).toContainText('$4.000')
-  await expect(page.getByText('Error al cargar las ventas')).toHaveCount(0)
+  await expect(page.getByText('No fue posible cargar las ventas. Inténtalo de nuevo.')).toHaveCount(0)
 
   // El botón de Excel se ve como acción y explica qué descarga.
   const excel = page.getByRole('button', { name: 'Descargar Excel' })

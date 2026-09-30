@@ -2,7 +2,7 @@
   <v-container fluid>
     <div class="d-flex align-center justify-space-between flex-wrap mb-4">
       <div>
-        <h1 class="text-h4">Plano del Salón</h1>
+        <h1 class="text-h4">Plano del salón</h1>
         <p class="text-body-2 text-medium-emphasis mb-0">
           {{ editMode ? 'Arrastra las mesas para ubicarlas como están en el local' : 'Estado de las mesas en tiempo real' }}
         </p>
@@ -118,8 +118,9 @@
             />
             <text text-anchor="middle" dy="-2" class="table-number">{{ table.table_type === 'billiard' ? '🎱' + table.number : table.number }}</text>
             <text text-anchor="middle" dy="16" class="table-name">
-              {{ billiardTimerLabel(table) || table.nickname || (table.table_type === 'billiard' ? 'Billar' : `${table.capacity} pers.`) }}
+              {{ billiardTimerLabel(table) || shortName(table) || (table.table_type === 'billiard' ? 'Billar' : `${table.capacity} pers.`) }}
             </text>
+            <title>{{ displayName(table) }}</title>
           </g>
         </svg>
       </div>
@@ -135,16 +136,16 @@
           mandatory
           @update:model-value="setShape(selectedTable!, $event)"
         >
-          <v-btn value="square" icon="mdi-square-outline" size="small" />
-          <v-btn value="round" icon="mdi-circle-outline" size="small" />
-          <v-btn value="rect" icon="mdi-rectangle-outline" size="small" />
+          <v-btn value="square" icon="mdi-square-outline" size="small" aria-label="Mesa cuadrada" />
+          <v-btn value="round" icon="mdi-circle-outline" size="small" aria-label="Mesa redonda" />
+          <v-btn value="rect" icon="mdi-rectangle-outline" size="small" aria-label="Mesa rectangular" />
         </v-btn-toggle>
         <v-text-field
           :model-value="selectedTable.zone ?? ''"
           label="Zona (ej. Terraza, Pared derecha)"
           density="compact"
           hide-details
-          style="max-width: 280px"
+          max-width="280"
           @update:model-value="setZone(selectedTable!, $event)"
         />
         <v-btn
@@ -208,6 +209,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors'
 import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue';
 import { tablesService } from '@/services/tablesService';
 import type { DiningTable, DiningTableShape, DiningTableStatus } from '@/services/tablesService';
@@ -243,6 +245,14 @@ const selectedTable = computed(() =>
 );
 
 const displayName = (table: DiningTable) => table.nickname || `Mesa ${table.number}`;
+
+// El nombre va dentro de la figura: si no cabe se corta; completo en el detalle.
+const PLAN_LABEL_MAX = 11;
+const shortName = (table: DiningTable): string | null => {
+  const name = table.nickname?.trim();
+  if (!name) return null;
+  return name.length > PLAN_LABEL_MAX ? `${name.slice(0, PLAN_LABEL_MAX - 1)}…` : name;
+};
 
 // --- Billar: tiempo transcurrido en vivo sobre el plano ---
 const nowTick = ref(Date.now());
@@ -285,8 +295,8 @@ const load = async () => {
   loading.value = true;
   try {
     tables.value = await tablesService.getAll();
-  } catch {
-    notify('No se pudieron cargar las mesas', 'error');
+  } catch (error) {
+    notify(errorMessage(error, 'No se pudieron cargar las mesas'), 'error');
   } finally {
     loading.value = false;
   }
@@ -414,8 +424,8 @@ const saveLayout = async () => {
     );
     dirty.value = false;
     notify('Plano guardado exitosamente', 'success');
-  } catch {
-    notify('No se pudo guardar el plano', 'error');
+  } catch (error) {
+    notify(errorMessage(error, 'No se pudo guardar el plano'), 'error');
   } finally {
     saving.value = false;
   }

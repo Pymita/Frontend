@@ -7,6 +7,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import 'vuetify/styles'
 import '@mdi/font/css/materialdesignicons.css'
 import { aliases, mdi } from 'vuetify/iconsets/mdi'
+import { es } from 'vuetify/locale'
 import '@fontsource-variable/inter'
 import '@fontsource-variable/plus-jakarta-sans'
 import './style.css'
@@ -28,6 +29,16 @@ const vuetify = createVuetify({
     themes: { light: lightTheme },
   },
   defaults: componentDefaults,
+  // Sin esto las tablas dicen "No data available" / "Items per page" y el
+  // calendario sale en inglés.
+  locale: {
+    locale: 'es',
+    fallback: 'es',
+    messages: { es },
+  },
+  date: {
+    locale: { es: 'es-CO' },
+  },
   icons: {
     defaultSet: 'mdi',
     aliases,

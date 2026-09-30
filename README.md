@@ -1,4 +1,4 @@
-# Sabores del Trigo - Frontend Web
+# Servify POS - Frontend Web
 
 Vue 3 + TypeScript web client for operations and management.
 
@@ -31,7 +31,7 @@ Create `.env` only if you need to override defaults.
 
 ```env
 VITE_API_BASE_URL=http://localhost:8001/api
-VITE_APP_NAME="Sabores del Trigo"
+VITE_APP_NAME="Servify POS"
 VITE_DEV_MODE=true
 ```
 

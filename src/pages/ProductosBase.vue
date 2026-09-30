@@ -4,7 +4,7 @@
       <v-col cols="12">
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
-            <h1 class="text-h4">{{ hasRecipes ? 'Gestión de Productos Base' : 'Productos' }}</h1>
+            <h1 class="text-h4">Productos</h1>
             <p class="text-body-1 text-medium-emphasis">
               {{ hasRecipes
                 ? 'Materias primas, productos intermedios y finales'
@@ -23,7 +23,7 @@
               Importar Excel
             </LockableButton>
             <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
-              Nuevo Producto
+              Nuevo producto
             </LockableButton>
           </div>
         </div>
@@ -39,7 +39,7 @@
               <v-col cols="12" md="3">
                 <v-tabs v-if="hasRecipes" v-model="tipoFilter" color="primary" density="compact">
                   <v-tab value="">Todos</v-tab>
-                  <v-tab value="raw_material">Materias Primas</v-tab>
+                  <v-tab value="raw_material">Materias primas</v-tab>
                   <v-tab value="intermediate">Intermedios</v-tab>
                   <v-tab value="final">Finales</v-tab>
                 </v-tabs>
@@ -49,6 +49,7 @@
                   v-model="search"
                   prepend-inner-icon="mdi-magnify"
                   label="Buscar"
+                  placeholder="Nombre, SKU o código de barras"
                   clearable
                   hide-details
                   density="compact"
@@ -86,11 +87,15 @@
     <v-row>
       <v-col cols="12">
         <v-card>
-          <v-data-table
+          <v-data-table-server
+            v-model:page="page"
+            v-model:items-per-page="perPage"
+            v-model:sort-by="sortBy"
             :headers="headers"
-            :items="filteredProducts"
+            :items="products"
+            :items-length="total"
+            :items-per-page-options="PAGE_SIZE_OPTIONS"
             :loading="loading"
-            :search="search"
             class="elevation-0"
           >
             <template #item.image_url="{ item }">
@@ -111,7 +116,7 @@
                   :color="getStockColor(item)" 
                   size="small"
                   @click="openStockDialog(item)"
-                  style="cursor: pointer"
+                  class="cursor-pointer"
                 >
                   {{ item.current_stock }} {{ item.unit }}
                 </v-chip>
@@ -135,19 +140,19 @@
             </template>
             <template #item.unit_cost="{ item }">
               <span v-if="item.unit_cost" class="font-weight-bold">
-                ${{ Number(item.unit_cost).toFixed(2) }}/{{ item.unit }}
+                {{ preciseMoney(item.unit_cost) }}/{{ item.unit }}
               </span>
               <span v-else class="text-medium-emphasis">-</span>
             </template>
             <template #item.sale_price="{ item }">
               <span v-if="item.sale_price" class="font-weight-bold">
-                ${{ Number(item.sale_price).toLocaleString('es-CO') }}
+                {{ money(item.sale_price) }}
               </span>
               <span v-else class="text-medium-emphasis">-</span>
             </template>
             <template #item.estimated_cost="{ item }">
               <span v-if="item.estimated_cost">
-                ${{ Number(item.estimated_cost).toFixed(2) }}
+                {{ preciseMoney(item.estimated_cost) }}
               </span>
               <span v-else class="text-medium-emphasis">-</span>
             </template>
@@ -166,7 +171,7 @@
                     v-bind="props"
                     :color="item.menu_item.available ? 'success' : 'secondary'"
                     size="small"
-                    style="cursor: pointer"
+                    class="cursor-pointer"
                     @click="toggleMenuAvailability(item)"
                   >
                     {{ item.menu_item.available ? 'En el menú' : 'Oculto' }}
@@ -193,7 +198,7 @@
                     size="small"
                     variant="text"
                     color="info"
-                    @click="goToRecipe(item)"
+                    :aria-label="`Receta de ${item.name}`" @click="goToRecipe(item)"
                   >
                     <v-icon size="small">mdi-food-variant</v-icon>
                   </v-btn>
@@ -202,7 +207,7 @@
 
               <v-tooltip text="Editar producto">
                 <template #activator="{ props }">
-                  <v-btn v-bind="props" icon size="small" variant="text" :disabled="isReadOnly" @click="openDialog(item)">
+                  <v-btn v-bind="props" icon size="small" variant="text" :disabled="isReadOnly" :aria-label="`Editar ${item.name}`" @click="openDialog(item)">
                     <v-icon size="small">mdi-pencil</v-icon>
                   </v-btn>
                 </template>
@@ -210,13 +215,13 @@
 
               <v-tooltip text="Eliminar producto">
                 <template #activator="{ props }">
-                  <v-btn v-bind="props" icon size="small" variant="text" color="error" :disabled="isReadOnly" @click="deleteProduct(item)">
+                  <v-btn v-bind="props" icon size="small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar ${item.name}`" @click="deleteProduct(item)">
                     <v-icon size="small">mdi-delete</v-icon>
                   </v-btn>
                 </template>
               </v-tooltip>
             </template>
-          </v-data-table>
+          </v-data-table-server>
         </v-card>
       </v-col>
     </v-row>
@@ -224,7 +229,7 @@
     <!-- Dialog Producto: ancho a propósito para que quepa sin scrollear -->
     <v-dialog v-model="dialog" max-width="1100" persistent>
       <v-card>
-        <v-card-title>{{ editing ? 'Editar Producto' : 'Nuevo Producto' }}</v-card-title>
+        <v-card-title>{{ editing ? 'Editar producto' : 'Nuevo producto' }}</v-card-title>
         <v-card-text>
           <v-alert type="info" density="compact" class="mb-4" closable>
             <strong>💡 Consejo:</strong> El <strong>código SKU</strong> se genera automáticamente. Solo necesitas completar el nombre y la unidad de medida.
@@ -327,7 +332,7 @@
                 <v-select
                   v-model="formData.tax_id"
                   :items="taxOptions"
-                  hint="Catálogo en Configuración"
+                  hint="Catálogo en configuración"
                   persistent-hint
                   :rules="[v => v !== null && v !== undefined || 'Selecciona el impuesto (hay opción Exento)']"
                 >
@@ -378,7 +383,7 @@
             </v-row>
 
             <v-divider class="my-4" />
-            <h4 class="mb-3">Control de Inventario</h4>
+            <h4 class="mb-3">Control de inventario</h4>
 
             <v-switch
               v-model="formData.tracks_stock"
@@ -409,10 +414,9 @@
                   />
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-text-field
+                  <DateField
                     v-model="formData.initial_stock_date"
                     label="Fecha del saldo inicial"
-                    type="date"
                     :max="today"
                     hint="Si el inventario existe desde antes, pon la fecha real: así queda en el kardex"
                     persistent-hint
@@ -420,14 +424,14 @@
                 </v-col>
               </template>
               <!-- Edición: el stock es consecuencia del kardex; se cambia
-                   solo con el botón Ajustar Stock, que pide motivo. -->
+                   solo con el botón Ajustar stock, que pide motivo. -->
               <v-col v-else cols="12" md="4">
                 <v-text-field
                   :model-value="`${editing.current_stock ?? 0} ${editing.unit}`"
                   label="Stock actual"
                   readonly
                   disabled
-                  hint="Se mueve con pedidos o con Ajustar Stock (queda en el kardex)"
+                  hint="Se mueve con pedidos o con Ajustar stock (queda en el kardex)"
                   persistent-hint
                 />
               </v-col>
@@ -456,7 +460,7 @@
             </v-alert>
 
             <v-alert v-if="formData.type === 'intermediate'" type="info" density="compact" class="mt-2">
-              <strong>Producto Intermedio:</strong> El costo de este producto se calculará automáticamente desde su receta
+              <strong>Producto intermedio:</strong> El costo de este producto se calculará automáticamente desde su receta
             </v-alert>
 
             <template v-if="formData.type === 'final'">
@@ -503,7 +507,7 @@
     <!-- Dialog Ajuste Rápido de Stock -->
     <v-dialog v-model="stockDialog" max-width="500">
       <v-card v-if="stockProduct">
-        <v-card-title>Ajustar Stock: {{ stockProduct.name }}</v-card-title>
+        <v-card-title>Ajustar stock: {{ stockProduct.name }}</v-card-title>
         <v-card-text>
           <v-alert
             :type="getStockAlertType(stockProduct)"
@@ -567,7 +571,7 @@
             :disabled="stockAjuste === 0"
             @click="updateStock"
           >
-            Actualizar Stock
+            Actualizar stock
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -602,25 +606,25 @@ const onImported = (created: number) => {
 };
 import ImageUploader from '@/components/ImageUploader.vue';
 import { resolveImageUrl } from '@/utils/images';
+import { money, preciseMoney } from '@/utils/money';
 import { useRouter } from 'vue-router';
 import { productsService, productCategoriesService, type Product, type Category, type ProductPayload } from '@/services/productsService';
 import { menuItemsService } from '@/services/menuService';
 import kardexService from '@/services/kardexService';
 import { productTypeLabels, label } from '@/utils/labels';
 import LockableButton from '../components/LockableButton.vue'
+import DateField from '../components/DateField.vue'
 import ProductImportDialog from '../components/ProductImportDialog.vue'
 import { useReadOnly } from '../composables/useReadOnly'
+import { PAGE_SIZE_OPTIONS, useServerPage } from '../composables/useServerPage'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
 const isReadOnly = useReadOnly()
 
 const router = useRouter();
 
-const products = ref<Product[]>([]);
 const categorias = ref<Category[]>([]);
-const loading = ref(true);
 const saving = ref(false);
-const search = ref('');
 const tipoFilter = ref('');
 const filterCategoria = ref<number | null>(null);
 const menuFilter = ref<'in_menu' | 'not_in_menu' | null>(null);
@@ -629,6 +633,29 @@ const menuFilterOptions = [
   { title: 'En el menú', value: 'in_menu' },
   { title: 'Sin publicar', value: 'not_in_menu' },
 ];
+
+const {
+  items: products,
+  total,
+  page,
+  perPage,
+  sortBy,
+  search,
+  loading,
+  load: loadProducts,
+} = useServerPage<Product>(
+  query => productsService.getPage({
+    ...query,
+    ...(tipoFilter.value ? { type: tipoFilter.value } : {}),
+    ...(filterCategoria.value ? { category_id: filterCategoria.value } : {}),
+    ...(menuFilter.value ? { in_menu: menuFilter.value === 'in_menu' ? 1 : 0 } : {}),
+  }),
+  {
+    filters: [tipoFilter, filterCategoria, menuFilter],
+    onError: error =>
+      showMessage(errorMessage(error, 'No fue posible cargar los productos. Inténtalo de nuevo.'), 'error'),
+  },
+);
 
 const dialog = ref(false);
 const editing = ref<Product | null>(null);
@@ -693,9 +720,9 @@ const snackbarText = ref('');
 const snackbarColor = ref('success');
 
 const productTypeOptions = [
-  { title: 'Materia Prima', value: 'raw_material' },
-  { title: 'Producto Intermedio', value: 'intermediate' },
-  { title: 'Producto Final', value: 'final' },
+  { title: 'Materia prima', value: 'raw_material' },
+  { title: 'Producto intermedio', value: 'intermediate' },
+  { title: 'Producto final', value: 'final' },
 ];
 
 const headers = [
@@ -704,36 +731,16 @@ const headers = [
   { title: 'Cód. barras', key: 'barcode' },
   { title: 'Nombre', key: 'name' },
   ...(hasRecipes.value ? [{ title: 'Tipo', key: 'type' }] : []),
-  { title: 'Stock Actual', key: 'current_stock' },
-  { title: 'Stock Mínimo', key: 'minimum_stock' },
+  { title: 'Stock actual', key: 'current_stock' },
+  { title: 'Stock mínimo', key: 'minimum_stock' },
   { title: 'Unidad', key: 'unit' },
-  { title: 'Costo Unitario', key: 'unit_cost' },
-  { title: 'Precio Venta', key: 'sale_price' },
-  { title: 'Costo Estimado', key: 'estimated_cost' },
-  { title: 'Categoría', key: 'category' },
+  { title: 'Costo unitario', key: 'unit_cost' },
+  { title: 'Precio venta', key: 'sale_price' },
+  { title: 'Costo estimado', key: 'estimated_cost', sortable: false },
+  { title: 'Categoría', key: 'category', sortable: false },
   { title: 'Menú', key: 'in_menu', sortable: false },
   { title: 'Acciones', key: 'actions', sortable: false },
 ];
-
-const filteredProducts = computed(() => {
-  let filtered = products.value;
-  
-  if (tipoFilter.value) {
-    filtered = filtered.filter(p => p.type === tipoFilter.value);
-  }
-  
-  if (filterCategoria.value) {
-    filtered = filtered.filter(p => p.category_id === filterCategoria.value);
-  }
-
-  if (menuFilter.value === 'in_menu') {
-    filtered = filtered.filter(p => p.in_menu);
-  } else if (menuFilter.value === 'not_in_menu') {
-    filtered = filtered.filter(p => !p.in_menu);
-  }
-
-  return filtered;
-});
 
 // Product types are not states: one neutral color, told apart by icon.
 const getTipoIcon = (tipo: string) => {
@@ -790,7 +797,7 @@ const marginHint = computed(() => {
 
   const profit = price - cost
   const margin = Math.round((profit / price) * 100)
-  return `Ganas $${profit.toLocaleString('es-CO')} por unidad (${margin}%)`
+  return `Ganas ${money(profit)} por unidad (${margin}%)`
 })
 
 const skuPreview = computed(() => {
@@ -847,9 +854,9 @@ const updateStock = async () => {
     stockDialog.value = false;
     stockAjuste.value = 0;
     stockMotivo.value = '';
-    loadData();
+    loadProducts();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al registrar el ajuste'), 'error');
+    showMessage(errorMessage(error, 'No fue posible registrar el ajuste. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -908,25 +915,16 @@ const formatStockField = (field: 'current_stock' | 'minimum_stock') => {
 };
 
 const loadData = async () => {
-  loading.value = true;
+  loadProducts();
   try {
-    console.log('[ProductosBase] Cargando datos...');
-    const [productsData, categoriasData, taxesData] = await Promise.all([
-      productsService.getAll(),
+    const [categoriasData, taxesData] = await Promise.all([
       productCategoriesService.getAll(),
       kardexService.taxes(),
     ]);
     taxes.value = taxesData;
-    console.log('[ProductosBase] Productos cargados:', productsData.length);
-    console.log('[ProductosBase] Categorías cargadas:', categoriasData.length);
-    products.value = productsData;
     categorias.value = categoriasData;
-  } catch (error: any) {
-    console.error('[ProductosBase] Error al cargar datos:', error);
-    console.error('[ProductosBase] Error response:', error.response);
-    showMessage(errorMessage(error, 'Error al cargar datos: ') + (error.response?.data?.message || error.message), 'error');
-  } finally {
-    loading.value = false;
+  } catch (error) {
+    showMessage(errorMessage(error, 'No fue posible cargar la información. Inténtalo de nuevo.'), 'error');
   }
 };
 
@@ -1025,7 +1023,7 @@ const save = async () => {
 
     if (editing.value) {
       // El stock nunca viaja en la edición: solo se mueve por pedidos o
-      // por el botón Ajustar Stock (que lo deja en el kardex).
+      // por el botón Ajustar stock (que lo deja en el kardex).
       delete dataToSend.initial_stock_date;
     } else {
       // El saldo inicial puede ser 0 (nace agotado); solo entonces se manda
@@ -1063,10 +1061,10 @@ const save = async () => {
       showMessage('Producto creado');
     }
     dialog.value = false;
-    loadData();
+    loadProducts();
   } catch (error: any) {
     console.error('[ProductosBase] Error al guardar:', error);
-    showMessage(error.response?.data?.message || 'Error al guardar', 'error');
+    showMessage(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -1077,9 +1075,9 @@ const deleteProduct = async (product: Product) => {
   try {
     await productsService.delete(product.id);
     showMessage('Producto eliminado');
-    loadData();
+    loadProducts();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al eliminar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
   }
 };
 
@@ -1093,8 +1091,8 @@ const toggleMenuAvailability = async (product: Product) => {
     const updated = await menuItemsService.toggleAvailability(product.menu_item.id);
     product.menu_item.available = updated.available;
     showMessage(updated.available ? 'Visible en el menú' : 'Oculto del menú');
-  } catch {
-    showMessage('No se pudo cambiar la disponibilidad', 'error');
+  } catch (error) {
+    showMessage(errorMessage(error, 'No se pudo cambiar la disponibilidad'), 'error');
   }
 };
 

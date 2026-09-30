@@ -1,7 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { API, apiLogin, loginUI } from './helpers'
-
-const PLATFORM = { email: 'plataforma@saboresdeltrigo.com', password: 'plataforma123' }
+import { API, PLATFORM, apiLogin, loginUI } from './helpers'
 
 /**
  * Catálogos base: una empresa nueva arranca con productos ya cargados en vez

@@ -1,4 +1,5 @@
 import api from './api'
+import type { PageQuery, PaginatedResponse } from '@/types/api'
 
 export type ExpenseCategoryType =
   | 'inventory_purchase'
@@ -32,6 +33,7 @@ export interface Expense {
   expense_date: string
   invoice_number?: string
   supplier_name?: string
+  /** Solo en gastos anteriores a que las compras entraran por el kardex. */
   product_id?: number
   quantity_purchased?: number
   payment_method?: ExpensePaymentMethod
@@ -59,7 +61,7 @@ interface ApiResponse<T> {
 }
 
 export const expensesService = {
-  // ===== Categorías de Gastos =====
+  // ===== Categorías de gastos =====
   async getCategories(): Promise<ExpenseCategory[]> {
     const response = await api.get<ApiResponse<ExpenseCategory[]>>('/expense-categories')
     return response.data.data
@@ -87,6 +89,14 @@ export const expensesService = {
   }): Promise<Expense[]> {
     const response = await api.get<ApiResponse<Expense[]>>('/expenses', { params })
     return response.data.data
+  },
+
+  /** Una página de gastos (búsqueda por concepto, proveedor o factura en `q`). */
+  async getExpensesPage(
+    query: PageQuery & { start_date?: string; end_date?: string; category_id?: number },
+  ): Promise<PaginatedResponse<Expense>> {
+    const response = await api.get<PaginatedResponse<Expense>>('/expenses', { params: query })
+    return response.data
   },
 
   async getExpense(id: number): Promise<Expense> {

@@ -9,11 +9,11 @@
           </div>
           <v-btn v-if="tab === 'companies'" color="primary" size="large" @click="openCreateDialog">
             <v-icon start>mdi-domain-plus</v-icon>
-            Nueva Empresa
+            Nueva empresa
           </v-btn>
           <v-btn v-else-if="tab === 'sellers'" color="primary" size="large" @click="openSellerDialog()">
             <v-icon start>mdi-account-plus</v-icon>
-            Nuevo Vendedor
+            Nuevo vendedor
           </v-btn>
         </div>
       </v-col>
@@ -68,21 +68,21 @@
             <template #item.actions="{ item }">
               <v-tooltip text="Copiar un catálogo base a esta empresa">
                 <template #activator="{ props }">
-                  <v-btn v-bind="props" icon size="small" variant="text" @click="openCopyCatalog(item)">
+                  <v-btn v-bind="props" icon size="small" variant="text" :aria-label="`Copiar catálogo a ${item.name}`" @click="openCopyCatalog(item)">
                     <v-icon size="small">mdi-content-duplicate</v-icon>
                   </v-btn>
                 </template>
               </v-tooltip>
               <v-tooltip text="Ver y editar empresa">
                 <template #activator="{ props }">
-                  <v-btn v-bind="props" icon size="small" variant="text" @click="openDetailDialog(item)">
+                  <v-btn v-bind="props" icon size="small" variant="text" :aria-label="`Ver detalle de ${item.name}`" @click="openDetailDialog(item)">
                     <v-icon size="small">mdi-eye-outline</v-icon>
                   </v-btn>
                 </template>
               </v-tooltip>
               <v-tooltip text="Gestionar suscripción y pagos">
                 <template #activator="{ props }">
-                  <v-btn v-bind="props" icon size="small" variant="text" @click="openSubscriptionDialog(item)">
+                  <v-btn v-bind="props" icon size="small" variant="text" :aria-label="`Suscripción de ${item.name}`" @click="openSubscriptionDialog(item)">
                     <v-icon size="small">mdi-credit-card-outline</v-icon>
                   </v-btn>
                 </template>
@@ -95,7 +95,7 @@
                     size="small"
                     variant="text"
                     :color="item.active ? 'error' : 'success'"
-                    @click="confirmToggle(item)"
+                    :aria-label="`${item.active ? 'Desactivar' : 'Activar'} ${item.name}`" @click="confirmToggle(item)"
                   >
                     <v-icon size="small">{{ item.active ? 'mdi-domain-off' : 'mdi-domain' }}</v-icon>
                   </v-btn>
@@ -123,7 +123,7 @@
               </v-chip>
             </template>
             <template #item.actions="{ item }">
-              <v-btn icon size="small" variant="text" @click="openSellerDialog(item)">
+              <v-btn icon size="small" variant="text" :aria-label="`Editar al vendedor ${item.name}`" @click="openSellerDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
             </template>
@@ -132,6 +132,13 @@
             </template>
           </v-data-table>
         </v-card>
+      </v-col>
+    </v-row>
+
+    <!-- Seguridad de la cuenta de plataforma -->
+    <v-row v-else-if="tab === 'security'">
+      <v-col cols="12" md="8" lg="6">
+        <TwoFactorSetup />
       </v-col>
     </v-row>
 
@@ -146,11 +153,11 @@
             class="elevation-0"
           >
             <template #item.monthly_recurring="{ item }">
-              ${{ item.monthly_recurring.toLocaleString('es-CO') }}
+              {{ money(item.monthly_recurring) }}
             </template>
             <template #item.total_collected="{ item }">
               <span class="font-weight-bold">
-                ${{ item.total_collected.toLocaleString('es-CO') }}
+                {{ money(item.total_collected) }}
               </span>
             </template>
             <template #item.last_sale_at="{ item }">
@@ -167,7 +174,7 @@
     <!-- Dialog: crear/editar vendedor -->
     <v-dialog v-model="sellerDialog" max-width="480" persistent>
       <v-card>
-        <v-card-title>{{ editingSeller ? 'Editar Vendedor' : 'Nuevo Vendedor' }}</v-card-title>
+        <v-card-title>{{ editingSeller ? 'Editar vendedor' : 'Nuevo vendedor' }}</v-card-title>
         <v-card-text>
           <v-text-field
             v-model="sellerForm.name"
@@ -177,7 +184,7 @@
               Nombre <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
             </template>
           </v-text-field>
-          <v-text-field v-model="sellerForm.email" label="Email (opcional)" type="email" />
+          <v-text-field v-model="sellerForm.email" label="Correo (opcional)" type="email" />
           <v-text-field v-model="sellerForm.phone" label="Teléfono (opcional)" />
           <v-switch
             v-if="editingSeller"
@@ -200,7 +207,7 @@
          sin scrollear (empresa a la izquierda, admin y acuerdo a la derecha) -->
     <v-dialog v-model="createDialog" max-width="960" persistent>
       <v-card>
-        <v-card-title>Nueva Empresa</v-card-title>
+        <v-card-title>Nueva empresa</v-card-title>
         <v-card-text>
           <v-form ref="createForm" @submit.prevent="saveCompany">
             <p class="text-caption text-medium-emphasis mb-3">
@@ -245,7 +252,7 @@
                 </v-row>
                 <v-row dense class="mt-3">
                   <v-col cols="6">
-                    <v-text-field v-model="createData.email" label="Email (opcional)" type="email" />
+                    <v-text-field v-model="createData.email" label="Correo (opcional)" type="email" />
                   </v-col>
                   <v-col cols="6">
                     <v-text-field v-model="createData.phone" label="Teléfono (opcional)" />
@@ -266,9 +273,9 @@
                     <v-text-field
                       v-model="createData.admin.email"
                       type="email"
-                      :rules="[(v: string) => !!v || 'Email requerido']"
+                      :rules="[(v: string) => !!v || 'El correo es obligatorio']"
                     >
-                      <template #label>Email de acceso <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                      <template #label>Correo de acceso <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
                     </v-text-field>
                   </v-col>
                   <v-col cols="6">
@@ -341,7 +348,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="createDialog = false">Cancelar</v-btn>
-          <v-btn color="primary" :loading="saving" @click="saveCompany">Crear Empresa</v-btn>
+          <v-btn color="primary" :loading="saving" @click="saveCompany">Crear empresa</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -398,7 +405,7 @@
                   </v-text-field>
                 </v-col>
                 <v-col cols="6">
-                  <v-text-field v-model="editData.email" label="Email" type="email" />
+                  <v-text-field v-model="editData.email" label="Correo" type="email" />
                 </v-col>
                 <v-col cols="6">
                   <v-text-field v-model="editData.phone" label="Teléfono" />
@@ -465,10 +472,10 @@
               </v-col>
               <v-col cols="6">
                 <div class="text-caption text-medium-emphasis">Creada</div>
-                <div>{{ formatDate(detail.created_at) }}</div>
+                <div>{{ formatMomentDay(detail.created_at) }}</div>
               </v-col>
               <v-col cols="6">
-                <div class="text-caption text-medium-emphasis">Email</div>
+                <div class="text-caption text-medium-emphasis">Correo</div>
                 <div>{{ detail.email || '—' }}</div>
               </v-col>
               <v-col cols="6">
@@ -499,7 +506,7 @@
               <thead>
                 <tr>
                   <th>Nombre</th>
-                  <th>Email</th>
+                  <th>Correo</th>
                   <th>Rol</th>
                   <th>Estado</th>
                   <th>Último ingreso</th>
@@ -515,7 +522,7 @@
                       {{ user.active ? 'Activo' : 'Inactivo' }}
                     </v-chip>
                   </td>
-                  <td>{{ user.last_login_at ? formatDate(user.last_login_at) : 'Nunca' }}</td>
+                  <td>{{ user.last_login_at ? formatMomentDay(user.last_login_at) : 'Nunca' }}</td>
                 </tr>
               </tbody>
             </v-table>
@@ -536,7 +543,7 @@
               <tbody>
                 <tr v-for="payment in detail.payments" :key="payment.id">
                   <td>{{ payment.paid_at }}</td>
-                  <td>${{ payment.amount.toLocaleString('es-CO') }} {{ payment.currency }}</td>
+                  <td>{{ money(payment.amount) }} {{ payment.currency }}</td>
                   <td>{{ methodLabel(payment.method) }}</td>
                   <td>{{ payment.reference || '—' }}</td>
                   <td>{{ payment.period_start }} → {{ payment.period_end }}</td>
@@ -570,10 +577,9 @@
               />
             </v-col>
             <v-col cols="6">
-              <v-text-field
+              <DateField
                 v-model="subscriptionData.current_period_end"
                 label="Pagada hasta"
-                type="date"
               />
             </v-col>
             <v-col cols="6">
@@ -670,7 +676,7 @@
             density="compact"
             class="mb-2"
           >
-            El valor acordado es ${{ expectedPayment!.toLocaleString('es-CO') }} por
+            El valor acordado es {{ money(expectedPayment) }} por
             {{ paymentData.months }} mes(es). Indica el motivo de la diferencia.
           </v-alert>
           <v-textarea
@@ -718,6 +724,9 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
+import { formatMomentDay } from '@/utils/dates'
+import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import platformService from '../services/platformService'
@@ -725,6 +734,8 @@ import type { PlatformCompany, PlatformCompanyDetail, PlatformSeller, SellerStat
 import { ALL_FEATURES, type BusinessType, type Feature, type SubscriptionStatus } from '../types/auth'
 import { PASSWORD_HINT, passwordRules } from '../utils/validation'
 import CopyCatalogDialog from '../components/CopyCatalogDialog.vue'
+import TwoFactorSetup from '../components/TwoFactorSetup.vue'
+import DateField from '../components/DateField.vue'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -796,18 +807,13 @@ const methodLabel = (method: string): string => ({
   other: 'Otro',
 }[method] || method)
 
-const formatDate = (iso: string): string => new Date(iso).toLocaleDateString('es-CO', {
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-})
 
 const loadCompanies = async () => {
   loading.value = true
   try {
     companies.value = await platformService.listCompanies()
-  } catch {
-    notify('Error al cargar las empresas', 'error')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar las empresas. Inténtalo de nuevo.'), 'error')
   } finally {
     loading.value = false
   }
@@ -901,7 +907,7 @@ const saveCompany = async () => {
     notify('Empresa creada exitosamente')
     await loadCompanies()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al crear la empresa', 'error')
+    notify(errorMessage(error, 'No fue posible crear la empresa. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -929,8 +935,8 @@ const openDetailDialog = async (company: PlatformCompany) => {
   loadingDetail.value = true
   try {
     detail.value = await platformService.getCompany(company.id)
-  } catch {
-    notify('Error al cargar el detalle de la empresa', 'error')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar el detalle de la empresa. Inténtalo de nuevo.'), 'error')
     detailDialog.value = false
   } finally {
     loadingDetail.value = false
@@ -972,7 +978,7 @@ const saveDetail = async () => {
     await loadCompanies()
     detail.value = await platformService.getCompany(detail.value.id)
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al actualizar la empresa', 'error')
+    notify(errorMessage(error, 'No fue posible actualizar la empresa. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -1034,7 +1040,7 @@ const saveSubscription = async () => {
     await loadCompanies()
     selectedCompany.value = companies.value.find(c => c.id === selectedCompany.value?.id) ?? null
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al guardar la suscripción', 'error')
+    notify(errorMessage(error, 'No fue posible guardar la suscripción. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -1058,7 +1064,7 @@ const savePayment = async () => {
     subscriptionDialog.value = false
     await loadCompanies()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al registrar el pago', 'error')
+    notify(errorMessage(error, 'No fue posible registrar el pago. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -1074,22 +1080,23 @@ const confirmToggle = async (company: PlatformCompany) => {
     notify(company.active ? 'Empresa desactivada' : 'Empresa reactivada')
     await loadCompanies()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al cambiar el estado', 'error')
+    notify(errorMessage(error, 'No fue posible cambiar el estado. Inténtalo de nuevo.'), 'error')
   }
 }
 
 // --- Secciones: viven en la barra lateral, la ruta decide cuál se ve ---
 const route = useRoute()
-const tab = computed(() => (route.meta.section as 'companies' | 'sellers' | 'stats') ?? 'companies')
+const tab = computed(() => (route.meta.section as 'companies' | 'sellers' | 'stats' | 'security') ?? 'companies')
 
 const sectionTitle = computed(() =>
-  ({ companies: 'Empresas', sellers: 'Vendedores', stats: 'Ventas por Vendedor' })[tab.value],
+  ({ companies: 'Empresas', sellers: 'Vendedores', stats: 'Ventas por vendedor', security: 'Seguridad' })[tab.value],
 )
 const sectionSubtitle = computed(() =>
   ({
     companies: 'Administra las empresas del sistema y sus suscripciones',
     sellers: 'Quiénes venden el sistema; se asocian a cada suscripción',
     stats: 'Resultados comerciales de cada vendedor',
+    security: 'Verificación en dos pasos de la cuenta de plataforma',
   })[tab.value],
 )
 const sellers = ref<PlatformSeller[]>([])
@@ -1099,7 +1106,7 @@ const loadingStats = ref(false)
 
 const sellerHeaders = [
   { title: 'Nombre', key: 'name' },
-  { title: 'Email', key: 'email' },
+  { title: 'Correo', key: 'email' },
   { title: 'Teléfono', key: 'phone' },
   { title: 'Estado', key: 'active' },
   { title: '', key: 'actions', sortable: false },
@@ -1118,8 +1125,8 @@ const loadSellers = async () => {
   loadingSellers.value = true
   try {
     sellers.value = await platformService.listSellers()
-  } catch {
-    notify('Error al cargar los vendedores', 'error')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar los vendedores. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingSellers.value = false
   }
@@ -1129,8 +1136,8 @@ const loadStats = async () => {
   loadingStats.value = true
   try {
     sellerStats.value = await platformService.sellerStats()
-  } catch {
-    notify('Error al cargar las estadísticas', 'error')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar las estadísticas. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingStats.value = false
   }
@@ -1171,7 +1178,7 @@ const saveSeller = async () => {
     sellerDialog.value = false
     await loadSellers()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al guardar el vendedor', 'error')
+    notify(errorMessage(error, 'No fue posible guardar el vendedor. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -1181,6 +1188,7 @@ const saveSeller = async () => {
 // así que el montaje carga lo que la sección visible necesita. Los
 // vendedores se cargan siempre: alimentan los selectores de los diálogos.
 onMounted(() => {
+  if (tab.value === 'security') return
   loadSellers()
   if (tab.value === 'companies') loadCompanies()
   if (tab.value === 'stats') loadStats()

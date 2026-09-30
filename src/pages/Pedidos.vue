@@ -3,10 +3,10 @@
     <!-- Dentro del plano del salón: la mesa elegida, sin encabezado ni filtros. -->
     <div v-if="embedded" class="d-flex align-center justify-space-between flex-wrap ga-2 mb-3">
       <span class="text-body-2 text-medium-emphasis">
-        {{ filteredOrders.length ? 'Pedido abierto de la mesa' : 'La mesa no tiene pedidos por cobrar.' }}
+        {{ orders.length ? 'Pedido abierto de la mesa' : 'La mesa no tiene pedidos por cobrar.' }}
       </span>
       <LockableButton
-        v-if="canManageOrders && !filteredOrders.length"
+        v-if="canManageOrders && !orders.length"
         icon="mdi-plus"
         color="primary"
         @click="openNuevoPedidoDialog"
@@ -15,39 +15,35 @@
       </LockableButton>
     </div>
 
-    <v-row v-if="!embedded">
-      <v-col cols="15">
-        <div class="d-flex justify-space-between align-center mb-4">
-          <div>
-            <h1 class="text-h4">Pedidos</h1>
-            <p class="text-body-1 text-medium-emphasis">
-              Primero lo pendiente de cobro; los de otros días quedan marcados.
-            </p>
-          </div>
-          <div class="d-flex justify-space-between">
-            <LockableButton
-              v-if="canManageOrders"
-              icon="mdi-plus"
-              class="mr-2"
-              color="primary"
-              size="large"
-              @click="openNuevoPedidoDialog"
-            >
-              Nuevo Pedido
-            </LockableButton>
-            <v-btn-toggle v-model="filterPago" color="primary" mandatory>
-              <v-btn value="pending">Pendientes</v-btn>
-              <v-btn value="paid">Pagados</v-btn>
-              <v-btn value="all">Todos</v-btn>
-            </v-btn-toggle>
-          </div>
-        </div>
+    <v-row v-if="!embedded" align="center" class="mb-2">
+      <v-col cols="12" lg="5">
+        <h1 class="text-h4">Pedidos</h1>
+        <p class="text-body-1 text-medium-emphasis">
+          Primero lo pendiente de cobro; los de otros días quedan marcados.
+        </p>
+      </v-col>
+      <v-col cols="12" lg="7" class="d-flex flex-wrap align-center justify-lg-end ga-2">
+        <CashRegisterPanel v-if="canManageOrders" />
+        <LockableButton
+          v-if="canManageOrders"
+          icon="mdi-plus"
+          color="primary"
+          size="large"
+          @click="openNuevoPedidoDialog"
+        >
+          Nuevo pedido
+        </LockableButton>
+        <v-btn-toggle v-model="filterPago" color="primary" mandatory>
+          <v-btn value="pending">Pendientes</v-btn>
+          <v-btn value="paid">Pagados</v-btn>
+          <v-btn value="all">Todos</v-btn>
+        </v-btn-toggle>
       </v-col>
     </v-row>
 
     <!-- Pendientes de otros días: lo más urgente de la página. -->
     <v-alert
-      v-if="!embedded && overdueOrders.length > 0"
+      v-if="!embedded && overdueCount > 0"
       type="warning"
       variant="tonal"
       density="compact"
@@ -56,8 +52,8 @@
     >
       <div class="d-flex align-center flex-wrap ga-2">
         <span>
-          <strong>{{ overdueOrders.length }}</strong>
-          {{ overdueOrders.length === 1
+          <strong>{{ overdueCount }}</strong>
+          {{ overdueCount === 1
             ? 'pedido pendiente de cobro de un día anterior'
             : 'pedidos pendientes de cobro de días anteriores' }}:
           revísalos antes de seguir. En la lista quedan resaltados.
@@ -79,38 +75,37 @@
         <v-card>
           <v-card-title v-if="!embedded">
             <v-row align="center">
-              <v-col cols="12" md="4">
+              <v-col cols="12" md="3">
                 <v-text-field
                   v-model="search"
                   prepend-inner-icon="mdi-magnify"
-                  label="Buscar mesa (número o nombre)"
+                  label="Buscar mesa o pedido"
+                  placeholder="Mesa 3, Terraza o #120"
                   single-line
                   hide-details
                   clearable
                   density="compact"
                 />
               </v-col>
-              <v-col cols="6" md="2">
-                <v-text-field
+              <v-col cols="6" md="3">
+                <DateField
                   v-model="dateFrom"
                   label="Desde"
-                  type="date"
                   :max="dateTo || undefined"
                   hide-details
                   density="compact"
                 />
               </v-col>
-              <v-col cols="6" md="2">
-                <v-text-field
+              <v-col cols="6" md="3">
+                <DateField
                   v-model="dateTo"
                   label="Hasta"
-                  type="date"
                   :min="dateFrom || undefined"
                   hide-details
                   density="compact"
                 />
               </v-col>
-              <v-col cols="12" md="4" class="d-flex align-center justify-end flex-wrap ga-1">
+              <v-col cols="12" md="3" class="d-flex align-center justify-end flex-wrap ga-1">
                 <v-btn variant="tonal" color="primary" size="small" @click="setToday">Hoy</v-btn>
                 <v-btn v-if="hasDateRange" variant="text" size="small" @click="clearDates">Quitar fechas</v-btn>
                 <v-btn variant="text" @click="loadOrders()">
@@ -126,10 +121,15 @@
             </v-row>
           </v-card-title>
           
-          <v-data-table
+          <v-data-table-server
             v-model:expanded="expanded"
+            v-model:page="page"
+            v-model:items-per-page="perPage"
+            v-model:sort-by="sortBy"
             :headers="headers"
-            :items="filteredOrders"
+            :items="orders"
+            :items-length="ordersTotal"
+            :items-per-page-options="PAGE_SIZE_OPTIONS"
             :loading="loading"
             :row-props="rowProps"
             :hide-default-footer="embedded"
@@ -154,7 +154,7 @@
             
             <template #item.payment_status="{ item }">
               <v-chip :color="getPagoColor(item.payment_status)" size="small">
-                {{ getPagoText(item.payment_status).toUpperCase() }}
+                {{ getPagoText(item.payment_status) }}
               </v-chip>
             </template>
             
@@ -176,7 +176,7 @@
 
             <template #item.created_at="{ item }">
               <div class="text-no-wrap text-caption">
-                {{ formatDate(item.created_at) }}
+                {{ formatRecent(item.created_at) }}
                 <v-chip
                   v-if="isOverdue(item)"
                   color="warning"
@@ -214,7 +214,7 @@
                 </v-btn>
                 <v-menu v-if="isOpen(item) || item.payment_status === 'paid'">
                   <template #activator="{ props }">
-                    <v-btn icon size="small" variant="text" v-bind="props">
+                    <v-btn icon size="small" variant="text" aria-label="Más acciones del pedido" v-bind="props">
                       <v-icon>mdi-dots-vertical</v-icon>
                     </v-btn>
                   </template>
@@ -250,7 +250,8 @@
                       </template>
                       <v-list-item-title>Registrar pago parcial</v-list-item-title>
                     </v-list-item>
-                    <template v-if="isOpen(item)">
+                    <!-- Un pedido con productos lo cancela el admin; uno vacío, cualquiera. -->
+                    <template v-if="isOpen(item) && (isAdmin || !item.items?.length)">
                       <v-divider />
                       <v-list-item @click="cancelarPedido(item)">
                         <template #prepend>
@@ -288,7 +289,7 @@
                             <th>Cantidad</th>
                             <th>Producto</th>
                             <th v-if="hasGuests(item)">Persona</th>
-                            <th>Precio Unit.</th>
+                            <th>Precio unit.</th>
                             <th>Total</th>
                             <th>Acciones</th>
                           </tr>
@@ -313,7 +314,7 @@
                                 icon
                                 size="x-small"
                                 variant="text"
-                                @click="openEditItemDialog(item, orderItem)"
+                                :aria-label="`Editar ${orderItem.product_name ?? 'el producto'}`" @click="openEditItemDialog(item, orderItem)"
                               >
                                 <v-icon size="small">mdi-pencil</v-icon>
                               </v-btn>
@@ -416,7 +417,7 @@
                 </td>
               </tr>
             </template>
-          </v-data-table>
+          </v-data-table-server>
         </v-card>
       </v-col>
     </v-row>
@@ -585,7 +586,7 @@
                       prefix="$"
                       density="compact"
                       hide-details
-                      style="width: 120px"
+                      width="120"
                       @update:model-value="(v: string) => setGuestTip(guest, v)"
                     />
                     <v-btn
@@ -602,7 +603,7 @@
                       <v-btn
                         v-if="tipEnabled && guestTip(guest) > 0"
                         size="small"
-                        color="success"
+                        color="primary"
                         variant="tonal"
                         :loading="saving"
                         @click="cobrarPersona(guest, true)"
@@ -611,7 +612,7 @@
                       </v-btn>
                       <v-btn
                         size="small"
-                        :color="tipEnabled && guestTip(guest) > 0 ? undefined : 'success'"
+                        :color="tipEnabled && guestTip(guest) > 0 ? undefined : 'primary'"
                         :variant="tipEnabled && guestTip(guest) > 0 ? 'text' : 'tonal'"
                         :loading="saving"
                         @click="cobrarPersona(guest, false)"
@@ -742,7 +743,7 @@
     <!-- Dialog Descuento -->
     <v-dialog v-model="discountDialog" max-width="400">
       <v-card>
-        <v-card-title>Aplicar Descuento</v-card-title>
+        <v-card-title>Aplicar descuento</v-card-title>
         <v-card-text>
           <v-radio-group v-model="discountType" inline>
             <v-radio label="Porcentaje" value="percentage" />
@@ -768,168 +769,18 @@
       </v-card>
     </v-dialog>
 
-    <!-- Dialog Pago Parcial / División de cuenta -->
-    <v-dialog v-model="pagoDialog" max-width="560">
-      <v-card>
-        <v-card-title>Registrar Pago</v-card-title>
-        <v-card-text>
-          <!-- Total a pagar, lo que ya entró y el saldo, para no perder la cuenta. -->
-          <v-card flat color="surface-light" class="pa-3 mb-3 tabular-nums">
-            <div class="d-flex justify-space-between text-body-2">
-              <span>Total a pagar:</span>
-              <strong>{{ money(selectedOrder?.total) }}</strong>
-            </div>
-            <div class="d-flex justify-space-between text-body-2 text-medium-emphasis">
-              <span>Ya pagado:</span>
-              <span>{{ money(selectedOrder?.amount_paid) }}</span>
-            </div>
-            <v-divider class="my-2" />
-            <div class="d-flex justify-space-between">
-              <span>Saldo:</span>
-              <strong class="text-error">{{ money(selectedOrder?.pending_balance) }}</strong>
-            </div>
-          </v-card>
+    <!-- Pago parcial / división de cuenta -->
+    <PartialPaymentDialog
+      v-model="pagoDialog"
+      :order="selectedOrder"
+      @paid="message => { showMessage(message); loadOrders(); }"
+      @failed="message => showMessage(message, 'error')"
+    />
 
-          <!-- Historial: cada venta lleva su factura #pedido-n; los abonos son anticipos. -->
-          <v-list
-            v-if="(selectedOrder?.payments?.length ?? 0) > 0"
-            density="compact"
-            class="border rounded mb-3 py-0"
-          >
-            <v-list-subheader class="text-caption">Pagos registrados</v-list-subheader>
-            <v-list-item v-for="pay in selectedOrder!.payments!" :key="pay.id" class="px-3">
-              <template #prepend>
-                <v-chip
-                  :color="pay.kind === 'sale' ? 'success' : 'secondary'"
-                  size="x-small"
-                  label
-                  class="mr-2"
-                >
-                  {{ pay.kind === 'sale' ? 'Factura' : 'Abono' }}
-                </v-chip>
-              </template>
-              <v-list-item-title class="text-body-2">
-                {{ pay.invoice_number || pay.reference || ('#' + selectedOrder!.id) }}
-                <span class="text-caption text-medium-emphasis"> · {{ paymentMethodLabel(pay.payment_method) }}</span>
-              </v-list-item-title>
-              <template #append>
-                <div class="text-right">
-                  <strong>{{ money(pay.amount) }}</strong>
-                  <div v-if="Number(pay.tip) > 0" class="text-caption text-medium-emphasis">
-                    propina {{ money(pay.tip) }}
-                  </div>
-                </div>
-              </template>
-            </v-list-item>
-          </v-list>
-
-          <v-btn-toggle v-model="paymentMode" mandatory density="compact" color="primary" class="mb-4">
-            <v-btn value="items">Por productos</v-btn>
-            <v-btn value="amount">Por monto</v-btn>
-          </v-btn-toggle>
-
-          <!-- Modo por productos: dividir la cuenta -->
-          <template v-if="paymentMode === 'items'">
-            <p class="text-body-2 text-medium-emphasis mb-2">
-              Marca lo que va a pagar este grupo. Cada cobro por productos es una
-              <strong>factura de venta parcial</strong> (#{{ selectedOrder?.id }}-n) y
-              descuenta su inventario. Los descuentos del pedido se reparten proporcionalmente.
-            </p>
-            <v-table density="compact" class="mb-3">
-              <tbody>
-                <tr v-for="orderItem in payableItems" :key="orderItem.id">
-                  <td style="width: 40px">
-                    <v-checkbox-btn
-                      :model-value="selectedQty(orderItem) > 0"
-                      @update:model-value="(checked: boolean) => togglePaymentItem(orderItem, checked)"
-                    />
-                  </td>
-                  <td>
-                    {{ orderItem.product_name }}
-                    <span v-if="orderItem.variant" class="text-medium-emphasis"> ({{ orderItem.variant }})</span>
-                    <div v-if="orderItem.paid_quantity > 0" class="text-caption text-success">
-                      {{ orderItem.paid_quantity }} de {{ orderItem.quantity }} ya pagadas
-                    </div>
-                  </td>
-                  <td style="width: 150px">
-                    <div v-if="selectedQty(orderItem) > 0" class="d-flex align-center ga-1">
-                      <v-btn
-                        icon="mdi-minus"
-                        size="x-small"
-                        variant="tonal"
-                        :disabled="selectedQty(orderItem) <= 1"
-                        @click="adjustSelection(orderItem, -1)"
-                      />
-                      <span class="mx-1 font-weight-bold">{{ selectedQty(orderItem) }}</span>
-                      <v-btn
-                        icon="mdi-plus"
-                        size="x-small"
-                        variant="tonal"
-                        :disabled="selectedQty(orderItem) >= orderItem.unpaid_quantity"
-                        @click="adjustSelection(orderItem, 1)"
-                      />
-                      <span class="text-caption text-medium-emphasis">/ {{ orderItem.unpaid_quantity }}</span>
-                    </div>
-                  </td>
-                  <td class="text-right" style="width: 90px">
-                    {{ money(unitPriceOf(orderItem)) }} c/u
-                  </td>
-                </tr>
-              </tbody>
-            </v-table>
-            <v-alert v-if="selectionCount > 0" type="info" variant="tonal" density="compact" class="mb-2">
-              A cobrar por esta selección: <strong>{{ money(selectionEstimate) }}</strong>
-            </v-alert>
-          </template>
-
-          <!-- Modo por monto libre -->
-          <template v-else>
-            <v-text-field
-              v-model.number="paymentAmount"
-              label="Monto a pagar"
-              type="number"
-              min="0"
-              :max="selectedOrder?.pending_balance"
-              prefix="$"
-            />
-            <v-alert type="info" variant="tonal" density="compact" class="mb-2">
-              <template v-if="paymentAmount >= Number(selectedOrder?.pending_balance ?? 0) && Number(selectedOrder?.pending_balance ?? 0) > 0">
-                Cierra la cuenta: factura los productos que falten y aplica los abonos.
-              </template>
-              <template v-else>
-                Es un <strong>recibo de abono</strong> (anticipo): no genera factura ni
-                descuenta inventario. Se factura al cerrar la cuenta.
-              </template>
-            </v-alert>
-          </template>
-
-          <v-select
-            v-model="paymentMethod"
-            :items="paymentMethodOptions"
-            label="Medio de pago"
-            density="compact"
-            class="mt-2"
-          />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="pagoDialog = false">Cancelar</v-btn>
-          <v-btn
-            color="primary"
-            :loading="saving"
-            :disabled="paymentMode === 'items' ? selectionCount === 0 : !paymentAmount"
-            @click="registrarPago"
-          >
-            Cobrar{{ paymentMode === 'items' && selectionCount > 0 ? ` ${money(selectionEstimate)}` : '' }}
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- Dialog Editar Item -->
+    <!-- Dialog Editar item -->
     <v-dialog v-model="editItemDialog" max-width="400">
       <v-card>
-        <v-card-title>Editar Item</v-card-title>
+        <v-card-title>Editar item</v-card-title>
         <v-card-text>
           <p class="mb-4 font-weight-bold">{{ selectedItem?.product_name }}</p>
           <v-text-field
@@ -975,12 +826,12 @@
       </v-card>
     </v-dialog>
 
-    <!-- Dialog Nuevo Pedido -->
+    <!-- Dialog Nuevo pedido -->
     <v-dialog v-model="nuevoPedidoDialog" max-width="900" persistent scrollable>
       <v-card>
         <v-card-title class="bg-primary">
           <v-icon start>mdi-receipt-text-plus</v-icon>
-          Nuevo Pedido
+          Nuevo pedido
         </v-card-title>
         <v-card-text class="pt-4">
           <v-row dense>
@@ -1026,7 +877,7 @@
         </v-card-text>
         <v-card-actions>
           <div class="text-h6 ml-4">
-            Total: ${{ totalNuevoPedido.toLocaleString('es-CO') }}
+            Total: {{ money(totalNuevoPedido) }}
           </div>
           <v-spacer />
           <v-btn @click="nuevoPedidoDialog = false">Cancelar</v-btn>
@@ -1037,7 +888,7 @@
             @click="crearPedido"
           >
             <v-icon start>mdi-check</v-icon>
-            Crear Pedido
+            Crear pedido
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -1064,7 +915,7 @@
         </v-card-text>
         <v-card-actions>
           <div class="text-h6 ml-4">
-            Total: ${{ totalParaAgregar.toLocaleString('es-CO') }}
+            Total: {{ money(totalParaAgregar) }}
           </div>
           <v-spacer />
           <v-btn @click="agregarItemsDialog = false">Cancelar</v-btn>
@@ -1097,7 +948,6 @@ import {
   type OrderItem,
   type OrderPaymentMethod,
   type OrderReceipt,
-  type PartialPaymentPayload,
 } from '@/services/ordersService';
 import { billingService, type Customer } from '@/services/billingService';
 import {
@@ -1108,14 +958,22 @@ import {
   orderPaymentMethodLabels,
   taxRegimeLabels,
   label,
+  options,
 } from '@/utils/labels';
 import LockableButton from '../components/LockableButton.vue'
+import CashRegisterPanel from '../components/CashRegisterPanel.vue'
+import PartialPaymentDialog from '../components/PartialPaymentDialog.vue'
+import DateField from '../components/DateField.vue'
 import ProductPicker from '../components/ProductPicker.vue'
 import { menuItemsService } from '@/services/menuService';
 import { tablesService } from '@/services/tablesService';
 import { effectiveFeatures } from '@/types/auth';
 import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/utils/orderLines';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
+import { money } from '@/utils/money';
+import { formatRecent } from '@/utils/dates';
+import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage';
+import type { PageQuery, PaginatedResponse } from '@/types/api';
 import type { OrderGuest } from '@/services/ordersService';
 
 // El plano del salón monta esta misma página para una mesa: se gestiona el
@@ -1123,12 +981,9 @@ import type { OrderGuest } from '@/services/ordersService';
 const props = defineProps<{ tableId?: number | null; embedded?: boolean }>();
 const emit = defineEmits<{ changed: [] }>();
 
-const orders = ref<Order[]>([]);
 // Vuetify lo tipa como string[], pero compara contra item-value (el id numérico).
 const expanded = ref<any[]>([]);
-const loading = ref(true);
 const saving = ref(false);
-const search = ref('');
 // Por defecto: TODO lo pendiente de cobro, de cualquier día. Un pedido de
 // ayer sin cobrar es plata que se pierde si solo se ve lo de hoy.
 const filterPago = ref<'pending' | 'paid' | 'all'>('pending');
@@ -1146,9 +1001,6 @@ const clearDates = () => {
   dateTo.value = '';
 };
 
-/** Pesos colombianos: sin decimales y con separador de miles. */
-const money = (value: number | string | null | undefined): string =>
-  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 });
 
 /** Pedido abierto: se puede cobrar, descontar o cancelar. */
 const isOpen = (order: Order) =>
@@ -1170,10 +1022,9 @@ const startOfToday = () => {
 const isOverdue = (order: Order) =>
   isOpen(order) && new Date(order.created_at).getTime() < startOfToday();
 
-// Pendientes de otros días. Cuando la lista ya trae todos los pendientes se
-// derivan de ahí; si no (pagados, solo hoy), se consultan aparte para que la
-// alerta no desaparezca al cambiar de filtro.
-const overdueOrders = ref<Order[]>([]);
+// Pendientes de otros días: solo el conteo, con una consulta aparte para que
+// la alerta no dependa de la página ni del filtro que se esté viendo.
+const overdueCount = ref(0);
 const showsAllPending = computed(() => filterPago.value === 'pending' && !hasDateRange.value);
 
 const verTodosLosPendientes = () => {
@@ -1194,69 +1045,6 @@ const discountValue = ref(0);
 const discountReason = ref('');
 
 const pagoDialog = ref(false);
-const paymentAmount = ref(0);
-const paymentMode = ref<'items' | 'amount'>('items');
-const paymentMethod = ref<OrderPaymentMethod>('cash');
-// order_item_id → unidades seleccionadas para cobrar
-const paymentSelection = ref<Record<number, number>>({});
-
-const paymentMethodOptions = Object.entries(orderPaymentMethodLabels).map(
-  ([value, title]) => ({ value, title }),
-);
-
-const paymentMethodLabel = (method?: string | null) =>
-  (method ? orderPaymentMethodLabels[method as OrderPaymentMethod] : undefined) ?? method ?? '';
-
-const payableItems = computed(() =>
-  (selectedOrder.value?.items ?? []).filter(i => i.unpaid_quantity > 0),
-);
-
-const selectionCount = computed(() =>
-  Object.values(paymentSelection.value).reduce((sum, qty) => sum + qty, 0),
-);
-
-const unitPriceOf = (item: OrderItem) =>
-  Number(item.total_price || 0) / Math.max(1, Number(item.quantity || 1));
-
-// Estimación con el mismo prorrateo del backend (factor total/subtotal);
-// el servidor calcula el valor definitivo.
-const selectionEstimate = computed(() => {
-  const order = selectedOrder.value;
-  if (!order) return 0;
-
-  const itemsBase = order.items.reduce((sum, i) => sum + Number(i.total_price || 0), 0);
-  if (itemsBase <= 0) return 0;
-  const factor = Number(order.total || 0) / itemsBase;
-
-  const base = order.items.reduce(
-    (sum, i) => sum + unitPriceOf(i) * (paymentSelection.value[i.id] || 0),
-    0,
-  );
-
-  const completesAll = order.items.every(
-    i => i.unpaid_quantity - (paymentSelection.value[i.id] || 0) <= 0,
-  );
-
-  return completesAll
-    ? Number(order.pending_balance || 0)
-    : Math.min(Math.round(base * factor * 100) / 100, Number(order.pending_balance || 0));
-});
-
-const selectedQty = (item: OrderItem) => paymentSelection.value[item.id] ?? 0;
-
-const adjustSelection = (item: OrderItem, delta: number) => {
-  const next = selectedQty(item) + delta;
-  paymentSelection.value[item.id] = Math.min(Math.max(next, 1), item.unpaid_quantity);
-};
-
-const togglePaymentItem = (item: OrderItem, checked: boolean) => {
-  if (checked) {
-    paymentSelection.value[item.id] = item.unpaid_quantity;
-  } else {
-    delete paymentSelection.value[item.id];
-  }
-};
-
 const editItemDialog = ref(false);
 const editItemData = ref({ quantity: 1, unit_price: 0, discount: 0, guest_number: null as number | null });
 
@@ -1291,9 +1079,9 @@ const snackbarText = ref('');
 const snackbarColor = ref('success');
 
 const headers = [
-  { title: 'Mesa', key: 'dining_table' },
+  { title: 'Mesa', key: 'dining_table', sortable: false },
   // Quién atiende la mesa es lo operativo; el cliente casi nunca se llena.
-  { title: 'Mesero', key: 'waiter' },
+  { title: 'Mesero', key: 'waiter', sortable: false },
   { title: 'Estado', key: 'status' },
   { title: 'Pago', key: 'payment_status' },
   { title: 'Total', key: 'total' },
@@ -1301,35 +1089,6 @@ const headers = [
   { title: 'Fecha', key: 'created_at', width: 130 },
   { title: '', key: 'actions', sortable: false, align: 'end' as const, width: 200 },
 ];
-
-const filteredOrders = computed(() => {
-  let result = orders.value;
-
-  if (filterPago.value === 'pending') {
-    // Un pedido cancelado no está "por cobrar" aunque su pago siga en pendiente.
-    result = result.filter(isOpen);
-  } else if (filterPago.value === 'paid') {
-    result = result.filter(o => o.payment_status === 'paid');
-  }
-
-  // Búsqueda por mesa (contiene, sin distinguir mayúsculas): "3" encuentra
-  // "Mesa 3" y "Mesa 13"; "terra" encuentra "Terraza 1". También por # de pedido.
-  const query = (search.value || '').trim().toLowerCase();
-  if (query) {
-    result = result.filter(o => {
-      const table = o.dining_table;
-      const haystack = [
-        table?.display_name ?? '',
-        table ? `mesa ${table.number}` : 'sin mesa',
-        `#${o.id}`,
-        String(o.id),
-      ].join(' ').toLowerCase();
-      return haystack.includes(query);
-    });
-  }
-
-  return result;
-});
 
 const showMessage = (text: string, color = 'success') => {
   snackbarText.value = text;
@@ -1452,44 +1211,70 @@ const stopTime = async (order: Order) => {
     showMessage('Tiempo detenido y agregado a la cuenta');
     await loadOrders();
   } catch (error: any) {
-    showMessage(error.response?.data?.message || 'Error al detener el tiempo', 'error');
+    showMessage(errorMessage(error, 'No fue posible detener el tiempo. Inténtalo de nuevo.'), 'error');
+  }
+};
+
+// La lista pagina en el servidor: el refresco en vivo trae solo la página
+// visible. Desde el plano del salón van completos los pedidos abiertos de la mesa.
+const fetchOrders = async (query: PageQuery): Promise<PaginatedResponse<Order>> => {
+  if (props.embedded) {
+    const data = await ordersService.getAll({
+      ...(props.tableId ? { dining_table_id: props.tableId } : {}),
+      open: true,
+    });
+    return { data, meta: { current_page: 1, per_page: data.length, total: data.length, last_page: 1 } };
+  }
+
+  return ordersService.getPage({
+    ...query,
+    ...(dateFrom.value ? { from: dateFrom.value } : {}),
+    ...(dateTo.value ? { to: dateTo.value } : {}),
+    // Un pedido cancelado no está "por cobrar" aunque su pago siga en pendiente.
+    ...(filterPago.value === 'pending' ? { open: true } : {}),
+    ...(filterPago.value === 'paid' ? { payment_status: 'paid' } : {}),
+  });
+};
+
+const {
+  items: orders,
+  total: ordersTotal,
+  page,
+  perPage,
+  sortBy,
+  search,
+  loading,
+  load,
+} = useServerPage<Order>(fetchOrders, {
+  filters: [dateFrom, dateTo, filterPago],
+  onError: error =>
+    showMessage(errorMessage(error, 'No fue posible cargar los pedidos. Inténtalo de nuevo.'), 'error'),
+});
+
+const localYesterday = () => {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  return date.toLocaleDateString('en-CA');
+};
+
+const loadOverdueCount = async () => {
+  try {
+    const result = await ordersService.getPage({ page: 1, per_page: 1, open: true, to: localYesterday() });
+    overdueCount.value = result.meta.total;
+  } catch {
+    // Sin conexión la lista ya muestra el error; el aviso se actualiza en el siguiente refresco.
   }
 };
 
 const loadOrders = async (silent = false) => {
-  if (!silent) loading.value = true;
-  try {
-    // El filtro de pago se manda al backend: "todos" sin fechas sería
-    // traer el histórico completo cada vez que se abre la página.
-    const filters = {
-      ...(props.tableId ? { dining_table_id: props.tableId } : {}),
-      ...(dateFrom.value ? { from: dateFrom.value } : {}),
-      ...(dateTo.value ? { to: dateTo.value } : {}),
-      ...(filterPago.value === 'pending' ? { pending_payment: true } : {}),
-      ...(filterPago.value === 'paid' ? { payment_status: 'paid' } : {}),
-    };
+  await Promise.all([load({ silent }), props.embedded ? null : loadOverdueCount()]);
 
-    const [list, pending] = await Promise.all([
-      ordersService.getAll(filters),
-      showsAllPending.value || props.embedded ? null : ordersService.getAll({ pending_payment: true }),
-    ]);
-
-    orders.value = list;
-    overdueOrders.value = (pending ?? list).filter(isOverdue);
-
-    if (props.embedded) {
-      // Con una sola mesa, el detalle del pedido va abierto de entrada.
-      expanded.value = list.filter(isOpen).map(order => order.id);
-      if (!silent) emit('changed');
-    }
-  } catch (error) {
-    showMessage(errorMessage(error, 'Error al cargar pedidos'), 'error');
-  } finally {
-    loading.value = false;
+  if (props.embedded) {
+    // Con una sola mesa, el detalle del pedido va abierto de entrada.
+    expanded.value = orders.value.filter(isOpen).map(order => order.id);
+    if (!silent) emit('changed');
   }
 };
-
-watch([dateFrom, dateTo, filterPago], () => loadOrders());
 
 const getStatusColor = (status: string) => orderStatusColors[status] || 'secondary';
 
@@ -1500,12 +1285,6 @@ const getPagoColor = (estado: string) => paymentStatusColors[estado] || 'seconda
 const getPagoText = (estado: string) => label(paymentStatusLabels, estado) || estado;
 
 // Hoy solo la hora; otro día, día y mes también.
-const formatDate = (dateString: string) => {
-  const date = new Date(dateString);
-  const time = date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-  if (date.getTime() >= startOfToday()) return time;
-  return `${date.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit' })} ${time}`;
-};
 
 // --- Cobro: método, cliente y propina (voluntaria) ---
 const payDialog = ref(false);
@@ -1515,7 +1294,7 @@ const payTip = ref(0);
 const payCustomerId = ref<number | null>(null);
 const customers = ref<Customer[]>([]);
 
-const payMethodOptions = Object.entries(orderPaymentMethodLabels).map(([value, title]) => ({ value, title }));
+const payMethodOptions = options(orderPaymentMethodLabels);
 
 /**
  * Preferencias de caja, guardadas en este navegador: si el negocio sugiere
@@ -1639,7 +1418,7 @@ const confirmarCobro = async (withTip: boolean) => {
     }
   } catch (error) {
     win?.close();
-    showMessage(errorMessage(error, 'Error al cobrar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible cobrar el pedido. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -1809,7 +1588,7 @@ const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {})
     r.customer.document ? `CC/NIT  : ${r.customer.document}` : '',
     `FECHA   : ${new Date((!opts.preBill && r.paid_at) || r.created_at).toLocaleString('es-CO')}`,
     r.dining_table ? `MESA    : ${r.dining_table}` : '',
-    r.waiter ? `ATENDIO : ${r.waiter}` : '',
+    r.waiter ? `ATENDIÓ: ${r.waiter}` : '',
     line,
     'CANT ARTICULO                    VALOR',
     line,
@@ -1859,7 +1638,7 @@ const printReceipt = async (order: Order, win: Window | null = openPrintWindow()
     fillPrintWindow(win, r.invoice_number || `Pedido #${order.id}`, buildTicket(r, order.id));
   } catch (error) {
     win.close();
-    showMessage(errorMessage(error, 'Error al generar la factura'), 'error');
+    showMessage(errorMessage(error, 'No fue posible generar la factura. Inténtalo de nuevo.'), 'error');
   }
 };
 
@@ -1883,7 +1662,7 @@ const printGuestBill = async (order: Order, guest: number | null) => {
     }));
   } catch (error) {
     win.close();
-    showMessage(errorMessage(error, 'Error al generar la cuenta'), 'error');
+    showMessage(errorMessage(error, 'No fue posible generar la cuenta. Inténtalo de nuevo.'), 'error');
   } finally {
     printing.value = false;
   }
@@ -1915,7 +1694,7 @@ const printPreBill = async (order: Order) => {
     }));
   } catch (error) {
     win.close();
-    showMessage(errorMessage(error, 'Error al generar la cuenta'), 'error');
+    showMessage(errorMessage(error, 'No fue posible generar la cuenta. Inténtalo de nuevo.'), 'error');
   } finally {
     printing.value = false;
   }
@@ -1943,7 +1722,7 @@ const applyDiscount = async () => {
     discountDialog.value = false;
     loadOrders();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al aplicar descuento'), 'error');
+    showMessage(errorMessage(error, 'No fue posible aplicar el descuento. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -1951,43 +1730,7 @@ const applyDiscount = async () => {
 
 const openPagoDialog = (order: Order) => {
   selectedOrder.value = order;
-  paymentAmount.value = order.pending_balance;
-  paymentMode.value = order.items.length > 0 ? 'items' : 'amount';
-  paymentMethod.value = 'cash';
-  paymentSelection.value = {};
   pagoDialog.value = true;
-};
-
-const registrarPago = async () => {
-  if (!selectedOrder.value) return;
-
-  const payload: PartialPaymentPayload = { payment_method: paymentMethod.value };
-
-  if (paymentMode.value === 'items') {
-    if (selectionCount.value === 0) return;
-    payload.items = Object.entries(paymentSelection.value)
-      .filter(([, qty]) => qty > 0)
-      .map(([id, qty]) => ({ order_item_id: Number(id), quantity: qty }));
-  } else {
-    if (!paymentAmount.value || paymentAmount.value <= 0) return;
-    payload.amount = paymentAmount.value;
-  }
-
-  saving.value = true;
-  try {
-    const updated = await ordersService.recordPartialPayment(selectedOrder.value.id, payload);
-    showMessage(
-      updated.payment_status === 'paid'
-        ? 'Cuenta saldada: pedido pagado por completo'
-        : (payload.items ? 'Factura parcial registrada' : 'Abono registrado'),
-    );
-    pagoDialog.value = false;
-    loadOrders();
-  } catch (error: any) {
-    showMessage(error.response?.data?.message || 'Error al registrar pago', 'error');
-  } finally {
-    saving.value = false;
-  }
 };
 
 const cancelarPedido = async (order: Order) => {
@@ -1997,7 +1740,7 @@ const cancelarPedido = async (order: Order) => {
     showMessage('Pedido cancelado');
     loadOrders();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al cancelar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible cancelar el pedido. Inténtalo de nuevo.'), 'error');
   }
 };
 
@@ -2030,7 +1773,7 @@ const guardarItem = async () => {
     editItemDialog.value = false;
     loadOrders();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al actualizar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible actualizar. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -2046,7 +1789,7 @@ const eliminarItem = async () => {
     editItemDialog.value = false;
     loadOrders();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al eliminar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -2129,7 +1872,7 @@ const crearPedido = async () => {
     if (activo) {
       showMessage(`La mesa ya tiene el pedido #${activo.id} abierto: agrégale los productos desde ahí.`, 'error');
     } else {
-      showMessage(errorMessage(error, 'Error al crear el pedido: '), 'error');
+      showMessage(errorMessage(error, 'No fue posible crear el pedido. Inténtalo de nuevo.'), 'error');
     }
   } finally {
     saving.value = false;
@@ -2173,7 +1916,7 @@ const guardarItemsAgregados = async () => {
     agregarItemsDialog.value = false;
     loadOrders();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al agregar productos: '), 'error');
+    showMessage(errorMessage(error, 'No fue posible agregar los productos. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }

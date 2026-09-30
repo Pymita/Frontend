@@ -123,11 +123,11 @@ test('el ajuste manual pide motivo y queda en el kardex con documento AJ', async
   await page.getByLabel('Ajuste', { exact: true }).fill('-2')
 
   // Sin motivo no hay ajuste: el kardex exige saber por qué.
-  await page.getByRole('button', { name: /Actualizar Stock/ }).click()
+  await page.getByRole('button', { name: /Actualizar stock/ }).click()
   await expect(page.getByText(/Indica el motivo/)).toBeVisible()
 
   await page.getByLabel('Motivo del ajuste *').fill('Merma E2E')
-  await page.getByRole('button', { name: /Actualizar Stock/ }).click()
+  await page.getByRole('button', { name: /Actualizar stock/ }).click()
   await expect(row.getByText('8 kg')).toBeVisible()
 
   // El movimiento queda en el kardex como AJ.
@@ -204,7 +204,7 @@ test('un producto con saldo inicial 0 se crea, se vende y el kardex queda en neg
 
   // Alta por interfaz: por defecto es producto final en "unidad" y el saldo
   // inicial viene en 0, así que se crea sin existencias (ya no es obligatorio).
-  await page.getByRole('button', { name: 'Nuevo Producto' }).click()
+  await page.getByRole('button', { name: 'Nuevo producto' }).click()
   await field(page, 'Nombre del producto *').locator('input').fill('Gaseosa Sin Saldo E2E')
 
   await field(page, 'Categoría *').click()
@@ -256,4 +256,34 @@ test('un producto con saldo inicial 0 se crea, se vende y el kardex queda en neg
     .filter({ hasText: 'Agotado' })
   await expect(alert).toBeVisible()
   await expect(alert).toContainText('-3 unidad')
+})
+
+/** Con la tabla paginada en el servidor, ordenar una columna lo resuelve el backend. */
+test('ordenar por nombre y filtrar por categoría se resuelven en el servidor', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const categoryName = `Orden E2E ${Date.now()}`
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: categoryName } })
+  const categoryId = (await category.json()).data.id
+  for (const name of ['Bocadillo Orden', 'Arepa Orden', 'Cuajada Orden']) {
+    const created = await request.post(`${API}/products`, {
+      headers: auth,
+      data: { name, type: 'final', unit: 'unidad', sale_price: 3000, tracks_stock: false, category_id: categoryId },
+    })
+    expect(created.status()).toBe(201)
+  }
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/productos-base')
+  await field(page, 'Categoría').click()
+  await page.getByRole('option', { name: categoryName }).click()
+
+  const names = page.locator('tbody tr td:nth-child(4)')
+  await expect(names).toHaveText(['Arepa Orden', 'Bocadillo Orden', 'Cuajada Orden'])
+
+  const sorted = page.waitForRequest(r => r.url().includes('/api/products?') && r.url().includes('sort_dir=desc'))
+  await page.getByRole('columnheader', { name: 'Nombre' }).click()
+  await page.getByRole('columnheader', { name: 'Nombre' }).click()
+  expect((await sorted).url()).toContain('sort_by=name')
+  await expect(names).toHaveText(['Cuajada Orden', 'Bocadillo Orden', 'Arepa Orden'])
 })

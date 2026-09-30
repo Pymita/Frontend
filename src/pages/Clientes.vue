@@ -3,12 +3,12 @@
     <!-- Título -->
     <v-row class="mb-2">
       <v-col cols="12">
-        <div class="d-flex align-center justify-space-between">
+        <div class="d-flex align-center justify-space-between flex-wrap ga-3">
           <div class="d-flex align-center">
             <v-icon size="40" class="mr-3" color="primary">mdi-account-multiple</v-icon>
             <div>
               <h1 class="text-h4">Clientes y proveedores</h1>
-              <p class="text-body-1 text-medium-emphasis">Gestiona los terceros para facturación y compras</p>
+              <p class="text-body-1 text-medium-emphasis">A quién le vendes y a quién le compras</p>
             </div>
           </div>
           <LockableButton
@@ -16,7 +16,7 @@
             color="primary"
             size="large"
             @click="activeTab === 'clientes' ? openDialog() : openSupplierDialog()">
-            {{ activeTab === 'clientes' ? 'Nuevo Cliente' : 'Nuevo Proveedor' }}
+            {{ activeTab === 'clientes' ? 'Nuevo cliente' : 'Nuevo proveedor' }}
           </LockableButton>
         </div>
       </v-col>
@@ -39,7 +39,8 @@
                     <v-text-field
                       v-model="search"
                       prepend-inner-icon="mdi-magnify"
-                      label="Buscar por nombre o documento"
+                      label="Buscar cliente"
+                      placeholder="Nombre, documento, correo o teléfono"
                       variant="outlined"
                       density="compact"
                       hide-details
@@ -54,11 +55,15 @@
         <v-row class="mt-4">
           <v-col cols="12">
             <v-card>
-              <v-data-table
+              <v-data-table-server
+                v-model:page="page"
+                v-model:items-per-page="perPage"
+                v-model:sort-by="sortBy"
                 :headers="headers"
-                :items="filteredClientes"
+                :items="clientes"
+                :items-length="total"
+                :items-per-page-options="PAGE_SIZE_OPTIONS"
                 :loading="loading"
-                :search="search"
                 class="elevation-0">
                 <template #item.document_type="{ item }">
                   <v-chip size="small" color="primary" variant="outlined">
@@ -91,16 +96,16 @@
                     size="small"
                     variant="text"
                     :disabled="isReadOnly"
-                    @click="openDialog(item)" />
+                    :aria-label="`Editar el cliente ${item.name}`" @click="openDialog(item)" />
                   <v-btn
                     icon="mdi-delete"
                     size="small"
                     variant="text"
                     color="error"
                     :disabled="isReadOnly"
-                    @click="deleteCliente(item)" />
+                    :aria-label="`Eliminar el cliente ${item.name}`" @click="deleteCliente(item)" />
                 </template>
-              </v-data-table>
+              </v-data-table-server>
             </v-card>
           </v-col>
         </v-row>
@@ -156,7 +161,7 @@
                     size="small"
                     variant="text"
                     :disabled="isReadOnly"
-                    @click="openSupplierDialog(item)" />
+                    :aria-label="`Editar el proveedor ${item.name}`" @click="openSupplierDialog(item)" />
                   <v-btn
                     icon="mdi-delete"
                     size="small"
@@ -177,7 +182,7 @@
     <v-dialog v-model="dialog" max-width="800px" persistent>
       <v-card>
         <v-card-title class="bg-primary">
-          {{ editing ? 'Editar Cliente' : 'Nuevo Cliente' }}
+          {{ editing ? 'Editar cliente' : 'Nuevo cliente' }}
         </v-card-title>
         <v-card-text class="pt-4">
           <v-alert type="info" density="compact" class="mb-4">
@@ -201,7 +206,7 @@
                   :rules="[rules.required]"
                 >
                   <template #label>
-                    Tipo de Documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                    Tipo de documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
                 </v-select>
               </v-col>
@@ -214,7 +219,7 @@
                   :rules="[rules.required]"
                 >
                   <template #label>
-                    Número de Documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                    Número de documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
                 </v-text-field>
               </v-col>
@@ -227,7 +232,7 @@
                   :rules="[rules.required]"
                 >
                   <template #label>
-                    Nombre / Razón Social <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                    Nombre / Razón social <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
                 </v-text-field>
               </v-col>
@@ -235,7 +240,7 @@
               <v-col cols="12" md="6">
                 <v-text-field
                   v-model="formData.email"
-                  label="Email"
+                  label="Correo"
                   type="email"
                   variant="outlined"
                   density="comfortable" />
@@ -261,7 +266,7 @@
                 <v-select
                   v-model="formData.person_type"
                   :items="tiposPersona"
-                  label="Tipo de Persona"
+                  label="Tipo de persona"
                   variant="outlined"
                   density="comfortable" />
               </v-col>
@@ -269,7 +274,7 @@
               <v-col cols="12" md="8">
                 <v-switch
                   v-model="formData.frequent_customer"
-                  label="Marcar como Cliente Frecuente"
+                  label="Marcar como cliente frecuente"
                   color="success" />
               </v-col>
             </v-row>
@@ -289,7 +294,7 @@
     <v-dialog v-model="supplierDialog" max-width="700px" persistent>
       <v-card>
         <v-card-title class="bg-primary">
-          {{ supplierEditing ? 'Editar Proveedor' : 'Nuevo Proveedor' }}
+          {{ supplierEditing ? 'Editar proveedor' : 'Nuevo proveedor' }}
         </v-card-title>
         <v-card-text class="pt-4">
           <v-form ref="supplierFormRef">
@@ -326,7 +331,7 @@
               <v-col cols="12" md="6">
                 <v-text-field
                   v-model="supplierForm.email"
-                  label="Email"
+                  label="Correo"
                   type="email"
                   variant="outlined"
                   density="comfortable" />
@@ -367,10 +372,11 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/errors';
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { billingService, type Customer, type PersonType, type Supplier } from '@/services/billingService'
 import LockableButton from '../components/LockableButton.vue'
 import { useReadOnly } from '../composables/useReadOnly'
+import { PAGE_SIZE_OPTIONS, useServerPage } from '../composables/useServerPage'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
 const isReadOnly = useReadOnly()
@@ -390,12 +396,9 @@ interface ClienteForm {
   frequent_customer: boolean
 }
 
-const clientes = ref<Customer[]>([])
-const loading = ref(false)
 const dialog = ref(false)
 const editing = ref<Customer | null>(null)
 const saving = ref(false)
-const search = ref('')
 
 const snackbar = ref(false)
 const snackbarText = ref('')
@@ -404,10 +407,10 @@ const snackbarColor = ref('success')
 const form = ref<any>(null)
 
 const headers = [
-  { title: 'Tipo Doc', key: 'document_type', sortable: true },
+  { title: 'Tipo doc', key: 'document_type', sortable: true },
   { title: 'Documento', key: 'document_number', sortable: true },
-  { title: 'Nombre / Razón Social', key: 'name', sortable: true },
-  { title: 'Email', key: 'email', sortable: false },
+  { title: 'Nombre / Razón social', key: 'name', sortable: true },
+  { title: 'Correo', key: 'email', sortable: false },
   { title: 'Teléfono', key: 'phone', sortable: false },
   { title: 'Tipo', key: 'person_type', sortable: true },
   { title: 'Frecuente', key: 'frequent_customer', sortable: true },
@@ -415,15 +418,15 @@ const headers = [
 ]
 
 const tiposDocumento = [
-  { value: 'CC', title: 'Cédula de Ciudadanía (CC)' },
-  { value: 'CE', title: 'Cédula de Extranjería (CE)' },
+  { value: 'CC', title: 'Cédula de ciudadanía (CC)' },
+  { value: 'CE', title: 'Cédula de extranjería (CE)' },
   { value: 'NIT', title: 'NIT' },
   { value: 'Pasaporte', title: 'Pasaporte' },
 ]
 
 const tiposPersona = [
-  { value: 'natural', title: 'Persona Natural' },
-  { value: 'legal', title: 'Persona Jurídica' },
+  { value: 'natural', title: 'Persona natural' },
+  { value: 'legal', title: 'Persona jurídica' },
 ]
 
 const emptyForm = (): ClienteForm => ({
@@ -443,28 +446,19 @@ const rules = {
   required: (v: any) => !!v || 'Este campo es requerido',
 }
 
-const filteredClientes = computed(() => {
-  if (!search.value) return clientes.value
-
-  const searchLower = search.value.toLowerCase()
-  return clientes.value.filter(
-    c =>
-      c.name?.toLowerCase().includes(searchLower) ||
-      c.document_number?.toLowerCase().includes(searchLower)
-  )
+const {
+  items: clientes,
+  total,
+  page,
+  perPage,
+  sortBy,
+  search,
+  loading,
+  load: loadClientes,
+} = useServerPage<Customer>(query => billingService.getCustomersPage(query), {
+  onError: error =>
+    showMessage(errorMessage(error, 'No fue posible cargar los clientes. Inténtalo de nuevo.'), 'error'),
 })
-
-const loadClientes = async () => {
-  loading.value = true
-  try {
-    clientes.value = await billingService.getCustomers()
-  } catch (error) {
-    console.error('[Clientes] Error al cargar:', error)
-    showMessage(errorMessage(error, 'Error al cargar clientes'), 'error')
-  } finally {
-    loading.value = false
-  }
-}
 
 const openDialog = (cliente?: Customer) => {
   editing.value = cliente || null
@@ -503,14 +497,14 @@ const save = async () => {
     loadClientes()
   } catch (error) {
     console.error('[Clientes] Error al guardar:', error)
-    showMessage(errorMessage(error, 'Error al guardar cliente'), 'error')
+    showMessage(errorMessage(error, 'No fue posible guardar el cliente. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
 }
 
 const deleteCliente = async (cliente: Customer) => {
-  if (!confirm(`¿Está seguro de eliminar el cliente "${cliente.name}"?`)) return
+  if (!confirm(`¿Seguro que quieres eliminar el cliente "${cliente.name}"?`)) return
 
   try {
     await billingService.deleteCustomer(cliente.id)
@@ -518,7 +512,7 @@ const deleteCliente = async (cliente: Customer) => {
     loadClientes()
   } catch (error) {
     console.error('[Clientes] Error al eliminar:', error)
-    showMessage(errorMessage(error, 'Error al eliminar cliente'), 'error')
+    showMessage(errorMessage(error, 'No fue posible eliminar el cliente. Inténtalo de nuevo.'), 'error')
   }
 }
 
@@ -551,7 +545,7 @@ const supplierHeaders = [
   { title: 'Nombre', key: 'name', sortable: true },
   { title: 'Documento / NIT', key: 'document_number', sortable: true },
   { title: 'Teléfono', key: 'phone', sortable: false },
-  { title: 'Email', key: 'email', sortable: false },
+  { title: 'Correo', key: 'email', sortable: false },
   { title: 'Acciones', key: 'actions', sortable: false, align: 'end' as const },
 ]
 
@@ -572,7 +566,7 @@ const loadSuppliers = async () => {
     suppliers.value = await billingService.getSuppliers()
   } catch (error) {
     console.error('[Proveedores] Error al cargar:', error)
-    showMessage(errorMessage(error, 'Error al cargar proveedores'), 'error')
+    showMessage(errorMessage(error, 'No fue posible cargar los proveedores. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingSuppliers.value = false
   }
@@ -613,7 +607,7 @@ const saveSupplier = async () => {
     loadSuppliers()
   } catch (error) {
     console.error('[Proveedores] Error al guardar:', error)
-    showMessage(errorMessage(error, 'Error al guardar proveedor'), 'error')
+    showMessage(errorMessage(error, 'No fue posible guardar el proveedor. Inténtalo de nuevo.'), 'error')
   } finally {
     savingSupplier.value = false
   }
@@ -621,7 +615,7 @@ const saveSupplier = async () => {
 
 const deleteSupplier = async (supplier: Supplier) => {
   if (supplier.is_default) return
-  if (!confirm(`¿Está seguro de eliminar el proveedor "${supplier.name}"?`)) return
+  if (!confirm(`¿Seguro que quieres eliminar el proveedor "${supplier.name}"?`)) return
 
   try {
     await billingService.deleteSupplier(supplier.id)
@@ -629,7 +623,7 @@ const deleteSupplier = async (supplier: Supplier) => {
     loadSuppliers()
   } catch (error) {
     console.error('[Proveedores] Error al eliminar:', error)
-    showMessage(errorMessage(error, 'Error al eliminar proveedor'), 'error')
+    showMessage(errorMessage(error, 'No fue posible eliminar el proveedor. Inténtalo de nuevo.'), 'error')
   }
 }
 

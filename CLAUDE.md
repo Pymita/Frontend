@@ -1,4 +1,4 @@
-# Frontend — Sabores del Trigo
+# Frontend — Servify POS
 
 Web app (Vue 3 + TypeScript + Vuetify + Pinia) for the management SaaS.
 **Full project guide: `docs/DEVELOPMENT.md` (repo `Docs`).**

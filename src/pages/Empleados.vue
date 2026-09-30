@@ -10,7 +10,7 @@
             </p>
           </div>
           <LockableButton icon="mdi-account-plus" color="primary" size="large" @click="openDialog()">
-            Nuevo Empleado
+            Nuevo empleado
           </LockableButton>
         </div>
       </v-col>
@@ -55,10 +55,10 @@
               </template>
             </template>
             <template #item.last_login_at="{ item }">
-              {{ item.last_login_at ? formatDate(item.last_login_at) : 'Nunca' }}
+              {{ item.last_login_at ? formatMomentDay(item.last_login_at) : 'Nunca' }}
             </template>
             <template #item.actions="{ item }">
-              <v-btn icon size="small" variant="text" :disabled="isReadOnly" @click="openDialog(item)">
+              <v-btn icon size="small" variant="text" :disabled="isReadOnly" :aria-label="`Editar a ${item.name}`" @click="openDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
             </template>
@@ -70,7 +70,7 @@
     <!-- Dialog crear/editar empleado -->
     <v-dialog v-model="dialog" max-width="640" persistent>
       <v-card>
-        <v-card-title>{{ editing ? 'Editar Empleado' : 'Nuevo Empleado' }}</v-card-title>
+        <v-card-title>{{ editing ? 'Editar empleado' : 'Nuevo empleado' }}</v-card-title>
         <v-card-text>
           <v-form ref="form" @submit.prevent="save">
             <v-row dense>
@@ -95,9 +95,9 @@
               <v-col cols="6">
                 <v-text-field
                   v-model="formData.email"
-                  :label="formData.role === 'admin' ? 'Email de acceso' : 'Email (opcional)'"
+                  :label="formData.role === 'admin' ? 'Correo de acceso' : 'Correo (opcional)'"
                   type="email"
-                  :rules="formData.role === 'admin' ? [(v: string) => !!v || 'Email requerido'] : []"
+                  :rules="formData.role === 'admin' ? [(v: string) => !!v || 'El correo es obligatorio'] : []"
                 />
               </v-col>
               <v-col cols="6">
@@ -163,7 +163,7 @@
           <v-spacer />
           <v-btn variant="text" @click="dialog = false">Cancelar</v-btn>
           <v-btn color="primary" :loading="saving" @click="save">
-            {{ editing ? 'Guardar cambios' : 'Crear Empleado' }}
+            {{ editing ? 'Guardar cambios' : 'Crear empleado' }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -176,6 +176,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatMomentDay } from '@/utils/dates'
+import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref } from 'vue'
 import usersService, { type CompanyUser } from '../services/usersService'
 import { ALL_FEATURES, type Feature } from '../types/auth'
@@ -216,16 +218,11 @@ const featureLabels: Record<Feature, string> = {
   recipes: 'Recetas y costeo',
   customers: 'Clientes',
   expenses: 'Gastos',
-  reports: 'Dashboard',
+  reports: 'Inicio, ventas y reportes',
   recurring_billing: 'Facturación automática y cartera',
 }
 const featureLabel = (feature: Feature): string => featureLabels[feature] || feature
 
-const formatDate = (iso: string): string => new Date(iso).toLocaleDateString('es-CO', {
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-})
 
 const snackbar = ref({ show: false, text: '', color: 'success' })
 const notify = (text: string, color: 'success' | 'error' = 'success') => {
@@ -236,8 +233,8 @@ const load = async () => {
   loading.value = true
   try {
     users.value = await usersService.list()
-  } catch {
-    notify('Error al cargar los empleados', 'error')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar los empleados. Inténtalo de nuevo.'), 'error')
   } finally {
     loading.value = false
   }
@@ -326,7 +323,7 @@ const save = async () => {
     dialog.value = false
     await load()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al guardar el empleado', 'error')
+    notify(errorMessage(error, 'No fue posible guardar el empleado. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }

@@ -57,6 +57,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors'
 import { computed, ref } from 'vue'
 import { imagesService, type ImageFolder } from '@/services/imagesService'
 import { resolveImageUrl } from '@/utils/images'
@@ -86,7 +87,7 @@ const onSelect = async (selected: File | File[] | null) => {
     const url = await imagesService.upload(chosen, props.folder, props.modelValue)
     emit('update:modelValue', url)
   } catch (e: any) {
-    error.value = e.response?.data?.message || 'No se pudo subir la imagen'
+    error.value = errorMessage(e, 'No se pudo subir la imagen')
   } finally {
     uploading.value = false
     file.value = null

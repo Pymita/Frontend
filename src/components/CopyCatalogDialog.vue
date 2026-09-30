@@ -41,7 +41,7 @@
           <v-expansion-panels multiple variant="accordion">
             <v-expansion-panel v-for="group in grouped" :key="group.category.id">
               <v-expansion-panel-title>
-                <div class="d-flex align-center" style="width: 100%">
+                <div class="d-flex align-center w-100">
                   <v-checkbox
                     :model-value="selectedCategories.includes(group.category.id)"
                     hide-details
@@ -65,7 +65,7 @@
                   v-for="product in group.products"
                   :key="product.id"
                   :model-value="selectedProducts.includes(product.id)"
-                  :label="`${product.name} — $${Number(product.sale_price ?? 0).toLocaleString('es-CO')}`"
+                  :label="`${product.name} — ${money(product.sale_price)}`"
                   hide-details
                   density="compact"
                   @update:model-value="toggleProduct(product.id, $event)"
@@ -98,6 +98,7 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
 import { computed, ref, watch } from 'vue'
 import {
   catalogTemplatesService,

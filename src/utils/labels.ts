@@ -76,14 +76,14 @@ export const tableStatusColors: Record<string, string> = {
 
 // ===== Productos =====
 export const productTypeLabels: Record<string, string> = {
-  raw_material: 'Materia Prima',
+  raw_material: 'Materia prima',
   intermediate: 'Intermedio',
   final: 'Final',
 }
 
 // ===== Gastos =====
 export const expenseCategoryTypeLabels: Record<string, string> = {
-  inventory_purchase: 'Compra Inventario',
+  inventory_purchase: 'Compra inventario',
   variable_expense: 'Variable',
   fixed_expense: 'Fijo',
   administrative_expense: 'Administrativo',
@@ -91,11 +91,14 @@ export const expenseCategoryTypeLabels: Record<string, string> = {
   taxes: 'Impuestos',
 }
 
+/** Cómo paga una mesa (mismo orden y nombres que OrderPayment::METHODS). */
 export const orderPaymentMethodLabels: Record<string, string> = {
   cash: 'Efectivo',
   credit_card: 'Tarjeta crédito',
   debit_card: 'Tarjeta débito',
   transfer: 'Transferencia',
+  nequi: 'Nequi',
+  daviplata: 'Daviplata',
   other: 'Otro',
 }
 
@@ -114,7 +117,17 @@ export const expensePaymentMethodLabels: Record<string, string> = {
   credit: 'Crédito',
 }
 
+/** Opciones de un v-select a partir de un mapa de etiquetas, en su orden. */
+export const options = (map: Record<string, string>): { value: string; title: string }[] =>
+  Object.entries(map).map(([value, title]) => ({ value, title }))
+
 export const label = (map: Record<string, string>, value?: string | null): string => {
   if (!value) return ''
   return map[value] ?? value
+}
+
+/** Un pedido nace con "Cliente" cuando nadie dio su nombre: es un consumidor final. */
+export const customerLabel = (name?: string | null): string => {
+  const trimmed = name?.trim()
+  return trimmed && trimmed !== 'Cliente' ? trimmed : 'Consumidor final'
 }

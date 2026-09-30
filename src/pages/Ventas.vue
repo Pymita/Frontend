@@ -37,7 +37,7 @@
         <v-card class="pa-4 text-center">
           <div class="text-caption text-medium-emphasis">Total vendido</div>
           <div class="text-h5 font-weight-bold tabular-nums">
-            ${{ (report?.summary.total ?? 0).toLocaleString('es-CO') }}
+            {{ money(report?.summary.total ?? 0) }}
           </div>
         </v-card>
       </v-col>
@@ -51,7 +51,7 @@
         <v-card class="pa-4 text-center">
           <div class="text-caption text-medium-emphasis">Propinas</div>
           <div class="text-h5 font-weight-bold">
-            ${{ (report?.summary.tips ?? 0).toLocaleString('es-CO') }}
+            {{ money(report?.summary.tips ?? 0) }}
           </div>
         </v-card>
       </v-col>
@@ -67,7 +67,7 @@
           variant="tonal"
           color="primary"
         >
-          {{ entry.label }}: ${{ entry.amount.toLocaleString('es-CO') }}
+          {{ entry.label }}: {{ money(entry.amount) }}
         </v-chip>
       </v-col>
     </v-row>
@@ -75,10 +75,10 @@
     <!-- Filtros -->
     <v-row dense>
       <v-col cols="6" md="2">
-        <v-text-field v-model="filters.from" label="Desde" type="date" density="compact" hide-details />
+        <DateField v-model="filters.from" label="Desde" density="compact" hide-details />
       </v-col>
       <v-col cols="6" md="2">
-        <v-text-field v-model="filters.to" label="Hasta" type="date" density="compact" hide-details />
+        <DateField v-model="filters.to" label="Hasta" density="compact" hide-details />
       </v-col>
       <v-col cols="6" md="2">
         <v-select
@@ -119,11 +119,56 @@
           <v-btn value="sales" prepend-icon="mdi-receipt-text">Ventas</v-btn>
           <v-btn value="products" prepend-icon="mdi-food">Por producto</v-btn>
           <v-btn value="tables" prepend-icon="mdi-table-furniture">Por mesa</v-btn>
+          <v-btn value="cash" prepend-icon="mdi-cash-register">Cierres de caja</v-btn>
         </v-btn-toggle>
       </v-col>
     </v-row>
 
-    <v-row v-if="view === 'products'">
+    <v-row v-if="view === 'cash'">
+      <v-col cols="12">
+        <v-card>
+          <v-data-table
+            :headers="cashHeaders"
+            :items="cashSessions"
+            :loading="loading"
+            density="comfortable"
+            class="elevation-0"
+            :items-per-page="25"
+          >
+            <template #item.opened_at="{ item }">
+              {{ formatDateTime(item.opened_at) }}
+              <div class="text-caption text-medium-emphasis">{{ item.opened_by || '—' }}</div>
+            </template>
+            <template #item.closed_at="{ item }">
+              <template v-if="item.closed_at">
+                {{ formatDateTime(item.closed_at) }}
+                <div class="text-caption text-medium-emphasis">{{ item.closed_by || '—' }}</div>
+              </template>
+              <v-chip v-else size="small" color="info" variant="tonal">Abierta</v-chip>
+            </template>
+            <template #item.opening_amount="{ item }">{{ money(item.opening_amount) }}</template>
+            <template #item.methods="{ item }">
+              <span v-for="entry in collectedByMethod(item)" :key="entry.method" class="d-block text-caption">
+                {{ entry.label }}: {{ money(entry.amount) }}
+              </span>
+            </template>
+            <template #item.expected_cash="{ item }">{{ money(item.expected_cash) }}</template>
+            <template #item.counted_cash="{ item }">{{ item.counted_cash === null ? '—' : money(item.counted_cash) }}</template>
+            <template #item.difference="{ item }">
+              <span v-if="item.difference === null" class="text-medium-emphasis">—</span>
+              <span v-else :class="differenceClass(item.difference)" class="font-weight-bold">
+                {{ differenceLabel(item.difference) }}
+              </span>
+            </template>
+            <template #no-data>
+              <p class="text-medium-emphasis py-6">No hay cierres de caja en el rango seleccionado</p>
+            </template>
+          </v-data-table>
+        </v-card>
+      </v-col>
+    </v-row>
+
+    <v-row v-else-if="view === 'products'">
       <v-col cols="12">
         <v-card>
           <v-card-text class="d-flex flex-wrap ga-4 pb-0">
@@ -231,24 +276,29 @@
             class="elevation-0"
           >
             <template #item.invoice_number="{ item }">
-              <v-chip size="small" variant="tonal" :color="item.invoice_number ? 'primary' : 'secondary'">
+              <v-chip
+                size="small"
+                variant="tonal"
+                :color="item.invoice_number ? 'primary' : 'secondary'"
+                :title="item.invoice_number ? 'Factura con consecutivo DIAN' : 'Sin resolución DIAN: se identifica con el número del pedido'"
+              >
                 {{ item.invoice_number || `Pedido #${item.id}` }}
               </v-chip>
             </template>
             <template #item.customer_name="{ item }">
-              {{ item.customer_name || item.dining_table || '—' }}
+              {{ customerLabel(item.customer_name) }}
             </template>
             <template #item.paid_at="{ item }">
-              {{ formatDate(item.paid_at) }}
+              {{ formatDateTime(item.paid_at) }}
             </template>
             <template #item.payment_methods="{ item }">
               {{ methodsLabel(item.payment_methods) }}
             </template>
             <template #item.tip="{ item }">
-              {{ item.tip ? '$' + item.tip.toLocaleString('es-CO') : '—' }}
+              {{ item.tip ? money(item.tip) : '—' }}
             </template>
             <template #item.total="{ item }">
-              <span class="font-weight-bold">${{ item.total.toLocaleString('es-CO') }}</span>
+              <span class="font-weight-bold">{{ money(item.total) }}</span>
             </template>
             <template #no-data>
               <p class="text-medium-emphasis py-6">No hay ventas en el rango seleccionado</p>
@@ -265,7 +315,10 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
+import { formatDateTime } from '@/utils/dates'
 import { computed, onMounted, ref, watch } from 'vue'
+import DateField from '../components/DateField.vue'
 import salesService, {
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,
@@ -274,9 +327,12 @@ import salesService, {
   type SalesReport,
   type SalesView,
   type TableSalesReport,
+  type CashSession,
 } from '../services/salesService'
+import { errorMessage } from '@/utils/errors'
 import { useAuthStore } from '@/stores/auth'
 import { effectiveFeatures } from '@/types/auth'
+import { customerLabel } from '@/utils/labels'
 
 // Hoy en local (los inputs date usan YYYY-MM-DD): el día de trabajo actual
 // es lo primero que quiere ver quien abre la pestaña.
@@ -293,11 +349,12 @@ const filters = ref<SalesFilters>({
 const report = ref<SalesReport | null>(null)
 const productReport = ref<ProductSalesReport | null>(null)
 const tableReport = ref<TableSalesReport | null>(null)
-const view = ref<SalesView>('sales')
+// "Cierres de caja" es otra lectura del mismo rango, sin Excel propio.
+type VentasView = SalesView | 'cash'
+const view = ref<VentasView>('sales')
+const cashSessions = ref<CashSession[]>([])
 const loading = ref(false)
 
-const money = (value: number | null | undefined): string =>
-  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
 
 const formatMinutes = (minutes: number): string => {
   const hours = Math.floor(minutes / 60)
@@ -329,7 +386,29 @@ const tableHeaders = computed(() => [
   { title: 'Total', key: 'total', align: 'end' as const },
 ])
 
+const cashHeaders = [
+  { title: 'Apertura', key: 'opened_at', sortable: false },
+  { title: 'Cierre', key: 'closed_at', sortable: false },
+  { title: 'Base', key: 'opening_amount', align: 'end' as const, sortable: false },
+  { title: 'Recaudado por medio', key: 'methods', sortable: false },
+  { title: 'Efectivo esperado', key: 'expected_cash', align: 'end' as const, sortable: false },
+  { title: 'Contado', key: 'counted_cash', align: 'end' as const, sortable: false },
+  { title: 'Diferencia', key: 'difference', align: 'end' as const, sortable: false },
+]
+
+const collectedByMethod = (session: CashSession) =>
+  Object.entries(session.summary.by_method)
+    .filter(([, totals]) => totals.amount > 0)
+    .map(([method, totals]) => ({ method, label: PAYMENT_METHOD_LABELS[method as PaymentMethod] ?? method, amount: totals.amount }))
+
+// La diferencia es una cifra con signo: sobrante o faltante.
+const differenceLabel = (difference: number): string =>
+  Math.abs(difference) < 0.01 ? 'Cuadra' : difference > 0 ? `Sobran ${money(difference)}` : `Faltan ${money(Math.abs(difference))}`
+const differenceClass = (difference: number): string =>
+  Math.abs(difference) < 0.01 ? '' : difference > 0 ? 'text-success' : 'text-error'
+
 const canExport = computed(() => {
+  if (view.value === 'cash') return false
   if (view.value === 'products') return (productReport.value?.products.length ?? 0) > 0
   if (view.value === 'tables') return (tableReport.value?.tables.length ?? 0) > 0
   return (report.value?.sales.length ?? 0) > 0
@@ -339,14 +418,15 @@ const EXPORT_HINTS: Record<SalesView, string> = {
   products: 'Descarga el resumen por producto con los filtros de arriba',
   tables: 'Descarga el resumen por mesa con los filtros de arriba',
 }
-const exportHint = computed(() =>
-  canExport.value ? EXPORT_HINTS[view.value] : 'No hay ventas con estos filtros para descargar',
-)
+const exportHint = computed(() => {
+  if (view.value === 'cash') return 'Los cierres de caja se consultan aquí; el Excel es de las ventas'
+  return canExport.value ? EXPORT_HINTS[view.value] : 'No hay ventas con estos filtros para descargar'
+})
 const exporting = ref(false)
 const snackbar = ref({ show: false, text: '' })
 
 const headers = [
-  { title: 'Factura', key: 'invoice_number', sortable: false },
+  { title: 'Comprobante', key: 'invoice_number', sortable: false },
   { title: 'Cliente', key: 'customer_name', sortable: false },
   { title: 'Fecha de pago', key: 'paid_at' },
   { title: 'Mesero', key: 'waiter' },
@@ -380,10 +460,6 @@ const methodBreakdown = computed(() =>
 const methodsLabel = (methods: PaymentMethod[]): string =>
   methods.map(m => PAYMENT_METHOD_LABELS[m] ?? m).join(' + ') || '—'
 
-const formatDate = (iso: string | null): string =>
-  iso
-    ? new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-    : '—'
 
 // Cada vista consulta lo suyo; los totales de arriba siempre son del listado.
 const load = async () => {
@@ -393,12 +469,14 @@ const load = async () => {
       productReport.value = await salesService.byProduct(filters.value)
     } else if (view.value === 'tables') {
       tableReport.value = await salesService.byTable(filters.value)
+    } else if (view.value === 'cash') {
+      cashSessions.value = await salesService.cashSessions({ from: filters.value.from || undefined, to: filters.value.to || undefined })
     }
     if (view.value === 'sales' || !report.value) {
       report.value = await salesService.report(filters.value)
     }
-  } catch {
-    snackbar.value = { show: true, text: 'Error al cargar las ventas' }
+  } catch (error) {
+    snackbar.value = { show: true, text: errorMessage(error, 'No fue posible cargar las ventas. Inténtalo de nuevo.') }
   } finally {
     loading.value = false
   }
@@ -409,9 +487,9 @@ watch(view, load)
 const exportExcel = async () => {
   exporting.value = true
   try {
-    await salesService.export(filters.value, view.value)
-  } catch {
-    snackbar.value = { show: true, text: 'Error al exportar las ventas' }
+    if (view.value !== 'cash') await salesService.export(filters.value, view.value)
+  } catch (error) {
+    snackbar.value = { show: true, text: errorMessage(error, 'No fue posible descargar el Excel. Inténtalo de nuevo.') }
   } finally {
     exporting.value = false
   }

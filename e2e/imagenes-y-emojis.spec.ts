@@ -80,3 +80,26 @@ test('la imagen subida se guarda en la carpeta de la empresa', async ({ page, re
   await row.scrollIntoViewIfNeeded()
   await expect(row.locator('img')).toBeVisible()
 })
+
+/**
+ * Solo se guarda lo que el servidor logra re-codificar como imagen: un
+ * archivo que solo parece JPEG se rechaza y la pantalla dice qué subir.
+ */
+test('un archivo que solo parece una imagen se rechaza con un mensaje claro', async ({ page }) => {
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/categorias')
+  await page.getByRole('button', { name: /Nueva Categoría/i }).click()
+
+  const dialog = page.getByRole('dialog')
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'foto.jpg',
+    mimeType: 'image/jpeg',
+    buffer: Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]), Buffer.from('JFIF<?php echo 1; ?>'.repeat(40))]),
+  })
+
+  await expect(
+    dialog.getByText('No pudimos procesar la imagen. Sube una foto JPG, PNG o WEBP que abra bien en tu equipo.'),
+  ).toBeVisible({ timeout: 15_000 })
+  await expect(dialog.locator('img')).toHaveCount(0)
+})
+

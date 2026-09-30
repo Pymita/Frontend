@@ -6,15 +6,15 @@
           <div>
             <h1 class="text-h4">Mesas</h1>
             <p class="text-body-1 text-medium-emphasis">
-              Gestiona las mesas del restaurante
+              Gestiona las mesas de tu negocio
             </p>
           </div>
           <div class="d-flex ga-2">
-            <LockableButton icon="mdi-table-plus" variant="tonal" size="large" @click="bulkDialog = true">
+            <LockableButton v-if="isAdmin" icon="mdi-table-plus" variant="tonal" size="large" @click="bulkDialog = true">
               Crear varias
             </LockableButton>
             <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
-              Nueva Mesa
+              Nueva mesa
             </LockableButton>
           </div>
         </div>
@@ -34,7 +34,7 @@
           :color="getCardColor(table)"
           :variant="table.status === 'available' ? undefined : 'flat'"
           class="text-center pa-4"
-          @click="isReadOnly || openDialog(table)"
+          @click="canEditTables && openDialog(table)"
         >
           <v-card-text>
             <div class="text-h3 tabular-nums">
@@ -49,11 +49,11 @@
               variant="flat"
               class="mt-2"
             >
-              {{ getStatusLabel(table.status).toUpperCase() }}
+              {{ getStatusLabel(table.status) }}
             </v-chip>
             <div class="text-caption mt-1">
               <template v-if="table.table_type === 'billiard'">
-                🎱 ${{ Number(table.hourly_rate ?? 0).toLocaleString('es-CO') }}/hora
+                🎱 {{ money(table.hourly_rate) }}/hora
               </template>
               <template v-else>👥 {{ table.capacity }} personas</template>
             </div>
@@ -68,11 +68,12 @@
               Liberar
             </v-btn>
             <v-btn
+              v-if="isAdmin"
               icon
               size="small"
               variant="text"
               :disabled="isReadOnly"
-              @click.stop="openDialog(table)"
+              :aria-label="`Editar la mesa ${table.number}`" @click.stop="openDialog(table)"
             >
               <v-icon size="small">mdi-pencil</v-icon>
             </v-btn>
@@ -84,7 +85,7 @@
     <!-- Dialog Mesa -->
     <v-dialog v-model="dialog" max-width="500" persistent>
       <v-card>
-        <v-card-title>{{ editing ? 'Editar Mesa' : 'Nueva Mesa' }}</v-card-title>
+        <v-card-title>{{ editing ? 'Editar mesa' : 'Nueva mesa' }}</v-card-title>
         <v-card-text>
           <v-form ref="form" @submit.prevent="save">
             <v-row>
@@ -162,7 +163,7 @@
               v-if="editing"
               v-model="formData.active"
               label="Mesa activa"
-              color="success"
+              color="primary"
             />
           </v-form>
         </v-card-text>
@@ -266,6 +267,7 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
 import { errorMessage } from '@/utils/errors';
 import { computed, ref, onMounted } from 'vue';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
@@ -282,6 +284,9 @@ const isReadOnly = useReadOnly()
 // El cobro por tiempo es un módulo: un restaurante no ofrece mesas de billar.
 const authStore = useAuthStore();
 const hasTimeBilling = computed(() => effectiveFeatures(authStore.user).includes('time_billing'));
+// Quien toma pedidos puede crear una mesa; editarla, borrarla o crear varias es del admin.
+const isAdmin = computed(() => authStore.isAdmin);
+const canEditTables = computed(() => isAdmin.value && !isReadOnly.value);
 
 const tables = ref<DiningTable[]>([]);
 const loading = ref(true);
@@ -331,7 +336,7 @@ const loadTables = async () => {
   try {
     tables.value = await tablesService.getAll();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al cargar mesas'), 'error');
+    showMessage(errorMessage(error, 'No fue posible cargar las mesas. Inténtalo de nuevo.'), 'error');
   } finally {
     loading.value = false;
   }
@@ -385,7 +390,7 @@ const save = async () => {
     dialog.value = false;
     loadTables();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al guardar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -408,7 +413,7 @@ const saveBulk = async () => {
     bulkDialog.value = false;
     loadTables();
   } catch (error: any) {
-    showMessage(error.response?.data?.message || 'Error al crear las mesas', 'error');
+    showMessage(errorMessage(error, 'No fue posible crear las mesas. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -423,7 +428,7 @@ const deleteTable = async () => {
     dialog.value = false;
     loadTables();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al eliminar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
   }
 };
 
@@ -433,7 +438,7 @@ const releaseTable = async (table: DiningTable) => {
     showMessage('Mesa liberada');
     loadTables();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al liberar mesa'), 'error');
+    showMessage(errorMessage(error, 'No fue posible liberar la mesa. Inténtalo de nuevo.'), 'error');
   }
 };
 

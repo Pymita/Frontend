@@ -31,7 +31,7 @@
     <v-tabs v-model="activeTab" color="primary" class="mb-4">
       <v-tab value="facturar"><v-icon start>mdi-file-document-multiple</v-icon>Facturar</v-tab>
       <v-tab value="cartera"><v-icon start>mdi-wallet</v-icon>Cartera</v-tab>
-      <v-tab value="terceros"><v-icon start>mdi-account-group</v-icon>Terceros</v-tab>
+      <v-tab value="clientes"><v-icon start>mdi-account-group</v-icon>Clientes</v-tab>
     </v-tabs>
 
     <v-window v-model="activeTab">
@@ -41,19 +41,18 @@
           <v-card-text>
             <v-row dense>
               <v-col cols="12" sm="4" md="3">
-                <v-text-field
+                <DateField
                   v-model="issueDate"
                   label="Día a facturar"
-                  type="date"
                   density="compact"
-                  hint="Es la fecha de emisión; se marcan los terceros con corte ese día"
+                  hint="Es la fecha de emisión; se marcan los clientes con corte ese día"
                   persistent-hint />
               </v-col>
               <v-col cols="12" sm="4" md="3">
-                <v-text-field
+                <DateField
                   v-model="period"
                   label="Mes a facturar"
-                  type="month"
+                  month
                   density="compact"
                   hint="Sigue al día a facturar; cámbialo para facturar otro mes"
                   persistent-hint />
@@ -67,13 +66,23 @@
                   persistent-hint />
               </v-col>
             </v-row>
+            <v-alert
+              v-if="billsAnotherMonth"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mt-3"
+            >
+              Vas a facturar {{ periodLabel }} con fecha {{ formatDay(issueDate) }}. Si el día de corte ya pasó,
+              el documento vence el mismo día de emisión: ningún documento nace vencido.
+            </v-alert>
           </v-card-text>
         </v-card>
 
         <v-row dense class="mb-2">
           <v-col cols="6" md="3">
             <v-card class="pa-4 text-center">
-              <div class="text-caption text-medium-emphasis">Terceros con cobro automático</div>
+              <div class="text-caption text-medium-emphasis">Clientes con cobro automático</div>
               <div class="text-h5 font-weight-bold">{{ preview?.summary.customers ?? 0 }}</div>
             </v-card>
           </v-col>
@@ -102,7 +111,7 @@
           type="info"
           variant="tonal"
           class="mb-4">
-          Aún no hay terceros con cobro automático. Agrégalos en la pestaña Terceros con su cuota y día de corte.
+          Aún no hay clientes con cobro automático. Agrégalos en la pestaña Clientes con su cuota y día de corte.
         </v-alert>
 
         <v-card>
@@ -153,7 +162,7 @@
             :item-selectable="(row: RecurringPreviewRow) => !row.billed"
             show-select
             class="elevation-0"
-            no-data-text="No hay terceros para facturar">
+            no-data-text="No hay clientes para facturar">
             <template #item.customer_name="{ item }">
               <div class="font-weight-medium">{{ rowValue(item).customer_name }}</div>
               <div class="text-caption text-medium-emphasis">{{ item.customer_document_type }} {{ rowValue(item).customer_document }}</div>
@@ -221,7 +230,7 @@
           </v-col>
           <v-col cols="6" md="3">
             <v-card class="pa-4 text-center">
-              <div class="text-caption text-medium-emphasis">Terceros con saldo</div>
+              <div class="text-caption text-medium-emphasis">Clientes con saldo</div>
               <div class="text-h5 font-weight-bold">{{ receivables?.summary.customers ?? 0 }}</div>
             </v-card>
           </v-col>
@@ -240,7 +249,7 @@
                 <v-text-field
                   v-model="receivableFilters.q"
                   prepend-inner-icon="mdi-magnify"
-                  label="Buscar tercero, documento o concepto"
+                  label="Buscar cliente, documento o concepto"
                   density="compact"
                   hide-details
                   clearable />
@@ -292,7 +301,7 @@
                   Vencido {{ money(customer.overdue_balance) }}
                 </v-chip>
                 <span class="text-body-1 font-weight-bold tabular-nums">Saldo {{ money(customer.balance) }}</span>
-                <!-- El abono va al tercero: paga sus documentos del más viejo al más nuevo. -->
+                <!-- El abono va al cliente: paga sus documentos del más viejo al más nuevo. -->
                 <v-btn
                   v-if="customer.balance > 0 && customer.customer_id"
                   color="primary"
@@ -373,8 +382,8 @@
         </v-expansion-panels>
       </v-window-item>
 
-      <!-- ===== Terceros ===== -->
-      <v-window-item value="terceros">
+      <!-- ===== Clientes ===== -->
+      <v-window-item value="clientes">
         <v-card>
           <v-card-text>
             <v-row dense align="center">
@@ -397,7 +406,7 @@
               </v-col>
               <v-col cols="12" md="3" class="d-flex justify-md-end">
                 <LockableButton color="primary" icon="mdi-plus" @click="openCustomerDialog()">
-                  Nuevo tercero
+                  Nuevo cliente
                 </LockableButton>
               </v-col>
             </v-row>
@@ -409,7 +418,7 @@
             :loading="loadingCustomers"
             :search="customerSearch"
             class="elevation-0"
-            no-data-text="No hay terceros registrados">
+            no-data-text="No hay clientes registrados">
             <template #item.name="{ item }">
               <div class="font-weight-medium">{{ item.name }}</div>
               <div class="text-caption text-medium-emphasis">{{ item.document_type }} {{ item.document_number }}</div>
@@ -440,10 +449,10 @@
     <!-- Editar una fila antes de facturar (o facturar solo a esa persona) -->
     <v-dialog v-model="rowDialog" max-width="760" persistent>
       <v-card v-if="rowForm">
-        <v-card-title class="bg-primary">Factura de {{ rowForm.customer_name || 'tercero' }}</v-card-title>
+        <v-card-title class="bg-primary">Factura de {{ rowForm.customer_name || 'cliente' }}</v-card-title>
         <v-card-text class="pt-4">
           <p class="text-caption text-medium-emphasis mb-3">
-            Los cambios aplican solo a esta factura: el tercero queda como está.
+            Los cambios aplican solo a esta factura: el cliente queda como está.
           </p>
           <v-row dense>
             <v-col cols="12" md="8">
@@ -462,7 +471,7 @@
               <v-text-field v-model="rowForm.customer_phone" label="Teléfono" density="comfortable" />
             </v-col>
             <v-col cols="12" md="6">
-              <v-text-field v-model="rowForm.customer_email" label="Email" type="email" density="comfortable" />
+              <v-text-field v-model="rowForm.customer_email" label="Correo" type="email" density="comfortable" />
             </v-col>
             <v-col cols="12">
               <v-text-field v-model="rowForm.concept" label="Concepto" density="comfortable" />
@@ -477,7 +486,14 @@
               <v-text-field v-model.number="rowForm.discount" label="Descuento" type="number" min="0" prefix="$" density="comfortable" />
             </v-col>
             <v-col cols="6" md="3">
-              <v-text-field v-model="rowForm.due_date" label="Vence" type="date" density="comfortable" />
+              <DateField
+                v-model="rowForm.due_date"
+                label="Vence"
+                :min="issueDate"
+                hint="No puede ser antes de la fecha de emisión"
+                persistent-hint
+                density="comfortable"
+              />
             </v-col>
             <v-col cols="12" md="6">
               <v-select
@@ -613,7 +629,7 @@
                   density="comfortable" />
               </v-col>
               <v-col cols="12" md="4">
-                <v-text-field v-model="paymentForm.paid_at" label="Fecha" type="date" :max="today" density="comfortable" />
+                <DateField v-model="paymentForm.paid_at" label="Fecha" :max="today" density="comfortable" />
               </v-col>
             </v-row>
           </v-form>
@@ -640,7 +656,7 @@
       </v-card>
     </v-dialog>
 
-    <!-- Abono al tercero: se reparte del documento más viejo al más nuevo -->
+    <!-- Abono al cliente: se reparte del documento más viejo al más nuevo -->
     <v-dialog v-model="customerPaymentDialog" max-width="640">
       <v-card v-if="customerPaymentTarget">
         <v-card-title class="bg-primary">Abono de {{ customerPaymentTarget.customer_name }}</v-card-title>
@@ -670,7 +686,7 @@
                     density="comfortable" />
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-text-field v-model="customerPaymentForm.paid_at" label="Fecha" type="date" :max="today" density="comfortable" />
+                  <DateField v-model="customerPaymentForm.paid_at" label="Fecha" :max="today" density="comfortable" />
                 </v-col>
                 <v-col cols="12">
                   <v-text-field v-model="customerPaymentForm.notes" label="Nota (opcional)" density="comfortable" />
@@ -742,10 +758,10 @@
       </v-card>
     </v-dialog>
 
-    <!-- Tercero -->
+    <!-- Cliente -->
     <v-dialog v-model="customerDialog" max-width="760" persistent>
       <v-card>
-        <v-card-title class="bg-primary">{{ customerForm.id ? 'Editar tercero' : 'Nuevo tercero' }}</v-card-title>
+        <v-card-title class="bg-primary">{{ customerForm.id ? 'Editar cliente' : 'Nuevo cliente' }}</v-card-title>
         <v-card-text class="pt-4">
           <v-form ref="customerFormRef">
             <p class="text-caption text-medium-emphasis mb-3">
@@ -789,7 +805,7 @@
                 <v-text-field v-model="customerForm.phone" label="Teléfono" density="comfortable" />
               </v-col>
               <v-col cols="12" md="6">
-                <v-text-field v-model="customerForm.email" label="Email" type="email" density="comfortable" />
+                <v-text-field v-model="customerForm.email" label="Correo" type="email" density="comfortable" />
               </v-col>
             </v-row>
 
@@ -862,8 +878,11 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
+import { formatDay } from '@/utils/dates'
 import { computed, onMounted, ref, watch } from 'vue'
 import LockableButton from '../components/LockableButton.vue'
+import DateField from '../components/DateField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 import {
   billingService,
@@ -900,7 +919,7 @@ const authStore = useAuthStore()
 // Anular documentos y revertir abonos cambia la cartera ya reportada: solo el admin.
 const isAdmin = computed(() => authStore.isAdmin)
 
-const activeTab = ref<'facturar' | 'cartera' | 'terceros'>('facturar')
+const activeTab = ref<'facturar' | 'cartera' | 'clientes'>('facturar')
 
 const snackbar = ref({ show: false, text: '', color: 'success' })
 const notify = (text: string, color: 'success' | 'error' | 'warning' = 'success') => {
@@ -908,8 +927,6 @@ const notify = (text: string, color: 'success' | 'error' | 'warning' = 'success'
 }
 
 // ===== Formato =====
-const money = (value: number | null | undefined): string =>
-  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
 
 const localDate = (date = new Date()): string => {
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -918,11 +935,6 @@ const localDate = (date = new Date()): string => {
 
 // Las fechas llegan como AAAA-MM-DD: se arman a mano para que la zona horaria
 // del navegador no las corra un día.
-const formatDay = (value: string | null | undefined): string => {
-  if (!value) return '—'
-  const [y = 0, m = 1, d = 1] = value.slice(0, 10).split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
-}
 
 const periodName = (value: string): string => {
   const [y = 0, m = 1] = value.split('-').map(Number)
@@ -958,7 +970,7 @@ type RowEdit = Required<Pick<GenerateItem, 'customer_name' | 'customer_document'
 const edits = ref<Record<number, RowEdit>>({})
 
 const previewHeaders = [
-  { title: 'Tercero', key: 'customer_name' },
+  { title: 'Cliente', key: 'customer_name' },
   { title: 'Concepto', key: 'concept', sortable: false },
   { title: 'Vence', key: 'due_date' },
   { title: 'Impuesto', key: 'tax_name', sortable: false },
@@ -997,7 +1009,7 @@ const billedRows = computed(() => (preview.value?.rows ?? []).filter(r => r.bill
 // Los que tienen el corte el día a facturar van marcados de entrada: es a
 // quienes les toca hoy. Se recalcula solo al cambiar el día o el mes, para
 // no deshacer lo que el usuario marcó a mano.
-const dueOnIssueDate = computed(() => pendingRows.value.filter(r => r.due_date === issueDate.value))
+const dueOnIssueDate = computed(() => pendingRows.value.filter(r => (r.cutoff_date ?? r.due_date) === issueDate.value))
 let autoSelectedFor = ''
 const autoSelect = () => {
   const key = `${period.value}|${issueDate.value}`
@@ -1013,22 +1025,22 @@ const cutoffHint = computed(() => {
     return `Nadie tiene su corte el ${day}: marca a mano a quién facturar o usa "Facturar a todos".`
   }
   return count === 1
-    ? `Quedó marcado 1 tercero con corte el ${day}. Puedes marcar o desmarcar otros.`
-    : `Quedaron marcados ${count} terceros con corte el ${day}. Puedes marcar o desmarcar otros.`
+    ? `Quedó marcado 1 cliente con corte el ${day}. Puedes marcar o desmarcar otros.`
+    : `Quedaron marcados ${count} clientes con corte el ${day}. Puedes marcar o desmarcar otros.`
 })
 
 const loadPreview = async () => {
   if (!period.value) return
   loadingPreview.value = true
   try {
-    preview.value = await billingService.getRecurringPreview(period.value)
+    preview.value = await billingService.getRecurringPreview(period.value, issueDate.value)
     if (!generalConcept.value) generalConcept.value = preview.value.default_concept
     // La selección y las ediciones son de un mes: al cambiar de mes se limpian.
     const billable = new Set(pendingRows.value.map(r => r.customer_id))
     selected.value = selected.value.filter(id => billable.has(id))
     autoSelect()
   } catch (error) {
-    notify(errorMessage(error, 'Error al cargar los terceros para facturar'), 'error')
+    notify(errorMessage(error, 'No fue posible cargar los clientes para facturar. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingPreview.value = false
   }
@@ -1040,16 +1052,20 @@ watch(period, () => {
   loadPreview()
 })
 
-// El mes sigue al día a facturar; si el mes no cambia, solo se remarca.
+// El mes sigue al día a facturar. Si el mes no cambia se recarga igual: el
+// vencimiento de cada fila depende de la fecha de emisión.
 watch(issueDate, value => {
   if (!value) return
   const month = value.slice(0, 7)
   if (month !== period.value) {
     period.value = month
   } else {
-    autoSelect()
+    loadPreview()
   }
 })
+
+// Facturar un mes distinto al de la emisión (ponerse al día con uno pasado).
+const billsAnotherMonth = computed(() => !!issueDate.value && !!period.value && issueDate.value.slice(0, 7) !== period.value)
 
 // --- Impresión (cuenta de cobro / factura y recibo de caja) ---
 const business = ref<DocumentBusiness | null>(null)
@@ -1172,7 +1188,7 @@ const loadReceivables = async () => {
   try {
     receivables.value = await billingService.getReceivables(receivableFilters.value)
   } catch (error) {
-    notify(errorMessage(error, 'Error al cargar la cartera'), 'error')
+    notify(errorMessage(error, 'No fue posible cargar la cartera. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingReceivables.value = false
   }
@@ -1193,7 +1209,7 @@ const exportReceivables = async () => {
   try {
     await billingService.exportReceivables(receivableFilters.value)
   } catch (error) {
-    notify(errorMessage(error, 'Error al descargar la cartera'), 'error')
+    notify(errorMessage(error, 'No fue posible descargar la cartera. Inténtalo de nuevo.'), 'error')
   } finally {
     exporting.value = false
   }
@@ -1220,7 +1236,7 @@ const openPaymentDialog = async (invoiceId: number) => {
     lastReceiptNumber.value = null
     paymentDialog.value = true
   } catch (error) {
-    notify(errorMessage(error, 'Error al cargar el documento'), 'error')
+    notify(errorMessage(error, 'No fue posible cargar el documento. Inténtalo de nuevo.'), 'error')
   }
 }
 
@@ -1244,7 +1260,7 @@ const savePayment = async () => {
   }
 }
 
-// --- Abono al tercero ---
+// --- Abono al cliente ---
 const customerPaymentDialog = ref(false)
 const customerPaymentTarget = ref<ReceivableCustomer | null>(null)
 const customerPaymentFormRef = ref<any>(null)
@@ -1332,14 +1348,14 @@ const confirmCancel = async () => {
   }
 }
 
-// ===== Terceros =====
+// ===== Clientes =====
 const customers = ref<Customer[]>([])
 const loadingCustomers = ref(false)
 const customerSearch = ref('')
 const onlyRecurring = ref(false)
 
 const customerHeaders = [
-  { title: 'Tercero', key: 'name' },
+  { title: 'Cliente', key: 'name' },
   { title: 'Ciudad', key: 'city' },
   { title: 'Teléfono', key: 'phone', sortable: false },
   { title: 'Cuota', key: 'monthly_fee', align: 'end' as const },
@@ -1353,9 +1369,9 @@ const visibleCustomers = computed(() =>
 )
 
 const documentTypes = [
-  { value: 'CC', title: 'Cédula de Ciudadanía (CC)' },
+  { value: 'CC', title: 'Cédula de ciudadanía (CC)' },
   { value: 'NIT', title: 'NIT' },
-  { value: 'CE', title: 'Cédula de Extranjería (CE)' },
+  { value: 'CE', title: 'Cédula de extranjería (CE)' },
   { value: 'Pasaporte', title: 'Pasaporte' },
 ]
 
@@ -1409,7 +1425,7 @@ const loadCustomers = async () => {
   try {
     customers.value = await billingService.getCustomers()
   } catch (error) {
-    notify(errorMessage(error, 'Error al cargar los terceros'), 'error')
+    notify(errorMessage(error, 'No fue posible cargar los clientes. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingCustomers.value = false
   }
@@ -1453,15 +1469,15 @@ const saveCustomer = async () => {
   try {
     if (id) {
       await billingService.updateCustomer(id, payload as Partial<Customer>)
-      notify('Tercero actualizado exitosamente')
+      notify('Cliente actualizado exitosamente')
     } else {
       await billingService.createCustomer(payload as Partial<Customer>)
-      notify('Tercero creado exitosamente')
+      notify('Cliente creado exitosamente')
     }
     customerDialog.value = false
     await Promise.all([loadCustomers(), loadPreview()])
   } catch (error) {
-    notify(errorMessage(error, 'No se pudo guardar el tercero'), 'error')
+    notify(errorMessage(error, 'No se pudo guardar el cliente'), 'error')
   } finally {
     savingCustomer.value = false
   }

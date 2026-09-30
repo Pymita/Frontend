@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import { ADMIN, API, apiLogin, loginUI } from './helpers'
+import { ADMIN, API, apiLogin, displayDate, loginUI } from './helpers'
 
 /**
  * Dashboard: lo que el dueño mira primero. Las métricas cuentan lo mismo
@@ -57,13 +57,13 @@ test('stock bajo muestra el saldo real y más vendidos solo cuenta lo cobrado', 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/dashboard')
 
-  const lowStock = page.locator('.v-card', { hasText: 'Stock Bajo' }).filter({ has: page.locator('.v-list') })
+  const lowStock = page.locator('.v-card', { hasText: 'Stock bajo' }).filter({ has: page.locator('.v-list') })
   const flourRow = lowStock.locator('.v-list-item', { hasText: flourName })
   await expect(flourRow).toContainText('Actual: 0,5 kg')
   await expect(flourRow).toContainText('Mínimo: 500 kg')
 
   // 25 + 15 cobradas a $2.500 en 2 pedidos; las 30 del cancelado no suman.
-  const topProducts = page.locator('.v-card', { hasText: 'Más Vendidos' })
+  const topProducts = page.locator('.v-card', { hasText: 'Más vendidos' })
   await expect(topProducts).toContainText('Últimos 7 días')
   const empanadaRow = topProducts.locator('.v-list-item', { hasText: empanadaName })
   await expect(empanadaRow).toContainText('40 vendidos · 2 pedidos')
@@ -96,7 +96,7 @@ test('el gráfico cambia entre semana, mes y rango, y más vendidos sigue el per
   await page.goto('/dashboard')
 
   const chart = page.locator('.v-card').filter({ has: page.getByRole('button', { name: 'Semana' }) })
-  const topProducts = page.locator('.v-card', { hasText: 'Más Vendidos' })
+  const topProducts = page.locator('.v-card', { hasText: 'Más vendidos' })
 
   const week = await expected(localDate(weekFrom), localDate(today))
   await expect(chart).toContainText('Ventas de la Semana')
@@ -105,18 +105,18 @@ test('el gráfico cambia entre semana, mes y rango, y más vendidos sigue el per
 
   await chart.getByRole('button', { name: 'Mes' }).click()
   const month = await expected(monthFrom, localDate(today))
-  await expect(chart).toContainText('Ventas del Mes')
+  await expect(chart).toContainText('Ventas del mes')
   await expect(chart).toContainText(`Este mes: ${money(month.total)} en ${month.orders_count}`)
   await expect(topProducts).toContainText('Este mes')
   await expect(topProducts.locator('.v-list-item', { hasText: juiceName })).toContainText('3 vendidos · 1 pedido')
 
   // El rango arranca con el periodo que se estaba viendo.
   await chart.getByRole('button', { name: 'Rango' }).click()
-  await expect(chart).toContainText('Ventas del Periodo')
+  await expect(chart).toContainText('Ventas del periodo')
   const from = chart.getByLabel('Desde')
   const to = chart.getByLabel('Hasta')
-  await expect(from).toHaveValue(monthFrom)
-  await expect(to).toHaveValue(localDate(today))
+  await expect(from).toHaveValue(displayDate(monthFrom))
+  await expect(to).toHaveValue(displayDate(localDate(today)))
 
   // Un mes sin ventas: el gráfico sigue ahí, en cero, y más vendidos lo dice.
   await from.fill('2020-01-01')
@@ -193,4 +193,18 @@ test('capturas del tablero en escritorio y en celular', async ({ page }) => {
   })
   await page.waitForTimeout(300)
   await page.screenshot({ path: '../screenshots/mobile-sin-menu.png', fullPage: true })
+})
+
+test('si el resumen no carga lo dice y deja reintentar, en vez de quedar en blanco', async ({ page }) => {
+  await loginUI(page, ADMIN.email, ADMIN.password)
+
+  await page.route('**/api/dashboard/stats', route => route.abort())
+  await page.reload()
+  const alert = page.getByRole('alert').filter({ hasText: 'No hay conexión con el servidor' })
+  await expect(alert).toContainText('Revisa tu internet e inténtalo de nuevo.')
+
+  await page.unroute('**/api/dashboard/stats')
+  await alert.getByRole('button', { name: 'Reintentar' }).click()
+  await expect(alert).toHaveCount(0)
+  await expect(page.getByText('Pedidos hoy', { exact: true })).toBeVisible()
 })

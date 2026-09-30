@@ -4,21 +4,21 @@
       <v-col cols="12">
         <div class="d-flex justify-space-between align-center mb-4">
           <div>
-            <h1 class="text-h4">Gestión de Recetas</h1>
+            <h1 class="text-h4">Recetas</h1>
             <p class="text-body-1 text-medium-emphasis">
               Define los ingredientes y cantidades de cada producto
             </p>
           </div>
           <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
-            Nueva Receta
+            Nueva receta
           </LockableButton>
         </div>
       </v-col>
     </v-row>
 
     <v-alert type="info" density="compact" variant="tonal" class="mb-4">
-      Define cuanto produce la receta y los ingredientes para ese lote. El sistema calcula
-      automaticamente el costo y el descuento proporcional por unidad vendida.
+      Define cuánto produce la receta y los ingredientes para ese lote. El sistema calcula
+      automáticamente el costo y el descuento proporcional por unidad vendida.
     </v-alert>
 
     <!-- Lista de recetas -->
@@ -51,15 +51,15 @@
             </template>
             <template #item.total_cost="{ item }">
               <span v-if="item.total_cost" class="font-weight-bold">
-                ${{ Number(item.total_cost).toFixed(2) }}
+                {{ preciseMoney(item.total_cost) }}
               </span>
               <span v-else class="text-medium-emphasis">-</span>
             </template>
             <template #item.actions="{ item }">
-              <v-btn icon size="small" variant="text" :disabled="isReadOnly" @click="openDialog(item)">
+              <v-btn icon size="small" variant="text" :disabled="isReadOnly" :aria-label="`Editar la receta ${item.name}`" @click="openDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
-              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" @click="deleteRecipe(item)">
+              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar la receta ${item.name}`" @click="deleteRecipe(item)">
                 <v-icon size="small">mdi-delete</v-icon>
               </v-btn>
             </template>
@@ -71,7 +71,7 @@
     <!-- Dialog Receta -->
     <v-dialog v-model="dialog" max-width="900" persistent scrollable>
       <v-card>
-        <v-card-title>{{ editing ? 'Editar Receta' : 'Nueva Receta' }}</v-card-title>
+        <v-card-title>{{ editing ? 'Editar receta' : 'Nueva receta' }}</v-card-title>
         <v-divider />
         <v-card-text style="max-height: 70vh">
           <v-form ref="form">
@@ -82,9 +82,9 @@
             </p>
 
             <!-- Información básica -->
-            <h3 class="mb-3">Información General</h3>
+            <h3 class="mb-3">Información general</h3>
             <v-alert type="info" variant="tonal" density="compact" class="mb-4">
-              Primero define cuanto produce esta receta. Si es una receta por unidad, deja
+              Primero define cuánto produce esta receta. Si es una receta por unidad, deja
               <strong>1</strong>. Ejemplo: una pizza produce <strong>1 unidad</strong>;
               una salsa puede producir <strong>2 litros</strong>.
             </v-alert>
@@ -106,11 +106,11 @@
                   :items="variantsForSelectedProduct"
                   item-title="name"
                   item-value="id"
-                  :rules="[v => !!v || 'Tipo requerido para este producto']"
+                  :rules="[v => !!v || 'Elige la variante de este producto']"
                   required
                 >
                   <template #label>
-                    Variante / Tipo <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                    Variante <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
                 </v-autocomplete>
               </v-col>
@@ -183,7 +183,7 @@
               </div>
               <v-btn color="primary" variant="tonal" size="small" @click="addIngrediente">
                 <v-icon start>mdi-plus</v-icon>
-                Agregar Ingrediente
+                Agregar ingrediente
               </v-btn>
             </div>
 
@@ -262,7 +262,7 @@
                   <v-col v-if="ing.entry_mode === 'per_yield'" cols="12" md="3">
                     <v-text-field
                       v-model.number="ing.rinde_cantidad"
-                      :label="`Rinde cuantas ${formData.yield_unit || 'unidades'}`"
+                      :label="`Rinde cuántas ${formData.yield_unit || 'unidades'}`"
                       hint="Ej: 50 pizzas"
                       persistent-hint
                       type="number"
@@ -296,7 +296,7 @@
                   <v-col cols="8" md="2">
                     <div class="text-caption text-medium-emphasis">Costo lote</div>
                     <div class="font-weight-bold tabular-nums">
-                      ${{ calcIngredientCost(ing).toFixed(2) }}
+                      {{ preciseMoney(calcIngredientCost(ing)) }}
                     </div>
                   </v-col>
                   <v-col cols="4" md="1" class="text-right">
@@ -305,7 +305,7 @@
                       size="small" 
                       variant="text" 
                       color="error"
-                      @click="removeIngrediente(index)"
+                      aria-label="Quitar el ingrediente" @click="removeIngrediente(index)"
                     >
                       <v-icon>mdi-delete</v-icon>
                     </v-btn>
@@ -320,13 +320,13 @@
               <v-card-text>
                 <v-row>
                   <v-col cols="6">
-                    <div class="text-subtitle-2 text-medium-emphasis">Costo Total</div>
-                    <div class="text-h3 tabular-nums">${{ Number(totalCost).toFixed(2) }}</div>
+                    <div class="text-subtitle-2 text-medium-emphasis">Costo total</div>
+                    <div class="text-h3 tabular-nums">{{ preciseMoney(totalCost) }}</div>
                   </v-col>
                   <v-col cols="6">
-                    <div class="text-subtitle-2 text-medium-emphasis">Costo por Unidad</div>
+                    <div class="text-subtitle-2 text-medium-emphasis">Costo por unidad</div>
                     <div class="text-h3 tabular-nums">
-                      ${{ Number(costPerUnit).toFixed(2) }}/{{ formData.yield_unit || 'unidad' }}
+                      {{ preciseMoney(costPerUnit) }}/{{ formData.yield_unit || 'unidad' }}
                     </div>
                   </v-col>
                 </v-row>
@@ -338,7 +338,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="closeDialog">Cancelar</v-btn>
-          <v-btn color="primary" :loading="saving" @click="save">Guardar Receta</v-btn>
+          <v-btn color="primary" :loading="saving" @click="save">Guardar receta</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -350,6 +350,7 @@
 </template>
 
 <script setup lang="ts">
+import { preciseMoney } from '@/utils/money'
 import { errorMessage } from '@/utils/errors';
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -407,7 +408,7 @@ const headers = [
   { title: 'Variante', key: 'variant' },
   { title: 'Rendimiento', key: 'rendimiento' },
   { title: 'Ingredientes', key: 'ingredients' },
-  { title: 'Costo Total', key: 'total_cost' },
+  { title: 'Costo total', key: 'total_cost' },
   { title: 'Acciones', key: 'actions', sortable: false },
 ];
 
@@ -551,7 +552,7 @@ const loadData = async () => {
   } catch (error: any) {
     console.error('[Recetas] Error al cargar datos:', error);
     console.error('[Recetas] Error response:', error.response);
-    showMessage(errorMessage(error, 'Error al cargar datos: ') + (error.response?.data?.message || error.message), 'error');
+    showMessage(errorMessage(error, 'No fue posible cargar la información. Inténtalo de nuevo.'), 'error');
   } finally {
     loading.value = false;
   }
@@ -627,7 +628,7 @@ const save = async () => {
   }
 
   if (requiresRecipeVariant.value && !formData.value.variant_id) {
-    showMessage('Este producto tiene variantes. Selecciona el tipo para la receta.', 'error');
+    showMessage('Este producto tiene variantes: elige para cuál es la receta.', 'error');
     return;
   }
   
@@ -669,7 +670,7 @@ const save = async () => {
     closeDialog();
     loadData();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al guardar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
   }
@@ -682,7 +683,7 @@ const deleteRecipe = async (recipe: Recipe) => {
     showMessage('Receta eliminada');
     loadData();
   } catch (error) {
-    showMessage(errorMessage(error, 'Error al eliminar'), 'error');
+    showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
   }
 };
 

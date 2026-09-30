@@ -32,6 +32,7 @@ api.interceptors.request.use(
 // Interceptor para manejar respuestas y errores
 // Evento global para que la app muestre el bloqueo por suscripción.
 export const SUBSCRIPTION_BLOCKED_EVENT = 'subscription-blocked'
+export const TWO_FACTOR_REQUIRED_EVENT = 'two-factor-required'
 
 api.interceptors.response.use(
   (response) => response,
@@ -49,10 +50,16 @@ api.interceptors.response.use(
       // Token inválido o expirado
       localStorage.removeItem('auth_token')
       localStorage.removeItem('user_data')
-      // Redirigir al login si no estamos ya ahí
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login'
+      // BASE_URL: en GitHub Pages la app vive bajo /Frontend/, no en la raíz.
+      const loginPath = `${import.meta.env.BASE_URL}login`
+      if (window.location.pathname !== loginPath) {
+        window.location.href = loginPath
       }
+    }
+
+    // La cuenta de plataforma sin segundo factor: solo puede configurarlo.
+    if (error.response?.status === 403 && error.response.data?.two_factor_setup_required) {
+      window.dispatchEvent(new CustomEvent(TWO_FACTOR_REQUIRED_EVENT))
     }
     return Promise.reject(error)
   }

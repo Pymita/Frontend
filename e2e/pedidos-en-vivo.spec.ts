@@ -19,7 +19,7 @@ test('un pedido creado desde afuera aparece solo en la web', async ({ page, requ
 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/pedidos')
-  await expect(page.getByRole('button', { name: 'Nuevo Pedido' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Nuevo pedido' })).toBeVisible()
   await expect(page.locator('tr', { hasText: '$1.700' })).toHaveCount(0)
 
   // El mesero toma el pedido desde el celular.

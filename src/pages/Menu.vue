@@ -74,6 +74,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref } from 'vue'
 import { categoriesService, type MenuCategoryNode } from '@/services/menuService'
 import MenuCategoryPanel from '@/components/MenuCategoryPanel.vue'
@@ -108,7 +109,7 @@ const load = async () => {
   } catch (error: any) {
     snackbar.value = {
       show: true,
-      text: error.response?.data?.message || 'Error al cargar el menú',
+      text: errorMessage(error, 'No fue posible cargar el menú. Inténtalo de nuevo.'),
     }
   } finally {
     loading.value = false

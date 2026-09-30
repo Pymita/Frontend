@@ -65,7 +65,7 @@
                 <v-text-field v-model="businessForm.department" label="Departamento" />
               </v-col>
               <v-col cols="12" md="6">
-                <v-text-field v-model="businessForm.email" label="Email (opcional)" type="email" />
+                <v-text-field v-model="businessForm.email" label="Correo (opcional)" type="email" />
               </v-col>
               <v-col cols="12">
                 <v-textarea
@@ -94,7 +94,7 @@
       <v-col cols="12" md="6">
         <v-card class="pa-4">
           <div class="d-flex align-center mb-3">
-            <h2 class="text-h6">Tipos de Documento</h2>
+            <h2 class="text-h6">Tipos de documento</h2>
             <v-spacer />
             <LockableButton icon="mdi-plus" color="primary" size="small" @click="openDocDialog()">
               Nuevo
@@ -121,7 +121,7 @@
                   </v-chip>
                 </td>
                 <td class="text-right">
-                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" @click="openDocDialog(dt)">
+                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" :aria-label="`Editar el tipo de documento ${dt.code}`" @click="openDocDialog(dt)">
                     <v-icon size="small">mdi-pencil</v-icon>
                   </v-btn>
                   <v-btn
@@ -130,7 +130,7 @@
                     size="x-small"
                     variant="text"
                     color="error"
-                    @click="deleteDocType(dt)"
+                    :aria-label="`Eliminar el tipo de documento ${dt.code}`" @click="deleteDocType(dt)"
                   >
                     <v-icon size="small">mdi-delete</v-icon>
                   </v-btn>
@@ -173,10 +173,10 @@
                   </v-chip>
                 </td>
                 <td class="text-right">
-                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" @click="openTaxDialog(tax)">
+                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" :aria-label="`Editar el impuesto ${tax.name}`" @click="openTaxDialog(tax)">
                     <v-icon size="small">mdi-pencil</v-icon>
                   </v-btn>
-                  <v-btn icon size="x-small" variant="text" color="error" :disabled="isReadOnly" @click="deleteTax(tax)">
+                  <v-btn icon size="x-small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar el impuesto ${tax.name}`" @click="deleteTax(tax)">
                     <v-icon size="small">mdi-delete</v-icon>
                   </v-btn>
                 </td>
@@ -197,7 +197,7 @@
       <v-col cols="12">
         <v-card class="pa-4">
           <div class="d-flex align-center mb-1">
-            <h2 class="text-h6">Resolución de Facturación (DIAN)</h2>
+            <h2 class="text-h6">Resolución de facturación (DIAN)</h2>
             <v-spacer />
             <v-chip
               v-if="resolutionStatus?.configured"
@@ -270,10 +270,9 @@
                 />
               </v-col>
               <v-col cols="6" md="3">
-                <v-text-field
+                <DateField
                   v-model="resolutionForm.resolution_date"
                   label="Fecha de la resolución"
-                  type="date"
                   hint="Es también el inicio de la vigencia"
                   persistent-hint
                 />
@@ -302,11 +301,10 @@
                   :hint="computedValidUntil ? `Vence el ${computedValidUntil}` : 'Ej: 48 meses desde la fecha de la resolución'"
                   persistent-hint
                 />
-                <v-text-field
+                <DateField
                   v-else
                   v-model="resolutionForm.valid_until"
                   label="Vigente hasta"
-                  type="date"
                 />
               </v-col>
               <v-col cols="12" class="d-flex align-center">
@@ -329,7 +327,7 @@
     <!-- Dialog tipo de documento -->
     <v-dialog v-model="docDialog" max-width="480" persistent>
       <v-card>
-        <v-card-title>{{ editingDoc ? 'Editar Tipo de Documento' : 'Nuevo Tipo de Documento' }}</v-card-title>
+        <v-card-title>{{ editingDoc ? 'Editar tipo de documento' : 'Nuevo tipo de documento' }}</v-card-title>
         <v-card-text>
           <v-text-field
             v-model="docForm.code"
@@ -356,7 +354,7 @@
             v-if="editingDoc && !isSystemCode(editingDoc.code)"
             v-model="docForm.active"
             label="Activo"
-            color="success"
+            color="primary"
             hide-details
           />
         </v-card-text>
@@ -371,7 +369,7 @@
     <!-- Dialog impuesto -->
     <v-dialog v-model="taxDialog" max-width="480" persistent>
       <v-card>
-        <v-card-title>{{ editingTax ? 'Editar Impuesto' : 'Nuevo Impuesto' }}</v-card-title>
+        <v-card-title>{{ editingTax ? 'Editar impuesto' : 'Nuevo impuesto' }}</v-card-title>
         <v-card-text>
           <v-text-field
             v-model="taxForm.name"
@@ -389,7 +387,7 @@
             v-if="editingTax"
             v-model="taxForm.active"
             label="Activo"
-            color="success"
+            color="primary"
             hide-details
           />
         </v-card-text>
@@ -412,10 +410,12 @@ import { computed, onMounted, ref, watch } from 'vue'
 import kardexService, { type DocumentType, type Tax } from '../services/kardexService'
 import invoicingService, { type InvoicingResolution, type ResolutionStatus } from '../services/invoicingService'
 import LockableButton from '../components/LockableButton.vue'
+import DateField from '../components/DateField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 import { billingService, type BusinessForm } from '../services/billingService'
 import type { DocumentBusiness } from '../utils/printDocuments'
-import { taxRegimeLabels } from '../utils/labels'
+import { options, taxRegimeLabels } from '../utils/labels'
+import { toIsoDate } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
@@ -440,8 +440,8 @@ const load = async () => {
     const [docs, taxList] = await Promise.all([kardexService.documentTypes(), kardexService.taxes()])
     documentTypes.value = docs
     taxes.value = taxList
-  } catch {
-    notify('Error al cargar los catálogos', 'error')
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar los catálogos. Inténtalo de nuevo.'), 'error')
   }
   loadResolution()
   loadBusiness()
@@ -465,7 +465,7 @@ const emptyBusiness = (): BusinessForm => ({
 })
 const businessForm = ref<BusinessForm>(emptyBusiness())
 const required = (v: string | null | undefined) => !!(v && String(v).trim()) || 'Este campo es obligatorio'
-const taxRegimeOptions = Object.entries(taxRegimeLabels).map(([value, title]) => ({ value, title }))
+const taxRegimeOptions = options(taxRegimeLabels)
 
 const loadBusiness = async () => {
   try {
@@ -518,7 +518,7 @@ const computedValidUntil = computed(() => {
   const date = new Date(start + 'T00:00:00')
   if (Number.isNaN(date.getTime())) return ''
   date.setMonth(date.getMonth() + months)
-  return date.toISOString().slice(0, 10)
+  return toIsoDate(date)
 })
 
 // Si el usuario ya empezó a escribir, la carga asíncrona no debe pisar
@@ -591,7 +591,7 @@ const saveResolution = async () => {
     await loadResolution()
     notify('Resolución guardada')
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al guardar la resolución', 'error')
+    notify(errorMessage(error, 'No fue posible guardar la resolución. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -630,7 +630,7 @@ const saveDocType = async () => {
     docDialog.value = false
     await load()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al guardar', 'error')
+    notify(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -643,7 +643,7 @@ const deleteDocType = async (dt: DocumentType) => {
     notify('Tipo de documento eliminado')
     await load()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al eliminar', 'error')
+    notify(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error')
   }
 }
 
@@ -672,7 +672,7 @@ const saveTax = async () => {
     taxDialog.value = false
     await load()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al guardar', 'error')
+    notify(errorMessage(error, 'No fue posible guardar. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
   }
@@ -685,7 +685,7 @@ const deleteTax = async (tax: Tax) => {
     notify('Impuesto eliminado')
     await load()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al eliminar', 'error')
+    notify(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error')
   }
 }
 

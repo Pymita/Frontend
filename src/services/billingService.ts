@@ -1,4 +1,5 @@
 import api from './api'
+import type { PageQuery, PaginatedResponse } from '@/types/api'
 import type { PaymentMethod } from './salesService'
 import type { DocumentBusiness, DocumentResolution, PrintableReceipt } from '../utils/printDocuments'
 
@@ -52,6 +53,8 @@ export interface RecurringPreviewRow {
   concept: string | null
   unit_price: number | null
   billing_day: number | null
+  /** Día de corte del mes facturado: decide a quién le toca el día elegido. */
+  cutoff_date?: string | null
   due_date: string | null
   tax_id: number | null
   tax_name: string | null
@@ -258,6 +261,12 @@ export const billingService = {
     return response.data.data
   },
 
+  /** Una página de clientes (búsqueda por nombre, documento, correo o teléfono en `q`). */
+  async getCustomersPage(query: PageQuery): Promise<PaginatedResponse<Customer>> {
+    const response = await api.get<PaginatedResponse<Customer>>('/customers', { params: query })
+    return response.data
+  },
+
   async getCustomer(id: number): Promise<Customer> {
     const response = await api.get<ApiResponse<Customer>>(`/customers/${id}`)
     return response.data.data
@@ -312,8 +321,11 @@ export const billingService = {
   },
 
   // ===== Facturación automática =====
-  async getRecurringPreview(period: string): Promise<RecurringPreview> {
-    const response = await api.get<ApiResponse<RecurringPreview>>('/recurring-billing/preview', { params: { period } })
+  /** Con la fecha de emisión, el vencimiento de cada fila nunca queda antes de ella. */
+  async getRecurringPreview(period: string, issueDate?: string): Promise<RecurringPreview> {
+    const response = await api.get<ApiResponse<RecurringPreview>>('/recurring-billing/preview', {
+      params: { period, issue_date: issueDate || undefined },
+    })
     return response.data.data
   },
 
@@ -344,7 +356,7 @@ export const billingService = {
     return { data: response.data.data, message: response.data.message ?? '' }
   },
 
-  /** Abono al tercero: paga sus documentos del más viejo al más nuevo, en un recibo. */
+  /** Abono al cliente: paga sus documentos del más viejo al más nuevo, en un recibo. */
   async payCustomer(customerId: number, data: CustomerPaymentPayload): Promise<{ data: CashReceipt; message: string }> {
     const response = await api.post<ApiResponse<CashReceipt>>(`/recurring-billing/customers/${customerId}/payments`, data)
     return { data: response.data.data, message: response.data.message ?? '' }

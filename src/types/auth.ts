@@ -80,6 +80,8 @@ export interface User {
   updated_at?: string
   company?: CompanySummary | null
   features?: Feature[]
+  /** Verificación en dos pasos (solo la cuenta de plataforma la usa). */
+  two_factor?: { enabled: boolean; setup_required: boolean }
 }
 
 /** Acceso efectivo: usa features del backend o cae al comportamiento por rol */
@@ -101,6 +103,18 @@ export interface LoginResponse {
   message: string
   user: User
   token: string
+}
+
+/** Contraseña correcta, falta el código: el ticket se canjea con él. */
+export interface TwoFactorChallenge {
+  message: string
+  two_factor_required: true
+  challenge: string
+}
+
+export interface TwoFactorSetup {
+  secret: string
+  uri: string
 }
 
 export interface AuthApiResponse<T = any> {

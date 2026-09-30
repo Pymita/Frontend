@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, loginUI, openSidebarGroup, sidebarItem } from './helpers'
+import { ADMIN, API, PLATFORM, apiLogin, loginUI, openSidebarGroup, sidebarItem } from './helpers'
 
 /**
  * El tipo de negocio decide qué módulos ve la empresa: un billar no debe
@@ -10,7 +10,7 @@ import { ADMIN, API, apiLogin, loginUI, openSidebarGroup, sidebarItem } from './
 
 /** Crea una empresa del tipo dado con su admin y devuelve sus credenciales. */
 async function createCompany(request: any, businessType: string, slug: string) {
-  const superToken = await apiLogin(request, 'plataforma@saboresdeltrigo.com', 'plataforma123')
+  const superToken = await apiLogin(request, PLATFORM.email, PLATFORM.password)
 
   const credentials = { email: `admin.${slug}@e2e.test`, password: 'negocio2026' }
 
@@ -47,7 +47,7 @@ test('un billar no ve recetas pero sí cobro por tiempo', async ({ page, request
 
   // En cambio sí puede crear mesas de billar (tiene cobro por tiempo).
   await page.goto('/mesas')
-  await page.getByRole('button', { name: /Nueva Mesa/i }).click()
+  await page.getByRole('button', { name: /Nueva mesa/i }).click()
   await expect(page.getByRole('dialog').getByText('Tipo de mesa').first()).toBeVisible()
 })
 
@@ -61,7 +61,7 @@ test('un restaurante ve recetas y no ofrece mesas de billar', async ({ page, req
 
   // El selector de tipo de mesa no aparece: no tiene cobro por tiempo.
   await page.goto('/mesas')
-  await page.getByRole('button', { name: /Nueva Mesa/i }).click()
+  await page.getByRole('button', { name: /Nueva mesa/i }).click()
   await expect(page.getByRole('dialog').getByText('Tipo de mesa')).toHaveCount(0)
 })
 
@@ -81,15 +81,15 @@ test('la facturación automática es del cobro mensual: un restaurante no la ve'
   await expect(sidebarItem(page, 'Facturación automática')).toBeVisible()
   await expect(sidebarItem(page, 'Pedidos')).toHaveCount(0)
   await expect(sidebarItem(page, 'Productos')).toHaveCount(0)
-  // Tipos de producto es del menú: sin ese módulo no aparece ni para el admin.
-  await expect(sidebarItem(page, 'Tipos de Producto')).toHaveCount(0)
+  // Variantes es del menú: sin ese módulo no aparece ni para el admin.
+  await expect(sidebarItem(page, 'Variantes')).toHaveCount(0)
 })
 
 test('la plataforma puede personalizar los módulos de una empresa', async ({ page, request }) => {
   const admin = await createCompany(request, 'billiard', 'hibrido')
 
   // El super admin le activa recetas al billar (negocio híbrido: billar con cocina).
-  const superToken = await apiLogin(request, 'plataforma@saboresdeltrigo.com', 'plataforma123')
+  const superToken = await apiLogin(request, PLATFORM.email, PLATFORM.password)
   const companies = await (
     await request.get(`${API}/platform/companies`, {
       headers: { Authorization: `Bearer ${superToken}` },

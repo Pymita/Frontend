@@ -1,7 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { API, apiLogin, loginUI, sidebarItem } from './helpers'
-
-const PLATFORM = { email: 'plataforma@saboresdeltrigo.com', password: 'plataforma123' }
+import { API, PLATFORM, apiLogin, loginUI, sidebarItem } from './helpers'
 
 /**
  * Capa comercial de la plataforma: vendedores, precio acordado en la
@@ -17,7 +15,7 @@ test('vendedor, pago con motivo obligatorio y estadísticas de ventas', async ({
 
   // --- Crear el vendedor por interfaz (sección de la barra lateral) ---
   await sidebarItem(page, 'Vendedores').click()
-  await page.getByRole('button', { name: /Nuevo Vendedor/ }).click()
+  await page.getByRole('button', { name: /Nuevo vendedor/ }).click()
   await page.getByLabel('Nombre *').fill(`Vendedora E2E ${stamp}`)
   await page.getByRole('button', { name: 'Guardar', exact: true }).click()
   await expect(page.getByText('Vendedor creado')).toBeVisible()
@@ -69,19 +67,19 @@ test('vendedor, pago con motivo obligatorio y estadísticas de ventas', async ({
 })
 
 /**
- * Los campos obligatorios de "Nueva Empresa" se ven como tales al abrir el
+ * Los campos obligatorios de "Nueva empresa" se ven como tales al abrir el
  * formulario, no solo cuando falla el guardado.
  */
 test('nueva empresa marca los campos obligatorios desde que se abre', async ({ page }) => {
   await loginUI(page, PLATFORM.email, PLATFORM.password)
-  await page.getByRole('button', { name: /Nueva Empresa/ }).click()
+  await page.getByRole('button', { name: /Nueva empresa/ }).click()
 
-  const dialog = page.getByRole('dialog').filter({ hasText: 'Nueva Empresa' })
-  for (const label of ['Nombre de la empresa *', 'Nombre del administrador *', 'Email de acceso *', 'Contraseña inicial *']) {
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Nueva empresa' })
+  for (const label of ['Nombre de la empresa *', 'Nombre del administrador *', 'Correo de acceso *', 'Contraseña inicial *']) {
     await expect(dialog.getByLabel(label)).toBeVisible()
   }
   // Los opcionales siguen diciendo que lo son, y aún no hay errores en rojo.
-  await expect(dialog.getByLabel('Email (opcional)')).toBeVisible()
+  await expect(dialog.getByLabel('Correo (opcional)')).toBeVisible()
   await expect(dialog.getByText('Nombre requerido')).toHaveCount(0)
 
   await page.waitForTimeout(400)

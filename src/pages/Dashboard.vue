@@ -3,7 +3,7 @@
     <!-- Pedidos sin cobrar de días anteriores: es plata que se pierde si
          nadie la ve. Va arriba de todo, antes de cualquier estadística. -->
     <v-alert
-      v-if="!loading && overduePending.length > 0"
+      v-if="!loading && overdueCount > 0"
       type="warning"
       variant="tonal"
       icon="mdi-alert-circle"
@@ -12,9 +12,9 @@
       <div class="d-flex align-center flex-wrap ga-3">
         <div>
           <div class="font-weight-bold">
-            {{ overduePending.length === 1
+            {{ overdueCount === 1
               ? 'Hay 1 pedido pendiente de cobro de un día anterior'
-              : `Hay ${overduePending.length} pedidos pendientes de cobro de días anteriores` }}
+              : `Hay ${overdueCount} pedidos pendientes de cobro de días anteriores` }}
           </div>
           <div class="text-body-2">
             Suman {{ money(overduePendingTotal) }} por cobrar. Revísalos y ciérralos para que la caja cuadre.
@@ -27,6 +27,62 @@
         </v-btn>
       </div>
     </v-alert>
+
+    <v-alert v-if="loadError" type="error" variant="tonal" class="mb-4">
+      <div class="d-flex align-center flex-wrap ga-3">
+        <span>{{ loadError }}</span>
+        <v-spacer />
+        <v-btn variant="text" @click="loadData">Reintentar</v-btn>
+      </div>
+    </v-alert>
+
+    <!-- Primeros pasos: lo que un negocio nuevo aún no configura. Cada paso
+         se marca solo al hacerlo y la tarjeta desaparece al terminar. -->
+    <v-card v-if="setup && setup.completed < setup.total" class="mb-4" data-testid="setup-guide">
+      <v-card-title class="d-flex align-center flex-wrap ga-2">
+        <v-icon icon="mdi-flag-checkered" />
+        Primeros pasos
+        <v-spacer />
+        <span class="text-body-2 text-medium-emphasis">{{ setup.completed }} de {{ setup.total }} listos</span>
+      </v-card-title>
+      <v-card-text>
+        <p class="text-body-2 text-medium-emphasis mb-2">
+          Con esto tu negocio vende con costos reales: el kardex, el costo de ventas y las finanzas cuadran.
+        </p>
+        <v-progress-linear
+          :model-value="(100 * setup.completed) / setup.total"
+          color="primary"
+          height="8"
+          rounded
+          class="mb-2"
+          aria-label="Avance de los primeros pasos"
+        />
+        <v-list density="compact">
+          <v-list-item
+            v-for="step in setup.steps"
+            :key="step.key"
+            :lines="false"
+            :data-testid="`setup-step-${step.key}`"
+          >
+            <template #prepend>
+              <v-icon
+                :icon="step.done ? 'mdi-check-circle' : 'mdi-circle-outline'"
+                :color="step.done ? 'success' : undefined"
+                :aria-label="step.done ? 'Listo' : 'Pendiente'"
+              />
+            </template>
+            <v-list-item-title class="text-wrap" :class="{ 'text-medium-emphasis': step.done }">
+              {{ step.title }}
+              <v-chip v-if="step.optional" size="x-small" class="ml-1">Opcional</v-chip>
+            </v-list-item-title>
+            <v-list-item-subtitle class="text-wrap">{{ step.description }}</v-list-item-subtitle>
+            <template v-if="!step.done" #append>
+              <v-btn size="small" variant="text" color="primary" :to="step.link" :aria-label="`Ir a: ${step.title}`">Ir</v-btn>
+            </template>
+          </v-list-item>
+        </v-list>
+      </v-card-text>
+    </v-card>
 
     <v-row>
       <!-- Estadísticas principales -->
@@ -73,10 +129,10 @@
           <v-card-text>
             <v-row v-if="period === 'range'" dense class="mb-2">
               <v-col cols="6" sm="4">
-                <v-text-field v-model="range.from" label="Desde" type="date" density="compact" hide-details />
+                <DateField v-model="range.from" label="Desde" density="compact" hide-details />
               </v-col>
               <v-col cols="6" sm="4">
-                <v-text-field v-model="range.to" label="Hasta" type="date" density="compact" hide-details />
+                <DateField v-model="range.to" label="Hasta" density="compact" hide-details />
               </v-col>
             </v-row>
             <v-alert v-if="periodError" type="error" variant="tonal" density="compact" class="mb-2">
@@ -107,7 +163,7 @@
         <v-card class="h-100">
           <v-card-title class="d-flex align-center">
             <v-icon class="mr-2">mdi-trophy</v-icon>
-            Más Vendidos
+            Más vendidos
           </v-card-title>
           <v-card-subtitle v-if="topPeriod">{{ periodCaption }}</v-card-subtitle>
           <v-card-text>
@@ -159,7 +215,7 @@
         <v-card class="h-100">
           <v-card-title>
             <v-icon class="mr-2" color="warning">mdi-alert-circle</v-icon>
-            Stock Bajo
+            Stock bajo
           </v-card-title>
           <v-card-text>
             <v-list v-if="!loading && lowStockProducts.length > 0" density="compact">
@@ -186,8 +242,9 @@
             <div v-else-if="loading" class="text-center pa-4">
               <v-progress-circular indeterminate color="primary" />
             </div>
-            <div v-else class="text-center pa-4 text-success">
-              ✓ Todo el stock está bien
+            <div v-else class="text-center pa-4">
+              <v-icon icon="mdi-check-circle" color="success" size="small" class="mr-1" />
+              Todo el stock está bien
             </div>
           </v-card-text>
         </v-card>
@@ -198,7 +255,7 @@
         <v-card class="h-100">
           <v-card-title>
             <v-icon class="mr-2">mdi-clock-outline</v-icon>
-            Pedidos Recientes
+            Pedidos recientes
           </v-card-title>
           <v-card-text>
             <v-list v-if="!loading && recentOrders.length > 0" density="compact">
@@ -214,7 +271,7 @@
                 </template>
                 <v-list-item-title>Pedido #{{ order.id }}</v-list-item-title>
                 <v-list-item-subtitle>
-                  {{ order.customer_name }} - {{ money(order.total) }}
+                  {{ customerLabel(order.customer_name) }} · {{ money(order.total) }}
                 </v-list-item-subtitle>
                 <template v-slot:append>
                   <v-chip :color="getStatusInfo(order.status).color" size="small" variant="tonal">
@@ -237,7 +294,10 @@
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
+import { formatDay } from '@/utils/dates'
 import { ref, reactive, onMounted, computed, watch } from 'vue'
+import DateField from '../components/DateField.vue'
 import {
   dashboardService,
   type DashboardStats,
@@ -245,9 +305,12 @@ import {
   type LowStockProduct,
   type SalesPeriod,
   type TopProductsPeriod,
+  type SetupChecklist,
 } from '@/services/dashboardService'
 import { ordersService, type Order } from '@/services/ordersService'
-import { label, orderStatusColors, orderStatusLabels } from '@/utils/labels'
+import { useAuthStore } from '@/stores/auth'
+import { errorMessage } from '@/utils/errors'
+import { customerLabel, label, orderStatusColors, orderStatusLabels } from '@/utils/labels'
 import { fonts } from '@/theme'
 import { useTheme } from 'vuetify'
 import { Line } from 'vue-chartjs'
@@ -266,30 +329,20 @@ const dashStats = ref<DashboardStats>({
   sales_month: 0,
   active_products: 0,
   low_stock: 0,
+  overdue_pending: { count: 0, balance: 0 },
 })
 
 const recentOrders = ref<Order[]>([])
-// Pendientes de cobro creados antes de hoy (los cancelados no cuentan).
-const overduePending = ref<Order[]>([])
 const lowStockProducts = ref<LowStockProduct[]>([])
 
-const money = (value: number | string | null | undefined): string =>
-  '$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
 
 // Stock can be fractional (kg, litros) but 12 units must not read "12.00".
 const quantity = (value: number | string | null | undefined): string =>
   Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 })
 
-const overduePendingTotal = computed(() =>
-  overduePending.value.reduce((sum, o) => sum + Number(o.pending_balance ?? o.total ?? 0), 0),
-)
-
-const isOverduePending = (order: Order): boolean => {
-  if (order.payment_status === 'paid' || order.status === 'cancelled') return false
-  const now = new Date()
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  return new Date(order.created_at).getTime() < startOfToday
-}
+// Pendientes de cobro creados antes de hoy (los cancelados no cuentan).
+const overdueCount = computed(() => dashStats.value.overdue_pending?.count ?? 0)
+const overduePendingTotal = computed(() => dashStats.value.overdue_pending?.balance ?? 0)
 const loading = ref(true)
 
 type Period = 'week' | 'month' | 'range'
@@ -319,22 +372,18 @@ const requestedRange = (): DateRange | null => {
   return range.from && range.to ? { from: range.from, to: range.to } : null
 }
 
-const shortDate = (value: string): string => {
-  const [year = 0, month = 1, day = 1] = value.split('-').map(Number)
-  return new Date(year, month - 1, day).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })
-}
 
 const periodTitle = computed(() => ({
   week: 'Ventas de la Semana',
-  month: 'Ventas del Mes',
-  range: 'Ventas del Periodo',
+  month: 'Ventas del mes',
+  range: 'Ventas del periodo',
 })[period.value])
 
 const periodCaption = computed(() => {
   if (period.value === 'week') return 'Últimos 7 días'
   if (period.value === 'month') return 'Este mes'
   const meta = salesPeriod.value?.meta
-  return meta ? `Del ${shortDate(meta.from)} al ${shortDate(meta.to)}` : 'Rango'
+  return meta ? `Del ${formatDay(meta.from)} al ${formatDay(meta.to)}` : 'Rango'
 })
 
 const percent = (value: number): string =>
@@ -362,8 +411,7 @@ const loadPeriod = async () => {
     if (current !== periodRequest) return
     salesPeriod.value = null
     topPeriod.value = null
-    periodError.value = error?.response?.data?.message
-      ?? 'No se pudieron cargar las ventas del periodo. Intenta de nuevo.'
+    periodError.value = errorMessage(error, 'No fue posible cargar las ventas del periodo. Inténtalo de nuevo.')
   } finally {
     if (current === periodRequest) periodLoading.value = false
   }
@@ -381,25 +429,25 @@ watch([period, () => range.from, () => range.to], () => {
 
 const stats = computed(() => [
   {
-    title: 'Pedidos Hoy',
+    title: 'Pedidos hoy',
     value: dashStats.value.orders_today.toString(),
     subtitle: `${dashStats.value.orders_month} este mes`,
     trend: { icon: 'mdi-receipt', text: 'Pedidos del día', color: 'primary' }
   },
   {
-    title: 'Ventas Hoy',
+    title: 'Ventas hoy',
     value: money(dashStats.value.sales_today),
     subtitle: `${money(dashStats.value.sales_month)} este mes`,
     trend: { icon: 'mdi-cash', text: 'Ventas pagadas', color: 'success' }
   },
   {
-    title: 'Productos Activos',
+    title: 'Productos activos',
     value: dashStats.value.active_products.toString(),
     subtitle: 'En el menú',
     trend: { icon: 'mdi-silverware-fork-knife', text: 'Disponibles', color: 'info' }
   },
   {
-    title: 'Stock Bajo',
+    title: 'Stock bajo',
     value: dashStats.value.low_stock.toString(),
     subtitle: dashStats.value.low_stock > 0 ? 'Requiere atención' : 'Todo bien',
     trend: {
@@ -460,11 +508,11 @@ const chartOptions = computed(() => ({
         title: function(items: any[]) {
           const point = salesPoints.value[items[0]?.dataIndex ?? -1]
           if (!point || salesPeriod.value?.meta.bucket === 'day') return items[0]?.label ?? ''
-          return `Del ${shortDate(point.date)} al ${shortDate(point.end)}`
+          return `Del ${formatDay(point.date)} al ${formatDay(point.end)}`
         },
         label: function(context: any) {
           // Pesos colombianos: sin decimales y con separador de miles.
-          return `Ventas: $${Number(context.parsed.y).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`
+          return `Ventas: ${money(context.parsed.y)}`
         }
       }
     }
@@ -472,32 +520,50 @@ const chartOptions = computed(() => ({
   scales: {
     y: {
       beginAtZero: true,
+      // Sin ventas el eje iba de $0 a $1 en décimas y el formato en pesos
+      // las redondeaba: "$1" repetido. Pesos enteros y una escala mínima.
+      suggestedMax: salesPoints.value.some(d => d.total > 0) ? undefined : 100000,
       ticks: {
+        precision: 0,
         callback: function(value: any) {
-          return '$' + Number(value).toLocaleString('es-CO', { maximumFractionDigits: 0 })
+          return money(value)
         }
       }
     }
   }
 }))
 
+const authStore = useAuthStore()
+const setup = ref<SetupChecklist | null>(null)
+const loadError = ref('')
+
+// Solo el admin configura el negocio; un fallo aquí no tapa el resto.
+const loadSetup = async () => {
+  if (!authStore.isAdmin) return
+  try {
+    setup.value = await dashboardService.getSetup()
+  } catch {
+    setup.value = null
+  }
+}
+
 const loadData = async () => {
   loading.value = true
+  loadError.value = ''
+  loadSetup()
   try {
-    const [stats, orders, pending, stock] = await Promise.all([
+    const [stats, recent, stock] = await Promise.all([
       dashboardService.getStats(),
-      ordersService.getAll({ today: true }),
-      ordersService.getAll({ pending_payment: true }),
+      ordersService.getPage({ page: 1, per_page: 4, today: true }),
       dashboardService.getLowStock(),
       loadPeriod(),
     ])
 
     dashStats.value = stats
-    recentOrders.value = orders.slice(0, 4) // Últimos 4 pedidos
-    overduePending.value = pending.filter(isOverduePending)
+    recentOrders.value = recent.data
     lowStockProducts.value = stock
   } catch (error) {
-    console.error('[Dashboard] Error al cargar datos:', error)
+    loadError.value = errorMessage(error, 'No pudimos cargar el resumen del negocio. Revisa tu conexión y vuelve a intentar.')
   } finally {
     loading.value = false
   }

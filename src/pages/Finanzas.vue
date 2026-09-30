@@ -14,27 +14,25 @@
       <v-col cols="12" md="7">
         <v-card class="pa-4">
           <div class="d-flex align-center mb-3">
-            <h2 class="text-h6">Estado de Resultados</h2>
+            <h2 class="text-h6">Estado de resultados</h2>
             <v-spacer />
-            <v-text-field
+            <DateField
               v-model="from"
-              type="date"
               label="Desde"
               density="compact"
               hide-details
               class="mr-2"
-              style="max-width: 160px"
+              max-width="160"
             />
-            <v-text-field
+            <DateField
               v-model="to"
-              type="date"
               label="Hasta"
               density="compact"
               hide-details
               class="mr-2"
-              style="max-width: 160px"
+              max-width="160"
             />
-            <v-btn color="primary" :loading="loadingIncome" @click="loadIncome">
+            <v-btn color="primary" :loading="loadingIncome" aria-label="Ver el estado de resultados de esas fechas" @click="loadIncome">
               <v-icon>mdi-magnify</v-icon>
             </v-btn>
           </div>
@@ -47,7 +45,7 @@
               </tr>
               <tr>
                 <td class="pl-8 text-medium-emphasis">(−) Costo de ventas (kardex)</td>
-                <td class="text-right text-error">{{ money(income.cost_of_sales) }}</td>
+                <td class="text-right">{{ money(income.cost_of_sales) }}</td>
               </tr>
               <tr class="bg-surface-light">
                 <td class="font-weight-bold">Utilidad bruta</td>
@@ -58,7 +56,7 @@
               </tr>
               <tr>
                 <td class="pl-8 text-medium-emphasis">(−) Gastos operativos</td>
-                <td class="text-right text-error">{{ money(income.operating_expenses) }}</td>
+                <td class="text-right">{{ money(income.operating_expenses) }}</td>
               </tr>
               <tr v-for="e in income.expenses_by_category" :key="e.category">
                 <td class="pl-12 text-caption text-medium-emphasis">{{ e.category }}</td>
@@ -70,7 +68,7 @@
               </tr>
               <tr v-if="income.other_expenses">
                 <td class="pl-8 text-medium-emphasis">(−) Otros egresos</td>
-                <td class="text-right text-error">{{ money(income.other_expenses) }}</td>
+                <td class="text-right">{{ money(income.other_expenses) }}</td>
               </tr>
               <tr :class="income.net_profit >= 0 ? 'bg-success-container' : 'bg-error-container'">
                 <td class="font-weight-bold">Utilidad neta</td>
@@ -90,7 +88,7 @@
           <div class="d-flex align-center mb-3">
             <h2 class="text-h6">Balance</h2>
             <v-spacer />
-            <span v-if="balance" class="text-caption text-medium-emphasis">al {{ balance.as_of }}</span>
+            <span v-if="balance" class="text-caption text-medium-emphasis">al {{ formatDay(balance.as_of) }}</span>
           </div>
 
           <v-table v-if="balance" density="comfortable">
@@ -171,7 +169,7 @@
             </thead>
             <tbody>
               <tr v-for="movement in movements" :key="movement.id">
-                <td>{{ movement.occurred_at }}</td>
+                <td class="text-no-wrap">{{ formatDay(movement.occurred_at) }}</td>
                 <td>
                   <v-chip size="x-small" :color="movement.cash_effect >= 0 ? 'success' : 'error'" variant="tonal">
                     {{ movement.kind_label }}
@@ -183,10 +181,10 @@
                 </td>
                 <td class="text-caption text-medium-emphasis">{{ effectLabel(movement) }}</td>
                 <td class="text-right">
-                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" @click="openMovementDialog(movement)">
+                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" :aria-label="`Editar el movimiento ${movement.concept}`" @click="openMovementDialog(movement)">
                     <v-icon size="small">mdi-pencil</v-icon>
                   </v-btn>
-                  <v-btn icon size="x-small" variant="text" color="error" :disabled="isReadOnly" @click="removeMovement(movement)">
+                  <v-btn icon size="x-small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar el movimiento ${movement.concept}`" @click="removeMovement(movement)">
                     <v-icon size="small">mdi-delete</v-icon>
                   </v-btn>
                 </td>
@@ -239,7 +237,7 @@
               />
             </v-col>
             <v-col cols="6">
-              <v-text-field v-model="movementForm.occurred_at" label="Fecha" type="date" />
+              <DateField v-model="movementForm.occurred_at" label="Fecha" />
             </v-col>
           </v-row>
           <v-select
@@ -264,13 +262,16 @@
       </v-card>
     </v-dialog>
 
-    <v-snackbar v-model="snackbar.show" color="error" timeout="4000">
+    <v-snackbar v-model="snackbar.show" :color="snackbar.color" :timeout="snackbar.color === 'error' ? 9000 : 3000">
       {{ snackbar.text }}
     </v-snackbar>
   </v-container>
 </template>
 
 <script setup lang="ts">
+import { money } from '@/utils/money'
+import { formatDay, todayIso, toIsoDate } from '@/utils/dates'
+import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref } from 'vue'
 import kardexService, {
   type BalanceReport,
@@ -280,6 +281,7 @@ import kardexService, {
   type MovementKindOption,
 } from '../services/kardexService'
 import LockableButton from '../components/LockableButton.vue'
+import DateField from '../components/DateField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
@@ -297,23 +299,21 @@ const uncostedLabel = computed(() =>
 
 // Rango por defecto: el mes actual.
 const now = new Date()
-const from = ref(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10))
-const to = ref(now.toISOString().slice(0, 10))
+const from = ref(toIsoDate(new Date(now.getFullYear(), now.getMonth(), 1)))
+const to = ref(todayIso())
 
-const snackbar = ref({ show: false, text: '' })
-const notify = (text: string) => {
-  snackbar.value = { show: true, text }
+const snackbar = ref({ show: false, text: '', color: 'error' })
+const notify = (text: string, color: 'success' | 'error' = 'error') => {
+  snackbar.value = { show: true, text, color }
 }
 
-const money = (value: number): string =>
-  '$' + Number(value ?? 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
 
 const loadIncome = async () => {
   loadingIncome.value = true
   try {
     income.value = await kardexService.incomeStatement(from.value, to.value)
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al cargar el estado de resultados')
+    notify(errorMessage(error, 'No fue posible cargar el estado de resultados. Inténtalo de nuevo.'))
   } finally {
     loadingIncome.value = false
   }
@@ -330,7 +330,7 @@ const emptyMovement = () => ({
   kind: 'income' as MovementKind,
   concept: '',
   amount: 0,
-  occurred_at: new Date().toISOString().slice(0, 10),
+  occurred_at: todayIso(),
   payment_method: 'cash',
   notes: '',
 })
@@ -365,7 +365,7 @@ const loadMovements = async () => {
     movements.value = data.movements
     kinds.value = data.kinds
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al cargar los movimientos')
+    notify(errorMessage(error, 'No fue posible cargar los movimientos. Inténtalo de nuevo.'))
   }
 }
 
@@ -401,9 +401,10 @@ const saveMovement = async () => {
     }
 
     movementDialog.value = false
+    notify(editingMovement.value ? 'Movimiento actualizado' : 'Movimiento registrado', 'success')
     await refreshAll()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al guardar el movimiento')
+    notify(errorMessage(error, 'No fue posible guardar el movimiento. Inténtalo de nuevo.'))
   } finally {
     savingMovement.value = false
   }
@@ -414,9 +415,10 @@ const removeMovement = async (movement: FinancialMovement) => {
 
   try {
     await kardexService.deleteMovement(movement.id)
+    notify('Movimiento eliminado', 'success')
     await refreshAll()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al eliminar el movimiento')
+    notify(errorMessage(error, 'No fue posible eliminar el movimiento. Inténtalo de nuevo.'))
   }
 }
 
@@ -429,7 +431,7 @@ const loadBalance = async () => {
   try {
     balance.value = await kardexService.balance()
   } catch (error: any) {
-    notify(error.response?.data?.message || 'Error al cargar el balance')
+    notify(errorMessage(error, 'No fue posible cargar el balance. Inténtalo de nuevo.'))
   }
 }
 
