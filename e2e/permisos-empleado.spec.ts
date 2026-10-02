@@ -159,15 +159,23 @@ test('las secciones del menú se despliegan de a una y el menú no necesita scro
   await page.screenshot({ path: '../screenshots/menu-desplegable-1366x700.png' })
 })
 
-test('el panel del login presenta el producto a la altura del formulario', async ({ page }) => {
+test('el panel del login presenta el producto sin opacar el formulario', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/login')
 
-  const tagline = page.getByRole('heading', { name: 'Sistema de gestión' })
+  const panel = page.getByRole('complementary')
+  const form = page.locator('.v-card', { has: page.getByRole('heading', { name: 'Servify POS', level: 1 }) })
+  const tagline = panel.getByRole('heading', { name: 'Sistema de gestión' })
   await expect(tagline).toBeVisible()
-  for (const feature of ['Pedidos y mesas', 'Inventario al día', 'Ventas y reportes', 'Facturación']) {
-    await expect(page.getByText(feature, { exact: true })).toBeVisible()
+  const features = ['Pedidos y mesas', 'Inventario al día', 'Ventas y reportes', 'Facturación automática', 'Cartera, gastos y finanzas']
+  for (const feature of features) {
+    await expect(panel.getByText(feature, { exact: true })).toBeVisible()
   }
+  await expect(panel.getByText('Cuentas de cobro del mes para todos tus clientes, listas para imprimir.')).toBeVisible()
+  await expect(panel.getByText('Quién te debe, abonos con recibo de caja y estado de resultados.')).toBeVisible()
+
+  // La facturación electrónica aún no existe: el login no la promete.
+  await expect(page.locator('body')).not.toContainText('DIAN')
 
   // El mensaje ya no queda pegado abajo con el panel vacío encima: arranca
   // en la franja central, como el formulario.
@@ -175,10 +183,30 @@ test('el panel del login presenta el producto a la altura del formulario', async
   expect(box!.y).toBeGreaterThan(900 * 0.15)
   expect(box!.y).toBeLessThan(900 * 0.5)
 
+  // El formulario es lo principal: más ancho que antes (400 px) y el panel
+  // ocupa a lo sumo un tercio de la pantalla.
+  expect((await form.boundingBox())!.width).toBeGreaterThanOrEqual(460)
+  expect((await panel.boundingBox())!.width).toBeLessThanOrEqual(1440 / 3 + 1)
+
   await page.screenshot({ path: '../screenshots/login-1440x900.png' })
   await page.setViewportSize({ width: 1280, height: 720 })
-  await expect(page.getByText('Facturación', { exact: true })).toBeInViewport()
+  await expect(panel.getByText('Cartera, gastos y finanzas', { exact: true })).toBeInViewport()
+  expect((await form.boundingBox())!.width).toBeGreaterThanOrEqual(460)
   await page.screenshot({ path: '../screenshots/login-1280x720.png' })
+
+  // En el celular solo queda el formulario, de borde a borde.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(panel).toBeHidden()
+  await expect(form).toBeInViewport()
+  expect((await form.boundingBox())!.width).toBeGreaterThanOrEqual(330)
+  await page.screenshot({ path: '../screenshots/login-390x844.png' })
+
+  // El enlace del correo abre la misma pantalla: tampoco menciona la DIAN.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/restablecer-contrasena?token=e2e&email=nadie%40e2e.test')
+  await expect(page.getByText('Elige tu contraseña nueva')).toBeVisible()
+  await expect(panel.getByText('Facturación automática', { exact: true })).toBeVisible()
+  await expect(page.locator('body')).not.toContainText('DIAN')
 })
 
 test('la app se llama Servify POS y habla español en tablas, paginación y fechas', async ({ page }) => {
