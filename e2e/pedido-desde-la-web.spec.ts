@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, displayDate, loginUI } from './helpers'
+import { ADMIN, API, apiLogin, displayDate, freezeTime, loginUI, raisePlanLimits } from './helpers'
 
 /**
  * La web crea pedidos con productos reales (antes solo existía el pedido
@@ -122,8 +122,8 @@ test('el panel de pedidos filtra por rango de fechas', async ({ page, request })
   await page.getByLabel('Hasta').fill('2001-01-31')
   await expect(row).toHaveCount(0)
 
-  // "Hoy" pone el rango del día y el pedido vuelve.
-  await page.getByRole('button', { name: 'Hoy', exact: true }).click()
+  // "Pedidos del día" pone el rango de hoy y el pedido vuelve.
+  await page.getByRole('button', { name: 'Pedidos del día' }).click()
   const today = new Date().toLocaleDateString('en-CA')
   await expect(page.getByLabel('Desde')).toHaveValue(displayDate(today))
   await expect(page.getByLabel('Hasta')).toHaveValue(displayDate(today))
@@ -136,6 +136,77 @@ test('el panel de pedidos filtra por rango de fechas', async ({ page, request })
   await expect(page.getByLabel('Desde')).toHaveValue('')
   await expect(page.getByText('Con un rango de fechas no ves los pendientes de otros días.')).toHaveCount(0)
   await expect(row).toBeVisible()
+})
+
+/**
+ * "Pedidos del día" son todos los de hoy, cobrados o no. El atajo "Hoy" solo
+ * ponía las fechas sobre "Pendientes" (la vista por defecto): en cuanto se
+ * cobraban las mesas la lista quedaba vacía y la opción parecía no estar.
+ */
+test('Pedidos del día muestra todos los pedidos de hoy, también los cobrados', async ({ page, request }) => {
+  await raisePlanLimits(request, { max_users: 50 })
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  // En una categoría que ya existe: cada categoría nueva alarga la lista que
+  // productos.spec recorre en el formulario, y ahí la opción deja de pintarse.
+  const categories = (await (await request.get(`${API}/categories`, { headers: auth })).json()).data
+  const product = await request.post(`${API}/products`, {
+    headers: auth,
+    data: { name: 'Buñuelo Del Día E2E', type: 'final', unit: 'unidad', sale_price: 5791, tracks_stock: false, category_id: categories[0].id },
+  })
+  expect(product.status()).toBe(201)
+  const productId = (await product.json()).data.id
+  const createOrder = async (quantity: number) => {
+    const response = await request.post(`${API}/orders`, {
+      headers: auth,
+      data: { items: [{ product_id: productId, quantity }] },
+    })
+    expect(response.status()).toBe(201)
+    return (await response.json()).data
+  }
+  const charged = await createOrder(1)
+  await createOrder(2)
+  const paid = await request.post(`${API}/orders/${charged.id}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+  expect(paid.ok()).toBeTruthy()
+
+  // El "hoy" del navegador es el día en que el API registró el pedido.
+  await freezeTime(page, charged.created_at)
+  const day = displayDate(charged.created_at.slice(0, 10))
+  const chargedRow = page.locator('tbody tr', { hasText: '$5.791' })
+  const pendingRow = page.locator('tbody tr', { hasText: '$11.582' })
+
+  const seeTheDay = async () => {
+    await page.goto('/pedidos')
+    // Por defecto, lo pendiente de cobro: el ya cobrado no sale.
+    await expect(pendingRow).toBeVisible()
+    await expect(chargedRow).toHaveCount(0)
+
+    const option = page.getByRole('button', { name: 'Pedidos del día' })
+    await expect(option).toBeInViewport()
+    await option.click()
+    await expect(chargedRow).toBeVisible()
+    await expect(pendingRow).toBeVisible()
+    await expect(page.getByLabel('Desde')).toHaveValue(day)
+    await expect(page.getByLabel('Hasta')).toHaveValue(day)
+    await expect(page.getByRole('button', { name: 'Todos', exact: true })).toHaveClass(/v-btn--active/)
+    await expect(option).toHaveAttribute('aria-pressed', 'true')
+  }
+
+  // La cajera (pedidos + reportes) en el celular y el admin en el escritorio.
+  const cashier = { username: `cajera.dia.${Date.now()}`, password: 'secreto123' }
+  const employee = await request.post(`${API}/users`, {
+    headers: auth,
+    data: { name: 'Cajera del día', role: 'employee', permissions: ['orders', 'reports'], ...cashier },
+  })
+  expect(employee.status()).toBe(201)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await loginUI(page, cashier.username, cashier.password)
+  await seeTheDay()
+
+  await page.evaluate(() => localStorage.clear())
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await seeTheDay()
 })
 
 /**

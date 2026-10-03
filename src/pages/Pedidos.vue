@@ -106,7 +106,15 @@
                 />
               </v-col>
               <v-col cols="12" md="3" class="d-flex align-center justify-end flex-wrap ga-1">
-                <v-btn variant="tonal" color="primary" size="small" @click="setToday">Hoy</v-btn>
+                <v-btn
+                  :variant="showsToday ? 'flat' : 'tonal'"
+                  :aria-pressed="showsToday"
+                  color="primary"
+                  size="small"
+                  @click="setToday"
+                >
+                  Pedidos del día
+                </v-btn>
                 <v-btn v-if="hasDateRange" variant="text" size="small" @click="clearDates">Quitar fechas</v-btn>
                 <v-btn variant="text" @click="loadOrders()">
                   <v-icon start>mdi-refresh</v-icon>
@@ -971,7 +979,7 @@ import { effectiveFeatures } from '@/types/auth';
 import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/utils/orderLines';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
 import { money } from '@/utils/money';
-import { formatRecent } from '@/utils/dates';
+import { formatRecent, todayIso } from '@/utils/dates';
 import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage';
 import type { PageQuery, PaginatedResponse } from '@/types/api';
 import type { OrderGuest } from '@/services/ordersService';
@@ -991,10 +999,13 @@ const filterPago = ref<'pending' | 'paid' | 'all'>('pending');
 const dateFrom = ref('');
 const dateTo = ref('');
 const hasDateRange = computed(() => !!dateFrom.value || !!dateTo.value);
-const localToday = () => new Date().toLocaleDateString('en-CA');
+const showsToday = computed(() => dateFrom.value === todayIso() && dateTo.value === todayIso());
+// Los pedidos del día son todos los de hoy, también los cobrados: sobre
+// "Pendientes" la lista se vacía en cuanto se cobran las mesas.
 const setToday = () => {
-  dateFrom.value = localToday();
-  dateTo.value = localToday();
+  filterPago.value = 'all';
+  dateFrom.value = todayIso();
+  dateTo.value = todayIso();
 };
 const clearDates = () => {
   dateFrom.value = '';
