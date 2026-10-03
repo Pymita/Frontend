@@ -87,6 +87,16 @@ export async function openSidebarGroup(page: Page, title: string): Promise<void>
 }
 
 /**
+ * Fija el reloj del navegador en un instante que devolvió el API (el
+ * `created_at` de lo que se acaba de crear): el "hoy" de la página es el día
+ * de ese dato aunque la suite cruce la medianoche. El reloj del backend no se
+ * puede fijar desde aquí; por eso se toma el suyo.
+ */
+export async function freezeTime(page: Page, at: string): Promise<void> {
+  await page.clock.setFixedTime(new Date(at))
+}
+
+/**
  * Campo de formulario de Vuetify por su etiqueta.
  *
  * `getByRole('combobox', { name })` solo funciona con v-autocomplete: en un
