@@ -20,11 +20,11 @@
         </div>
       </div>
 
-      <!-- Operación queda siempre abierta; las demás secciones se despliegan
-           de a una (abrir una cierra la otra) para que el menú no necesite scroll. -->
+      <!-- "multiple": the default strategy closes every section when a page
+           outside it becomes active, so Administración would fold by itself. -->
       <v-list
         v-model:opened="openedGroups"
-        open-strategy="single"
+        open-strategy="multiple"
         nav
         density="compact"
         base-color="chrome-text"
@@ -45,7 +45,7 @@
               :prepend-icon="item.icon"
               :title="item.title"
               active-class="bg-chrome-active"
-              min-height="36"
+              min-height="34"
             />
           </v-list-group>
 
@@ -61,7 +61,7 @@
               :prepend-icon="item.icon"
               :title="item.title"
               active-class="bg-chrome-active"
-              min-height="36"
+              min-height="34"
             />
           </template>
         </template>
@@ -264,10 +264,11 @@ const menuGroups = computed(() =>
     .filter(group => group.items.length > 0)
 )
 
-// Operación es lo del día a día: siempre visible. El resto se despliega.
-const ALWAYS_OPEN_GROUP = 'Operación'
+// Operación and Catálogo (orders, kardex) are the daily work and never hide.
+// Only the management section folds, so the fixed ones fit at 700px of height.
+const COLLAPSIBLE_GROUP = 'Administración'
 const isCollapsible = (group: string): boolean =>
-  menuGroups.value.length > 1 && group !== ALWAYS_OPEN_GROUP
+  menuGroups.value.length > 1 && group === COLLAPSIBLE_GROUP
 
 const openedGroups = ref<string[]>([])
 

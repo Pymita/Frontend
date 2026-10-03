@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, PLATFORM, apiLogin, loginUI, openSidebarGroup, sidebarItem } from './helpers'
+import { ADMIN, API, PLATFORM, apiLogin, loginUI, openSidebarGroup, sidebarGroup, sidebarItem } from './helpers'
 
 /**
  * El tipo de negocio decide qué módulos ve la empresa: un billar no debe
@@ -34,7 +34,6 @@ test('un billar no ve recetas pero sí cobro por tiempo', async ({ page, request
 
   // Ve lo suyo...
   await expect(sidebarItem(page, 'Pedidos')).toBeVisible()
-  await openSidebarGroup(page, 'Catálogo')
   await expect(sidebarItem(page, 'Productos')).toBeVisible()
   await expect(sidebarItem(page, 'Mesas')).toBeVisible()
 
@@ -56,7 +55,6 @@ test('un restaurante ve recetas y no ofrece mesas de billar', async ({ page, req
 
   await loginUI(page, admin.email, admin.password)
 
-  await openSidebarGroup(page, 'Catálogo')
   await expect(sidebarItem(page, 'Recetas')).toBeVisible()
 
   // El selector de tipo de mesa no aparece: no tiene cobro por tiempo.
@@ -106,7 +104,27 @@ test('la plataforma puede personalizar los módulos de una empresa', async ({ pa
 
   // Ahora el admin del billar sí ve recetas.
   await loginUI(page, admin.email, admin.password)
-  await openSidebarGroup(page, 'Catálogo')
   await expect(sidebarItem(page, 'Recetas')).toBeVisible()
   await expect(sidebarItem(page, 'Mesas')).toBeVisible()
+})
+
+test('con todos los módulos lo fijo del menú cabe a 700 px y todo el menú a 900 px', async ({ page, request }) => {
+  // El menú más largo: Operación suma Facturación automática.
+  const admin = await createCompany(request, 'other', 'todo')
+  await page.setViewportSize({ width: 1366, height: 700 })
+  await loginUI(page, admin.email, admin.password)
+
+  const content = page.locator('.v-navigation-drawer__content')
+  const fits = async () => content.evaluate(el => el.scrollHeight <= el.clientHeight)
+
+  await expect(sidebarItem(page, 'Facturación automática')).toBeInViewport()
+  await expect(sidebarGroup(page, 'Administración')).toHaveAttribute('aria-expanded', 'false')
+  await expect(sidebarGroup(page, 'Administración')).toBeInViewport({ ratio: 1 })
+  await expect.poll(fits).toBe(true)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openSidebarGroup(page, 'Administración')
+  await expect(page.locator('.v-list-group__items')).not.toHaveClass(/expand-transition/)
+  await expect(sidebarItem(page, 'Configuración')).toBeInViewport()
+  await expect.poll(fits).toBe(true)
 })

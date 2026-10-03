@@ -108,12 +108,8 @@ test('admin ve todas las secciones incluidas las administrativas', async ({ page
   }
   await expect(page.locator('.v-app-bar').getByText('Admin', { exact: true })).toBeVisible()
 
-  // Operación siempre está abierta; Catálogo y Administración se despliegan.
-  for (const item of ['Inicio', 'Pedidos']) {
-    await expect(sidebarItem(page, item)).toBeVisible()
-  }
-  await openSidebarGroup(page, 'Catálogo')
-  for (const item of ['Productos', 'Kardex']) {
+  // Operación y Catálogo siempre están abiertos; Administración se despliega.
+  for (const item of ['Inicio', 'Pedidos', 'Productos', 'Kardex']) {
     await expect(sidebarItem(page, item)).toBeVisible()
   }
   await openSidebarGroup(page, 'Administración')
@@ -125,7 +121,7 @@ test('admin ve todas las secciones incluidas las administrativas', async ({ page
   await expect(sidebarItem(page, 'Plataforma')).toHaveCount(0)
 })
 
-test('las secciones del menú se despliegan de a una y el menú no necesita scroll', async ({ page }) => {
+test('pedidos y kardex quedan fijos en el menú: solo Administración se pliega', async ({ page }) => {
   // Un portátil de 1366x768 deja unos 700 px de alto dentro del navegador.
   await page.setViewportSize({ width: 1366, height: 700 })
   await loginUI(page, ADMIN.email, ADMIN.password)
@@ -133,30 +129,65 @@ test('las secciones del menú se despliegan de a una y el menú no necesita scro
   const content = page.locator('.v-navigation-drawer__content')
   const fits = async () =>
     content.evaluate(el => el.scrollHeight <= el.clientHeight)
+  const admin = sidebarGroup(page, 'Administración')
+  const activeItem = (title: string) => page.locator('.v-navigation-drawer .v-list-item--active', { hasText: title })
+  // Vuetify despliega con una transición: se espera a que termine.
+  const settled = () => expect(page.locator('.v-list-group__items')).not.toHaveClass(/expand-transition/)
 
-  // Abrir una sección cierra la otra.
-  await openSidebarGroup(page, 'Catálogo')
-  await expect(sidebarItem(page, 'Kardex')).toBeVisible()
+  // Operación y Catálogo son solo un título: no tienen botón para plegarse.
+  for (const group of ['Operación', 'Catálogo']) {
+    await expect(sidebarItem(page, group)).toBeVisible()
+    await expect(sidebarGroup(page, group)).toHaveCount(0)
+  }
+
+  // Administración arranca plegada y así lo fijo cabe sin scroll.
+  await expect(admin).toHaveAttribute('aria-expanded', 'false')
   await expect(sidebarItem(page, 'Empleados')).toBeHidden()
+  for (const item of ['Pedidos', 'Kardex', 'Variantes', 'Cerrar sesión']) {
+    await expect(sidebarItem(page, item)).toBeInViewport()
+  }
+  await expect(admin).toBeInViewport({ ratio: 1 })
+  await expect.poll(fits).toBe(true)
+  // Tras el login la página se desliza para dejarle sitio al menú.
+  await expect.poll(() => page.locator('.v-main').evaluate(el => getComputedStyle(el).paddingLeft)).toBe('264px')
+  await page.screenshot({ path: '../screenshots/menu-lateral-fijo-plegado-1366.png' })
+
+  // Desplegarla no esconde nada de lo fijo.
+  await admin.click()
+  await expect(admin).toHaveAttribute('aria-expanded', 'true')
+  await settled()
+  await expect(sidebarItem(page, 'Clientes')).toBeInViewport()
+  for (const item of ['Pedidos', 'Kardex']) {
+    await expect(sidebarItem(page, item)).toBeInViewport()
+  }
+  await page.screenshot({ path: '../screenshots/menu-lateral-fijo-desplegado-1366.png' })
+
+  // Y se vuelve a plegar.
+  await admin.click()
+  await expect(admin).toHaveAttribute('aria-expanded', 'false')
+  await expect(sidebarItem(page, 'Clientes')).toBeHidden()
+  await expect(sidebarItem(page, 'Kardex')).toBeInViewport()
   await expect.poll(fits).toBe(true)
 
-  await openSidebarGroup(page, 'Administración')
-  await expect(sidebarItem(page, 'Empleados')).toBeVisible()
-  await expect(sidebarItem(page, 'Kardex')).toBeHidden()
-  await expect(sidebarGroup(page, 'Catálogo')).toHaveAttribute('aria-expanded', 'false')
+  // A 1440x900 cabe todo el menú, también con Administración abierta. Al
+  // entrar directo a una de sus páginas se abre sola con el ítem activo.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/empleados')
+  await expect(admin).toHaveAttribute('aria-expanded', 'true')
+  await settled()
+  await expect(activeItem('Empleados')).toBeInViewport()
+  for (const item of ['Pedidos', 'Kardex', 'Configuración', 'Cerrar sesión']) {
+    await expect(sidebarItem(page, item)).toBeInViewport()
+  }
   await expect.poll(fits).toBe(true)
+  await page.screenshot({ path: '../screenshots/menu-lateral-fijo-desplegado-1440.png' })
 
-  // Al entrar directo a una página, su sección aparece abierta con el ítem activo.
-  await page.goto('/kardex')
-  await expect(sidebarGroup(page, 'Catálogo')).toHaveAttribute('aria-expanded', 'true')
-  // Se abre con la transición de Vuetify: se espera a que termine.
-  await expect(page.locator('.v-list-group--open .v-list-group__items')).not.toHaveClass(/expand-transition/)
-  await expect(page.locator('.v-navigation-drawer .v-list-item--active', { hasText: 'Kardex' })).toBeVisible()
-  await expect(sidebarItem(page, 'Variantes')).toBeInViewport()
-  await expect(sidebarItem(page, 'Cerrar sesión')).toBeInViewport()
-  await expect.poll(fits).toBe(true)
-
-  await page.screenshot({ path: '../screenshots/menu-desplegable-1366x700.png' })
+  // Ir a Kardex desde ahí no pliega Administración: nada se cierra solo.
+  await sidebarItem(page, 'Kardex').click()
+  await expect(page).toHaveURL(/\/kardex/)
+  await expect(activeItem('Kardex')).toBeInViewport()
+  await expect(admin).toHaveAttribute('aria-expanded', 'true')
+  await expect(sidebarItem(page, 'Empleados')).toBeInViewport()
 })
 
 test('el panel del login presenta el producto sin opacar el formulario', async ({ page }) => {
@@ -259,8 +290,19 @@ test('en el celular el menú no tapa la página: se abre con el botón y se cier
   await expect(page.locator('.v-main').getByText('Pedidos hoy', { exact: true })).toBeInViewport()
 
   await openMenu.click()
-  await expect(menu).toBeInViewport()
-  await openSidebarGroup(page, 'Catálogo')
+  await expect(menu).toBeInViewport({ ratio: 1 })
+  // Pedidos y Kardex están a mano sin desplegar nada.
+  await expect(sidebarItem(page, 'Pedidos')).toBeInViewport()
+  await expect(sidebarItem(page, 'Kardex')).toBeInViewport()
+  await expect(sidebarGroup(page, 'Administración')).toHaveAttribute('aria-expanded', 'false')
+  await page.screenshot({ path: '../screenshots/menu-lateral-fijo-plegado-390.png' })
+
+  await openSidebarGroup(page, 'Administración')
+  await expect(page.locator('.v-list-group__items')).not.toHaveClass(/expand-transition/)
+  await expect(sidebarItem(page, 'Clientes')).toBeInViewport()
+  await expect(sidebarItem(page, 'Pedidos')).toBeInViewport()
+  await page.screenshot({ path: '../screenshots/menu-lateral-fijo-desplegado-390.png' })
+
   await sidebarItem(page, 'Kardex').click()
 
   await expect(page).toHaveURL(/\/kardex/)
