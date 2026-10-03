@@ -65,14 +65,14 @@ export async function loginUI(page: Page, login: string, password: string): Prom
 }
 
 /**
- * Ítems del menú lateral. Los de una sección cerrada existen pero están
- * ocultos: para verlos o hacerles clic, primero `openSidebarGroup`.
+ * Ítems del menú lateral. Los de Administración, si está plegada, existen
+ * pero están ocultos: para verlos o hacerles clic, primero `openSidebarGroup`.
  */
 export function sidebarItem(page: Page, title: string) {
   return page.locator('.v-navigation-drawer').getByText(title, { exact: true })
 }
 
-/** Encabezado desplegable del menú lateral (Catálogo, Administración). */
+/** Encabezado desplegable del menú lateral (solo Administración se pliega). */
 export function sidebarGroup(page: Page, title: string) {
   return page.locator('.v-navigation-drawer .v-list-group__header', { hasText: title })
 }
