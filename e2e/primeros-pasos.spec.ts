@@ -98,12 +98,10 @@ test('una empresa nueva sigue los primeros pasos y hace su primera venta', async
     await expect(step(page, key).getByLabel('Listo')).toBeVisible()
   }
 
-  // 5. Primera venta: abrir caja, pedido desde la web y cobro.
+  // 5. Primera venta: la caja ya está abierta sola; pedido desde la web y cobro.
   await step(page, 'first_sale').getByRole('link', { name: /Ir a/ }).click()
   await expect(page).toHaveURL(/\/pedidos/)
-  await page.getByRole('button', { name: 'Abrir caja' }).click()
-  await page.getByRole('dialog').getByRole('button', { name: 'Abrir caja' }).click()
-  await expect(page.getByTestId('cash-open-chip')).toBeVisible()
+  await expect(page.getByTestId('cash-open-chip')).toContainText('Caja abierta desde')
 
   await page.getByRole('button', { name: 'Nuevo pedido' }).click()
   const order = page.getByRole('dialog')
