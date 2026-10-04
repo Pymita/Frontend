@@ -1,5 +1,6 @@
 import api from './api'
 import type { PageQuery, PaginatedResponse } from '@/types/api'
+import type { ImportFormat, ImportRowError } from './productImportService'
 import type { PaymentMethod } from './salesService'
 import type { DocumentBusiness, DocumentResolution, PrintableReceipt } from '../utils/printDocuments'
 
@@ -198,6 +199,27 @@ export interface CashReceipt extends PrintableReceipt {
 /** Datos del negocio editables (encabezado de facturas y recibos) */
 export type BusinessForm = Omit<DocumentBusiness, 'complete'>
 
+/** Una fila del Excel de clientes: se crea, se creó, se salta (ya existe) o tiene un error. */
+export interface CustomerImportRow {
+  fila: number
+  status: 'valid' | 'created' | 'skipped' | 'error'
+  name: string
+  document_number: string
+  monthly_fee: number | null
+  message: string | null
+}
+
+export interface CustomerImportResult {
+  /** true: solo se revisó, no se creó nada */
+  dry_run: boolean
+  summary: { rows: number; valid: number; created: number; with_fee: number; skipped: number; errors: number }
+  rows: CustomerImportRow[]
+  /** Encabezados que no corresponden a ninguna columna (se ignoraron) */
+  ignored_columns: string[]
+  /** Problemas del archivo entero (fila 0 o 1) */
+  errors: ImportRowError[]
+}
+
 export interface CustomerPaymentPayload {
   amount: number
   payment_method: PaymentMethod
@@ -284,6 +306,36 @@ export const billingService = {
 
   async deleteCustomer(id: number): Promise<void> {
     await api.delete(`/customers/${id}`)
+  },
+
+  // --- Importar clientes (y su cuota) desde Excel ---
+  /** Las columnas y las notas del tutorial, tal como las lee el backend. */
+  async getCustomerImportFormat(): Promise<ImportFormat> {
+    const response = await api.get<ApiResponse<ImportFormat>>('/recurring-billing/customers/import/columns')
+    return response.data.data
+  },
+
+  async downloadCustomerImportTemplate(): Promise<void> {
+    const response = await api.get('/recurring-billing/customers/import/template', { responseType: 'blob' })
+    const url = URL.createObjectURL(response.data as Blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'plantilla_clientes.xlsx'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  },
+
+  /** `dryRun`: solo revisa y dice qué pasará con cada fila, sin crear nada. */
+  async importCustomers(file: File, dryRun: boolean): Promise<{ data: CustomerImportResult; message: string }> {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('dry_run', dryRun ? '1' : '0')
+    const response = await api.post<ApiResponse<CustomerImportResult>>('/recurring-billing/customers/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return { data: response.data.data, message: response.data.message ?? '' }
   },
 
   async findCustomerByDocument(document_number: string): Promise<Customer | null> {

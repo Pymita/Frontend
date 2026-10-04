@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs'
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { API, PLATFORM, apiLogin, displayDate, field, loginUI, sidebarItem } from './helpers'
+import { API, PLATFORM, apiLogin, buildXlsx, displayDate, field, loginUI, sidebarItem, xlsxRows } from './helpers'
 
 /**
  * Facturación automática: un conjunto cobra la misma cuota cada mes. Se
@@ -136,6 +137,117 @@ test('factura a los seleccionados editando a una persona y después a todos', as
   expect(beto.customer_name).toBe('Beto Pérez (arrendatario)')
   expect(beto.concept).toBe('Administración + parqueadero')
   expect(beto.total).toBe(310000)
+})
+
+test('importa clientes desde Excel: plantilla, revisión fila por fila y los válidos quedan en la lista', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'importar')
+  await createResident(request, company.token, { name: 'Dora Existente', document_number: '5001' })
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Facturación automática').click()
+  await page.getByRole('tab', { name: /Clientes/ }).click()
+  await page.getByRole('button', { name: 'Importar clientes desde Excel' }).click()
+
+  // El tutorial dice el nombre exacto de cada columna y cuáles son obligatorias.
+  const dialog = page.getByRole('dialog')
+  const tutorial = dialog.locator('table').first()
+  await expect(tutorial.getByRole('row', { name: /^numero_documento / })).toContainText('Obligatoria')
+  await expect(tutorial.getByRole('row', { name: /^nombre / })).toContainText('Obligatoria')
+  await expect(tutorial.getByRole('row', { name: /^cuota_mensual / })).toContainText('Opcional')
+  await expect(tutorial.getByRole('row', { name: /^cuota_mensual / })).toContainText('250.000')
+  await expect(dialog).toContainText('Si ya tienes un cliente con el mismo número de documento, esa fila se salta')
+  // El diálogo entra con una transición: la captura espera a que termine.
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/importar-clientes-tutorial-1440.png' })
+
+  // La plantilla trae exactamente las columnas del tutorial.
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    dialog.getByRole('button', { name: 'Descargar plantilla' }).click(),
+  ])
+  expect(download.suggestedFilename()).toBe('plantilla_clientes.xlsx')
+  const template = xlsxRows(readFileSync(await download.path()))
+  const headers = template[0]!
+  expect(headers).toEqual(await tutorial.locator('tbody tr td:first-child').allInnerTexts())
+  expect(template[1]![0]).toBe('Ana Pérez (ejemplo)')
+
+  // Un Excel armado con esos encabezados: con cuota, sin cuota, uno que ya existe y dos con errores.
+  const fileRow = (cells: Record<string, string>) => headers.map(header => cells[header] ?? '')
+  const file = buildXlsx([
+    headers,
+    fileRow({ nombre: 'Ana Importada', numero_documento: '1001', ciudad: 'Bogotá', cuota_mensual: '250.000', dia_corte: '10' }),
+    fileRow({ nombre: 'Beto Importado', numero_documento: '1002', telefono: '3001234567' }),
+    fileRow({ nombre: 'Dora Cambiada', numero_documento: '5001', cuota_mensual: '1' }),
+    fileRow({ nombre: 'Correo Malo', numero_documento: '1004', correo: 'no-es-correo' }),
+    fileRow({ nombre: 'Ana Repetida', numero_documento: '1001' }),
+  ])
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'clientes.xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: file,
+  })
+
+  // Primero se revisa: nada se crea todavía.
+  await dialog.getByRole('button', { name: 'Revisar archivo' }).click()
+  await expect(dialog).toContainText('2 clientes se pueden crear. 1 fila se salta. 2 filas tienen errores y no se importan.')
+  await expect(dialog).toContainText('Todavía no se creó ningún cliente')
+  const resultRow = (text: string) => dialog.locator('tbody tr', { hasText: text })
+  await expect(resultRow('Correo Malo')).toContainText('Con error')
+  await expect(resultRow('Correo Malo')).toContainText('La columna correo debe ser un correo válido.')
+  await expect(resultRow('Correo Malo').locator('td').first()).toHaveText('5')
+  await expect(resultRow('Ana Repetida')).toContainText('El documento 1001 está repetido en el archivo (ya venía en la fila 2).')
+  await expect(resultRow('Dora Cambiada')).toContainText('Se salta')
+  await expect(resultRow('Dora Cambiada')).toContainText('Ya existe: Dora Existente tiene el documento 5001. No se modificó.')
+  await expect(resultRow('Ana Importada')).toContainText('Se crea')
+  await expect(resultRow('Ana Importada')).toContainText('$250.000')
+  const customers = await request.get(`${API}/customers`, { headers: { Authorization: `Bearer ${company.token}` } })
+  expect((await customers.json()).data).toHaveLength(1)
+
+  // Se importan las válidas.
+  await dialog.getByRole('button', { name: 'Importar 2 clientes' }).click()
+  await expect(dialog.locator('.v-alert').first()).toContainText(
+    'Se crearon 2 clientes (1 con cuota mensual). 1 fila se salta. 2 filas tienen errores y no se importan.',
+  )
+  await expect(dialog).toContainText('Corrige las filas con error y vuelve a subir el archivo')
+  await expect(resultRow('Ana Importada')).toContainText('Creado')
+  await expect(resultRow('Beto Importado')).toContainText('Creado')
+  await expect(dialog.getByRole('button', { name: /Importar \d/ })).toHaveCount(0)
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/importar-clientes-resultado-1440.png' })
+  await dialog.getByRole('button', { name: 'Cerrar' }).click()
+
+  // Quedan en la lista: Ana con su cuota y su corte, Beto sin cuota; Dora no cambió.
+  const ana = row(page, 'Ana Importada')
+  await expect(ana).toContainText('$250.000')
+  await expect(ana).toContainText('Día 10')
+  await expect(ana).toContainText('Activo')
+  await expect(row(page, 'Beto Importado')).toContainText('Pausado')
+  await expect(row(page, 'Dora Existente')).toContainText('$250.000')
+  await expect(row(page, 'Dora Cambiada')).toHaveCount(0)
+
+  // Ana ya está lista para facturar.
+  await page.getByRole('tab', { name: /Facturar/ }).click()
+  await expect(row(page, 'Ana Importada')).toContainText('$250.000')
+
+  // En el teléfono: el mismo archivo otra vez; lo que ya entró se salta y los errores siguen ahí.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await page.getByRole('tab', { name: /Clientes/ }).click()
+  await expect(row(page, 'Ana Importada')).toBeVisible()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/importar-clientes-pestana-390.png' })
+  await page.getByRole('button', { name: 'Importar clientes desde Excel' }).click()
+  await expect(tutorial.locator('tbody tr', { hasText: 'numero_documento' })).toContainText('Obligatoria')
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/importar-clientes-tutorial-390.png' })
+  await dialog.locator('input[type="file"]').setInputFiles({ name: 'clientes.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: file })
+  await dialog.getByRole('button', { name: 'Revisar archivo' }).click()
+  await expect(dialog).toContainText('Ninguna fila se puede crear. 3 filas se saltan. 2 filas tienen errores y no se importan.')
+  await expect(resultRow('Correo Malo')).toContainText('La columna correo debe ser un correo válido.')
+  await expect(dialog.getByRole('button', { name: 'Importar clientes', exact: true })).toBeDisabled()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/importar-clientes-resultado-390.png' })
 })
 
 test('la cartera muestra el saldo por cliente y registra abonos hasta pagar', async ({ page, request }) => {

@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { crc32, inflateRawSync } from 'node:zlib'
 import { expect, type APIRequestContext, type Page } from '@playwright/test'
 
 export const API = 'http://127.0.0.1:8010/api'
@@ -133,6 +134,112 @@ export function totp(secret: string, at = Date.now()): string {
   const offset = hash[hash.length - 1]! & 0x0f
   const value = ((hash[offset]! & 0x7f) << 24) | (hash[offset + 1]! << 16) | (hash[offset + 2]! << 8) | hash[offset + 3]!
   return String(value % 1_000_000).padStart(6, '0')
+}
+
+const excelColumn = (index: number): string => {
+  let letters = ''
+  for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) {
+    letters = String.fromCharCode(65 + ((n - 1) % 26)) + letters
+  }
+  return letters
+}
+
+/**
+ * Un .xlsx de una hoja con textos en línea, como el que guarda alguien que
+ * armó su lista en Excel. El zip va sin comprimir: no hace falta librería.
+ */
+export function buildXlsx(rows: string[][]): Buffer {
+  const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const sheetRows = rows.map((cells, r) => {
+    const xml = cells
+      .map((value, c) => (value === '' ? '' : `<c r="${excelColumn(c)}${r + 1}" t="inlineStr"><is><t>${escape(value)}</t></is></c>`))
+      .join('')
+    return `<row r="${r + 1}">${xml}</row>`
+  })
+  const main = 'http://schemas.openxmlformats.org'
+  const files: Record<string, string> = {
+    '[Content_Types].xml':
+      `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="${main}/package/2006/content-types">` +
+      `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+      `<Default Extension="xml" ContentType="application/xml"/>` +
+      `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
+      `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
+    '_rels/.rels':
+      `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${main}/package/2006/relationships">` +
+      `<Relationship Id="rId1" Type="${main}/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    'xl/workbook.xml':
+      `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="${main}/spreadsheetml/2006/main" xmlns:r="${main}/officeDocument/2006/relationships">` +
+      `<sheets><sheet name="Clientes" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels':
+      `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${main}/package/2006/relationships">` +
+      `<Relationship Id="rId1" Type="${main}/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+    'xl/worksheets/sheet1.xml':
+      `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="${main}/spreadsheetml/2006/main"><sheetData>${sheetRows.join('')}</sheetData></worksheet>`,
+  }
+
+  const parts: Buffer[] = []
+  const central: Buffer[] = []
+  let offset = 0
+  for (const [name, text] of Object.entries(files)) {
+    const data = Buffer.from(text, 'utf8')
+    const fileName = Buffer.from(name, 'utf8')
+    const crc = crc32(data)
+    const local = Buffer.alloc(30)
+    local.writeUInt32LE(0x04034b50, 0)
+    local.writeUInt16LE(20, 4)
+    local.writeUInt32LE(crc, 14)
+    local.writeUInt32LE(data.length, 18)
+    local.writeUInt32LE(data.length, 22)
+    local.writeUInt16LE(fileName.length, 26)
+    const entry = Buffer.alloc(46)
+    entry.writeUInt32LE(0x02014b50, 0)
+    entry.writeUInt16LE(20, 4)
+    entry.writeUInt16LE(20, 6)
+    entry.writeUInt32LE(crc, 16)
+    entry.writeUInt32LE(data.length, 20)
+    entry.writeUInt32LE(data.length, 24)
+    entry.writeUInt16LE(fileName.length, 28)
+    entry.writeUInt32LE(offset, 42)
+    parts.push(local, fileName, data)
+    central.push(entry, fileName)
+    offset += local.length + fileName.length + data.length
+  }
+  const centralSize = central.reduce((sum, part) => sum + part.length, 0)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0)
+  end.writeUInt16LE(Object.keys(files).length, 8)
+  end.writeUInt16LE(Object.keys(files).length, 10)
+  end.writeUInt32LE(centralSize, 12)
+  end.writeUInt32LE(offset, 16)
+  return Buffer.concat([...parts, ...central, end])
+}
+
+/** Las filas de una hoja de un .xlsx que escribió el backend (textos en línea y números). */
+export function xlsxRows(file: Buffer, sheet = 1): string[][] {
+  const name = `xl/worksheets/sheet${sheet}.xml`
+  let p = file.readUInt32LE(file.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06])) + 16)
+  let xml = ''
+  while (file.readUInt32LE(p) === 0x02014b50) {
+    const nameLength = file.readUInt16LE(p + 28)
+    const next = p + 46 + nameLength + file.readUInt16LE(p + 30) + file.readUInt16LE(p + 32)
+    if (file.toString('utf8', p + 46, p + 46 + nameLength) === name) {
+      const local = file.readUInt32LE(p + 42)
+      const start = local + 30 + file.readUInt16LE(local + 26) + file.readUInt16LE(local + 28)
+      const data = file.subarray(start, start + file.readUInt32LE(p + 20))
+      xml = (file.readUInt16LE(p + 10) === 8 ? inflateRawSync(data) : data).toString('utf8')
+      break
+    }
+    p = next
+  }
+  const unescape = (text: string) => text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&')
+  return [...xml.matchAll(/<row[^>]*>(.*?)<\/row>/gs)].map(([, row]) => {
+    const cells: string[] = []
+    for (const [, letters, text, value] of row!.matchAll(/<c r="([A-Z]+)\d+"[^>]*>(?:<is><t[^>]*>(.*?)<\/t><\/is>|<v>(.*?)<\/v>)<\/c>/gs)) {
+      const index = [...letters!].reduce((n, letter) => n * 26 + letter.charCodeAt(0) - 64, 0) - 1
+      cells[index] = unescape(text ?? value ?? '')
+    }
+    return Array.from(cells, cell => cell ?? '')
+  })
 }
 
 /**
