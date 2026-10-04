@@ -17,6 +17,28 @@ export const toIsoDate = (date: Date): string =>
 
 export const todayIso = (): string => toIsoDate(new Date())
 
+/** Local time as 24-hour HH:MM. */
+export const toTimeText = (date: Date): string => `${pad(date.getHours())}:${pad(date.getMinutes())}`
+
+/**
+ * "8:00", "08:00", "23:30" or "11:30 p. m." → 24-hour "HH:MM"; null when it
+ * is not a time. A native time input follows the browser's language, the same
+ * reason `DateField` exists.
+ */
+export const parseTimeText = (text: string): string | null => {
+  const match = text.trim().toLowerCase().match(/^(\d{1,2})(?:[:.h](\d{2}))?\s*(?:([ap])\.?\s*m\.?)?$/)
+  if (!match) return null
+  let hours = Number(match[1])
+  const minutes = Number(match[2] ?? 0)
+  const meridiem = match[3]
+  if (meridiem) {
+    if (hours < 1 || hours > 12) return null
+    hours = (hours % 12) + (meridiem === 'p' ? 12 : 0)
+  }
+  if (hours > 23 || minutes > 59) return null
+  return `${pad(hours)}:${pad(minutes)}`
+}
+
 const isRealDate = (year: number, month: number, day: number): boolean => {
   if (month < 1 || month > 12 || day < 1 || year < 1900 || year > 2999) return false
   const date = new Date(year, month - 1, day)
@@ -97,6 +119,12 @@ export const formatMomentDay = (value: string | null | undefined): string => {
 export const formatDateTime = (value: string | null | undefined): string =>
   value
     ? new Date(value).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    : '—'
+
+/** "05/10/2026, 02:30 p. m.": an instant with its year, for printed documents. */
+export const formatFullDateTime = (value: string | null | undefined): string =>
+  value
+    ? new Date(value).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : '—'
 
 /** "14:30". */

@@ -1,13 +1,15 @@
 import { money } from './money'
 /**
- * Documentos imprimibles en hoja carta de la facturación automática: cuenta
- * de cobro / factura de venta y recibo de caja. Es UNA plantilla para todas
- * las empresas: el encabezado sale de los datos de cada una (Configuración >
- * Datos del negocio), así que cada negocio imprime con su nombre, NIT,
- * régimen, dirección, teléfonos y observaciones.
+ * Documentos imprimibles en hoja carta: cuenta de cobro / factura de venta y
+ * recibo de caja de la facturación automática, y el cierre de caja de un
+ * turno. Es UNA plantilla para todas las empresas: el encabezado sale de los
+ * datos de cada una (Configuración > Datos del negocio), así que cada negocio
+ * imprime con su nombre, NIT, régimen, dirección, teléfonos y observaciones.
  */
 import { orderPaymentMethodLabels, taxRegimeLabels } from './labels'
 import { APP_NAME } from './branding'
+import { formatFullDateTime } from './dates'
+import type { CashSession } from '../services/salesService'
 
 export interface DocumentBusiness {
   legal_name: string
@@ -308,6 +310,137 @@ export const receiptHtml = (business: DocumentBusiness, receipt: PrintableReceip
     ${footer('ENTREGA (QUIEN PAGA)', 'RECIBIDO POR')}
   </section>`
 
+const amountRows = (rows: [string, number | null | undefined, boolean?][]): string =>
+  rows
+    .map(([label, value, strong]) =>
+      `<tr${strong ? ' class="grand-total"' : ''}><td class="left">${escape(label)}</td><td class="right">${value === null || value === undefined ? '—' : money(value)}</td></tr>`)
+    .join('')
+
+const differenceText = (difference: number): string =>
+  Math.abs(difference) < 0.01 ? 'Cuadra' : difference > 0 ? `Sobran ${money(difference)}` : `Faltan ${money(Math.abs(difference))}`
+
+const productsTable = (products: { name: string; quantity: number }[]): string => `
+  <table class="compact">
+    <thead><tr><th class="left">PRODUCTO</th><th class="right">CANT.</th></tr></thead>
+    <tbody>${products.map(p => `<tr><td class="left">${escape(p.name)}</td><td class="right">${p.quantity}</td></tr>`).join('')}</tbody>
+  </table>`
+
+/**
+ * Built only from the summary frozen at the close, so a reprint never
+ * changes. Closes frozen before 2026-10 have no sales, products or invoice
+ * range: they print without them.
+ */
+export const cashCloseHtml = (business: DocumentBusiness, session: CashSession): string => {
+  const summary = session.summary
+  const detailed = summary.sales_total !== null
+  const methods = Object.entries(summary.by_method).filter(([, totals]) => totals.count > 0)
+  const recurring = Object.entries(summary.recurring_by_method).filter(([, amount]) => (amount ?? 0) > 0)
+  const recurringTotal = recurring.reduce((sum, [, amount]) => sum + (amount ?? 0), 0)
+  const products = summary.products ?? []
+  const half = Math.ceil(products.length / 2)
+  const invoices = summary.first_invoice
+    ? summary.first_invoice === summary.last_invoice ? summary.first_invoice : `${summary.first_invoice} a ${summary.last_invoice}`
+    : null
+  const trail = session.adjustments.map(a =>
+    `${formatFullDateTime(a.at)} · ${a.user_name} movió ${a.field === 'opened_at' ? 'la apertura' : 'el cierre'} ` +
+    `de ${formatFullDateTime(a.from)} a ${formatFullDateTime(a.to)}: ${a.reason}` +
+    (a.before.sales_total !== null && a.after.sales_total !== null
+      ? ` (ventas ${money(a.before.sales_total)} → ${money(a.after.sales_total)})`
+      : ''))
+  const notes = [session.closing_notes, ...trail].filter(Boolean).map(escape).join('<br>')
+
+  return `
+  <section class="document">
+    ${header(business, 'CIERRE DE CAJA', String(session.number))}
+    <div class="box party">
+      <div class="party-grid">
+        <div>
+          ${partyRows([
+            ['APERTURA', `${formatFullDateTime(session.opened_at)} · ${session.opened_by ?? 'Automática'}`],
+            ['CIERRE', `${formatFullDateTime(session.closed_at)}${session.closed_by ? ` · ${session.closed_by}` : ''}`],
+          ])}
+        </div>
+        <div>
+          ${detailed
+            ? partyRows([
+                ['FACTURAS', invoices ?? 'Sin ventas'],
+                ['VENTAS', String(summary.sales_count ?? 0)],
+                ['PEDIDOS', String(summary.orders_count ?? 0)],
+              ])
+            : '<div class="party-row">Cierre anterior al resumen detallado</div>'}
+        </div>
+      </div>
+    </div>
+    <div class="box">
+      <table class="compact">
+        <thead>
+          <tr><th class="left">RECIBIDO POR MEDIO DE PAGO</th><th class="right">COBROS</th><th class="right">PROPINAS</th><th class="right">TOTAL</th></tr>
+        </thead>
+        <tbody>
+          ${methods.map(([method, totals]) => `
+          <tr>
+            <td class="left">${escape(METHOD_LABELS[method] ?? method)}</td>
+            <td class="right">${totals.count}</td>
+            <td class="right">${money(totals.tips)}</td>
+            <td class="right">${money(totals.amount)}</td>
+          </tr>`).join('')}
+          ${recurring.map(([method, amount]) => `
+          <tr>
+            <td class="left">Abonos de cuotas · ${escape(METHOD_LABELS[method] ?? method)}</td>
+            <td class="right"></td>
+            <td class="right"></td>
+            <td class="right">${money(amount ?? 0)}</td>
+          </tr>`).join('')}
+          ${methods.length || recurring.length ? '' : '<tr><td class="left" colspan="4">No hubo cobros en este turno.</td></tr>'}
+        </tbody>
+      </table>
+      <div class="columns">
+        <table class="compact">
+          <tbody>
+            ${amountRows([
+              ...(detailed
+                ? [
+                    ['Ventas (sin propina)', summary.sales_total],
+                    ['Propinas', summary.tips_total],
+                    ['Abonos a cuentas abiertas', summary.order_abonos],
+                  ] as [string, number | null][]
+                : []),
+              ...(recurringTotal > 0 ? [['Abonos de cuotas', recurringTotal] as [string, number]] : []),
+              ['TOTAL RECIBIDO', summary.total_collected, true],
+            ])}
+          </tbody>
+        </table>
+        <table class="compact">
+          <tbody>
+            ${amountRows([
+              ...(session.opening_amount > 0 ? [['+ Base', session.opening_amount] as [string, number]] : []),
+              ['+ Cobros en efectivo (con propinas)', summary.cash_sales],
+              ...(summary.cash_recurring > 0 ? [['+ Abonos de cuotas en efectivo', summary.cash_recurring] as [string, number]] : []),
+              ['− Gastos pagados en efectivo', summary.cash_expenses],
+              ['EFECTIVO DEL TURNO', session.expected_cash, true],
+              ...(session.counted_cash !== null ? [['Efectivo contado', session.counted_cash] as [string, number]] : []),
+            ])}
+            ${session.difference !== null ? `<tr class="grand-total"><td class="left">DIFERENCIA</td><td class="right">${differenceText(session.difference)}</td></tr>` : ''}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    ${detailed ? `
+    <div class="box">
+      <div class="label">PRODUCTOS VENDIDOS</div>
+      ${products.length
+        ? `<div class="columns">${productsTable(products.slice(0, half))}${products.length > 1 ? productsTable(products.slice(half)) : ''}</div>`
+        : '<div>No se vendieron productos en este turno.</div>'}
+      ${summary.products_others ? `<div>Otros ${summary.products_others.count} productos: ${summary.products_others.quantity} unidades.</div>` : ''}
+    </div>` : ''}
+    <div class="box notes">
+      <div class="label">OBSERVACIONES:</div>
+      <div>${notes || '&nbsp;'}</div>
+    </div>
+    ${footer('ENTREGA (CAJERO)', 'RECIBE (ADMINISTRADOR)')}
+  </section>`
+}
+
 // Documento en blanco y negro: se imprime en cualquier impresora de oficina.
 const STYLES = `
   @page { size: letter; margin: 12mm; }
@@ -334,6 +467,8 @@ const STYLES = `
   .totals div { display: flex; justify-content: space-between; gap: 16px; margin: 2px 0; }
   .grand-total { font-weight: bold; font-size: 14px; }
   .son { margin: 4px 6px 8px; }
+  .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; align-items: start; margin-top: 8px; }
+  .compact td { padding: 3px 4px; }
   .notes { min-height: 22mm; }
   .resolution { margin-top: 6px; font-size: 10px; }
   .signatures { display: flex; justify-content: space-between; gap: 40px; margin-top: 36px; }

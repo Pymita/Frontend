@@ -95,9 +95,33 @@ const EXPORT_PATHS: Record<SalesView, { path: string; params?: Record<string, st
   tables: { path: '/sales/by-table', params: { format: 'xlsx' }, fallback: 'ventas_por_mesa.xlsx' },
 }
 
-/** Un turno de caja: base, lo cobrado por medio y el cuadre del efectivo. */
+export interface CashShiftTotals {
+  sales_total: number | null
+  total_collected: number | null
+  expected_cash: number | null
+}
+
+/** An admin moved one of the shift's cuts; `user_name` is a snapshot. */
+export interface CashAdjustment {
+  at: string
+  user_id: number | null
+  user_name: string
+  field: 'opened_at' | 'closed_at'
+  from: string
+  to: string
+  reason: string
+  before: CashShiftTotals
+  after: CashShiftTotals
+}
+
+/**
+ * A cash shift. Shifts open by themselves; `opening_amount` is the base of
+ * the shifts opened by hand before 2026-10 (0 since). Closes frozen back then
+ * have no detailed summary: those keys come as null.
+ */
 export interface CashSession {
   id: number
+  number: number
   opened_at: string
   opened_by: string | null
   opening_amount: number
@@ -108,6 +132,8 @@ export interface CashSession {
   expected_cash: number
   counted_cash: number | null
   difference: number | null
+  has_previous_day_movements: boolean
+  adjustments: CashAdjustment[]
   summary: {
     by_method: Record<PaymentMethod, { count: number; amount: number; tips: number }>
     recurring_by_method: Partial<Record<PaymentMethod, number>>
@@ -116,23 +142,50 @@ export interface CashSession {
     cash_expenses: number
     expected_cash: number
     total_collected: number
+    sales_total: number | null
+    sales_count: number | null
+    orders_count: number | null
+    tips_total: number | null
+    order_abonos: number | null
+    products: { name: string; quantity: number }[] | null
+    products_others: { count: number; quantity: number } | null
+    first_invoice: string | null
+    last_invoice: string | null
+    first_movement_at: string | null
+    last_movement_at: string | null
   }
 }
 
+export interface CloseCashPayload {
+  counted_cash?: number | null
+  notes?: string
+  /** "YYYY-MM-DD HH:MM", Bogotá wall clock. Admin only. */
+  closed_at?: string
+}
+
 class SalesService {
-  async currentCashSession(): Promise<CashSession | null> {
+  async currentCashSession(): Promise<CashSession> {
     const response = await api.get('/cash-register/current')
     return response.data.data
   }
 
-  async openCashSession(openingAmount: number, notes?: string): Promise<CashSession> {
-    const response = await api.post('/cash-register/open', { opening_amount: openingAmount, notes: notes || undefined })
-    return response.data.data
+  async closeCashSession(id: number, payload: CloseCashPayload): Promise<{ session: CashSession; next: CashSession; message: string }> {
+    const response = await api.post(`/cash-register/${id}/close`, {
+      counted_cash: payload.counted_cash ?? null,
+      notes: payload.notes || undefined,
+      closed_at: payload.closed_at || undefined,
+    })
+    return { session: response.data.data, next: response.data.next, message: response.data.message }
   }
 
-  async closeCashSession(id: number, countedCash: number, notes?: string): Promise<{ session: CashSession; message: string }> {
-    const response = await api.post(`/cash-register/${id}/close`, { counted_cash: countedCash, notes: notes || undefined })
-    return { session: response.data.data, message: response.data.message }
+  /** Admin only. `previous` is set only when the previous shift's close moved too. */
+  async updateCashSessionOpening(
+    id: number,
+    openedAt: string,
+    reason: string,
+  ): Promise<{ session: CashSession; previous: CashSession | null; message: string }> {
+    const response = await api.put(`/cash-register/${id}`, { opened_at: openedAt, reason })
+    return { session: response.data.data, previous: response.data.previous, message: response.data.message }
   }
 
   async cashSessions(filters: { from?: string; to?: string } = {}): Promise<CashSession[]> {
