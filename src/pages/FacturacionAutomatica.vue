@@ -151,7 +151,19 @@
             variant="tonal"
             density="compact"
             class="mx-4 mb-2">
-            {{ cutoffHint }}
+            <div class="d-flex flex-wrap align-center ga-2">
+              <span>{{ cutoffHint }}</span>
+              <v-spacer />
+              <v-btn
+                size="small"
+                variant="outlined"
+                color="primary"
+                prepend-icon="mdi-calendar-check"
+                :disabled="dueOnIssueDate.length === 0 || selectionIsDue"
+                @click="selectDueOnIssueDate">
+                Seleccionar los del día ({{ dueOnIssueDate.length }})
+              </v-btn>
+            </div>
           </v-alert>
 
           <v-data-table
@@ -1165,12 +1177,21 @@ const billedRows = computed(() => (preview.value?.rows ?? []).filter(r => r.bill
 // quienes les toca hoy. Se recalcula solo al cambiar el día o el mes, para
 // no deshacer lo que el usuario marcó a mano.
 const dueOnIssueDate = computed(() => pendingRows.value.filter(r => (r.cutoff_date ?? r.due_date) === issueDate.value))
+// "Seleccionar los del día" vuelve a esta selección después de marcar todos
+// o a mano, en todas las páginas de la lista.
+const selectDueOnIssueDate = () => {
+  selected.value = dueOnIssueDate.value.map(r => r.customer_id)
+}
+const selectionIsDue = computed(() =>
+  selected.value.length === dueOnIssueDate.value.length &&
+  dueOnIssueDate.value.every(r => selected.value.includes(r.customer_id)),
+)
 let autoSelectedFor = ''
 const autoSelect = () => {
   const key = `${period.value}|${issueDate.value}`
   if (key === autoSelectedFor || !preview.value) return
   autoSelectedFor = key
-  selected.value = dueOnIssueDate.value.map(r => r.customer_id)
+  selectDueOnIssueDate()
 }
 
 const cutoffHint = computed(() => {
@@ -1178,6 +1199,9 @@ const cutoffHint = computed(() => {
   const day = formatDay(issueDate.value)
   if (count === 0) {
     return `Nadie tiene su corte el ${day}: marca a mano a quién facturar o usa "Facturar a todos".`
+  }
+  if (!selectionIsDue.value) {
+    return count === 1 ? `1 cliente tiene su corte el ${day}.` : `${count} clientes tienen su corte el ${day}.`
   }
   return count === 1
     ? `Quedó marcado 1 cliente con corte el ${day}. Puedes marcar o desmarcar otros.`

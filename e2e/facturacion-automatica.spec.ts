@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { API, PLATFORM, apiLogin, buildXlsx, displayDate, field, loginUI, sidebarItem, xlsxRows } from './helpers'
+import { API, PLATFORM, apiLogin, buildXlsx, displayDate, field, freezeTime, loginUI, sidebarItem, xlsxRows } from './helpers'
 
 /**
  * Facturación automática: un conjunto cobra la misma cuota cada mes. Se
@@ -450,6 +450,78 @@ test('el día a facturar marca a quienes tienen el corte ese día', async ({ pag
   await field(page, 'Día a facturar').locator('input').fill('2025-03-05')
   await expect(field(page, 'Mes a facturar').locator('input')).toHaveValue('marzo de 2025')
   await expect(page.getByText(/Nadie tiene su corte el/)).toBeVisible()
+})
+
+test('"Seleccionar los del día" vuelve a marcar a quienes cortan ese día después de marcar todos o a mano', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'del-dia')
+  const auth = { Authorization: `Bearer ${company.token}` }
+
+  // El "hoy" de la página es el día en que el API creó al primer cliente,
+  // aunque la suite cruce la medianoche.
+  const first = await request.post(`${API}/customers`, {
+    headers: auth,
+    data: { document_type: 'CC', document_number: '4001', name: 'Ana Corte Hoy', recurring_active: true, monthly_fee: 250000 },
+  })
+  expect(first.status()).toBe(201)
+  const { id: anaId, created_at: createdAt } = (await first.json()).data
+  const day = Number(createdAt.slice(8, 10))
+  const otherDay = day === 10 ? 12 : 10
+  expect((await request.put(`${API}/customers/${anaId}`, { headers: auth, data: { billing_day: day } })).ok()).toBeTruthy()
+  // Diez con otro corte: la lista llega a una segunda página, donde queda Zoe.
+  for (let n = 1; n <= 10; n++) {
+    const number = String(n).padStart(2, '0')
+    await createResident(request, company.token, { name: `Cliente ${number}`, document_number: `41${number}`, billing_day: otherDay })
+  }
+  await createResident(request, company.token, { name: 'Zoe Corte Hoy', document_number: '4999', billing_day: day })
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await freezeTime(page, createdAt)
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Facturación automática').click()
+
+  const billSelected = page.getByRole('button', { name: /^Facturar seleccionados/ })
+  const selectDue = page.getByRole('button', { name: 'Seleccionar los del día (2)' })
+  const checkbox = (name: string) => row(page, name).locator('input[type="checkbox"]')
+
+  // De entrada van marcados Ana (página 1) y Zoe (página 2): no hay nada que restaurar.
+  await expect(billSelected).toHaveText('Facturar seleccionados (2)')
+  await expect(page.getByText(/Quedaron marcados 2 clientes con corte el/)).toBeVisible()
+  await expect(selectDue).toBeDisabled()
+
+  // Marcar todos y después desmarcar a Ana a mano.
+  await page.locator('.v-window-item--active thead input[type="checkbox"]').check()
+  await expect(checkbox('Cliente 01')).toBeChecked()
+  await checkbox('Ana Corte Hoy').uncheck()
+  await expect(page.getByText('2 clientes tienen su corte el', { exact: false })).toBeVisible()
+  await expect(billSelected).not.toHaveText('Facturar seleccionados (2)')
+  await expect(selectDue).toBeEnabled()
+  await page.screenshot({ path: '../screenshots/seleccionar-los-del-dia-1440.png' })
+
+  // Un clic y vuelve la selección del día, sin salir de la página.
+  await selectDue.click()
+  await expect(billSelected).toHaveText('Facturar seleccionados (2)')
+  await expect(checkbox('Ana Corte Hoy')).toBeChecked()
+  await expect(checkbox('Cliente 01')).not.toBeChecked()
+  await expect(checkbox('Cliente 09')).not.toBeChecked()
+  await expect(page.getByText(/Quedaron marcados 2 clientes con corte el/)).toBeVisible()
+  await expect(selectDue).toBeDisabled()
+
+  // También en la segunda página: Zoe marcada, el resto no.
+  await page.getByRole('button', { name: 'Página siguiente' }).click()
+  await expect(checkbox('Zoe Corte Hoy')).toBeChecked()
+  await expect(checkbox('Cliente 10')).not.toBeChecked()
+
+  // En el teléfono, el botón queda al alcance junto al aviso del corte.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await expect(billSelected).toHaveText('Facturar seleccionados (2)')
+  await page.locator('.v-window-item--active thead input[type="checkbox"]').check()
+  await expect(selectDue).toBeEnabled()
+  await selectDue.scrollIntoViewIfNeeded()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/seleccionar-los-del-dia-390.png' })
+  await selectDue.click()
+  await expect(billSelected).toHaveText('Facturar seleccionados (2)')
 })
 
 test('un abono al cliente paga lo más viejo primero e imprime su recibo de caja', async ({ page, request }) => {
