@@ -52,11 +52,11 @@ export async function raisePlanLimits(
  * Login por interfaz: para los tests que VERIFICAN la experiencia real.
  * Un login sin '@' es un usuario interno: la web pide además el negocio.
  */
-export async function loginUI(page: Page, login: string, password: string): Promise<void> {
+export async function loginUI(page: Page, login: string, password: string, company = COMPANY_SLUG): Promise<void> {
   await page.goto('/login')
   await page.getByLabel('Correo o usuario').fill(login)
   if (!login.includes('@')) {
-    await page.getByLabel('Código del negocio').fill(COMPANY_SLUG)
+    await page.getByLabel('Código del negocio').fill(company)
   }
   await page.getByLabel('Contraseña', { exact: true }).fill(password)
   await page.getByRole('button', { name: /iniciar|ingresar|entrar|login/i }).click()
