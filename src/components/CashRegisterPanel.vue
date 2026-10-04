@@ -67,7 +67,7 @@
                 <tr>
                   <th>Medio</th>
                   <th class="text-end">Cobros</th>
-                  <th class="text-end">Propinas</th>
+                  <th class="text-end d-none d-sm-table-cell">Propinas</th>
                   <th class="text-end">Recibido</th>
                 </tr>
               </thead>
@@ -75,7 +75,7 @@
                 <tr v-for="entry in methodRows" :key="entry.method">
                   <td>{{ entry.label }}</td>
                   <td class="text-end tabular-nums">{{ entry.count }}</td>
-                  <td class="text-end tabular-nums">{{ money(entry.tips) }}</td>
+                  <td class="text-end tabular-nums d-none d-sm-table-cell">{{ money(entry.tips) }}</td>
                   <td class="text-end tabular-nums">{{ money(entry.amount) }}</td>
                 </tr>
                 <tr v-if="!methodRows.length">

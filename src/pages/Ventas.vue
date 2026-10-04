@@ -136,7 +136,7 @@
             :items-per-page="25"
           >
             <template #item.opened_at="{ item }">
-              {{ formatDateTime(item.opened_at) }}
+              <span class="text-no-wrap">{{ formatDateTime(item.opened_at) }}</span>
               <div class="text-caption text-medium-emphasis">{{ item.opened_by || 'Automática' }}</div>
               <v-btn
                 v-if="correctedField(item) === 'opened_at'"
@@ -153,7 +153,7 @@
             </template>
             <template #item.closed_at="{ item }">
               <template v-if="item.closed_at">
-                {{ formatDateTime(item.closed_at) }}
+                <span class="text-no-wrap">{{ formatDateTime(item.closed_at) }}</span>
                 <div class="text-caption text-medium-emphasis">{{ item.closed_by || '—' }}</div>
                 <v-btn
                   v-if="correctedField(item) === 'closed_at'"
