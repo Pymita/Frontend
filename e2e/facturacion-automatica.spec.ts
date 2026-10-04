@@ -295,7 +295,7 @@ test('la cartera muestra el saldo por cliente y registra abonos hasta pagar', as
 
   // El resto: queda pagada y sale de la cartera pendiente.
   await document.getByRole('button', { name: 'Abonar' }).click()
-  await expect(field(page, 'Valor del abono').locator('input')).toHaveValue('150000')
+  await expect(field(page, 'Valor del abono').locator('input')).toHaveValue('150.000')
   await dialog.getByRole('button', { name: 'Registrar abono' }).click()
   await expect(page.getByText('Abono registrado: el documento quedó pagado')).toBeVisible()
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
@@ -309,6 +309,7 @@ test('la cartera muestra el saldo por cliente y registra abonos hasta pagar', as
 test('crea un cliente con su cuota y le factura solo a él', async ({ page, request }) => {
   const company = await createRecurringCompany(request, 'individual')
 
+  await page.setViewportSize({ width: 1440, height: 900 })
   await loginUI(page, company.credentials.email, company.credentials.password)
   await sidebarItem(page, 'Facturación automática').click()
   await expect(page.getByText('Aún no hay clientes con cobro automático.')).toBeVisible()
@@ -325,7 +326,12 @@ test('crea un cliente con su cuota y le factura solo a él', async ({ page, requ
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(dialog).toContainText('Escribe la cuota mensual para incluirlo en la facturación automática')
 
-  await field(page, 'Cuota mensual *').locator('input').fill('95000')
+  // La cuota se escribe como se escribe la plata, con punto de miles, y el
+  // campo no es numérico: sin flechas para sumar o restar un peso.
+  const fee = field(page, 'Cuota mensual *').locator('input')
+  await expect(fee).not.toHaveAttribute('type', 'number')
+  await expect(fee).toHaveAttribute('inputmode', 'decimal')
+  await fee.pressSequentially('95.000')
   await field(page, 'Día de corte (vence)').locator('input').fill('15')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
 
@@ -335,15 +341,47 @@ test('crea un cliente con su cuota y le factura solo a él', async ({ page, requ
   await expect(cliente).toContainText('Día 15')
   await expect(cliente).toContainText('Activo')
 
+  // Al editarla se ve con sus puntos; 100.000 queda en cien mil, no en cien.
+  await page.getByRole('button', { name: 'Editar a Local 3 - Panadería' }).click()
+  await expect(fee).toHaveValue('95.000')
+  await fee.fill('100.000')
+  await fee.blur()
+  await expect(fee).toHaveValue('100.000')
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/cuota-sin-flechas-1440.png' })
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Cliente actualizado exitosamente')).toBeVisible()
+  await expect(cliente).toContainText('$100.000')
+  const saved = await (await request.get(`${API}/customers`, { headers: { Authorization: `Bearer ${company.token}` } })).json()
+  expect(saved.data.find((c: { name: string }) => c.name === 'Local 3 - Panadería').monthly_fee).toBe(100000)
+
+  // Lo que no es una cifra se dice en el campo, sin guardar.
+  await page.getByRole('button', { name: 'Editar a Local 3 - Panadería' }).click()
+  await fee.fill('cien mil')
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(dialog).toContainText('Escribe solo el valor en pesos, por ejemplo 250000 o 250.000')
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+
   await page.getByRole('tab', { name: /Facturar/ }).click()
   await field(page, 'Mes a facturar').locator('input').fill(PERIOD)
   await expect(row(page, 'Local 3 - Panadería')).toContainText(dayLabel(new Date()))
 
   await page.getByRole('button', { name: 'Editar y facturar a Local 3 - Panadería' }).click()
+  await expect(field(page, 'Valor unitario').locator('input')).toHaveValue('100.000')
+  await expect(page.getByRole('dialog')).toContainText('Total $100.000')
   await page.getByRole('dialog').getByRole('button', { name: 'Facturar solo a esta persona' }).click()
 
   await expect(page.getByText('Se generó 1 documento')).toBeVisible()
   await expect(row(page, 'Local 3 - Panadería')).toContainText('CC-1 · Por pagar')
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await page.getByRole('tab', { name: /Clientes/ }).click()
+  await page.getByRole('button', { name: 'Editar a Local 3 - Panadería' }).click()
+  await expect(fee).toHaveValue('100.000')
+  await fee.scrollIntoViewIfNeeded()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/cuota-sin-flechas-390.png' })
 })
 
 test('capturas de facturación y cartera en escritorio y en pantalla angosta', async ({ page, request }) => {

@@ -484,10 +484,14 @@
               <v-text-field v-model.number="rowForm.quantity" label="Cantidad" type="number" min="1" density="comfortable" />
             </v-col>
             <v-col cols="6" md="3">
-              <v-text-field v-model.number="rowForm.unit_price" label="Valor unitario" type="number" min="0" prefix="$" density="comfortable" />
+              <MoneyField v-model="rowForm.unit_price" label="Valor unitario" density="comfortable" />
             </v-col>
             <v-col cols="6" md="3">
-              <v-text-field v-model.number="rowForm.discount" label="Descuento" type="number" min="0" prefix="$" density="comfortable" />
+              <MoneyField
+                :model-value="rowForm.discount"
+                label="Descuento"
+                density="comfortable"
+                @update:model-value="value => (rowForm!.discount = value ?? 0)" />
             </v-col>
             <v-col cols="6" md="3">
               <DateField
@@ -616,14 +620,12 @@
           <v-form v-if="paymentInvoice.balance > 0" ref="paymentFormRef">
             <v-row dense>
               <v-col cols="12" md="4">
-                <v-text-field
-                  v-model.number="paymentForm.amount"
+                <MoneyField
+                  :model-value="paymentForm.amount"
                   label="Valor del abono"
-                  type="number"
-                  prefix="$"
-                  min="0"
-                  :rules="[(v: number) => v > 0 || 'Escribe el valor del abono']"
-                  density="comfortable" />
+                  :rules="[positiveAmount]"
+                  density="comfortable"
+                  @update:model-value="value => (paymentForm.amount = value ?? 0)" />
               </v-col>
               <v-col cols="12" md="4">
                 <v-select
@@ -673,14 +675,12 @@
             <v-form ref="customerPaymentFormRef">
               <v-row dense>
                 <v-col cols="12" md="4">
-                  <v-text-field
-                    v-model.number="customerPaymentForm.amount"
+                  <MoneyField
+                    :model-value="customerPaymentForm.amount"
                     label="Valor del abono"
-                    type="number"
-                    prefix="$"
-                    min="0"
-                    :rules="[(v: number) => v > 0 || 'Escribe el valor del abono']"
-                    density="comfortable" />
+                    :rules="[positiveAmount]"
+                    density="comfortable"
+                    @update:model-value="value => (customerPaymentForm.amount = value ?? 0)" />
                 </v-col>
                 <v-col cols="12" md="4">
                   <v-select
@@ -824,11 +824,8 @@
                   hide-details />
               </v-col>
               <v-col cols="12" md="4">
-                <v-text-field
-                  v-model.number="customerForm.monthly_fee"
-                  type="number"
-                  min="0"
-                  prefix="$"
+                <MoneyField
+                  v-model="customerForm.monthly_fee"
                   density="comfortable"
                   hint="Impuesto incluido"
                   persistent-hint
@@ -836,7 +833,7 @@
                   <template #label>
                     Cuota mensual <span v-if="customerForm.recurring_active" class="text-error font-weight-bold">*</span>
                   </template>
-                </v-text-field>
+                </MoneyField>
               </v-col>
               <v-col cols="12" md="4">
                 <v-text-field
@@ -1035,6 +1032,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
+import MoneyField from '../components/MoneyField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 import {
   billingService,
@@ -1099,6 +1097,7 @@ const periodName = (value: string): string => {
 
 const today = localDate()
 const methodOptions = Object.entries(PAYMENT_METHOD_LABELS).map(([value, title]) => ({ value, title }))
+const positiveAmount = (amount: number | null) => (amount ?? 0) > 0 || 'Escribe el valor del abono'
 
 // ===== Impuestos =====
 const taxes = ref<Tax[]>([])
@@ -1571,8 +1570,8 @@ const rules = {
   required: (v: any) => !!v || 'Este campo es requerido',
 }
 const blank = (v: unknown) => v === null || v === undefined || v === ''
-const feeRule = (v: number | null | string) =>
-  !customerForm.value.recurring_active || !blank(v) || 'Escribe la cuota mensual para incluirlo en la facturación automática'
+const feeRule = (amount: number | null) =>
+  !customerForm.value.recurring_active || amount !== null || 'Escribe la cuota mensual para incluirlo en la facturación automática'
 const dayRule = (v: number | null | string) =>
   blank(v) || (Number(v) >= 1 && Number(v) <= 31) || 'El día de corte debe estar entre 1 y 31'
 
