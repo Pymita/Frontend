@@ -13,7 +13,7 @@
             <LockableButton v-if="isAdmin" icon="mdi-table-plus" variant="tonal" size="large" @click="bulkDialog = true">
               Crear varias
             </LockableButton>
-            <LockableButton icon="mdi-plus" color="primary" size="large" @click="openDialog()">
+            <LockableButton v-if="isAdmin" icon="mdi-plus" color="primary" size="large" @click="openDialog()">
               Nueva mesa
             </LockableButton>
           </div>
@@ -278,7 +278,7 @@ const isReadOnly = useReadOnly()
 // El cobro por tiempo es un módulo: un restaurante no ofrece mesas de billar.
 const authStore = useAuthStore();
 const hasTimeBilling = computed(() => effectiveFeatures(authStore.user).includes('time_billing'));
-// Quien toma pedidos puede crear una mesa; editarla, borrarla o crear varias es del admin.
+// Crear, editar, borrar o crear varias mesas es del administrador.
 const isAdmin = computed(() => authStore.isAdmin);
 const canEditTables = computed(() => isAdmin.value && !isReadOnly.value);
 

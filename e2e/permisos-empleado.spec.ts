@@ -69,10 +69,10 @@ test('empleado con acceso limitado solo ve sus secciones', async ({ page, reques
 })
 
 /**
- * Quien toma pedidos crea mesas y cobra; editar o borrar mesas y cancelar un
- * pedido que ya tiene productos es del admin (como revertir un cobro).
+ * Crear, editar o borrar mesas, y cancelar un pedido que ya tiene productos,
+ * es del admin (como revertir un cobro). Quien toma pedidos cobra.
  */
-test('un cajero crea mesas pero no las edita ni cancela pedidos con productos', async ({ page, request }) => {
+test('un cajero no crea mesas ni cancela pedidos con productos', async ({ page, request }) => {
   const cashier = await createEmployee(request, 'cajero.mesas', ['orders', 'reports'])
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
   const auth = { Authorization: `Bearer ${token}` }
@@ -89,7 +89,7 @@ test('un cajero crea mesas pero no las edita ni cancela pedidos con productos', 
 
   await loginUI(page, cashier.username, cashier.password)
   await page.goto('/mesas')
-  await expect(page.getByRole('button', { name: 'Nueva mesa' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Nueva mesa' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Crear varias' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Editar la mesa/ })).toHaveCount(0)
 
@@ -107,6 +107,13 @@ test('un cajero crea mesas pero no las edita ni cancela pedidos con productos', 
   })
   expect(cancel.status()).toBe(403)
   expect((await cancel.json()).message).toBe('Solo el administrador puede cancelar un pedido con productos. Pídeselo a tu administrador.')
+
+  const create = await request.post(`${API}/tables`, {
+    headers: { Authorization: `Bearer ${cashierToken}`, Accept: 'application/json' },
+    data: { number: 40, capacity: 4 },
+  })
+  expect(create.status()).toBe(403)
+  expect((await create.json()).message).toBe('Las mesas las crea el administrador desde la web')
 })
 
 test('admin ve todas las secciones incluidas las administrativas', async ({ page }) => {
