@@ -6,11 +6,11 @@
     entrega el número.
   -->
   <v-text-field
-    inputmode="decimal"
+    :inputmode="count ? 'numeric' : 'decimal'"
     v-bind="$attrs"
     :model-value="text"
     :rules="[validAmount, ...rules.map(rule => () => rule(model))]"
-    prefix="$"
+    :prefix="count ? undefined : '$'"
     @update:model-value="onInput"
     @update:focused="onFocused">
     <template v-for="(_, name) in $slots" #[name]="slotProps">
@@ -35,8 +35,13 @@ const props = withDefaults(
      * in the field is typed around, and "0100.000" or "100.0000" read as 100.
      */
     emptyAsZero?: boolean
+    /**
+     * A big count read the same way, not pesos (a DIAN range: "5.000" is five
+     * thousand, not 5): no "$" and whole numbers only.
+     */
+    count?: boolean
   }>(),
-  { rules: () => [], emptyAsZero: false },
+  { rules: () => [], emptyAsZero: false, count: false },
 )
 
 const model = defineModel<number | null>({ default: null })
@@ -66,6 +71,11 @@ const onFocused = (focused: boolean) => {
   if (!focused && model.value !== null) text.value = shown(model.value)
 }
 
-const validAmount = (value: string) =>
-  !value?.trim() || parseMoney(value) !== null || 'Escribe solo el valor en pesos, por ejemplo 250000 o 250.000'
+const validAmount = (value: string) => {
+  if (!value?.trim()) return true
+  const amount = parseMoney(value)
+  return props.count
+    ? (amount !== null && Number.isInteger(amount)) || 'Escribe solo números enteros, por ejemplo 5000 o 5.000'
+    : amount !== null || 'Escribe solo el valor en pesos, por ejemplo 250000 o 250.000'
+}
 </script>

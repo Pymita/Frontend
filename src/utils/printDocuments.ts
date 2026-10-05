@@ -8,7 +8,7 @@ import { money } from './money'
  */
 import { orderPaymentMethodLabels, taxRegimeLabels } from './labels'
 import { APP_NAME } from './branding'
-import { formatFullDateTime } from './dates'
+import { formatFullDateTime, formatIsoDate } from './dates'
 import type { CashSession } from '../services/salesService'
 
 export interface DocumentBusiness {
@@ -147,18 +147,27 @@ const escape = (value: unknown): string =>
 
 
 /** DD/MM/AAAA sin pasar por Date: la zona horaria no corre el día. */
-const dmy = (value: string | null | undefined): string => {
-  if (!value) return ''
-  const [y, m, d] = value.slice(0, 10).split('-')
-  return `${d}/${m}/${y}`
-}
+const dmy = (value: string | null | undefined): string => (value ? formatIsoDate(value) : '')
 
 const periodName = (value: string): string => {
   const [y = 0, m = 1] = value.split('-').map(Number)
   return new Date(y, m - 1, 1).toLocaleDateString('es-CO', { month: 'long', year: 'numeric' })
 }
 
-const header = (business: DocumentBusiness, kind: string, number: string): string => {
+/**
+ * The resolution exactly as the business registered it: the range reads as
+ * the numbers it authorizes, prefix immediately followed by the number.
+ */
+const resolutionLine = (resolution: DocumentResolution): string => {
+  const prefix = resolution.prefix ?? ''
+  return [
+    `Resolución DIAN N.º ${resolution.number}${resolution.date ? ` del ${dmy(resolution.date)}` : ''}`,
+    resolution.range_from && resolution.range_to ? `Rango ${prefix}${resolution.range_from} a ${prefix}${resolution.range_to}` : '',
+    resolution.valid_until ? `Vigente hasta ${dmy(resolution.valid_until)}` : '',
+  ].filter(Boolean).map(part => `<span>${escape(part)}</span>`).join(' · ')
+}
+
+const header = (business: DocumentBusiness, kind: string, number: string, resolution: DocumentResolution | null = null): string => {
   // El régimen es una declaración fiscal del NIT: sin NIT cargado sería el
   // valor por defecto de la base, no algo que la empresa dijo.
   const regime = business.nit && business.tax_regime ? taxRegimeLabels[business.tax_regime] ?? '' : ''
@@ -172,6 +181,7 @@ const header = (business: DocumentBusiness, kind: string, number: string): strin
         ${business.address ? `<div>${escape(business.address)}</div>` : ''}
         ${business.phone || place ? `<div>${business.phone ? `TELÉFONO: ${escape(business.phone)}` : ''} ${escape(place.toUpperCase())}</div>` : ''}
         ${business.email ? `<div>${escape(business.email)}</div>` : ''}
+        ${resolution ? `<div class="resolution">${resolutionLine(resolution)}</div>` : ''}
       </div>
       <div class="box doc-number">
         <div class="doc-kind">${escape(kind)}</div>
@@ -198,19 +208,13 @@ export const invoiceHtml = (
   invoice: PrintableInvoice,
   resolution: DocumentResolution | null,
 ): string => {
-  const kind = invoice.document_kind === 'invoice' ? 'FACTURA DE VENTA' : 'CUENTA DE COBRO'
+  const isInvoice = invoice.document_kind === 'invoice'
+  const kind = isInvoice ? 'FACTURA DE VENTA' : 'CUENTA DE COBRO'
   const notes = [business.document_notes, invoice.notes].filter(Boolean).map(escape).join('<br>')
-  const resolutionText = resolution
-    ? `Resolución DIAN No. ${escape(resolution.number)}${resolution.date ? ` del ${dmy(resolution.date)}` : ''}` +
-      (resolution.range_from && resolution.range_to
-        ? `, numeración ${escape(resolution.prefix ? `${resolution.prefix}-` : '')}${resolution.range_from} al ${resolution.range_to}`
-        : '') +
-      (resolution.valid_until ? `, vigente hasta ${dmy(resolution.valid_until)}` : '')
-    : ''
 
   return `
   <section class="document">
-    ${header(business, kind, invoice.document_number)}
+    ${header(business, kind, invoice.document_number, isInvoice ? resolution : null)}
     <div class="box party">
       <div class="party-grid">
         <div>
@@ -255,7 +259,6 @@ export const invoiceHtml = (
     <div class="box notes">
       <div class="label">OBSERVACIONES:</div>
       <div>${notes || '&nbsp;'}</div>
-      ${resolutionText ? `<div class="resolution">${resolutionText}</div>` : ''}
     </div>
     ${footer('RECIBIDO / CLIENTE', 'FIRMA VENDEDOR')}
   </section>`
@@ -470,7 +473,8 @@ const STYLES = `
   .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; align-items: start; margin-top: 8px; }
   .compact td { padding: 3px 4px; }
   .notes { min-height: 22mm; }
-  .resolution { margin-top: 6px; font-size: 10px; }
+  .resolution { margin-top: 4px; font-size: 11px; }
+  .resolution span { display: inline-block; }
   .signatures { display: flex; justify-content: space-between; gap: 40px; margin-top: 36px; }
   .signature { flex: 1; border-top: 1px solid black; padding-top: 4px; text-align: center; font-weight: bold; }
   .printed-by { margin-top: 12px; text-align: center; font-size: 9px; color: dimgray; }
