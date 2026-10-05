@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
 import { ADMIN, API, COMPANY_SLUG, PLATFORM, apiLogin, lastResetLink, loginUI, openSidebarGroup, sidebarGroup, sidebarItem, totp } from './helpers'
 
 /**
@@ -20,6 +20,16 @@ async function createEmployee(request: any, slug: string, permissions: string[])
   expect(response.status()).toBe(201)
 
   return credentials
+}
+
+/** El logo de Servify POS se ve, a su tamaño, y la imagen cargó de verdad (no un ícono roto). */
+async function expectProductMark(scope: Locator, size: number) {
+  const mark = scope.getByRole('img', { name: 'Servify POS' })
+  await expect(mark).toBeVisible()
+  await expect(mark).toHaveAttribute('src', /servify-pos-icon\.png$/)
+  await expect.poll(() => mark.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0)
+  const box = (await mark.boundingBox())!
+  expect([box.width, box.height]).toEqual([size, size])
 }
 
 test('un mesero (solo pedidos) no puede entrar a la web de gestión', async ({ page, request }) => {
@@ -198,6 +208,7 @@ test('el panel del login presenta el producto sin opacar el formulario', async (
   const form = page.locator('.v-card', { has: page.getByRole('heading', { name: 'Servify POS', level: 1 }) })
   const tagline = panel.getByRole('heading', { name: 'Sistema de gestión' })
   await expect(tagline).toBeVisible()
+  await expectProductMark(panel, 36)
   const features = ['Pedidos y mesas', 'Inventario al día', 'Ventas y reportes', 'Facturación automática', 'Cartera, gastos y finanzas']
   for (const feature of features) {
     await expect(panel.getByText(feature, { exact: true })).toBeVisible()
@@ -225,11 +236,12 @@ test('el panel del login presenta el producto sin opacar el formulario', async (
   expect((await form.boundingBox())!.width).toBeGreaterThanOrEqual(460)
   await page.screenshot({ path: '../screenshots/login-1280x720.png' })
 
-  // En el celular solo queda el formulario, de borde a borde.
+  // En el celular solo queda el formulario, de borde a borde, con el logo encima.
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(panel).toBeHidden()
   await expect(form).toBeInViewport()
   expect((await form.boundingBox())!.width).toBeGreaterThanOrEqual(330)
+  await expectProductMark(form, 44)
   await page.screenshot({ path: '../screenshots/login-390x844.png' })
 
   // El enlace del correo abre la misma pantalla: tampoco menciona la DIAN.
@@ -237,6 +249,7 @@ test('el panel del login presenta el producto sin opacar el formulario', async (
   await page.goto('/restablecer-contrasena?token=e2e&email=nadie%40e2e.test')
   await expect(page.getByText('Elige tu contraseña nueva')).toBeVisible()
   await expect(panel.getByText('Facturación automática', { exact: true })).toBeVisible()
+  await expectProductMark(panel, 36)
   await expect(page.locator('body')).not.toContainText('DIAN')
 })
 
@@ -244,7 +257,17 @@ test('la app se llama Servify POS y habla español en tablas, paginación y fech
   await page.goto('/login')
   await expect(page).toHaveTitle('Servify POS — Sistema de gestión')
   await expect(page.getByRole('heading', { name: 'Servify POS', level: 1 })).toBeVisible()
-  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', /favicon\.svg$/)
+
+  // El favicon es el logo: SVG primero, con respaldos PNG y el ícono de iOS,
+  // y cada enlace responde una imagen (no el index.html del fallback).
+  await expect(page.locator('link[rel="icon"]').first()).toHaveAttribute('href', /favicon\.svg$/)
+  const icons = page.locator('link[rel="icon"], link[rel="apple-touch-icon"]')
+  await expect(icons).toHaveCount(5)
+  for (const href of await icons.evaluateAll(links => links.map(link => (link as HTMLLinkElement).href))) {
+    const response = await page.request.get(href)
+    expect(response.status(), href).toBe(200)
+    expect(response.headers()['content-type'], href).toMatch(/^image\/(svg\+xml|png)/)
+  }
 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await expect(page.locator('.v-navigation-drawer')).toContainText('Servify POS')
@@ -291,6 +314,7 @@ test('en el celular el menú no tapa la página: se abre con el botón y se cier
 
   await openMenu.click()
   await expect(menu).toBeInViewport({ ratio: 1 })
+  await expectProductMark(menu, 36)
   // Pedidos y Kardex están a mano sin desplegar nada.
   await expect(sidebarItem(page, 'Pedidos')).toBeInViewport()
   await expect(sidebarItem(page, 'Kardex')).toBeInViewport()
@@ -315,6 +339,8 @@ test('en escritorio el menú sigue fijo y sin botón para abrirlo', async ({ pag
 
   await expect(sidebarItem(page, 'Inicio')).toBeInViewport()
   await expect(page.getByRole('button', { name: 'Abrir menú' })).toHaveCount(0)
+
+  await expectProductMark(page.locator('.v-navigation-drawer'), 36)
 })
 
 /**

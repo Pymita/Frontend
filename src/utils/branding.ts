@@ -7,5 +7,9 @@ export const APP_NAME = import.meta.env.VITE_APP_NAME || 'Servify POS'
 
 export const APP_TAGLINE = import.meta.env.VITE_APP_TAGLINE || 'Sistema de gestión'
 
-/** Ícono de la marca: el mismo en la barra, el login y la app móvil. */
-export const APP_ICON = 'mdi-storefront'
+/**
+ * Product mark (rounded icon, 192 px): sidebar, login and the waiter app. It
+ * never stands in for a company's own logo, which is that tenant's data.
+ * Resolved against BASE_URL because staging is served under /Frontend/.
+ */
+export const APP_ICON = `${import.meta.env.BASE_URL}servify-pos-icon.png`
