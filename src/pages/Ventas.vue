@@ -446,13 +446,7 @@
                 />
               </v-col>
               <v-col cols="12">
-                <v-text-field
-                  v-model.number="backdatedForm.counted"
-                  label="Efectivo contado (opcional)"
-                  type="number"
-                  min="0"
-                  prefix="$"
-                />
+                <MoneyField v-model="backdatedForm.counted" label="Efectivo contado (opcional)" />
               </v-col>
               <v-col cols="12">
                 <v-text-field v-model="backdatedForm.notes" label="Nota (opcional)" maxlength="500" />
@@ -516,6 +510,7 @@ import { formatDateTime, formatIsoDate, parseTimeText, toIsoDate, toTimeText, to
 import { computed, onMounted, ref, watch } from 'vue'
 import DateField from '../components/DateField.vue'
 import LockableButton from '../components/LockableButton.vue'
+import MoneyField from '../components/MoneyField.vue'
 import salesService, {
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,

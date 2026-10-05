@@ -86,12 +86,9 @@
               </v-text-field>
             </v-col>
             <v-col v-if="movementForm.movement_type === 'in'" cols="4">
-              <v-text-field
-                v-model.number="movementForm.unit_cost"
+              <MoneyField
+                v-model="movementForm.unit_cost"
                 label="Costo unitario"
-                type="number"
-                min="0"
-                prefix="$"
                 hint="Sugerido: último costo del producto"
                 persistent-hint
               />
@@ -338,6 +335,7 @@ import { productsService } from '../services/productsService'
 import { billingService, type Customer, type Supplier } from '../services/billingService'
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
+import MoneyField from '../components/MoneyField.vue'
 
 // Documentos que el sistema genera solo: no se pueden registrar a mano.
 const AUTOMATIC_CODES = ['SI', 'FV', 'NC']

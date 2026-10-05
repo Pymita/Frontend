@@ -288,20 +288,19 @@
               </v-col>
 
               <v-col cols="12" md="6">
-                <v-text-field
-                  v-model.number="expenseFormData.amount"
-                  type="number"
-                  prefix="$"
+                <MoneyField
+                  v-model="expenseFormData.amount"
                   variant="outlined"
                   density="comfortable"
                   :rules="[rules.required, rules.positive]"
                   hint="Requerido"
                   persistent-hint
+                  empty-as-zero
                 >
                   <template #label>
                     Monto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
-                </v-text-field>
+                </MoneyField>
               </v-col>
 
               <v-col cols="12">
@@ -429,6 +428,7 @@ import { expensesService, type Expense, type ExpenseCategory, type ExpenseSummar
 import { expenseCategoryTypeLabels, label } from '@/utils/labels'
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
+import MoneyField from '../components/MoneyField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 import { PAGE_SIZE_OPTIONS, useServerPage } from '../composables/useServerPage'
 

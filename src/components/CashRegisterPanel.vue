@@ -126,12 +126,9 @@
             </div>
 
             <template v-if="step === 'review'">
-              <v-text-field
-                v-model.number="countedCash"
+              <MoneyField
+                v-model="countedCash"
                 label="Efectivo contado (opcional)"
-                type="number"
-                min="0"
-                prefix="$"
                 hint="Cuenta el efectivo de las ventas, sin la base que dejas en el cajón"
                 persistent-hint
               />
@@ -177,6 +174,7 @@ import { money } from '@/utils/money'
 import { formatDateTime, formatMomentDay, formatRecent } from '@/utils/dates'
 import { computed, onMounted, ref } from 'vue'
 import LockableButton from './LockableButton.vue'
+import MoneyField from './MoneyField.vue'
 import salesService, { PAYMENT_METHOD_LABELS, type CashSession, type PaymentMethod } from '../services/salesService'
 import { billingService } from '../services/billingService'
 import { cashCloseHtml, fillDocumentWindow, openDocumentWindow } from '../utils/printDocuments'

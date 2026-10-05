@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, field, loginUI } from './helpers'
+import { ADMIN, API, apiLogin, field, loginUI, pickOption } from './helpers'
 
 /**
  * Crear varios productos (por API, rápido) y verificar que la tabla de
@@ -77,8 +77,9 @@ test('el stock inicial del producto queda registrado en el kardex', async ({ pag
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/kardex')
 
-  // Filtrar por el producto y consultar.
-  await page.getByRole('combobox', { name: 'Producto' }).click()
+  // Filtrar por el producto y consultar. Searched by name: the list only
+  // renders the first products, and the suite keeps adding more.
+  await page.getByRole('combobox', { name: 'Producto' }).fill('Mantequilla E2E')
   await page.getByRole('option', { name: 'Mantequilla E2E' }).click()
   await page.getByRole('button').filter({ has: page.locator('.mdi-magnify') }).click()
 
@@ -132,7 +133,7 @@ test('el ajuste manual pide motivo y queda en el kardex con documento AJ', async
 
   // El movimiento queda en el kardex como AJ.
   await page.goto('/kardex')
-  await page.getByRole('combobox', { name: 'Producto' }).click()
+  await page.getByRole('combobox', { name: 'Producto' }).fill('Queso E2E')
   await page.getByRole('option', { name: 'Queso E2E' }).click()
   await page.getByRole('button').filter({ has: page.locator('.mdi-magnify') }).click()
   await expect(page.locator('tr', { hasText: 'AJ' }).first()).toBeVisible()
@@ -169,7 +170,7 @@ test('el saldo inicial retrofechado muestra su fecha real en el kardex', async (
 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/kardex')
-  await page.getByRole('combobox', { name: 'Producto' }).click()
+  await page.getByRole('combobox', { name: 'Producto' }).fill('Aceituna E2E')
   await page.getByRole('option', { name: 'Aceituna E2E' }).click()
   await page.getByRole('button').filter({ has: page.locator('.mdi-magnify') }).click()
 
@@ -208,7 +209,7 @@ test('un producto con saldo inicial 0 se crea, se vende y el kardex queda en neg
   await field(page, 'Nombre del producto *').locator('input').fill('Gaseosa Sin Saldo E2E')
 
   await field(page, 'Categoría *').click()
-  await page.getByRole('option', { name: 'Sin Saldo E2E Cat' }).click()
+  await pickOption(page, 'Sin Saldo E2E Cat')
 
   await expect(field(page, 'Unidad de medida *').locator('input')).toHaveValue('unidad')
   await expect(field(page, 'Saldo inicial').locator('input')).toHaveValue('0')
@@ -239,7 +240,7 @@ test('un producto con saldo inicial 0 se crea, se vende y el kardex queda en neg
 
   // Kardex: existencia y saldo en negativo, resaltados en rojo.
   await page.goto('/kardex')
-  await page.getByRole('combobox', { name: 'Producto' }).click()
+  await page.getByRole('combobox', { name: 'Producto' }).fill('Gaseosa Sin Saldo E2E')
   await page.getByRole('option', { name: 'Gaseosa Sin Saldo E2E' }).click()
   await page.getByRole('button').filter({ has: page.locator('.mdi-magnify') }).click()
 
@@ -256,6 +257,51 @@ test('un producto con saldo inicial 0 se crea, se vende y el kardex queda en neg
     .filter({ hasText: 'Agotado' })
   await expect(alert).toBeVisible()
   await expect(alert).toContainText('-3 unidad')
+})
+
+/**
+ * Prices are typed as pesos: "18.500" is eighteen thousand five hundred, not
+ * 18,5. The menu price follows the sale price until it is changed by hand.
+ */
+test('el costo, el precio de venta y el del menú se escriben en pesos', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const name = `Lasaña Precio ${stamp}`
+  await request.post(`${API}/categories`, { headers: auth, data: { name: `Precios ${stamp}` } })
+  await request.post(`${API}/taxes`, { headers: auth, data: { name: `IVA Precios ${stamp}`, rate: 19 } })
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/productos-base')
+  await page.getByRole('button', { name: 'Nuevo producto' }).click()
+  const dialog = page.getByRole('dialog')
+  await field(page, 'Nombre del producto *').locator('input').fill(name)
+  await field(page, 'Categoría *').click()
+  await pickOption(page, `Precios ${stamp}`)
+
+  const cost = dialog.getByLabel('Precio de costo')
+  const sale = field(page, 'Precio de venta *').locator('input')
+  const menu = dialog.getByLabel('Precio en el menú')
+  for (const input of [cost, sale, menu]) await expect(input).not.toHaveAttribute('type', 'number')
+  await cost.fill('9.500')
+  await sale.fill('18.500')
+  await expect(menu).toHaveValue('18.500')
+  await menu.fill('19.000')
+  await field(page, 'Impuesto *').locator('.v-field').click()
+  await page.getByRole('option', { name: new RegExp(`IVA Precios ${stamp}`) }).click()
+  await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Producto creado')).toBeVisible()
+
+  await page.getByRole('textbox', { name: 'Buscar' }).fill(name)
+  const row = page.locator('tr', { hasText: name })
+  await expect(row).toContainText('$9.500')
+  await expect(row).toContainText('$18.500')
+
+  // Reopened, each price reads back with its dots.
+  await row.getByRole('button', { name: `Editar ${name}` }).click()
+  await expect(cost).toHaveValue('9.500')
+  await expect(sale).toHaveValue('18.500')
+  await expect(menu).toHaveValue('19.000')
 })
 
 /** Con la tabla paginada en el servidor, ordenar una columna lo resuelve el backend. */

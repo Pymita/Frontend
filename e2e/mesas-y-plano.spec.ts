@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, loginUI, raisePlanLimits } from './helpers'
+import { ADMIN, API, PLATFORM, apiLogin, field, loginUI, raisePlanLimits } from './helpers'
 
 /**
  * Mesas y plano del salón: el admin crea, edita y borra mesas (una o
@@ -91,4 +91,43 @@ test('una mesa nueva aparece en el plano y se le cambia la forma y la zona', asy
 
   await page.getByLabel('Editar plano').uncheck()
   await expect(node.locator('circle')).toHaveCount(1)
+})
+
+/**
+ * A pool hall types its hourly rate as pesos: "12.000" is twelve thousand an
+ * hour, not twelve. Its own company, since the seeded one has no time billing.
+ */
+test('la tarifa por hora de una mesa de billar se escribe en pesos', async ({ page, request }) => {
+  const slug = `billar-tarifa-${Date.now()}`
+  const credentials = { email: `admin.${slug}@e2e.test`, password: 'negocio2026' }
+  const superToken = await apiLogin(request, PLATFORM.email, PLATFORM.password)
+  const created = await request.post(`${API}/platform/companies`, {
+    headers: { Authorization: `Bearer ${superToken}` },
+    data: { name: `E2E ${slug}`, slug, business_type: 'billiard', admin: { name: 'Dueño Billar', ...credentials } },
+  })
+  expect(created.status()).toBe(201)
+
+  await loginUI(page, credentials.email, credentials.password)
+  await page.goto('/mesas')
+
+  await page.getByRole('button', { name: 'Nueva mesa' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Número de mesa').fill('1')
+  await field(page, 'Tipo de mesa').click()
+  await page.getByRole('option', { name: 'Mesa de billar (cobro por tiempo)' }).click()
+  const rate = dialog.getByLabel('Tarifa por hora')
+  await expect(rate).not.toHaveAttribute('type', 'number')
+  await rate.fill('12.000')
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Mesa creada')).toBeVisible()
+  await expect(page.locator('.v-card', { hasText: '$12.000/hora' })).toHaveCount(1)
+
+  await page.getByRole('button', { name: 'Crear varias' }).click()
+  await dialog.getByLabel('¿Cuántas mesas?').fill('2')
+  await field(page, 'Tipo de mesa').click()
+  await page.getByRole('option', { name: 'Mesas de billar (cobro por tiempo)' }).click()
+  await dialog.getByLabel('Tarifa por hora').fill('9.500')
+  await dialog.getByRole('button', { name: 'Crear 2 mesas' }).click()
+  await expect(page.getByText('2 mesas creadas')).toBeVisible()
+  await expect(page.locator('.v-card', { hasText: '$9.500/hora' })).toHaveCount(2)
 })

@@ -28,7 +28,7 @@ test('la cuenta impresa muestra el total con y sin propina', async ({ page, requ
 
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Sugerir propina voluntaria').check()
-  await expect(dialog.getByLabel('Propina (opcional)')).toHaveValue('3000')
+  await expect(dialog.getByLabel('Propina (opcional)')).toHaveValue('3.000')
 
   const [bill] = await Promise.all([
     page.waitForEvent('popup'),
@@ -98,10 +98,15 @@ test('se puede agregar propina a un pedido ya cobrado', async ({ page, request }
   await row.getByRole('button').filter({ has: page.locator('.mdi-dots-vertical') }).click()
   await page.getByText('Agregar propina').click()
 
+  // "5.000", typed key by key, is five thousand pesos, in a field with no arrows.
   const dialog = page.getByRole('dialog')
-  await dialog.getByLabel('Propina', { exact: true }).fill('5000')
+  const tip = dialog.getByLabel('Propina', { exact: true })
+  await expect(tip).not.toHaveAttribute('type', 'number')
+  await tip.pressSequentially('5.000')
   await dialog.getByRole('button', { name: 'Agregar propina' }).click()
   await expect(page.getByText('Propina registrada')).toBeVisible()
+  // The tip joins the order total: $37.777 + $5.000.
+  await expect(page.locator('tr', { hasText: '$42.777' }).first()).toBeVisible()
 
   // El pedido sigue pagado y ahora lleva la propina (aparte de la venta).
   const after = await request.get(`${API}/orders/${orderId}`, { headers: auth })

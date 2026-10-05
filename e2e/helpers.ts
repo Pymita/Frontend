@@ -119,6 +119,24 @@ export function field(page: Page, label: string) {
 }
 
 /**
+ * Picks an option of the open v-select by its text. The menu only renders the
+ * options that fit (a virtual list), and every spec adds categories and
+ * products to the seeded company: it scrolls the list until the option shows.
+ */
+export async function pickOption(page: Page, name: string): Promise<void> {
+  const option = page.getByRole('option', { name, exact: true })
+  for (let step = 0; step < 60 && (await option.count()) === 0; step++) {
+    await page.getByRole('listbox').evaluate(list => {
+      let node: HTMLElement | null = list as HTMLElement
+      while (node && node.scrollHeight <= node.clientHeight) node = node.parentElement
+      node?.scrollBy(0, node.clientHeight / 2)
+    })
+    await page.waitForTimeout(100)
+  }
+  await option.click()
+}
+
+/**
  * El código de 6 dígitos que mostraría una app de autenticación para esta
  * clave (RFC 6238, el mismo cálculo que hace el backend).
  */

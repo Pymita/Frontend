@@ -299,34 +299,27 @@
                 </v-combobox>
               </v-col>
               <v-col v-if="formData.type !== 'intermediate'" cols="6" md="3">
-                <v-text-field
-                  v-model.number="formData.unit_cost"
+                <MoneyField
+                  v-model="formData.unit_cost"
                   label="Precio de costo"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  prefix="$"
                   hint="¿Cuánto te cuesta a ti?"
                   persistent-hint
-                  :rules="[v => v >= 0 || 'Costo inválido']"
+                  :rules="[v => (v ?? 0) >= 0 || 'Costo inválido']"
+                  empty-as-zero
                 />
               </v-col>
               <v-col v-if="formData.type === 'final'" cols="6" md="3">
-                <v-text-field
-                  v-model.number="formData.sale_price"
-                  type="number"
-                  step="100"
-                  min="0"
-                  prefix="$"
+                <MoneyField
+                  v-model="formData.sale_price"
                   :hint="marginHint"
                   persistent-hint
-                  :rules="[v => v > 0 || 'Precio de venta requerido']"
+                  :rules="[v => (v ?? 0) > 0 || 'Precio de venta requerido']"
                   required
                 >
                   <template #label>
                     Precio de venta <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
-                </v-text-field>
+                </MoneyField>
               </v-col>
               <v-col cols="6" md="3">
                 <v-select
@@ -481,13 +474,9 @@
 
               <v-row v-if="publishToMenu">
                 <v-col cols="12" md="6">
-                  <v-text-field
-                    v-model.number="menuForm.base_price"
+                  <MoneyField
+                    v-model="menuForm.base_price"
                     label="Precio en el menú"
-                    type="number"
-                    step="100"
-                    min="0"
-                    prefix="$"
                     hint="Viene del precio de venta; cámbialo si en el menú cuesta distinto"
                     persistent-hint
                   />
@@ -614,6 +603,7 @@ import kardexService from '@/services/kardexService';
 import { productTypeLabels, label } from '@/utils/labels';
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
+import MoneyField from '../components/MoneyField.vue'
 import ProductImportDialog from '../components/ProductImportDialog.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 import { PAGE_SIZE_OPTIONS, useServerPage } from '../composables/useServerPage'

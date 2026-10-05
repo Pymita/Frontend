@@ -39,7 +39,10 @@ test('un aporte del dueño suma a la caja sin ser utilidad y un egreso suelto s�
   await page.getByRole('option', { name: 'Aporte del dueño' }).click()
   await expect(dialog.getByText('Mueve la caja pero no es utilidad ni pérdida')).toBeVisible()
   await dialog.getByLabel('Concepto').fill(`Aporte nevera ${stamp}`)
-  await dialog.getByLabel('Monto').fill('500000')
+  // "500.000", typed key by key, is five hundred thousand pesos, in a field with no arrows.
+  await expect(dialog.getByLabel('Monto')).not.toHaveAttribute('type', 'number')
+  await expect(dialog.getByLabel('Monto')).toHaveValue('')
+  await dialog.getByLabel('Monto').pressSequentially('500.000')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(page.getByText('Movimiento registrado')).toBeVisible()
 
@@ -62,7 +65,7 @@ test('un aporte del dueño suma a la caja sin ser utilidad y un egreso suelto s�
   await field(page, 'Tipo de movimiento').click()
   await page.getByRole('option', { name: 'Otro egreso' }).click()
   await dialog.getByLabel('Concepto').fill(`Arreglo puerta ${stamp}`)
-  await dialog.getByLabel('Monto').fill('20000')
+  await dialog.getByLabel('Monto').fill('20.000')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
 
   const expense = page.locator('tbody tr', { hasText: `Arreglo puerta ${stamp}` })

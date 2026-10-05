@@ -229,12 +229,7 @@
           />
           <v-row dense>
             <v-col cols="6">
-              <v-text-field
-                v-model.number="movementForm.amount"
-                label="Monto"
-                type="number"
-                prefix="$"
-              />
+              <MoneyField v-model="movementForm.amount" label="Monto" empty-as-zero />
             </v-col>
             <v-col cols="6">
               <DateField v-model="movementForm.occurred_at" label="Fecha" />
@@ -282,6 +277,7 @@ import kardexService, {
 } from '../services/kardexService'
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
+import MoneyField from '../components/MoneyField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.

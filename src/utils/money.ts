@@ -28,7 +28,8 @@ export const moneyInput = (value: number | null | undefined): string =>
  * tres cifras es el de miles.
  */
 export const parseMoney = (text: string | null | undefined): number | null => {
-  let clean = String(text ?? '').replace(/[\s\u00a0$]/g, '')
+  // A zero the field already showed, typed after: "0100.000" is still 100.000.
+  let clean = String(text ?? '').replace(/[\s\u00a0$]/g, '').replace(/^(-?)0+(?=\d)/, '$1')
   if (clean === '') return null
   if (clean.includes(',') && clean.includes('.')) {
     const decimal = clean.lastIndexOf(',') > clean.lastIndexOf('.') ? ',' : '.'

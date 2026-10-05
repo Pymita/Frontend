@@ -42,14 +42,18 @@ test('una compra de inventario registra el dinero, remite al kardex y borrarla n
   await expect(dialog.getByLabel(/Producto/)).toHaveCount(0)
   await expect(dialog.getByLabel(/Cantidad comprada/)).toHaveCount(0)
 
+  // Pesos as a Colombian writes them: "1.250.000" is a million and a quarter, not 1.
   const concept = `Bulto de harina ${stamp}`
-  await field(page, 'Monto *').locator('input').fill('60000')
+  const amount = field(page, 'Monto *').locator('input')
+  await expect(amount).not.toHaveAttribute('type', 'number')
+  await amount.pressSequentially('1.250.000')
   await dialog.getByLabel('Concepto / Descripción').fill(concept)
   await dialog.getByRole('button', { name: 'Guardar' }).click()
 
   const row = page.locator('tbody tr', { hasText: concept })
   await expect(row).toBeVisible()
   await expect(row).toContainText(categoryName)
+  await expect(row).toContainText('$1.250.000')
 
   // Borrar el gasto: pide confirmación en tú y el stock queda igual.
   page.once('dialog', confirmation => {
