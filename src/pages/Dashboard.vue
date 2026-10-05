@@ -36,54 +36,6 @@
       </div>
     </v-alert>
 
-    <!-- Primeros pasos: lo que un negocio nuevo aún no configura. Cada paso
-         se marca solo al hacerlo y la tarjeta desaparece al terminar. -->
-    <v-card v-if="setup && setup.completed < setup.total" class="mb-4" data-testid="setup-guide">
-      <v-card-title class="d-flex align-center flex-wrap ga-2">
-        <v-icon icon="mdi-flag-checkered" />
-        Primeros pasos
-        <v-spacer />
-        <span class="text-body-2 text-medium-emphasis">{{ setup.completed }} de {{ setup.total }} listos</span>
-      </v-card-title>
-      <v-card-text>
-        <p class="text-body-2 text-medium-emphasis mb-2">
-          Con esto tu negocio vende con costos reales: el kardex, el costo de ventas y las finanzas cuadran.
-        </p>
-        <v-progress-linear
-          :model-value="(100 * setup.completed) / setup.total"
-          color="primary"
-          height="8"
-          rounded
-          class="mb-2"
-          aria-label="Avance de los primeros pasos"
-        />
-        <v-list density="compact">
-          <v-list-item
-            v-for="step in setup.steps"
-            :key="step.key"
-            :lines="false"
-            :data-testid="`setup-step-${step.key}`"
-          >
-            <template #prepend>
-              <v-icon
-                :icon="step.done ? 'mdi-check-circle' : 'mdi-circle-outline'"
-                :color="step.done ? 'success' : undefined"
-                :aria-label="step.done ? 'Listo' : 'Pendiente'"
-              />
-            </template>
-            <v-list-item-title class="text-wrap" :class="{ 'text-medium-emphasis': step.done }">
-              {{ step.title }}
-              <v-chip v-if="step.optional" size="x-small" class="ml-1">Opcional</v-chip>
-            </v-list-item-title>
-            <v-list-item-subtitle class="text-wrap">{{ step.description }}</v-list-item-subtitle>
-            <template v-if="!step.done" #append>
-              <v-btn size="small" variant="text" color="primary" :to="step.link" :aria-label="`Ir a: ${step.title}`">Ir</v-btn>
-            </template>
-          </v-list-item>
-        </v-list>
-      </v-card-text>
-    </v-card>
-
     <v-row>
       <!-- Estadísticas principales -->
       <!-- The figure stays in text color; only the chip, which means something, is colored. -->
@@ -121,9 +73,9 @@
             <!-- El periodo también rige "Más vendidos": son la misma pregunta
                  (qué se vendió en estas fechas) vista en dinero y en producto. -->
             <v-btn-toggle v-model="period" mandatory color="primary" density="compact" variant="outlined" divided>
-              <v-btn value="week">Semana</v-btn>
-              <v-btn value="month">Mes</v-btn>
-              <v-btn value="range">Rango</v-btn>
+              <v-btn value="week" :aria-pressed="period === 'week'">Semana</v-btn>
+              <v-btn value="month" :aria-pressed="period === 'month'">Mes</v-btn>
+              <v-btn value="range" :aria-pressed="period === 'range'">Rango</v-btn>
             </v-btn-toggle>
           </v-card-title>
           <v-card-text>
@@ -211,7 +163,7 @@
 
     <v-row class="mt-4">
       <!-- Productos con stock bajo -->
-      <v-col cols="12" md="6">
+      <v-col cols="12" :md="showGuide ? 6 : 12">
         <v-card class="h-100">
           <v-card-title>
             <v-icon class="mr-2" color="warning">mdi-alert-circle</v-icon>
@@ -250,43 +202,73 @@
         </v-card>
       </v-col>
 
-      <!-- Pedidos recientes -->
-      <v-col cols="12" md="6">
-        <v-card class="h-100">
-          <v-card-title>
-            <v-icon class="mr-2">mdi-clock-outline</v-icon>
-            Pedidos recientes
-          </v-card-title>
-          <v-card-text>
-            <v-list v-if="!loading && recentOrders.length > 0" density="compact">
-              <v-list-item
-                v-for="order in recentOrders"
-                :key="order.id"
+      <!-- Primeros pasos sits beside stock, under the metrics, so the KPIs stay first. -->
+      <v-col v-if="showGuide" cols="12" md="6">
+        <v-card class="h-100 d-flex flex-column" data-testid="setup-guide">
+          <template v-if="setup">
+            <v-card-title class="d-flex align-center flex-wrap ga-2">
+              <v-icon icon="mdi-flag-checkered" />
+              {{ hasPending ? 'Primeros pasos' : 'Primeros pasos listos' }}
+              <v-spacer />
+              <span v-if="hasPending" class="text-body-2 text-medium-emphasis">
+                {{ setup.completed }} de {{ setup.total }} listos
+              </span>
+            </v-card-title>
+            <v-card-text>
+              <v-progress-linear
+                v-if="hasPending"
+                :model-value="(100 * setup.completed) / setup.total"
+                color="primary"
+                height="8"
+                rounded
                 class="mb-2"
+                aria-label="Avance de los primeros pasos"
+              />
+              <v-list
+                v-if="visibleSteps.length"
+                ref="stepsList"
+                class="overflow-y-auto"
+                max-height="280"
+                density="compact"
               >
-                <template v-slot:prepend>
-                  <v-avatar :color="getStatusInfo(order.status).color" size="32">
-                    <v-icon size="16">{{ getStatusInfo(order.status).icon }}</v-icon>
-                  </v-avatar>
-                </template>
-                <v-list-item-title>Pedido #{{ order.id }}</v-list-item-title>
-                <v-list-item-subtitle>
-                  {{ customerLabel(order.customer_name) }} · {{ money(order.total) }}
-                </v-list-item-subtitle>
-                <template v-slot:append>
-                  <v-chip :color="getStatusInfo(order.status).color" size="small" variant="tonal">
-                    {{ getStatusInfo(order.status).text }}
-                  </v-chip>
-                </template>
-              </v-list-item>
-            </v-list>
-            <div v-else-if="loading" class="text-center pa-4">
-              <v-progress-circular indeterminate color="primary" />
-            </div>
-            <div v-else class="text-center pa-4 text-medium-emphasis">
-              No hay pedidos recientes
-            </div>
-          </v-card-text>
+                <v-list-item
+                  v-for="step in visibleSteps"
+                  :key="step.key"
+                  :lines="false"
+                  :data-testid="`setup-step-${step.key}`"
+                >
+                  <template #prepend>
+                    <v-icon
+                      :icon="stepIcon(step)"
+                      :color="stepColor(step)"
+                      :aria-label="stepAria(step)"
+                    />
+                  </template>
+                  <v-list-item-title class="text-wrap" :class="{ 'text-medium-emphasis': step.done }">
+                    {{ step.title }}
+                    <v-chip v-if="step.optional" size="x-small" class="ml-1">Opcional</v-chip>
+                  </v-list-item-title>
+                  <v-list-item-subtitle class="text-wrap">{{ step.description }}</v-list-item-subtitle>
+                  <template v-if="!step.done" #append>
+                    <v-btn size="small" variant="text" color="primary" :to="step.link" :aria-label="`Ir a: ${step.title}`">Ir</v-btn>
+                  </template>
+                </v-list-item>
+              </v-list>
+              <v-btn
+                v-if="detailSteps.length"
+                variant="text"
+                color="primary"
+                class="mt-1 px-1"
+                :aria-label="showCompleted ? 'Ocultar los que ya están listos' : 'Ver los que ya están listos'"
+                @click="showCompleted = !showCompleted"
+              >
+                {{ showCompleted ? 'Ocultar los que ya están listos' : 'Ver los que ya están listos' }}
+              </v-btn>
+            </v-card-text>
+          </template>
+          <div v-else class="text-center pa-4">
+            <v-progress-circular indeterminate color="primary" />
+          </div>
         </v-card>
       </v-col>
     </v-row>
@@ -296,7 +278,7 @@
 <script setup lang="ts">
 import { money } from '@/utils/money'
 import { formatDay } from '@/utils/dates'
-import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { ref, reactive, onMounted, computed, watch, nextTick, type ComponentPublicInstance } from 'vue'
 import DateField from '../components/DateField.vue'
 import {
   dashboardService,
@@ -306,11 +288,10 @@ import {
   type SalesPeriod,
   type TopProductsPeriod,
   type SetupChecklist,
+  type SetupStep,
 } from '@/services/dashboardService'
-import { ordersService, type Order } from '@/services/ordersService'
 import { useAuthStore } from '@/stores/auth'
 import { errorMessage } from '@/utils/errors'
-import { customerLabel, label, orderStatusColors, orderStatusLabels } from '@/utils/labels'
 import { fonts } from '@/theme'
 import { useTheme } from 'vuetify'
 import { Line } from 'vue-chartjs'
@@ -332,7 +313,6 @@ const dashStats = ref<DashboardStats>({
   overdue_pending: { count: 0, balance: 0 },
 })
 
-const recentOrders = ref<Order[]>([])
 const lowStockProducts = ref<LowStockProduct[]>([])
 
 
@@ -346,7 +326,8 @@ const overduePendingTotal = computed(() => dashStats.value.overdue_pending?.bala
 const loading = ref(true)
 
 type Period = 'week' | 'month' | 'range'
-const period = ref<Period>('week')
+// A first visit shows the month. The choice is not stored.
+const period = ref<Period>('month')
 const range = reactive<{ from: string; to: string }>({ from: '', to: '' })
 const salesPeriod = ref<SalesPeriod | null>(null)
 const topPeriod = ref<TopProductsPeriod | null>(null)
@@ -458,23 +439,6 @@ const stats = computed(() => [
   }
 ])
 
-const statusIcons: Record<string, string> = {
-  pending: 'mdi-clock',
-  preparing: 'mdi-chef-hat',
-  ready: 'mdi-check',
-  delivered: 'mdi-truck',
-  cancelled: 'mdi-close',
-}
-
-const getStatusInfo = (status: string): { text: string; color: string; icon: string } => {
-  const known = status in orderStatusColors ? status : 'pending'
-  return {
-    text: label(orderStatusLabels, known),
-    color: orderStatusColors[known] ?? 'warning',
-    icon: statusIcons[known] ?? 'mdi-clock',
-  }
-}
-
 const chartData = computed(() => {
   const primary = theme.current.value.colors.primary
   return {
@@ -536,6 +500,53 @@ const chartOptions = computed(() => ({
 const authStore = useAuthStore()
 const setup = ref<SetupChecklist | null>(null)
 const loadError = ref('')
+const showCompleted = ref(false)
+const stepsList = ref<ComponentPublicInstance | null>(null)
+
+// Required steps still open. Optional ones (recipes, the DIAN resolution)
+// never count as pending: a company can finish without them.
+const pendingSteps = computed(() =>
+  (setup.value?.steps ?? []).filter(step => !step.done && !step.optional),
+)
+const detailSteps = computed(() =>
+  (setup.value?.steps ?? []).filter(step => step.done || step.optional),
+)
+const hasPending = computed(() => pendingSteps.value.length > 0)
+const visibleSteps = computed(() => (showCompleted.value ? (setup.value?.steps ?? []) : pendingSteps.value))
+const showGuide = computed(() => authStore.isAdmin && (loading.value || setup.value !== null))
+
+const stepIcon = (step: SetupStep): string =>
+  step.done || !step.optional ? 'mdi-check-circle' : 'mdi-circle-outline'
+
+const stepColor = (step: SetupStep): string | undefined => {
+  if (step.done) return 'success'
+  if (!step.optional) return 'error'
+  return undefined
+}
+
+const stepAria = (step: SetupStep): string => {
+  if (step.done) return 'Listo'
+  if (!step.optional) return 'Pendiente'
+  return 'Opcional'
+}
+
+// The card only shows a few rows. Opening the details scrolls the first
+// hidden step into that window; closing it returns to the pending ones.
+watch(showCompleted, async (open) => {
+  await nextTick()
+  const root = stepsList.value?.$el as HTMLElement | undefined
+  if (!root) return
+  if (!open) {
+    root.scrollTop = 0
+    return
+  }
+  const first = detailSteps.value[0]
+  const item = first
+    ? root.querySelector<HTMLElement>(`[data-testid="setup-step-${first.key}"]`)
+    : null
+  if (!item) return
+  root.scrollTop += item.getBoundingClientRect().top - root.getBoundingClientRect().top
+})
 
 // Solo el admin configura el negocio; un fallo aquí no tapa el resto.
 const loadSetup = async () => {
@@ -550,17 +561,15 @@ const loadSetup = async () => {
 const loadData = async () => {
   loading.value = true
   loadError.value = ''
-  loadSetup()
   try {
-    const [stats, recent, stock] = await Promise.all([
+    const [stats, stock] = await Promise.all([
       dashboardService.getStats(),
-      ordersService.getPage({ page: 1, per_page: 4, today: true }),
       dashboardService.getLowStock(),
       loadPeriod(),
+      loadSetup(),
     ])
 
     dashStats.value = stats
-    recentOrders.value = recent.data
     lowStockProducts.value = stock
   } catch (error) {
     loadError.value = errorMessage(error, 'No pudimos cargar el resumen del negocio. Revisa tu conexión y vuelve a intentar.')
