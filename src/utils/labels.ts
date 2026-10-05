@@ -60,6 +60,21 @@ export const documentKindLabels: Record<string, string> = {
   collection: 'Cuenta de cobro',
 }
 
+/** Qué pasa con cada fila del Excel de clientes. */
+export const customerImportStatusLabels: Record<string, string> = {
+  valid: 'Se crea',
+  created: 'Creado',
+  skipped: 'Se salta',
+  error: 'Con error',
+}
+
+export const customerImportStatusColors: Record<string, string> = {
+  valid: 'info',
+  created: 'success',
+  skipped: 'secondary',
+  error: 'error',
+}
+
 // ===== Mesas =====
 export const tableStatusLabels: Record<string, string> = {
   available: 'Disponible',

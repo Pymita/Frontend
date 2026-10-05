@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs'
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { API, PLATFORM, apiLogin, displayDate, field, loginUI, sidebarItem } from './helpers'
+import { API, PLATFORM, apiLogin, buildXlsx, displayDate, field, freezeTime, loginUI, sidebarItem, xlsxRows } from './helpers'
 
 /**
  * Facturación automática: un conjunto cobra la misma cuota cada mes. Se
@@ -138,6 +139,117 @@ test('factura a los seleccionados editando a una persona y después a todos', as
   expect(beto.total).toBe(310000)
 })
 
+test('importa clientes desde Excel: plantilla, revisión fila por fila y los válidos quedan en la lista', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'importar')
+  await createResident(request, company.token, { name: 'Dora Existente', document_number: '5001' })
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Facturación automática').click()
+  await page.getByRole('tab', { name: /Clientes/ }).click()
+  await page.getByRole('button', { name: 'Importar clientes desde Excel' }).click()
+
+  // El tutorial dice el nombre exacto de cada columna y cuáles son obligatorias.
+  const dialog = page.getByRole('dialog')
+  const tutorial = dialog.locator('table').first()
+  await expect(tutorial.getByRole('row', { name: /^numero_documento / })).toContainText('Obligatoria')
+  await expect(tutorial.getByRole('row', { name: /^nombre / })).toContainText('Obligatoria')
+  await expect(tutorial.getByRole('row', { name: /^cuota_mensual / })).toContainText('Opcional')
+  await expect(tutorial.getByRole('row', { name: /^cuota_mensual / })).toContainText('250.000')
+  await expect(dialog).toContainText('Si ya tienes un cliente con el mismo número de documento, esa fila se salta')
+  // El diálogo entra con una transición: la captura espera a que termine.
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/importar-clientes-tutorial-1440.png' })
+
+  // La plantilla trae exactamente las columnas del tutorial.
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    dialog.getByRole('button', { name: 'Descargar plantilla' }).click(),
+  ])
+  expect(download.suggestedFilename()).toBe('plantilla_clientes.xlsx')
+  const template = xlsxRows(readFileSync(await download.path()))
+  const headers = template[0]!
+  expect(headers).toEqual(await tutorial.locator('tbody tr td:first-child').allInnerTexts())
+  expect(template[1]![0]).toBe('Ana Pérez (ejemplo)')
+
+  // Un Excel armado con esos encabezados: con cuota, sin cuota, uno que ya existe y dos con errores.
+  const fileRow = (cells: Record<string, string>) => headers.map(header => cells[header] ?? '')
+  const file = buildXlsx([
+    headers,
+    fileRow({ nombre: 'Ana Importada', numero_documento: '1001', ciudad: 'Bogotá', cuota_mensual: '250.000', dia_corte: '10' }),
+    fileRow({ nombre: 'Beto Importado', numero_documento: '1002', telefono: '3001234567' }),
+    fileRow({ nombre: 'Dora Cambiada', numero_documento: '5001', cuota_mensual: '1' }),
+    fileRow({ nombre: 'Correo Malo', numero_documento: '1004', correo: 'no-es-correo' }),
+    fileRow({ nombre: 'Ana Repetida', numero_documento: '1001' }),
+  ])
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'clientes.xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: file,
+  })
+
+  // Primero se revisa: nada se crea todavía.
+  await dialog.getByRole('button', { name: 'Revisar archivo' }).click()
+  await expect(dialog).toContainText('2 clientes se pueden crear. 1 fila se salta. 2 filas tienen errores y no se importan.')
+  await expect(dialog).toContainText('Todavía no se creó ningún cliente')
+  const resultRow = (text: string) => dialog.locator('tbody tr', { hasText: text })
+  await expect(resultRow('Correo Malo')).toContainText('Con error')
+  await expect(resultRow('Correo Malo')).toContainText('La columna correo debe ser un correo válido.')
+  await expect(resultRow('Correo Malo').locator('td').first()).toHaveText('5')
+  await expect(resultRow('Ana Repetida')).toContainText('El documento 1001 está repetido en el archivo (ya venía en la fila 2).')
+  await expect(resultRow('Dora Cambiada')).toContainText('Se salta')
+  await expect(resultRow('Dora Cambiada')).toContainText('Ya existe: Dora Existente tiene el documento 5001. No se modificó.')
+  await expect(resultRow('Ana Importada')).toContainText('Se crea')
+  await expect(resultRow('Ana Importada')).toContainText('$250.000')
+  const customers = await request.get(`${API}/customers`, { headers: { Authorization: `Bearer ${company.token}` } })
+  expect((await customers.json()).data).toHaveLength(1)
+
+  // Se importan las válidas.
+  await dialog.getByRole('button', { name: 'Importar 2 clientes' }).click()
+  await expect(dialog.locator('.v-alert').first()).toContainText(
+    'Se crearon 2 clientes (1 con cuota mensual). 1 fila se salta. 2 filas tienen errores y no se importan.',
+  )
+  await expect(dialog).toContainText('Corrige las filas con error y vuelve a subir el archivo')
+  await expect(resultRow('Ana Importada')).toContainText('Creado')
+  await expect(resultRow('Beto Importado')).toContainText('Creado')
+  await expect(dialog.getByRole('button', { name: /Importar \d/ })).toHaveCount(0)
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/importar-clientes-resultado-1440.png' })
+  await dialog.getByRole('button', { name: 'Cerrar' }).click()
+
+  // Quedan en la lista: Ana con su cuota y su corte, Beto sin cuota; Dora no cambió.
+  const ana = row(page, 'Ana Importada')
+  await expect(ana).toContainText('$250.000')
+  await expect(ana).toContainText('Día 10')
+  await expect(ana).toContainText('Activo')
+  await expect(row(page, 'Beto Importado')).toContainText('Pausado')
+  await expect(row(page, 'Dora Existente')).toContainText('$250.000')
+  await expect(row(page, 'Dora Cambiada')).toHaveCount(0)
+
+  // Ana ya está lista para facturar.
+  await page.getByRole('tab', { name: /Facturar/ }).click()
+  await expect(row(page, 'Ana Importada')).toContainText('$250.000')
+
+  // En el teléfono: el mismo archivo otra vez; lo que ya entró se salta y los errores siguen ahí.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await page.getByRole('tab', { name: /Clientes/ }).click()
+  await expect(row(page, 'Ana Importada')).toBeVisible()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/importar-clientes-pestana-390.png' })
+  await page.getByRole('button', { name: 'Importar clientes desde Excel' }).click()
+  await expect(tutorial.locator('tbody tr', { hasText: 'numero_documento' })).toContainText('Obligatoria')
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/importar-clientes-tutorial-390.png' })
+  await dialog.locator('input[type="file"]').setInputFiles({ name: 'clientes.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: file })
+  await dialog.getByRole('button', { name: 'Revisar archivo' }).click()
+  await expect(dialog).toContainText('Ninguna fila se puede crear. 3 filas se saltan. 2 filas tienen errores y no se importan.')
+  await expect(resultRow('Correo Malo')).toContainText('La columna correo debe ser un correo válido.')
+  await expect(dialog.getByRole('button', { name: 'Importar clientes', exact: true })).toBeDisabled()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/importar-clientes-resultado-390.png' })
+})
+
 test('la cartera muestra el saldo por cliente y registra abonos hasta pagar', async ({ page, request }) => {
   const company = await createRecurringCompany(request, 'cartera')
   const ana = await createResident(request, company.token, { name: 'Ana Apto 101', document_number: '1001' })
@@ -183,7 +295,7 @@ test('la cartera muestra el saldo por cliente y registra abonos hasta pagar', as
 
   // El resto: queda pagada y sale de la cartera pendiente.
   await document.getByRole('button', { name: 'Abonar' }).click()
-  await expect(field(page, 'Valor del abono').locator('input')).toHaveValue('150000')
+  await expect(field(page, 'Valor del abono').locator('input')).toHaveValue('150.000')
   await dialog.getByRole('button', { name: 'Registrar abono' }).click()
   await expect(page.getByText('Abono registrado: el documento quedó pagado')).toBeVisible()
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
@@ -197,6 +309,7 @@ test('la cartera muestra el saldo por cliente y registra abonos hasta pagar', as
 test('crea un cliente con su cuota y le factura solo a él', async ({ page, request }) => {
   const company = await createRecurringCompany(request, 'individual')
 
+  await page.setViewportSize({ width: 1440, height: 900 })
   await loginUI(page, company.credentials.email, company.credentials.password)
   await sidebarItem(page, 'Facturación automática').click()
   await expect(page.getByText('Aún no hay clientes con cobro automático.')).toBeVisible()
@@ -213,7 +326,12 @@ test('crea un cliente con su cuota y le factura solo a él', async ({ page, requ
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(dialog).toContainText('Escribe la cuota mensual para incluirlo en la facturación automática')
 
-  await field(page, 'Cuota mensual *').locator('input').fill('95000')
+  // La cuota se escribe como se escribe la plata, con punto de miles, y el
+  // campo no es numérico: sin flechas para sumar o restar un peso.
+  const fee = field(page, 'Cuota mensual *').locator('input')
+  await expect(fee).not.toHaveAttribute('type', 'number')
+  await expect(fee).toHaveAttribute('inputmode', 'decimal')
+  await fee.pressSequentially('95.000')
   await field(page, 'Día de corte (vence)').locator('input').fill('15')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
 
@@ -223,15 +341,47 @@ test('crea un cliente con su cuota y le factura solo a él', async ({ page, requ
   await expect(cliente).toContainText('Día 15')
   await expect(cliente).toContainText('Activo')
 
+  // Al editarla se ve con sus puntos; 100.000 queda en cien mil, no en cien.
+  await page.getByRole('button', { name: 'Editar a Local 3 - Panadería' }).click()
+  await expect(fee).toHaveValue('95.000')
+  await fee.fill('100.000')
+  await fee.blur()
+  await expect(fee).toHaveValue('100.000')
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/cuota-sin-flechas-1440.png' })
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Cliente actualizado exitosamente')).toBeVisible()
+  await expect(cliente).toContainText('$100.000')
+  const saved = await (await request.get(`${API}/customers`, { headers: { Authorization: `Bearer ${company.token}` } })).json()
+  expect(saved.data.find((c: { name: string }) => c.name === 'Local 3 - Panadería').monthly_fee).toBe(100000)
+
+  // Lo que no es una cifra se dice en el campo, sin guardar.
+  await page.getByRole('button', { name: 'Editar a Local 3 - Panadería' }).click()
+  await fee.fill('cien mil')
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(dialog).toContainText('Escribe solo el valor en pesos, por ejemplo 250000 o 250.000')
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+
   await page.getByRole('tab', { name: /Facturar/ }).click()
   await field(page, 'Mes a facturar').locator('input').fill(PERIOD)
   await expect(row(page, 'Local 3 - Panadería')).toContainText(dayLabel(new Date()))
 
   await page.getByRole('button', { name: 'Editar y facturar a Local 3 - Panadería' }).click()
+  await expect(field(page, 'Valor unitario').locator('input')).toHaveValue('100.000')
+  await expect(page.getByRole('dialog')).toContainText('Total $100.000')
   await page.getByRole('dialog').getByRole('button', { name: 'Facturar solo a esta persona' }).click()
 
   await expect(page.getByText('Se generó 1 documento')).toBeVisible()
   await expect(row(page, 'Local 3 - Panadería')).toContainText('CC-1 · Por pagar')
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await page.getByRole('tab', { name: /Clientes/ }).click()
+  await page.getByRole('button', { name: 'Editar a Local 3 - Panadería' }).click()
+  await expect(fee).toHaveValue('100.000')
+  await fee.scrollIntoViewIfNeeded()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/cuota-sin-flechas-390.png' })
 })
 
 test('capturas de facturación y cartera en escritorio y en pantalla angosta', async ({ page, request }) => {
@@ -300,6 +450,78 @@ test('el día a facturar marca a quienes tienen el corte ese día', async ({ pag
   await field(page, 'Día a facturar').locator('input').fill('2025-03-05')
   await expect(field(page, 'Mes a facturar').locator('input')).toHaveValue('marzo de 2025')
   await expect(page.getByText(/Nadie tiene su corte el/)).toBeVisible()
+})
+
+test('"Seleccionar los del día" vuelve a marcar a quienes cortan ese día después de marcar todos o a mano', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'del-dia')
+  const auth = { Authorization: `Bearer ${company.token}` }
+
+  // El "hoy" de la página es el día en que el API creó al primer cliente,
+  // aunque la suite cruce la medianoche.
+  const first = await request.post(`${API}/customers`, {
+    headers: auth,
+    data: { document_type: 'CC', document_number: '4001', name: 'Ana Corte Hoy', recurring_active: true, monthly_fee: 250000 },
+  })
+  expect(first.status()).toBe(201)
+  const { id: anaId, created_at: createdAt } = (await first.json()).data
+  const day = Number(createdAt.slice(8, 10))
+  const otherDay = day === 10 ? 12 : 10
+  expect((await request.put(`${API}/customers/${anaId}`, { headers: auth, data: { billing_day: day } })).ok()).toBeTruthy()
+  // Diez con otro corte: la lista llega a una segunda página, donde queda Zoe.
+  for (let n = 1; n <= 10; n++) {
+    const number = String(n).padStart(2, '0')
+    await createResident(request, company.token, { name: `Cliente ${number}`, document_number: `41${number}`, billing_day: otherDay })
+  }
+  await createResident(request, company.token, { name: 'Zoe Corte Hoy', document_number: '4999', billing_day: day })
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await freezeTime(page, createdAt)
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Facturación automática').click()
+
+  const billSelected = page.getByRole('button', { name: /^Facturar seleccionados/ })
+  const selectDue = page.getByRole('button', { name: 'Seleccionar los del día (2)' })
+  const checkbox = (name: string) => row(page, name).locator('input[type="checkbox"]')
+
+  // De entrada van marcados Ana (página 1) y Zoe (página 2): no hay nada que restaurar.
+  await expect(billSelected).toHaveText('Facturar seleccionados (2)')
+  await expect(page.getByText(/Quedaron marcados 2 clientes con corte el/)).toBeVisible()
+  await expect(selectDue).toBeDisabled()
+
+  // Marcar todos y después desmarcar a Ana a mano.
+  await page.locator('.v-window-item--active thead input[type="checkbox"]').check()
+  await expect(checkbox('Cliente 01')).toBeChecked()
+  await checkbox('Ana Corte Hoy').uncheck()
+  await expect(page.getByText('2 clientes tienen su corte el', { exact: false })).toBeVisible()
+  await expect(billSelected).not.toHaveText('Facturar seleccionados (2)')
+  await expect(selectDue).toBeEnabled()
+  await page.screenshot({ path: '../screenshots/seleccionar-los-del-dia-1440.png' })
+
+  // Un clic y vuelve la selección del día, sin salir de la página.
+  await selectDue.click()
+  await expect(billSelected).toHaveText('Facturar seleccionados (2)')
+  await expect(checkbox('Ana Corte Hoy')).toBeChecked()
+  await expect(checkbox('Cliente 01')).not.toBeChecked()
+  await expect(checkbox('Cliente 09')).not.toBeChecked()
+  await expect(page.getByText(/Quedaron marcados 2 clientes con corte el/)).toBeVisible()
+  await expect(selectDue).toBeDisabled()
+
+  // También en la segunda página: Zoe marcada, el resto no.
+  await page.getByRole('button', { name: 'Página siguiente' }).click()
+  await expect(checkbox('Zoe Corte Hoy')).toBeChecked()
+  await expect(checkbox('Cliente 10')).not.toBeChecked()
+
+  // En el teléfono, el botón queda al alcance junto al aviso del corte.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await expect(billSelected).toHaveText('Facturar seleccionados (2)')
+  await page.locator('.v-window-item--active thead input[type="checkbox"]').check()
+  await expect(selectDue).toBeEnabled()
+  await selectDue.scrollIntoViewIfNeeded()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/seleccionar-los-del-dia-390.png' })
+  await selectDue.click()
+  await expect(billSelected).toHaveText('Facturar seleccionados (2)')
 })
 
 test('un abono al cliente paga lo más viejo primero e imprime su recibo de caja', async ({ page, request }) => {
