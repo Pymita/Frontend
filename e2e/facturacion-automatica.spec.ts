@@ -612,6 +612,9 @@ test('la cuenta de cobro sale con el encabezado del negocio y el valor en letras
   await expect(body).toContainText('TELÉFONO: 3159276091 - 3001571023 DOSQUEBRADAS - RISARALDA')
   await expect(popup.locator('.doc-number')).toContainText('CUENTA DE COBRO')
   await expect(popup.locator('.doc-number')).toContainText('CC-1')
+  // Sin resolución no hay línea de resolución en ninguna parte.
+  await expect(popup.locator('.resolution')).toHaveCount(0)
+  await expect(body).not.toContainText('Resolución')
   await expect(body).toContainText('NOMBRE: Agregados del Valle de Toledo SAS')
   await expect(body).toContainText('ASISTENCIA TÉCNICA SISTEMA VISIÓN')
   await expect(body).toContainText('SON: SETENTA MIL PESOS M/CTE')
@@ -634,6 +637,81 @@ test('la cuenta de cobro sale con el encabezado del negocio y el valor en letras
   const [batch] = await Promise.all([page.waitForEvent('popup'), printAll.click()])
   await expect(batch.locator('section.document')).toHaveCount(2)
   await expect(batch.locator('section.document').nth(1)).toContainText('Segundo Cliente SAS')
+})
+
+test('la factura de venta lleva el número tal cual y la resolución en el encabezado, antes de los ítems', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'factura')
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const business = await request.put(`${API}/invoicing/business`, {
+    headers: auth,
+    data: {
+      legal_name: 'Conjunto Los Pinos PH',
+      nit: `900${Date.now() % 1000000}-1`,
+      tax_regime: 'common',
+      address: 'Calle 10 # 20-30',
+      city: 'Pereira',
+      department: 'Risaralda',
+      phone: '6063334455',
+      document_notes: 'Consignar en Cta corriente 123 Davivienda',
+    },
+  })
+  expect(business.ok()).toBeTruthy()
+  const resolution = await request.put(`${API}/invoicing/resolution`, {
+    headers: auth,
+    data: {
+      invoicing_resolution: '018764000001234',
+      invoice_prefix: 'SETP',
+      range_from: 990000001,
+      range_to: 995000000,
+      resolution_date: '2026-01-15',
+      valid_until: '2028-01-15',
+    },
+  })
+  expect(resolution.ok()).toBeTruthy()
+  const client = await createResident(request, company.token, { name: 'Ana Factura', document_number: '7001' })
+  const generated = await request.post(`${API}/recurring-billing/invoices/generate`, {
+    headers: auth,
+    data: { period: PERIOD, items: [{ customer_id: client }] },
+  })
+  expect(generated.status()).toBe(201)
+
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Facturación automática').click()
+  await field(page, 'Mes a facturar').locator('input').fill(PERIOD)
+  // El prefijo de la resolución pegado al consecutivo, sin guion.
+  await expect(row(page, 'Ana Factura')).toContainText('SETP990000001 · Por pagar')
+
+  const [popup] = await Promise.all([
+    page.waitForEvent('popup'),
+    row(page, 'Ana Factura').getByRole('button', { name: 'Imprimir SETP990000001' }).click(),
+  ])
+  await expect(popup.locator('.doc-number')).toContainText('FACTURA DE VENTA')
+  await expect(popup.locator('.doc-number .number')).toHaveText('SETP990000001')
+
+  // La resolución va con los datos del negocio, con el número tal cual se escribió.
+  const line = popup.locator('.header .business .resolution')
+  await expect(line).toHaveText(
+    'Resolución DIAN N.º 018764000001234 del 15/01/2026 · Rango SETP990000001 a SETP995000000 · Vigente hasta 15/01/2028',
+  )
+  await expect(popup.locator('.resolution')).toHaveCount(1)
+  const resolutionBeforeItems = await popup.evaluate(() => {
+    const resolution = document.querySelector('.resolution')
+    const items = document.querySelector('.items table')
+    return !!resolution && !!items && !!(resolution.compareDocumentPosition(items) & Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+  expect(resolutionBeforeItems).toBe(true)
+  // El pie conserva lo suyo y ya no repite la resolución.
+  await expect(popup.locator('.notes')).toContainText('Consignar en Cta corriente 123 Davivienda')
+  await expect(popup.locator('.notes')).not.toContainText('Resolución')
+  await expect(popup.locator('.signatures')).not.toContainText('Resolución')
+  // Sin promesas que la app no cumple: no dice que sea electrónica ni validada.
+  await expect(popup.locator('body')).not.toContainText(/CUFE|electrónica|validad/i)
+
+  await popup.setViewportSize({ width: 1440, height: 900 })
+  await popup.screenshot({ path: '../screenshots/factura-de-venta-1440.png', fullPage: true })
+  // Hoja carta a 96 ppp.
+  await popup.setViewportSize({ width: 816, height: 1056 })
+  await popup.screenshot({ path: '../screenshots/factura-de-venta-carta.png', fullPage: true })
 })
 
 test('el valor en letras cubre los casos de la plata colombiana', async ({ page }) => {

@@ -196,7 +196,7 @@
     <v-row>
       <v-col cols="12">
         <v-card class="pa-4">
-          <div class="d-flex align-center mb-1">
+          <div class="d-flex flex-wrap align-center ga-2 mb-1">
             <h2 class="text-h6">Resolución de facturación (DIAN)</h2>
             <v-spacer />
             <v-chip
@@ -215,7 +215,7 @@
             Te avisaremos con tiempo cuando el rango esté por agotarse, según el ritmo de ventas del negocio.
           </p>
 
-          <v-form @submit.prevent="saveResolution">
+          <v-form ref="resolutionFormRef" @submit.prevent="saveResolution">
             <p class="text-caption text-medium-emphasis mb-3">
               Los campos con
               <span class="text-error font-weight-bold">*</span>
@@ -238,32 +238,32 @@
                 <v-text-field v-model="resolutionForm.invoice_prefix" label="Prefijo" hint="Ej: POS" persistent-hint />
               </v-col>
               <v-col cols="6" md="3">
-                <v-text-field
-                  v-model.number="resolutionForm.range_from"
-                  type="number"
-                  min="1"
+                <MoneyField
+                  v-model="resolutionForm.range_from"
+                  count
+                  :rules="[requiredNumber, rangeNumber]"
                 >
                   <template #label>
                     Rango desde <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
-                </v-text-field>
+                </MoneyField>
               </v-col>
               <v-col cols="6" md="3">
-                <v-text-field
-                  v-model.number="resolutionForm.range_to"
-                  type="number"
-                  min="1"
+                <MoneyField
+                  v-model="resolutionForm.range_to"
+                  count
+                  :rules="[requiredNumber, rangeNumber, rangeEnd]"
                 >
                   <template #label>
                     Rango hasta <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
-                </v-text-field>
+                </MoneyField>
               </v-col>
               <v-col cols="6" md="3">
-                <v-text-field
-                  v-model.number="resolutionForm.start_number"
-                  type="number"
-                  min="1"
+                <MoneyField
+                  v-model="resolutionForm.start_number"
+                  count
+                  :rules="[rangeNumber, startInRange]"
                   label="La numeración empieza en"
                   hint="Si ya facturaste con otros números, indica desde cuál sigue"
                   persistent-hint
@@ -317,7 +317,7 @@
 
           <v-alert v-if="resolutionStatus?.configured" type="info" variant="tonal" density="compact" class="mt-2">
             Próximo consecutivo:
-            <strong>{{ resolutionForm.invoice_prefix ? resolutionForm.invoice_prefix + '-' : '' }}{{ resolution?.current_sequence }}</strong>
+            <strong>{{ resolutionForm.invoice_prefix }}{{ resolution?.current_sequence }}</strong>
             · Guardar un rango o número de resolución distinto reinicia el consecutivo al inicio del rango nuevo.
           </v-alert>
         </v-card>
@@ -411,6 +411,7 @@ import kardexService, { type DocumentType, type Tax } from '../services/kardexSe
 import invoicingService, { type InvoicingResolution, type ResolutionStatus } from '../services/invoicingService'
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
+import MoneyField from '../components/MoneyField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 import { billingService, type BusinessForm } from '../services/billingService'
 import type { DocumentBusiness } from '../utils/printDocuments'
@@ -505,6 +506,21 @@ const resolutionForm = ref({
   validity_months: null as number | null,
 })
 
+const resolutionFormRef = ref<any>(null)
+// Mismas reglas que el backend (InvoicingResolutionController::update).
+const requiredNumber = (v: number | null) => v !== null || 'Este campo es obligatorio'
+const rangeNumber = (v: number | null) =>
+  v === null || (Number.isInteger(v) && v >= 1) || 'Escribe un número entero mayor o igual a 1'
+const rangeEnd = (v: number | null) => {
+  const from = resolutionForm.value.range_from
+  return v === null || from === null || v >= from || 'El fin del rango debe ser mayor o igual al inicio.'
+}
+const startInRange = (v: number | null) => {
+  const { range_from: from, range_to: to } = resolutionForm.value
+  return v === null || ((from === null || v >= from) && (to === null || v <= to)) ||
+    'El número inicial debe estar dentro del rango autorizado.'
+}
+
 // Vigencia: calcularla por meses desde la fecha de la resolución, o elegir
 // la fecha de vencimiento a mano.
 const validityMode = ref<'months' | 'date'>('months')
@@ -572,6 +588,8 @@ const saveResolution = async () => {
     notify('Completa el número de resolución y el rango', 'error')
     return
   }
+  const { valid } = await resolutionFormRef.value.validate()
+  if (!valid) return
   const byMonths = validityMode.value === 'months'
   saving.value = true
   try {
