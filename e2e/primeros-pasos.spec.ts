@@ -4,8 +4,10 @@ import { API, PLATFORM, apiLogin, field, loginUI, sidebarItem } from './helpers'
 /**
  * Una empresa recién creada, sin plantilla: la guía "Primeros pasos" dice
  * qué falta, y siguiéndola desde la interfaz el negocio queda listo para
- * vender con costo real. Cada paso se marca solo; al final la guía se va y
- * la venta aparece en Ventas y sale del kardex con su costo.
+ * vender con costo real. Cada paso se marca solo. Por defecto solo se ven
+ * los obligatorios pendientes; al terminar, la tarjeta queda en una línea
+ * aunque falte la resolución. La venta aparece en Ventas y sale del kardex
+ * con su costo.
  *
  * Es un recorrido por varios módulos (configuración, mesas, catálogo,
  * inventario, empleados, caja, pedidos, ventas), por eso vive en su propio
@@ -15,6 +17,31 @@ test.setTimeout(150_000)
 
 const guide = (page: Page) => page.getByTestId('setup-guide')
 const step = (page: Page, key: string) => page.getByTestId(`setup-step-${key}`)
+const shot = (name: string) => `../../../screenshots/feat-dashboard-primeros-pasos-${name}.png`
+
+const REQUIRED = ['business', 'tables', 'products', 'stock', 'taxes', 'menu', 'team', 'first_sale']
+
+async function expectMetricsAboveGuide(page: Page) {
+  const metric = page.getByText('Pedidos hoy', { exact: true })
+  await expect(metric).toBeVisible()
+  await expect(guide(page)).toBeVisible()
+  const metricBox = await metric.boundingBox()
+  const guideBox = await guide(page).boundingBox()
+  expect(metricBox).toBeTruthy()
+  expect(guideBox).toBeTruthy()
+  expect(metricBox!.y).toBeLessThan(guideBox!.y)
+}
+
+async function hideDrawer(page: Page) {
+  await page.evaluate(() => {
+    document.querySelector<HTMLElement>('.v-navigation-drawer')!.style.display = 'none'
+    document.querySelector<HTMLElement>('.v-main')!.style.paddingLeft = '0px'
+    document.querySelector<HTMLElement>('.v-app-bar')?.style.setProperty('left', '0px')
+    document.querySelector<HTMLElement>('.v-app-bar')?.style.setProperty('width', '100%')
+    window.dispatchEvent(new Event('resize'))
+  })
+  await page.waitForTimeout(300)
+}
 
 test('una empresa nueva sigue los primeros pasos y hace su primera venta', async ({ page, request }) => {
   const stamp = Date.now()
@@ -26,17 +53,55 @@ test('una empresa nueva sigue los primeros pasos y hace su primera venta', async
   })
   expect(created.status()).toBe(201)
 
+  await page.setViewportSize({ width: 1440, height: 900 })
   await loginUI(page, admin.email, admin.password)
-  await expect(guide(page)).toBeVisible()
   await expect(guide(page)).toContainText('0 de 8 listos')
+  await expect(page.getByText('Pedidos recientes')).toHaveCount(0)
+  await expectMetricsAboveGuide(page)
+  await expect(page.getByRole('button', { name: 'Mes', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByText('Ventas del mes')).toBeVisible()
+
+  for (const key of REQUIRED) {
+    const row = step(page, key)
+    await expect(row.getByLabel('Pendiente')).toBeVisible()
+    await expect(row.locator('.text-error')).toBeVisible()
+  }
+  await expect(step(page, 'recipes')).toHaveCount(0)
+  await expect(step(page, 'invoicing')).toHaveCount(0)
+  await page.screenshot({ path: shot('inicio-pendientes-1440'), fullPage: true })
+
+  await guide(page).getByRole('button', { name: 'Ver los que ya están listos' }).click()
   await expect(step(page, 'recipes')).toContainText('Opcional')
-  await page.screenshot({ path: '../screenshots/primeros-pasos-1440.png', fullPage: true })
+  await expect(step(page, 'invoicing')).toContainText('Opcional')
+  await expect(step(page, 'recipes').getByLabel('Pendiente')).toHaveCount(0)
+  await expect(step(page, 'invoicing').getByLabel('Pendiente')).toHaveCount(0)
+  await expect(step(page, 'recipes')).toBeInViewport()
+  await page.evaluate(() => {
+    window.scrollTo(0, 0)
+    ;(document.activeElement as HTMLElement | null)?.blur()
+  })
+  await page.screenshot({ path: shot('inicio-detalles-1440'), fullPage: true })
+  await guide(page).getByRole('button', { name: 'Ocultar los que ya están listos' }).click()
+  await expect(step(page, 'recipes')).toHaveCount(0)
+
   await page.setViewportSize({ width: 390, height: 844 })
   await page.reload()
-  await expect(guide(page)).toBeVisible()
-  await page.screenshot({ path: '../screenshots/primeros-pasos-390.png', fullPage: true })
+  await expect(guide(page)).toContainText('0 de 8 listos')
+  await hideDrawer(page)
+  await expectMetricsAboveGuide(page)
+  await page.screenshot({ path: shot('inicio-pendientes-390'), fullPage: true })
+  await guide(page).getByRole('button', { name: 'Ver los que ya están listos' }).click()
+  await expect(step(page, 'invoicing')).toContainText('Opcional')
+  await expect(step(page, 'recipes')).toBeInViewport()
+  await page.evaluate(() => {
+    window.scrollTo(0, 0)
+    ;(document.activeElement as HTMLElement | null)?.blur()
+  })
+  await page.screenshot({ path: shot('inicio-detalles-390'), fullPage: true })
+
   await page.setViewportSize({ width: 1280, height: 720 })
   await page.reload()
+  await expect(step(page, 'business')).toBeVisible()
 
   // 1. Datos del negocio (desde el botón "Ir" de la guía).
   await step(page, 'business').getByRole('link', { name: /Ir a/ }).click()
@@ -91,12 +156,21 @@ test('una empresa nueva sigue los primeros pasos y hace su primera venta', async
   await employee.getByRole('button', { name: 'Crear empleado' }).click()
   await expect(page.locator('tr', { hasText: 'Mesero Uno' })).toBeVisible()
 
-  // La guía ya marcó todo lo configurado; falta vender.
+  // La guía ya marcó todo lo configurado; falta vender. Lo hecho no se lista
+  // hasta pedir el detalle, y la resolución sigue fuera de lo pendiente.
   await sidebarItem(page, 'Inicio').click()
   await expect(guide(page)).toContainText('7 de 8 listos')
+  await expect(step(page, 'first_sale').getByLabel('Pendiente')).toBeVisible()
+  await expect(step(page, 'invoicing')).toHaveCount(0)
+  for (const key of ['business', 'tables', 'products', 'stock', 'taxes', 'menu', 'team']) {
+    await expect(step(page, key)).toHaveCount(0)
+  }
+  await guide(page).getByRole('button', { name: 'Ver los que ya están listos' }).click()
   for (const key of ['business', 'tables', 'products', 'stock', 'taxes', 'menu', 'team']) {
     await expect(step(page, key).getByLabel('Listo')).toBeVisible()
   }
+  await expect(step(page, 'invoicing')).toContainText('Opcional')
+  await guide(page).getByRole('button', { name: 'Ocultar los que ya están listos' }).click()
 
   // 5. Primera venta: la caja ya está abierta sola; pedido desde la web y cobro.
   await step(page, 'first_sale').getByRole('link', { name: /Ir a/ }).click()
@@ -118,10 +192,16 @@ test('una empresa nueva sigue los primeros pasos y hace su primera venta', async
   await charge.getByRole('button', { name: 'Confirmar cobro' }).click()
   await expect(charge).toHaveCount(0)
 
-  // Todo listo: la guía desaparece.
+  // Todo lo obligatorio está listo, sin haber configurado la resolución.
   await sidebarItem(page, 'Inicio').click()
   await expect(page.getByText('Pedidos hoy', { exact: true })).toBeVisible()
-  await expect(guide(page)).toHaveCount(0)
+  await expect(guide(page)).toContainText('Primeros pasos listos')
+  await expect(step(page, 'first_sale')).toHaveCount(0)
+  await expect(step(page, 'invoicing')).toHaveCount(0)
+  await guide(page).getByRole('button', { name: 'Ver los que ya están listos' }).click()
+  await expect(step(page, 'first_sale').getByLabel('Listo')).toBeVisible()
+  await expect(step(page, 'invoicing')).toContainText('Opcional')
+  await expect(step(page, 'invoicing').getByLabel('Pendiente')).toHaveCount(0)
 
   // La venta cuenta en Ventas y salió del kardex con su costo.
   await page.goto('/ventas')

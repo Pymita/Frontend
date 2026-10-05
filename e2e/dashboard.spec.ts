@@ -64,7 +64,8 @@ test('stock bajo muestra el saldo real y más vendidos solo cuenta lo cobrado', 
 
   // 25 + 15 cobradas a $2.500 en 2 pedidos; las 30 del cancelado no suman.
   const topProducts = page.locator('.v-card', { hasText: 'Más vendidos' })
-  await expect(topProducts).toContainText('Últimos 7 días')
+  await expect(page.getByRole('button', { name: 'Mes', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(topProducts).toContainText('Este mes')
   const empanadaRow = topProducts.locator('.v-list-item', { hasText: empanadaName })
   await expect(empanadaRow).toContainText('40 vendidos · 2 pedidos')
   await expect(empanadaRow).toContainText('$100.000')
@@ -97,20 +98,33 @@ test('el gráfico cambia entre semana, mes y rango, y más vendidos sigue el per
 
   const chart = page.locator('.v-card').filter({ has: page.getByRole('button', { name: 'Semana' }) })
   const topProducts = page.locator('.v-card', { hasText: 'Más vendidos' })
+  const mes = chart.getByRole('button', { name: 'Mes', exact: true })
 
-  const week = await expected(localDate(weekFrom), localDate(today))
-  await expect(chart).toContainText('Ventas de la Semana')
-  await expect(chart).toContainText(`Últimos 7 días: ${money(week.total)} en ${week.orders_count} pedidos`)
-  await expect(chart.locator('canvas')).toBeVisible()
-
-  await chart.getByRole('button', { name: 'Mes' }).click()
   const month = await expected(monthFrom, localDate(today))
+  await expect(mes).toHaveAttribute('aria-pressed', 'true')
+  await expect(chart.getByRole('button', { name: 'Semana', exact: true })).toHaveAttribute('aria-pressed', 'false')
   await expect(chart).toContainText('Ventas del mes')
   await expect(chart).toContainText(`Este mes: ${money(month.total)} en ${month.orders_count}`)
   await expect(topProducts).toContainText('Este mes')
   await expect(topProducts.locator('.v-list-item', { hasText: juiceName })).toContainText('3 vendidos · 1 pedido')
+  await expect(chart.locator('canvas')).toBeVisible()
 
-  // El rango arranca con el periodo que se estaba viendo.
+  await chart.getByRole('button', { name: 'Semana', exact: true }).click()
+  const week = await expected(localDate(weekFrom), localDate(today))
+  await expect(chart.getByRole('button', { name: 'Semana', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(chart).toContainText('Ventas de la Semana')
+  const pedidos = week.orders_count === 1 ? 'pedido' : 'pedidos'
+  await expect(chart).toContainText(`Últimos 7 días: ${money(week.total)} en ${week.orders_count} ${pedidos}`)
+
+  // El rango arranca con el periodo que se estaba viendo. Hay que esperar la
+  // respuesta del mes: el título cambia antes de que lleguen las fechas.
+  const monthLoaded = page.waitForResponse(response =>
+    response.url().includes('/dashboard/sales-week') && response.url().includes(monthFrom) && response.ok(),
+  )
+  await mes.click()
+  await monthLoaded
+  await expect(chart).toContainText('Ventas del mes')
+
   await chart.getByRole('button', { name: 'Rango' }).click()
   await expect(chart).toContainText('Ventas del periodo')
   const from = chart.getByLabel('Desde')
@@ -148,6 +162,72 @@ test('el gráfico cambia entre semana, mes y rango, y más vendidos sigue el per
   const juiceRow = topProducts.locator('.v-list-item', { hasText: juiceName })
   await expect(juiceRow).toContainText('3 vendidos · 1 pedido')
   await expect(juiceRow).toContainText('$7.500')
+})
+
+test('primeros pasos queda bajo las métricas y solo muestra lo obligatorio pendiente', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const setup = (await (await request.get(`${API}/dashboard/setup`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })).json()).data as {
+    completed: number
+    total: number
+    steps: { key: string; done: boolean; optional: boolean }[]
+  }
+  const pending = setup.steps.filter(step => !step.done && !step.optional)
+  const hidden = setup.steps.filter(step => step.done || step.optional)
+  const invoicing = setup.steps.find(step => step.key === 'invoicing')
+  if (invoicing) expect(invoicing.optional).toBe(true)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/dashboard')
+
+  const guideCard = page.getByTestId('setup-guide')
+  const metric = page.getByText('Pedidos hoy', { exact: true })
+  await expect(metric).toBeVisible()
+  await expect(guideCard).toBeVisible()
+  await expect(page.getByText('Pedidos recientes')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Mes', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByText('Ventas del mes')).toBeVisible()
+
+  const metricBox = await metric.boundingBox()
+  const guideBox = await guideCard.boundingBox()
+  expect(metricBox).toBeTruthy()
+  expect(guideBox).toBeTruthy()
+  expect(metricBox!.y).toBeLessThan(guideBox!.y)
+
+  if (pending.length === 0) {
+    await expect(guideCard).toContainText('Primeros pasos listos')
+  } else {
+    await expect(guideCard).toContainText(`${setup.completed} de ${setup.total} listos`)
+    for (const step of pending) {
+      const row = page.getByTestId(`setup-step-${step.key}`)
+      await expect(row.getByLabel('Pendiente')).toBeVisible()
+      await expect(row.locator('.text-error')).toBeVisible()
+    }
+  }
+  for (const step of hidden) {
+    await expect(page.getByTestId(`setup-step-${step.key}`)).toHaveCount(0)
+  }
+  if (invoicing && !invoicing.done) {
+    await expect(page.getByTestId('setup-step-invoicing')).toHaveCount(0)
+  }
+
+  if (hidden.length === 0) return
+  await guideCard.getByRole('button', { name: 'Ver los que ya están listos' }).click()
+  for (const step of hidden) {
+    const row = page.getByTestId(`setup-step-${step.key}`)
+    await expect(row).toBeVisible()
+    if (step.done) await expect(row.getByLabel('Listo')).toBeVisible()
+    if (step.optional) await expect(row).toContainText('Opcional')
+  }
+  if (invoicing && !invoicing.done) {
+    await expect(page.getByTestId('setup-step-invoicing').getByLabel('Pendiente')).toHaveCount(0)
+  }
+  await guideCard.getByRole('button', { name: 'Ocultar los que ya están listos' }).click()
+  for (const step of hidden) {
+    await expect(page.getByTestId(`setup-step-${step.key}`)).toHaveCount(0)
+  }
 })
 
 /**
