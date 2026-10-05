@@ -393,6 +393,111 @@
             </v-expansion-panel-text>
           </v-expansion-panel>
         </v-expansion-panels>
+
+        <!-- Histórico de abonos: cada recibo de caja, parcial o total -->
+        <v-card class="mt-6" data-testid="historico-abonos">
+          <v-card-title class="d-flex flex-wrap align-center ga-2">
+            <v-icon start>mdi-history</v-icon>
+            Histórico de abonos
+            <v-spacer />
+            <v-btn
+              color="primary"
+              variant="outlined"
+              prepend-icon="mdi-file-pdf-box"
+              :loading="exportingPdf"
+              :disabled="paymentHistoryTotal === 0"
+              @click="downloadHistoryPdf">
+              Descargar PDF
+            </v-btn>
+          </v-card-title>
+          <v-card-text>
+            <v-row dense class="mb-2" align="center">
+              <v-col cols="12" md="4">
+                <v-autocomplete
+                  v-model="historyFilters.customer_id"
+                  :items="historyCustomerOptions"
+                  item-title="title"
+                  item-value="value"
+                  label="Cliente"
+                  density="compact"
+                  hide-details
+                  clearable />
+              </v-col>
+              <v-col cols="6" md="3">
+                <DateField v-model="historyFilters.from" label="Desde" density="compact" hide-details clearable />
+              </v-col>
+              <v-col cols="6" md="3">
+                <DateField
+                  v-model="historyFilters.to"
+                  label="Hasta"
+                  density="compact"
+                  hide-details
+                  clearable
+                  :min="historyFilters.from || undefined" />
+              </v-col>
+              <v-col cols="12" md="2" class="text-md-end text-body-2 text-medium-emphasis">
+                {{ paymentHistorySummary.count }} recibo{{ paymentHistorySummary.count === 1 ? '' : 's' }}
+                · {{ money(paymentHistorySummary.total) }}
+              </v-col>
+            </v-row>
+
+            <v-data-table-server
+              v-model:page="historyPage"
+              v-model:items-per-page="historyPerPage"
+              :headers="historyHeaders"
+              :items="paymentHistory"
+              :items-length="paymentHistoryTotal"
+              :items-per-page-options="PAGE_SIZE_OPTIONS"
+              :loading="loadingHistory"
+              class="elevation-0"
+              hover>
+              <template #item.paid_at="{ item }">
+                <div class="text-no-wrap">{{ formatDay(item.paid_at) }}</div>
+                <div v-if="item.registered_at" class="text-caption text-medium-emphasis">
+                  {{ formatTime(item.registered_at) }}
+                </div>
+              </template>
+              <template #item.reference="{ item }">
+                <v-btn
+                  size="small"
+                  variant="text"
+                  color="primary"
+                  prepend-icon="mdi-printer"
+                  :aria-label="`Imprimir ${item.reference}`"
+                  @click="printReceipt(item.number)">
+                  {{ item.reference }}
+                </v-btn>
+              </template>
+              <template #item.customer="{ item }">
+                <div>{{ item.customer.name }}</div>
+                <div class="text-caption text-medium-emphasis">{{ item.customer.document || 'Sin documento' }}</div>
+              </template>
+              <template #item.documents="{ item }">
+                <div v-for="line in item.lines" :key="line.payment_id ?? `${line.document_number}-${line.amount}`" class="text-no-wrap">
+                  {{ line.document_number }}
+                  <span class="tabular-nums">{{ money(line.amount) }}</span>
+                </div>
+              </template>
+              <template #item.payment_method="{ item }">
+                {{ (item.payment_method && PAYMENT_METHOD_LABELS[item.payment_method as PaymentMethod]) || item.payment_method || '—' }}
+              </template>
+              <template #item.total="{ item }">
+                <span class="tabular-nums font-weight-medium">{{ money(item.total) }}</span>
+              </template>
+              <template #item.balance_after="{ item }">
+                <span class="tabular-nums">{{ money(item.balance_after) }}</span>
+              </template>
+              <template #item.received_by="{ item }">
+                {{ item.received_by || '—' }}
+              </template>
+              <template #no-data>
+                <div class="text-center text-medium-emphasis py-6">
+                  Aún no hay abonos con estos filtros.
+                </div>
+              </template>
+            </v-data-table-server>
+          </v-card-text>
+        </v-card>
       </v-window-item>
 
       <!-- ===== Clientes ===== -->
@@ -1035,7 +1140,9 @@
 
 <script setup lang="ts">
 import { money } from '@/utils/money'
-import { formatDay } from '@/utils/dates'
+import { formatDay, formatTime } from '@/utils/dates'
+import { downloadAbonosPdf } from '@/utils/abonosPdf'
+import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 import LockableButton from '../components/LockableButton.vue'
@@ -1390,6 +1497,90 @@ const exportReceivables = async () => {
   }
 }
 
+// --- Histórico de abonos ---
+const historyFilters = ref<{ customer_id: number | null; from: string; to: string }>({
+  customer_id: null,
+  from: '',
+  to: '',
+})
+const paymentHistorySummary = ref({ count: 0, total: 0 })
+const exportingPdf = ref(false)
+const historyHeaders = [
+  { title: 'Fecha', key: 'paid_at', sortable: false },
+  { title: 'Recibo', key: 'reference', sortable: false },
+  { title: 'Cliente', key: 'customer', sortable: false },
+  { title: 'Documentos', key: 'documents', sortable: false },
+  { title: 'Método', key: 'payment_method', sortable: false },
+  { title: 'Total', key: 'total', sortable: false, align: 'end' as const },
+  { title: 'Saldo', key: 'balance_after', sortable: false, align: 'end' as const },
+  { title: 'Registró', key: 'received_by', sortable: false },
+]
+
+const historyCustomerOptions = computed(() =>
+  customers.value.map(customer => ({
+    value: customer.id,
+    title: `${customer.name}${customer.document_number ? ` (${customer.document_number})` : ''}`,
+  })),
+)
+
+const {
+  items: paymentHistory,
+  total: paymentHistoryTotal,
+  page: historyPage,
+  perPage: historyPerPage,
+  loading: loadingHistory,
+  load: loadPaymentHistory,
+} = useServerPage<CashReceipt>(
+  async query => {
+    const page = await billingService.getPaymentHistory(
+      {
+        customer_id: historyFilters.value.customer_id || undefined,
+        from: historyFilters.value.from || undefined,
+        to: historyFilters.value.to || undefined,
+      },
+      query,
+    )
+    paymentHistorySummary.value = page.summary
+    return { data: page.data, meta: page.meta }
+  },
+  {
+    filters: [historyFilters],
+    onError: error => notify(errorMessage(error, 'No fue posible cargar el histórico de abonos.'), 'error'),
+  },
+)
+
+const downloadHistoryPdf = async () => {
+  exportingPdf.value = true
+  try {
+    const filters = {
+      customer_id: historyFilters.value.customer_id || undefined,
+      from: historyFilters.value.from || undefined,
+      to: historyFilters.value.to || undefined,
+    }
+    const [{ data, summary }, header] = await Promise.all([
+      billingService.listPaymentHistory(filters),
+      business.value ? Promise.resolve(business.value) : billingService.getBusiness(),
+    ])
+    if (!business.value) business.value = header
+    const customerName = historyFilters.value.customer_id
+      ? customers.value.find(c => c.id === historyFilters.value.customer_id)?.name
+      : undefined
+    await downloadAbonosPdf(header, data, {
+      from: filters.from,
+      to: filters.to,
+      customerName,
+    }, summary.total)
+  } catch (error) {
+    notify(errorMessage(error, 'No se pudo descargar el PDF del histórico.'), 'error')
+  } finally {
+    exportingPdf.value = false
+  }
+}
+
+const refreshCartera = async () => {
+  await Promise.all([loadReceivables(), loadPreview(), loadPaymentHistory()])
+}
+
 // --- Abonos ---
 const paymentDialog = ref(false)
 const paymentInvoice = ref<RecurringInvoice | null>(null)
@@ -1427,7 +1618,7 @@ const savePayment = async () => {
     lastReceiptNumber.value = data.receipt_number ?? null
     resetPaymentForm(data)
     notify(message)
-    await Promise.all([loadReceivables(), loadPreview()])
+    await refreshCartera()
   } catch (error) {
     notify(errorMessage(error, 'No se pudo registrar el abono'), 'error')
   } finally {
@@ -1476,7 +1667,7 @@ const saveCustomerPayment = async () => {
     })
     customerReceipt.value = data
     notify(message)
-    await Promise.all([loadReceivables(), loadPreview()])
+    await refreshCartera()
   } catch (error) {
     notify(errorMessage(error, 'No se pudo registrar el abono'), 'error')
   } finally {
@@ -1490,7 +1681,7 @@ const revertPayment = async (paymentId: number) => {
     paymentInvoice.value = await billingService.deleteRecurringPayment(paymentId)
     resetPaymentForm(paymentInvoice.value)
     notify('Abono revertido exitosamente')
-    await Promise.all([loadReceivables(), loadPreview()])
+    await refreshCartera()
   } catch (error) {
     notify(errorMessage(error, 'No se pudo revertir el abono'), 'error')
   }
@@ -1515,7 +1706,7 @@ const confirmCancel = async () => {
     await billingService.cancelRecurringInvoice(cancelTarget.value.id, cancelReason.value || undefined)
     notify('Documento anulado exitosamente')
     cancelDialog.value = false
-    await Promise.all([loadReceivables(), loadPreview()])
+    await refreshCartera()
   } catch (error) {
     notify(errorMessage(error, 'No se pudo anular el documento'), 'error')
   } finally {
@@ -1768,6 +1959,6 @@ onMounted(async () => {
     taxes.value = []
   }
   billingService.getBusiness().then(b => (business.value = b)).catch(() => {})
-  await Promise.all([loadPreview(), loadReceivables(), loadCustomers()])
+  await Promise.all([loadPreview(), loadReceivables(), loadCustomers(), loadPaymentHistory()])
 })
 </script>

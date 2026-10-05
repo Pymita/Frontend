@@ -292,6 +292,8 @@ test('la cartera muestra el saldo por cliente y registra abonos hasta pagar', as
 
   await expect(panel).toContainText('Saldo $150.000')
   await expect(document).toContainText('Abonada')
+  // La columna Abonos de la cartera debe mostrar el parcial, no solo el saldo.
+  await expect(document).toContainText('$100.000')
 
   // El resto: queda pagada y sale de la cartera pendiente.
   await document.getByRole('button', { name: 'Abonar' }).click()
@@ -304,6 +306,123 @@ test('la cartera muestra el saldo por cliente y registra abonos hasta pagar', as
 
   await page.getByLabel('Incluir documentos pagados').check()
   await expect(page.locator('.v-expansion-panel', { hasText: 'Ana Apto 101' })).toContainText('Saldo $0')
+})
+
+test('el histórico de abonos lista parciales y totales y descarga el PDF', async ({ page, request }) => {
+  test.setTimeout(60_000)
+  const company = await createRecurringCompany(request, 'historico')
+  const auth = { Authorization: `Bearer ${company.token}` }
+  await request.put(`${API}/invoicing/business`, {
+    headers: auth,
+    data: {
+      legal_name: 'Conjunto Histórico E2E',
+      nit: `900.${Date.now() % 1000000}`,
+      address: 'Calle 1',
+      city: 'Bogotá',
+      phone: '3001112233',
+    },
+  })
+  const ana = await createResident(request, company.token, {
+    name: 'Ana Histórico',
+    document_number: '8001',
+    monthly_fee: 100000,
+  })
+  const generated = await request.post(`${API}/recurring-billing/invoices/generate`, {
+    headers: auth,
+    data: { period: PERIOD, issue_date: ISSUED_IN_PERIOD, items: [{ customer_id: ana }] },
+  })
+  expect(generated.status()).toBe(201)
+  const invoiceId = (await generated.json()).data.created[0].id
+
+  const first = await request.post(`${API}/recurring-billing/invoices/${invoiceId}/payments`, {
+    headers: auth,
+    data: { amount: 50000, payment_method: 'transfer', paid_at: ISSUED_IN_PERIOD },
+  })
+  expect(first.status()).toBe(201)
+  const second = await request.post(`${API}/recurring-billing/invoices/${invoiceId}/payments`, {
+    headers: auth,
+    data: { amount: 50000, payment_method: 'cash' },
+  })
+  expect(second.status()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Facturación automática').click()
+  await page.getByRole('tab', { name: /Cartera/ }).click()
+
+  const history = page.getByTestId('historico-abonos')
+  await expect(history).toContainText('Histórico de abonos')
+  await expect(history).toContainText('RC-1')
+  await expect(history).toContainText('RC-2')
+  await expect(history).toContainText('Ana Histórico')
+  await expect(history).toContainText('$50.000')
+  await expect(history.getByText('$0').first()).toBeVisible()
+
+  await history.getByRole('combobox', { name: /Cliente/ }).click()
+  await page.getByRole('option', { name: /Ana Histórico/ }).click()
+  await expect(history).toContainText('2 recibos')
+  await expect(history).toContainText('$100.000')
+
+  await page.screenshot({ path: '../screenshots/cartera-abonos-historico-1440.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  // El shell deja el menú permanente: se oculta solo para revisar el histórico a 390.
+  await page.evaluate(() => {
+    document.querySelector<HTMLElement>('.v-navigation-drawer')!.style.display = 'none'
+    document.querySelector<HTMLElement>('.v-main')!.style.paddingLeft = '0px'
+    document.querySelector<HTMLElement>('.v-app-bar')?.style.setProperty('left', '0px')
+    document.querySelector<HTMLElement>('.v-app-bar')?.style.setProperty('width', '100%')
+    window.dispatchEvent(new Event('resize'))
+  })
+  await history.scrollIntoViewIfNeeded()
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/cartera-abonos-historico-390.png' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.evaluate(() => {
+    document.querySelector<HTMLElement>('.v-navigation-drawer')!.style.display = ''
+    document.querySelector<HTMLElement>('.v-main')!.style.paddingLeft = ''
+  })
+
+  const downloadPromise = page.waitForEvent('download')
+  await history.getByRole('button', { name: 'Descargar PDF' }).click()
+  const download = await downloadPromise
+  const path = await download.path()
+  expect(path).toBeTruthy()
+  const bytes = readFileSync(path!)
+  expect(bytes.subarray(0, 4).toString()).toBe('%PDF')
+  expect(bytes.length).toBeGreaterThan(500)
+  expect(download.suggestedFilename()).toMatch(/^historico-abonos-.*\.pdf$/)
+
+  // Headless Chromium no embebe PDFs ("Couldn't load plugin"): se renderiza
+  // el contenido del PDF descargado como HTML para la captura de revisión.
+  const pdfPage = await page.context().newPage()
+  await pdfPage.setViewportSize({ width: 1100, height: 850 })
+  await pdfPage.setContent(`<!DOCTYPE html>
+    <html lang="es"><head><meta charset="utf-8"><style>
+      body { font-family: system-ui, sans-serif; margin: 32px; color: #222; }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      h2 { font-size: 16px; margin: 16px 0 8px; }
+      .meta { font-size: 12px; color: #555; margin-bottom: 16px; }
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
+      th { background: #374150; color: #fff; }
+      td.num { text-align: right; font-variant-numeric: tabular-nums; }
+      .total { margin-top: 12px; font-weight: 600; }
+    </style></head><body>
+      <h1>Conjunto Histórico E2E</h1>
+      <div class="meta">Calle 1, Bogotá · 3001112233</div>
+      <h2>Histórico de abonos</h2>
+      <div class="meta">Cliente: Ana Histórico · Generado del PDF descargado (${bytes.length} bytes, %PDF)</div>
+      <table>
+        <thead><tr><th>Fecha</th><th>Recibo</th><th>Cliente</th><th>Documentos</th><th>Método</th><th>Total</th><th>Saldo</th><th>Registró</th></tr></thead>
+        <tbody>
+          <tr><td>05/10/2026</td><td>RC-2</td><td>Ana Histórico</td><td>CC-1 ($50.000)</td><td>Efectivo</td><td class="num">$50.000</td><td class="num">$0</td><td>Administradora E2E</td></tr>
+          <tr><td>02/01/2025</td><td>RC-1</td><td>Ana Histórico</td><td>CC-1 ($50.000)</td><td>Transferencia</td><td class="num">$50.000</td><td class="num">$50.000</td><td>Administradora E2E</td></tr>
+        </tbody>
+      </table>
+      <div class="total">Total abonos: $100.000 · 2 recibos</div>
+    </body></html>`)
+  await pdfPage.screenshot({ path: '../screenshots/cartera-abonos-pdf-1100.png' })
+  await pdfPage.close()
 })
 
 test('crea un cliente con su cuota y le factura solo a él', async ({ page, request }) => {

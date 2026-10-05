@@ -78,6 +78,7 @@ export interface PrintableReceipt {
   }
   total: number
   lines: {
+    payment_id?: number
     document_kind: 'invoice' | 'collection' | null
     document_number: string | null
     concept: string | null

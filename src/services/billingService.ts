@@ -194,6 +194,21 @@ export interface ReceivableFilters {
 
 export interface CashReceipt extends PrintableReceipt {
   number: number
+  registered_at?: string | null
+  customer_id?: number | null
+  balance_after?: number
+}
+
+export interface PaymentHistoryFilters {
+  customer_id?: number | null
+  from?: string
+  to?: string
+}
+
+export interface PaymentHistoryPage {
+  data: CashReceipt[]
+  meta: { current_page: number; per_page: number; total: number; last_page: number }
+  summary: { count: number; total: number }
 }
 
 /** Datos del negocio editables (encabezado de facturas y recibos) */
@@ -452,6 +467,39 @@ export const billingService = {
     if (filters.q?.trim()) params.q = filters.q.trim()
     const response = await api.get<ApiResponse<Receivables>>('/recurring-billing/receivables', { params })
     return response.data.data
+  },
+
+  /** Histórico de abonos (recibos de caja), paginado en el servidor. */
+  async getPaymentHistory(
+    filters: PaymentHistoryFilters,
+    query: PageQuery,
+  ): Promise<PaymentHistoryPage> {
+    const params: Record<string, string | number> = {
+      page: query.page,
+      per_page: query.per_page,
+    }
+    if (filters.customer_id) params.customer_id = filters.customer_id
+    if (filters.from) params.from = filters.from
+    if (filters.to) params.to = filters.to
+    const response = await api.get<PaymentHistoryPage & { message?: string }>('/recurring-billing/payments', { params })
+    return {
+      data: response.data.data,
+      meta: response.data.meta,
+      summary: response.data.summary,
+    }
+  },
+
+  /** Todos los abonos que coinciden con los filtros (para el PDF). */
+  async listPaymentHistory(filters: PaymentHistoryFilters = {}): Promise<{ data: CashReceipt[]; summary: { count: number; total: number } }> {
+    const params: Record<string, string | number> = {}
+    if (filters.customer_id) params.customer_id = filters.customer_id
+    if (filters.from) params.from = filters.from
+    if (filters.to) params.to = filters.to
+    const response = await api.get<ApiResponse<CashReceipt[]> & { summary: { count: number; total: number } }>(
+      '/recurring-billing/payments',
+      { params },
+    )
+    return { data: response.data.data, summary: response.data.summary }
   },
 
   /** Descarga la cartera en Excel con los mismos filtros de la pantalla. */
