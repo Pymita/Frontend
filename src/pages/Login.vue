@@ -3,9 +3,7 @@
     <v-row no-gutters class="fill-height">
       <v-col tag="aside" md="4" xl="3" class="d-none d-md-flex flex-column bg-chrome pa-10">
         <div class="d-flex align-center ga-3">
-          <v-avatar color="accent" rounded="lg" size="36">
-            <v-icon :icon="APP_ICON" size="22" />
-          </v-avatar>
+          <img :src="APP_ICON" :alt="APP_NAME" width="36" height="36" />
           <span class="text-h6">{{ APP_NAME }}</span>
         </div>
 
@@ -29,9 +27,7 @@
       <v-col cols="12" md="8" xl="9" class="d-flex align-center justify-center bg-background pa-6">
         <v-card width="100%" max-width="480" class="pa-6 pa-sm-10">
           <div class="mb-6">
-            <v-avatar color="accent" rounded="lg" size="44" class="d-md-none mb-4">
-              <v-icon :icon="APP_ICON" size="26" />
-            </v-avatar>
+            <img :src="APP_ICON" :alt="APP_NAME" width="44" height="44" class="d-block d-md-none mb-4" />
             <h1 class="text-h4 mb-1">{{ APP_NAME }}</h1>
             <p class="text-body-1 text-medium-emphasis">{{ STEP_SUBTITLES[step] }}</p>
           </div>

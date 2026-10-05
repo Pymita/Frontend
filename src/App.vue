@@ -11,9 +11,7 @@
       border="0"
     >
       <div class="d-flex align-center ga-3 px-4 pt-4 pb-1">
-        <v-avatar color="accent" rounded="lg" size="36">
-          <v-icon :icon="APP_ICON" size="22" />
-        </v-avatar>
+        <img :src="APP_ICON" :alt="APP_NAME" width="36" height="36" class="flex-shrink-0" />
         <div class="text-truncate">
           <div class="text-h6 font-weight-bold text-truncate">{{ companyName }}</div>
           <div class="text-overline text-chrome-overline">{{ APP_NAME }}</div>
