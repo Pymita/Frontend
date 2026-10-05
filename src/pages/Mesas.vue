@@ -128,11 +128,9 @@
             />
             <v-row v-if="hasTimeBilling && formData.table_type === 'billiard'" dense>
               <v-col cols="6">
-                <v-text-field
-                  v-model.number="formData.hourly_rate"
+                <MoneyField
+                  v-model="formData.hourly_rate"
                   label="Tarifa por hora"
-                  type="number"
-                  prefix="$"
                   :rules="[v => (v !== null && v >= 0) || 'Tarifa requerida']"
                 />
               </v-col>
@@ -226,12 +224,7 @@
           />
           <v-row v-if="hasTimeBilling && bulkData.table_type === 'billiard'" dense>
             <v-col cols="6">
-              <v-text-field
-                v-model.number="bulkData.hourly_rate"
-                label="Tarifa por hora"
-                type="number"
-                prefix="$"
-              />
+              <MoneyField v-model="bulkData.hourly_rate" label="Tarifa por hora" />
             </v-col>
             <v-col cols="6">
               <v-select
@@ -276,6 +269,7 @@ import { tableStatusColors, tableStatusLabels, label } from '@/utils/labels';
 import { useAuthStore } from '@/stores/auth';
 import { effectiveFeatures } from '@/types/auth';
 import LockableButton from '../components/LockableButton.vue'
+import MoneyField from '../components/MoneyField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.

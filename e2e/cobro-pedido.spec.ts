@@ -51,14 +51,19 @@ test('cobrar un pedido con propina desde el diálogo de cobro', async ({ page, r
   await expect(dialog.getByRole('button', { name: 'Confirmar cobro' })).toBeVisible()
 
   // Con propina: se sugiere el 10% y se puede ajustar a mano.
+  // Pesos with their dots ("2.000" is two thousand), no arrows that add one peso.
   await dialog.getByLabel('Sugerir propina voluntaria').check()
-  await expect(dialog.getByLabel('Propina (opcional)')).toHaveValue('2070')
-  await dialog.getByLabel('Propina (opcional)').fill('2000')
+  const tip = dialog.getByLabel('Propina (opcional)')
+  await expect(tip).toHaveValue('2.070')
+  await expect(tip).not.toHaveAttribute('type', 'number')
+  await tip.fill('2.000')
   await expect(dialog.getByText('$22.700')).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Cobrar sin propina' })).toBeVisible()
 
   await dialog.getByRole('button', { name: 'Cobrar con propina' }).click()
   await expect(page.getByText('Pedido cobrado con propina')).toBeVisible()
+  await page.getByRole('button', { name: 'Pagados' }).click()
+  await expect(page.locator('tr', { hasText: '$22.700' }).first()).toBeVisible()
 
   // La propina quedó en el pedido.
   const paid = await request.get(`${API}/orders/${orderId}`, { headers: auth })
@@ -148,11 +153,16 @@ test('un abono por monto es un anticipo, no una factura', async ({ page, request
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByText('Total a pagar:')).toBeVisible()
   await dialog.getByRole('button', { name: 'Por monto' }).click()
-  await dialog.getByLabel('Monto a pagar').fill('10000')
+  // It starts at the balance, with its dots; "10.000" is ten thousand.
+  const amount = dialog.getByLabel('Monto a pagar')
+  await expect(amount).toHaveValue('30.000')
+  await expect(amount).not.toHaveAttribute('type', 'number')
+  await amount.fill('10.000')
   // El anticipo se avisa como recibo de abono (no factura ni kardex).
   await expect(dialog.getByText('recibo de abono')).toBeVisible()
   await dialog.getByRole('button', { name: /Cobrar/ }).click()
   await expect(page.getByText('Abono registrado')).toBeVisible()
+  await expect(page.locator('tr', { hasText: 'Debe: $20.000' }).first()).toBeVisible()
 
   // El abono no es una venta: no hay factura y el pedido sigue parcial.
   const afterAbono = (await (await request.get(`${API}/orders/${orderId}`, { headers: auth })).json()).data
@@ -202,6 +212,51 @@ test('cobrar por productos emite una factura de venta parcial', async ({ page, r
   expect(sale).toBeTruthy()
   expect(sale.invoice_sequence).toBe(1)
   expect(sale.reference).toBe(`#${orderId}-1`)
+})
+
+/** Adjusting a charge is the admin's: a corrected price and a fixed discount are typed as pesos. */
+test('el precio corregido y el descuento por monto se escriben en pesos', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const productName = `Cazuela Precio ${Date.now()}`
+  const productId = await seedSimpleProduct(request, auth, productName, 43210)
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { items: [{ product_id: productId, quantity: 2 }] },
+  })
+  const orderId = (await order.json()).data.id
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  const orderRow = (total: string) =>
+    page.locator('tbody tr', { hasText: total }).filter({ has: page.getByRole('button', { name: 'Más acciones del pedido' }) })
+
+  await orderRow('$86.420').locator('.mdi-chevron-down').click()
+  await page.getByRole('button', { name: `Editar ${productName}` }).click()
+  const dialog = page.getByRole('dialog')
+  const price = dialog.getByLabel('Precio unitario')
+  await expect(price).toHaveValue('43.210')
+  await expect(price).not.toHaveAttribute('type', 'number')
+  await price.fill('46.250')
+  await dialog.getByLabel('Descuento').fill('1.250')
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Item actualizado')).toBeVisible()
+  // 2 × $46.250 − $1.250.
+  await expect(page.getByRole('row', { name: new RegExp(`^2 ${productName}`) })).toContainText('$46.250')
+  await expect(orderRow('$91.250')).toBeVisible()
+
+  await orderRow('$91.250').getByRole('button', { name: 'Más acciones del pedido' }).click()
+  await page.getByText('Aplicar descuento').click()
+  await dialog.getByLabel('Monto fijo').check()
+  const discount = dialog.getByLabel('Monto', { exact: true })
+  await expect(discount).not.toHaveAttribute('type', 'number')
+  await discount.fill('6.300')
+  await dialog.getByRole('button', { name: 'Aplicar' }).click()
+  await expect(page.getByText('Descuento aplicado')).toBeVisible()
+  await expect(orderRow('$84.950')).toBeVisible()
+
+  const saved = (await (await request.get(`${API}/orders/${orderId}`, { headers: auth })).json()).data
+  expect(saved.total).toBe(84950)
 })
 
 type Auth = Record<string, string>
@@ -296,7 +351,9 @@ test('la caja se abre sola, el cierre pide confirmación, resume el turno y se i
   await expect(dialog.getByTestId('cash-expected')).toHaveText('$12.345')
   await expect(dialog.getByTestId('cash-product').filter({ hasText: productName })).toContainText('2')
 
-  await dialog.getByLabel('Efectivo contado (opcional)').fill('11345')
+  const counted = dialog.getByLabel('Efectivo contado (opcional)')
+  await expect(counted).not.toHaveAttribute('type', 'number')
+  await counted.fill('11.345')
   await expect(dialog.getByTestId('cash-difference')).toHaveText('Faltan $1.000')
 
   await dialog.getByRole('button', { name: 'Cerrar caja' }).click()
@@ -304,7 +361,7 @@ test('la caja se abre sola, el cierre pide confirmación, resume el turno y se i
   await expect(dialog).toContainText(`El turno ${shift.number} queda cerrado con $24.690 en ventas`)
   // Going back leaves the shift running.
   await dialog.getByRole('button', { name: 'Volver' }).click()
-  await expect(dialog.getByLabel('Efectivo contado (opcional)')).toHaveValue('11345')
+  await expect(dialog.getByLabel('Efectivo contado (opcional)')).toHaveValue('11.345')
   expect((await currentShift(request, auth)).id).toBe(shift.id)
 
   await dialog.getByRole('button', { name: 'Cerrar caja' }).click()
@@ -415,6 +472,35 @@ test('el admin corrige la apertura y cierra con la fecha de ayer un turno olvida
   const open = await currentShift(request, auth)
   expect(open.number).toBe(3)
   expect(open.opened_at).toContain(`${yesterday}T23:00:00`)
+})
+
+/** The count of a late close is pesos too: "250.000" is two hundred fifty thousand, not 250. */
+test('el efectivo contado al cerrar con otra fecha se escribe en pesos', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `caja-conteo-${Date.now()}`)
+  const yesterday = isoDay(-1)
+  const shift = await currentShift(request, auth)
+  const moved = await request.put(`${API}/cash-register/${shift.id}`, {
+    headers: auth,
+    data: { opened_at: `${yesterday} 08:00`, reason: 'Abrió ayer' },
+  })
+  expect(moved.ok()).toBeTruthy()
+
+  await loginUI(page, credentials.email, credentials.password)
+  await openCashCloses(page, yesterday)
+  await page.getByRole('button', { name: `Cerrar el turno ${shift.number} con otra fecha` }).click()
+  const close = page.getByRole('dialog')
+  await field(page, 'Fecha').locator('input').fill(displayDate(yesterday))
+  await field(page, 'Hora').locator('input').fill('23:00')
+  const counted = field(page, 'Efectivo contado (opcional)').locator('input')
+  await expect(counted).not.toHaveAttribute('type', 'number')
+  await counted.fill('250.000')
+  await close.getByRole('button', { name: 'Cerrar caja' }).click()
+  await close.getByRole('button', { name: 'Sí, cerrar caja' }).click()
+
+  // Nothing was charged in that window, so all of it is over.
+  await expect(page.getByText('Caja cerrada con un sobrante de $250.000.')).toBeVisible()
+  await expect(shiftRow(page, shift.number)).toContainText('$250.000')
+  await expect(shiftRow(page, shift.number)).toContainText('Sobran $250.000')
 })
 
 /** Ventas without being admin: every close prints, nothing rewrites one. */

@@ -439,14 +439,7 @@
             El pedido #{{ tippingOrder?.id }} ya está pagado. La propina es
             voluntaria (Ley 1935 de 2018) y se registra aparte de la venta.
           </p>
-          <v-text-field
-            v-model.number="tipAmount"
-            label="Propina"
-            type="number"
-            min="0"
-            prefix="$"
-            autofocus
-          />
+          <MoneyField v-model="tipAmount" label="Propina" autofocus empty-as-zero />
           <v-select
             v-model="tipMethod"
             :items="payMethodOptions"
@@ -585,17 +578,15 @@
                 </v-list-item-subtitle>
                 <template #append>
                   <div class="d-flex align-center flex-wrap justify-end ga-1">
-                    <v-text-field
+                    <MoneyField
                       v-if="tipEnabled && !guest.paid"
                       :model-value="guestTip(guest)"
                       label="Propina"
-                      type="number"
-                      min="0"
-                      prefix="$"
                       density="compact"
                       hide-details
                       width="120"
-                      @update:model-value="(v: string) => setGuestTip(guest, v)"
+                      empty-as-zero
+                      @update:model-value="value => setGuestTip(guest, value)"
                     />
                     <v-btn
                       size="small"
@@ -673,15 +664,13 @@
                 />
               </v-col>
               <v-col cols="7">
-                <v-text-field
-                  v-model.number="payTip"
+                <MoneyField
+                  v-model="payTip"
                   label="Propina (opcional)"
-                  type="number"
-                  min="0"
-                  prefix="$"
                   density="compact"
                   hint="Se calcula con el porcentaje; puedes ajustar el valor"
                   persistent-hint
+                  empty-as-zero
                 />
               </v-col>
             </v-row>
@@ -757,12 +746,14 @@
             <v-radio label="Porcentaje" value="percentage" />
             <v-radio label="Monto fijo" value="amount" />
           </v-radio-group>
+          <MoneyField v-if="discountType === 'amount'" v-model="discountValue" label="Monto" empty-as-zero />
           <v-text-field
+            v-else
             v-model.number="discountValue"
-            :label="discountType === 'percentage' ? 'Porcentaje (%)' : 'Monto ($)'"
+            label="Porcentaje (%)"
             type="number"
             min="0"
-            :max="discountType === 'percentage' ? 100 : undefined"
+            max="100"
           />
           <v-text-field
             v-model="discountReason"
@@ -807,29 +798,26 @@
           />
           <!-- Cambiar precio o descontar es ajustar el cobro: solo admin. -->
           <template v-if="isAdmin">
-            <v-text-field
-              v-model.number="editItemData.unit_price"
+            <MoneyField
+              v-model="editItemData.unit_price"
               label="Precio unitario"
-              type="number"
-              min="0"
-              step="0.01"
-              prefix="$"
+              :rules="[value => value !== null || 'Escribe el precio unitario']"
             />
-            <v-text-field
-              v-model.number="editItemData.discount"
-              label="Descuento"
-              type="number"
-              min="0"
-              step="0.01"
-              prefix="$"
-            />
+            <MoneyField v-model="editItemData.discount" label="Descuento" empty-as-zero />
           </template>
         </v-card-text>
         <v-card-actions>
           <v-btn color="error" variant="text" @click="eliminarItem">Eliminar</v-btn>
           <v-spacer />
           <v-btn @click="editItemDialog = false">Cancelar</v-btn>
-          <v-btn color="primary" :loading="saving" @click="guardarItem">Guardar</v-btn>
+          <v-btn
+            color="primary"
+            :loading="saving"
+            :disabled="isAdmin && editItemData.unit_price === null"
+            @click="guardarItem"
+          >
+            Guardar
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -972,6 +960,7 @@ import LockableButton from '../components/LockableButton.vue'
 import CashRegisterPanel from '../components/CashRegisterPanel.vue'
 import PartialPaymentDialog from '../components/PartialPaymentDialog.vue'
 import DateField from '../components/DateField.vue'
+import MoneyField from '../components/MoneyField.vue'
 import ProductPicker from '../components/ProductPicker.vue'
 import { menuItemsService } from '@/services/menuService';
 import { tablesService } from '@/services/tablesService';
@@ -1057,7 +1046,7 @@ const discountReason = ref('');
 
 const pagoDialog = ref(false);
 const editItemDialog = ref(false);
-const editItemData = ref({ quantity: 1, unit_price: 0, discount: 0, guest_number: null as number | null });
+const editItemData = ref({ quantity: 1, unit_price: 0 as number | null, discount: 0, guest_number: null as number | null });
 
 // Compartido + las personas que ya hay + una más, por si llega alguien.
 const guestOptions = computed(() => {
@@ -1361,8 +1350,8 @@ const guestSuggestedTip = (guest: OrderGuest) =>
   tipEnabled.value
     ? Math.round((guest.pending_amount * Math.max(0, Number(tipPercent.value) || 0)) / 100)
     : 0;
-const setGuestTip = (guest: OrderGuest, value: string) => {
-  guestTips.value[guest.number ?? 0] = Math.max(0, Number(value) || 0);
+const setGuestTip = (guest: OrderGuest, value: number | null) => {
+  guestTips.value[guest.number ?? 0] = Math.max(0, value ?? 0);
 };
 /** Atajo: copia la sugerencia al campo editable; el cajero puede ajustarla o borrarla. */
 const useGuestSuggested = (guest: OrderGuest) => {
@@ -1773,7 +1762,7 @@ const guardarItem = async () => {
   try {
     // Los empleados solo tocan cantidad y persona; el cobro es cosa del admin.
     const payload = isAdmin.value
-      ? editItemData.value
+      ? { ...editItemData.value, unit_price: editItemData.value.unit_price ?? undefined }
       : { quantity: editItemData.value.quantity, guest_number: editItemData.value.guest_number };
     await ordersService.updateItem(
       selectedOrder.value.id,

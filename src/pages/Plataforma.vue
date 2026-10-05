@@ -295,12 +295,9 @@
                 <p class="text-subtitle-2 mb-2">Acuerdo comercial</p>
                 <v-row dense>
                   <v-col cols="6">
-                    <v-text-field
-                      v-model.number="createData.monthly_price"
+                    <MoneyField
+                      v-model="createData.monthly_price"
                       label="Valor mensual (COP)"
-                      type="number"
-                      min="0"
-                      prefix="$"
                       hint="Los pagos deberán coincidir con este valor"
                       persistent-hint
                     />
@@ -593,12 +590,9 @@
               />
             </v-col>
             <v-col cols="6">
-              <v-text-field
-                v-model.number="subscriptionData.monthly_price"
+              <MoneyField
+                v-model="subscriptionData.monthly_price"
                 label="Valor mensual (COP)"
-                type="number"
-                min="0"
-                prefix="$"
                 hint="Los pagos deben coincidir con este valor"
                 persistent-hint
               />
@@ -640,12 +634,7 @@
           <p class="text-subtitle-2 mb-2">Registrar pago manual</p>
           <v-row dense>
             <v-col cols="6">
-              <v-text-field
-                v-model.number="paymentData.amount"
-                label="Monto (COP)"
-                type="number"
-                prefix="$"
-              />
+              <MoneyField v-model="paymentData.amount" label="Monto (COP)" empty-as-zero />
             </v-col>
             <v-col cols="6">
               <v-text-field
@@ -736,6 +725,7 @@ import { PASSWORD_HINT, passwordRules } from '../utils/validation'
 import CopyCatalogDialog from '../components/CopyCatalogDialog.vue'
 import TwoFactorSetup from '../components/TwoFactorSetup.vue'
 import DateField from '../components/DateField.vue'
+import MoneyField from '../components/MoneyField.vue'
 
 const loading = ref(false)
 const saving = ref(false)

@@ -62,8 +62,29 @@ test('vendedor, pago con motivo obligatorio y estadísticas de ventas', async ({
   await sidebarItem(page, 'Empresas').click()
   const companyRow = page.locator('tr', { hasText: `Comercial E2E ${stamp}` })
   await companyRow.locator('.mdi-credit-card-outline').click()
-  await page.getByLabel('Monto (COP)').fill('120000')
+  const payment = page.getByLabel('Monto (COP)')
+  await expect(payment).not.toHaveAttribute('type', 'number')
+  await payment.fill('120.000')
   await expect(page.getByText(/Indica el motivo de la diferencia/)).toBeVisible()
+  // "150.000" is the agreed fee, not 150 pesos: no reason asked, and it is paid.
+  await payment.fill('150.000')
+  await expect(page.getByText(/Indica el motivo de la diferencia/)).toHaveCount(0)
+  await page.getByRole('button', { name: 'Registrar pago y extender periodo' }).click()
+  await expect(page.getByText('Pago registrado y periodo extendido')).toBeVisible()
+
+  // The agreed fee reads with its dots and a new one is typed the same way.
+  await companyRow.locator('.mdi-credit-card-outline').click()
+  const fee = page.getByLabel('Valor mensual (COP)')
+  await expect(fee).toHaveValue('150.000')
+  await expect(fee).not.toHaveAttribute('type', 'number')
+  await fee.fill('1.250.000')
+  await page.getByRole('button', { name: 'Guardar suscripción' }).click()
+  await expect(page.getByText('Suscripción guardada')).toBeVisible()
+  await page.getByRole('dialog').getByRole('button', { name: 'Cerrar' }).click()
+
+  await sidebarItem(page, 'Ventas por vendedor').click()
+  await expect(statsRow).toContainText('$1.250.000')
+  await expect(statsRow).toContainText('$250.000')
 })
 
 /**
@@ -84,4 +105,20 @@ test('nueva empresa marca los campos obligatorios desde que se abre', async ({ p
 
   await page.waitForTimeout(400)
   await page.screenshot({ path: '../screenshots/nueva-empresa-obligatorios.png' })
+
+  // The agreed fee is typed as pesos: "1.250.000" is a million and a quarter.
+  const stamp = Date.now()
+  await dialog.getByLabel('Nombre de la empresa *').fill(`Cuota E2E ${stamp}`)
+  await dialog.getByLabel('Nombre del administrador *').fill('Dueña Cuota')
+  await dialog.getByLabel('Correo de acceso *').fill(`cuota.${stamp}@e2e.test`)
+  await dialog.getByLabel('Contraseña inicial *').fill('clave1234')
+  const fee = dialog.getByLabel('Valor mensual (COP)')
+  await expect(fee).not.toHaveAttribute('type', 'number')
+  await fee.fill('1.250.000')
+  await dialog.getByRole('button', { name: 'Crear empresa' }).click()
+  await expect(page.getByText('Empresa creada exitosamente')).toBeVisible()
+  await expect(dialog).toHaveCount(0)
+
+  await page.locator('tr', { hasText: `Cuota E2E ${stamp}` }).locator('.mdi-credit-card-outline').click()
+  await expect(page.getByLabel('Valor mensual (COP)')).toHaveValue('1.250.000')
 })

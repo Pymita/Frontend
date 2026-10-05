@@ -499,11 +499,7 @@
               <MoneyField v-model="rowForm.unit_price" label="Valor unitario" density="comfortable" />
             </v-col>
             <v-col cols="6" md="3">
-              <MoneyField
-                :model-value="rowForm.discount"
-                label="Descuento"
-                density="comfortable"
-                @update:model-value="value => (rowForm!.discount = value ?? 0)" />
+              <MoneyField v-model="rowForm.discount" label="Descuento" density="comfortable" empty-as-zero />
             </v-col>
             <v-col cols="6" md="3">
               <DateField
@@ -633,11 +629,11 @@
             <v-row dense>
               <v-col cols="12" md="4">
                 <MoneyField
-                  :model-value="paymentForm.amount"
+                  v-model="paymentForm.amount"
                   label="Valor del abono"
                   :rules="[positiveAmount]"
                   density="comfortable"
-                  @update:model-value="value => (paymentForm.amount = value ?? 0)" />
+                  empty-as-zero />
               </v-col>
               <v-col cols="12" md="4">
                 <v-select
@@ -688,11 +684,11 @@
               <v-row dense>
                 <v-col cols="12" md="4">
                   <MoneyField
-                    :model-value="customerPaymentForm.amount"
+                    v-model="customerPaymentForm.amount"
                     label="Valor del abono"
                     :rules="[positiveAmount]"
                     density="comfortable"
-                    @update:model-value="value => (customerPaymentForm.amount = value ?? 0)" />
+                    empty-as-zero />
                 </v-col>
                 <v-col cols="12" md="4">
                   <v-select

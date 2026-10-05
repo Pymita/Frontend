@@ -33,12 +33,22 @@ test('un grupo con sus variantes se crea, muestra su precio y se borra', async (
   await page.getByRole('button', { name: 'Nueva variante' }).click()
   await dialog.getByLabel('Nombre', { exact: true }).fill('Grande')
   await dialog.getByLabel('No cambia el precio (ej: sabor de jugo)').uncheck()
-  await dialog.getByLabel('Diferencia de precio ($)').fill('2000')
+  const difference = dialog.getByLabel('Diferencia de precio ($)')
+  await expect(difference).not.toHaveAttribute('type', 'number')
+  await difference.fill('2.000')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
 
   const grande = page.locator('tbody tr', { hasText: 'Grande' })
   await expect(grande).toContainText('+$2.000')
   await expect(page.locator('tbody tr', { hasText: 'Pequeño' })).toContainText('$0')
+
+  // A smaller size subtracts: the minus sign is read too.
+  await page.getByRole('button', { name: 'Nueva variante' }).click()
+  await dialog.getByLabel('Nombre', { exact: true }).fill('Mini')
+  await dialog.getByLabel('No cambia el precio (ej: sabor de jugo)').uncheck()
+  await dialog.getByLabel('Diferencia de precio ($)').fill('-1.500')
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.locator('tbody tr', { hasText: 'Mini' })).toContainText('-$1.500')
 
   page.once('dialog', confirmation => {
     expect(confirmation.message()).toBe('¿Eliminar la variante "Grande"?')

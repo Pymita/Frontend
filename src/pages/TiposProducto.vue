@@ -163,12 +163,13 @@
             />
             <v-row v-if="!samePrice">
               <v-col cols="6">
-                <v-text-field
-                  v-model.number="tipoFormData.price_difference"
+                <!-- A smaller size subtracts: the decimal keypad of a phone has no minus sign. -->
+                <MoneyField
+                  v-model="tipoFormData.price_difference"
                   label="Diferencia de precio ($)"
-                  type="number"
-                  step="100"
-                  hint="Ej: 2000 para sumar $2.000 al precio base"
+                  inputmode="text"
+                  hint="Ej: 2.000 para sumar $2.000 al precio base"
+                  empty-as-zero
                 />
               </v-col>
               <v-col cols="6">
@@ -214,6 +215,7 @@ import { errorMessage } from '@/utils/errors';
 import { ref, onMounted, watch } from 'vue';
 import { variantGroupsService, variantsService, type VariantGroup, type Variant } from '@/services/variantsService';
 import LockableButton from '../components/LockableButton.vue'
+import MoneyField from '../components/MoneyField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.

@@ -119,14 +119,7 @@
 
         <!-- Modo por monto libre -->
         <template v-else>
-          <v-text-field
-            v-model.number="paymentAmount"
-            label="Monto a pagar"
-            type="number"
-            min="0"
-            :max="order?.pending_balance"
-            prefix="$"
-          />
+          <MoneyField v-model="paymentAmount" label="Monto a pagar" empty-as-zero />
           <v-alert type="info" variant="tonal" density="compact" class="mb-2">
             <template v-if="paymentAmount >= Number(order?.pending_balance ?? 0) && Number(order?.pending_balance ?? 0) > 0">
               Cierra la cuenta: factura los productos que falten y aplica los abonos.
@@ -174,6 +167,7 @@ import {
 import { orderPaymentMethodLabels, options } from '@/utils/labels'
 import { money } from '@/utils/money'
 import { errorMessage } from '@/utils/errors'
+import MoneyField from './MoneyField.vue'
 
 /**
  * Cobrar una parte de la cuenta: por productos (factura parcial que descuenta
