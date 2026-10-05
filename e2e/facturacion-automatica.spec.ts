@@ -565,8 +565,9 @@ test('el día a facturar marca a quienes tienen el corte ese día', async ({ pag
   await expect(row(page, 'Beto Corte Otro').locator('input[type="checkbox"]')).toBeChecked()
   await expect(row(page, 'Ana Corte Hoy').locator('input[type="checkbox"]')).not.toBeChecked()
 
-  // El mes a facturar sigue al día elegido.
-  await field(page, 'Día a facturar').locator('input').fill('2025-03-05')
+  // Un día que nadie usa como corte: ni el de Ana (hoy) ni el de Beto.
+  const emptyDay = [1, 2, 3, 4, 5, 6, 7, 8, 9].find(d => d !== day && d !== otherDay) ?? 28
+  await field(page, 'Día a facturar').locator('input').fill(`2025-03-${String(emptyDay).padStart(2, '0')}`)
   await expect(field(page, 'Mes a facturar').locator('input')).toHaveValue('marzo de 2025')
   await expect(page.getByText(/Nadie tiene su corte el/)).toBeVisible()
 })
