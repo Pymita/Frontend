@@ -36,7 +36,7 @@ export default defineConfig({
         // La cuenta de plataforma de los seeders no tiene segundo factor, y los
         // correos van al log para leer el enlace de restablecer contraseña.
         'SUPER_ADMIN_2FA_REQUIRED=false MAIL_MAILER=log ' +
-        'DB_DATABASE="$PWD/database/e2e.sqlite" php artisan serve --host=127.0.0.1 --port=8010\'',
+        'DB_DATABASE="$PWD/database/e2e.sqlite" CORS_ALLOWED_ORIGINS="*" php artisan serve --host=127.0.0.1 --port=8010\'',
       url: 'http://127.0.0.1:8010/up',
       reuseExistingServer: false,
       timeout: 60_000,
