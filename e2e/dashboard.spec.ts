@@ -70,6 +70,12 @@ test('stock bajo muestra el saldo real y más vendidos solo cuenta lo cobrado', 
   await expect(empanadaRow).toContainText('40 vendidos · 2 pedidos')
   await expect(empanadaRow).toContainText('$100.000')
   await expect(empanadaRow).toContainText(/\d+(,\d)? % de las ventas/)
+
+  // The top seller wears the brand teal; its number is ink, since white on it is 2.06:1.
+  const firstPlace = topProducts.locator('.v-list-item').first().locator('.v-avatar')
+  await expect(firstPlace).toHaveText('1')
+  await expect(firstPlace).toHaveCSS('background-color', 'rgb(14, 202, 189)')
+  await expect(firstPlace.getByText('1', { exact: true })).toHaveCSS('color', 'rgb(17, 26, 36)')
 })
 
 const money = (value: number): string => '$' + value.toLocaleString('es-CO', { maximumFractionDigits: 0 })
