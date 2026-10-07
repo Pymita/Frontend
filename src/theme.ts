@@ -9,7 +9,7 @@ import type { ThemeDefinition, VuetifyOptions } from 'vuetify'
 export const brand = {
   primary: '#1D66B0',
   secondary: '#475669',
-  accent: '#F0935F',
+  accent: '#0ECABD',
 }
 
 /** Font stacks. The files are bundled by the @fontsource-variable imports in main.ts. */
