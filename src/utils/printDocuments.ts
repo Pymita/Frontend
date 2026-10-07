@@ -25,6 +25,7 @@ export interface DocumentBusiness {
   complete?: boolean
 }
 
+/** The resolution a factura was numbered under, as it read then (not the current settings). */
 export interface DocumentResolution {
   number: string
   date?: string | null

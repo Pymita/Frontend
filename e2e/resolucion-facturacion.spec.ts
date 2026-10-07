@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, field, freezeTime, loginUI } from './helpers'
+import { expect, test, type Page } from '@playwright/test'
+import { ADMIN, API, PLATFORM, apiLogin, field, freezeTime, loginUI, sidebarItem } from './helpers'
 
 /**
  * Resolución de facturación DIAN: el admin registra el rango autorizado como
@@ -136,4 +136,142 @@ test('la resolución numera las ventas tal cual y el consecutivo aparece en Vent
   await expect(saleRow).toBeVisible()
   await expect(saleRow).toContainText('POS1001')
   await expect(saleRow).not.toContainText('POS-1001')
+})
+
+/**
+ * Una reimpresión nunca cambia: cada documento conserva la resolución con la
+ * que se numeró. Con la resolución A se cobra una venta y se emite una
+ * factura mensual; el admin registra la B y se emite una más de cada una. La
+ * tirilla y la factura de las primeras siguen diciendo A; las nuevas, B. En
+ * una empresa propia, para no mover la resolución del negocio sembrado.
+ */
+test('registrar una resolución nueva no cambia lo que ya se imprimió con la anterior', async ({ page, request }) => {
+  const superToken = await apiLogin(request, PLATFORM.email, PLATFORM.password)
+  const slug = `reimpresion-${Date.now()}`
+  const credentials = { email: `admin.${slug}@e2e.test`, password: 'negocio2026' }
+  const company = await request.post(`${API}/platform/companies`, {
+    headers: { Authorization: `Bearer ${superToken}` },
+    data: { name: `E2E ${slug}`, slug, business_type: 'other', admin: { name: 'Dueña Reimpresión', ...credentials } },
+  })
+  expect(company.status()).toBe(201)
+  const auth = { Authorization: `Bearer ${await apiLogin(request, credentials.email, credentials.password)}` }
+  const period = '2025-01'
+
+  const registerResolution = async (data: Record<string, unknown>) => {
+    const response = await request.put(`${API}/invoicing/resolution`, { headers: auth, data })
+    expect(response.ok()).toBeTruthy()
+  }
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: 'Bebidas' } })
+  const product = await request.post(`${API}/products`, {
+    headers: auth,
+    data: { name: 'Limonada', type: 'final', unit: 'unidad', sale_price: 7311, tracks_stock: false, category_id: (await category.json()).data.id },
+  })
+  expect(product.status()).toBe(201)
+  const productId = (await product.json()).data.id
+  const sell = async (quantity: number): Promise<string> => {
+    const order = await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: productId, quantity }] } })
+    expect(order.status()).toBe(201)
+    const { id, created_at } = (await order.json()).data
+    const paid = await request.post(`${API}/orders/${id}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+    expect(paid.ok()).toBeTruthy()
+    return created_at
+  }
+  const bill = async (name: string, documentNumber: string): Promise<string> => {
+    const customer = await request.post(`${API}/customers`, {
+      headers: auth,
+      data: { name, document_type: 'CC', document_number: documentNumber, recurring_active: true, monthly_fee: 250000, billing_day: 10 },
+    })
+    expect(customer.status()).toBe(201)
+    const generated = await request.post(`${API}/recurring-billing/invoices/generate`, {
+      headers: auth,
+      data: { period, items: [{ customer_id: (await customer.json()).data.id }] },
+    })
+    expect(generated.status()).toBe(201)
+    return (await generated.json()).data.created[0].document_number
+  }
+
+  await registerResolution({
+    invoicing_resolution: '018764000000001',
+    invoice_prefix: 'FE',
+    range_from: 1,
+    range_to: 100,
+    resolution_date: '2026-01-15',
+    valid_until: '2030-01-15',
+  })
+  const firstSaleAt = await sell(1)
+  expect(await bill('Ana Resolución A', '7101')).toBe('FE2')
+
+  await registerResolution({
+    invoicing_resolution: '018764000000002',
+    invoice_prefix: 'SETT',
+    range_from: 5001,
+    range_to: 9000,
+    resolution_date: '2026-09-01',
+    valid_until: '2032-09-01',
+  })
+  await sell(2)
+  expect(await bill('Beto Resolución B', '7102')).toBe('SETT5002')
+
+  await freezeTime(page, firstSaleAt)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, credentials.email, credentials.password)
+
+  // Configuración sigue anunciando el próximo número de la resolución vigente.
+  await page.goto('/configuracion')
+  await expect(page.locator('.v-alert', { hasText: 'Próximo consecutivo' }).locator('strong')).toHaveText('SETT5003')
+
+  // --- La tirilla POS de cada venta, reimpresa desde Pedidos ---
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Pedidos del día' }).click()
+  const printTicket = async (total: string): Promise<{ popup: Page; text: string }> => {
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup'),
+      page.locator('tbody tr', { hasText: total }).getByRole('button', { name: 'Factura' }).click(),
+    ])
+    await expect(popup.locator('body')).toContainText('FACTURA DE VENTA No.')
+    return { popup, text: await popup.locator('body').innerText() }
+  }
+
+  const ticketA = await printTicket('$7.311')
+  expect(ticketA.text).toContain('FACTURA DE VENTA No. FE1')
+  expect(ticketA.text).toContain('Resol. DIAN 018764000000001 de 2026-01-15')
+  expect(ticketA.text).toContain('Autoriza de FE1 a FE100')
+  expect(ticketA.text).toContain('Vigencia 2026-01-15 hasta 2030-01-15')
+  expect(ticketA.text).not.toContain('018764000000002')
+  expect(ticketA.text).not.toContain('SETT')
+  await ticketA.popup.screenshot({ path: '../screenshots/reimpresion-tirilla-resolucion-anterior.png', fullPage: true })
+  await ticketA.popup.close()
+
+  const ticketB = await printTicket('$14.622')
+  expect(ticketB.text).toContain('FACTURA DE VENTA No. SETT5001')
+  expect(ticketB.text).toContain('Resol. DIAN 018764000000002 de 2026-09-01')
+  expect(ticketB.text).toContain('Autoriza de SETT5001 a SETT9000')
+  expect(ticketB.text).toContain('Vigencia 2026-09-01 hasta 2032-09-01')
+  await ticketB.popup.close()
+
+  // --- La factura de venta mensual, reimpresa desde Facturación automática ---
+  await sidebarItem(page, 'Facturación automática').click()
+  await field(page, 'Mes a facturar').locator('input').fill(period)
+  const printInvoice = async (customer: string, number: string): Promise<Page> => {
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup'),
+      page.locator('.v-window-item--active tbody tr', { hasText: customer }).getByRole('button', { name: `Imprimir ${number}` }).click(),
+    ])
+    await expect(popup.locator('.doc-number .number')).toHaveText(number)
+    return popup
+  }
+
+  const invoiceA = await printInvoice('Ana Resolución A', 'FE2')
+  await expect(invoiceA.locator('.header .business .resolution')).toHaveText(
+    'Resolución DIAN N.º 018764000000001 del 15/01/2026 · Rango FE1 a FE100 · Vigente hasta 15/01/2030',
+  )
+  await invoiceA.setViewportSize({ width: 1440, height: 900 })
+  await invoiceA.screenshot({ path: '../screenshots/reimpresion-factura-resolucion-anterior-1440.png', fullPage: true })
+  await invoiceA.close()
+
+  const invoiceB = await printInvoice('Beto Resolución B', 'SETT5002')
+  await expect(invoiceB.locator('.header .business .resolution')).toHaveText(
+    'Resolución DIAN N.º 018764000000002 del 01/09/2026 · Rango SETT5001 a SETT9000 · Vigente hasta 01/09/2032',
+  )
+  await invoiceB.close()
 })
