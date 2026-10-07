@@ -169,10 +169,16 @@ const resolutionLine = (resolution: DocumentResolution): string => {
   ].filter(Boolean).map(part => `<span>${escape(part)}</span>`).join(' · ')
 }
 
+/**
+ * "Responsable de IVA", or '' when it must not print: the regime is a tax
+ * statement of the NIT, and without a NIT loaded it is the database default,
+ * not something the company said.
+ */
+export const taxRegimeText = (business: { nit?: string | null; tax_regime?: string | null }): string =>
+  business.nit && business.tax_regime ? taxRegimeLabels[business.tax_regime] ?? '' : ''
+
 const header = (business: DocumentBusiness, kind: string, number: string, resolution: DocumentResolution | null = null): string => {
-  // El régimen es una declaración fiscal del NIT: sin NIT cargado sería el
-  // valor por defecto de la base, no algo que la empresa dijo.
-  const regime = business.nit && business.tax_regime ? taxRegimeLabels[business.tax_regime] ?? '' : ''
+  const regime = taxRegimeText(business)
   const place = [business.city, business.department].filter(Boolean).join(' - ')
   return `
     <div class="box header">

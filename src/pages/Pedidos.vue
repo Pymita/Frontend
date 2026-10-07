@@ -952,7 +952,6 @@ import {
   paymentStatusLabels,
   paymentStatusColors,
   orderPaymentMethodLabels,
-  taxRegimeLabels,
   label,
   options,
 } from '@/utils/labels';
@@ -968,7 +967,8 @@ import { effectiveFeatures } from '@/types/auth';
 import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/utils/orderLines';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
 import { money } from '@/utils/money';
-import { formatRecent, todayIso } from '@/utils/dates';
+import { formatFullDateTime, formatIsoDate, formatRecent, todayIso } from '@/utils/dates';
+import { taxRegimeText } from '@/utils/printDocuments';
 import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage';
 import type { PageQuery, PaginatedResponse } from '@/types/api';
 import type { OrderGuest } from '@/services/ordersService';
@@ -1529,13 +1529,13 @@ const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {})
     : isInvoice
       ? [
           r.resolution
-            ? `Resol. DIAN ${r.resolution.number}${r.resolution.date ? ' de ' + r.resolution.date : ''}`
+            ? `Resol. DIAN ${r.resolution.number}${r.resolution.date ? ' de ' + formatIsoDate(r.resolution.date) : ''}`
             : '',
           r.resolution?.range_from
             ? `Autoriza de ${r.resolution.prefix ?? ''}${r.resolution.range_from} a ${r.resolution.prefix ?? ''}${r.resolution.range_to}`
             : '',
           r.resolution?.valid_until
-            ? `Vigencia${r.resolution.valid_from ? ' ' + r.resolution.valid_from : ''} hasta ${r.resolution.valid_until}`
+            ? `Vigencia${r.resolution.valid_from ? ' ' + formatIsoDate(r.resolution.valid_from) : ''} hasta ${formatIsoDate(r.resolution.valid_until)}`
             : '',
           `FACTURA DE VENTA No. ${r.invoice_number}`,
         ]
@@ -1578,7 +1578,7 @@ const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {})
     center(r.business.name || ''),
     center(r.business.legal_name || ''),
     r.business.nit ? center(`NIT ${r.business.nit}`) : '',
-    r.business.tax_regime ? center(label(taxRegimeLabels, r.business.tax_regime)) : '',
+    center(taxRegimeText(r.business)),
     center([r.business.address, r.business.city].filter(Boolean).join(' - ')),
     r.business.phone ? center(`Tel. ${r.business.phone}`) : '',
     line,
@@ -1586,7 +1586,7 @@ const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {})
     line,
     `CLIENTE : ${r.customer.name || 'Consumidor final'}`,
     r.customer.document ? `CC/NIT  : ${r.customer.document}` : '',
-    `FECHA   : ${new Date((!opts.preBill && r.paid_at) || r.created_at).toLocaleString('es-CO')}`,
+    `FECHA   : ${formatFullDateTime((!opts.preBill && r.paid_at) || r.created_at)}`,
     r.dining_table ? `MESA    : ${r.dining_table}` : '',
     r.waiter ? `ATENDIÓ: ${r.waiter}` : '',
     line,

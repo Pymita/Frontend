@@ -234,9 +234,9 @@ test('registrar una resolución nueva no cambia lo que ya se imprimió con la an
 
   const ticketA = await printTicket('$7.311')
   expect(ticketA.text).toContain('FACTURA DE VENTA No. FE1')
-  expect(ticketA.text).toContain('Resol. DIAN 018764000000001 de 2026-01-15')
+  expect(ticketA.text).toContain('Resol. DIAN 018764000000001 de 15/01/2026')
   expect(ticketA.text).toContain('Autoriza de FE1 a FE100')
-  expect(ticketA.text).toContain('Vigencia 2026-01-15 hasta 2030-01-15')
+  expect(ticketA.text).toContain('Vigencia 15/01/2026 hasta 15/01/2030')
   expect(ticketA.text).not.toContain('018764000000002')
   expect(ticketA.text).not.toContain('SETT')
   await ticketA.popup.screenshot({ path: '../screenshots/reimpresion-tirilla-resolucion-anterior.png', fullPage: true })
@@ -244,9 +244,9 @@ test('registrar una resolución nueva no cambia lo que ya se imprimió con la an
 
   const ticketB = await printTicket('$14.622')
   expect(ticketB.text).toContain('FACTURA DE VENTA No. SETT5001')
-  expect(ticketB.text).toContain('Resol. DIAN 018764000000002 de 2026-09-01')
+  expect(ticketB.text).toContain('Resol. DIAN 018764000000002 de 01/09/2026')
   expect(ticketB.text).toContain('Autoriza de SETT5001 a SETT9000')
-  expect(ticketB.text).toContain('Vigencia 2026-09-01 hasta 2032-09-01')
+  expect(ticketB.text).toContain('Vigencia 01/09/2026 hasta 01/09/2032')
   await ticketB.popup.close()
 
   // --- La factura de venta mensual, reimpresa desde Facturación automática ---
@@ -274,4 +274,103 @@ test('registrar una resolución nueva no cambia lo que ya se imprimió con la an
     'Resolución DIAN N.º 018764000000002 del 01/09/2026 · Rango SETT5001 a SETT9000 · Vigente hasta 01/09/2032',
   )
   await invoiceB.close()
+})
+
+/**
+ * La tirilla es el comprobante de la venta que existe: un cobro revertido y
+ * vuelto a cobrar imprime el número de la venta nueva (el revertido queda
+ * gastado). Como la factura de venta, el régimen solo sale junto al NIT y las
+ * fechas se leen dd/mm/aaaa. En una empresa propia, que nace sin NIT.
+ */
+test('un cobro revertido y vuelto a cobrar imprime el número de la venta nueva', async ({ page, request }) => {
+  const superToken = await apiLogin(request, PLATFORM.email, PLATFORM.password)
+  const slug = `tirilla-${Date.now()}`
+  const credentials = { email: `admin.${slug}@e2e.test`, password: 'negocio2026' }
+  const company = await request.post(`${API}/platform/companies`, {
+    headers: { Authorization: `Bearer ${superToken}` },
+    data: { name: `E2E ${slug}`, slug, business_type: 'other', admin: { name: 'Dueña Tirilla', ...credentials } },
+  })
+  expect(company.status()).toBe(201)
+  const auth = { Authorization: `Bearer ${await apiLogin(request, credentials.email, credentials.password)}` }
+
+  const resolution = await request.put(`${API}/invoicing/resolution`, {
+    headers: auth,
+    data: {
+      invoicing_resolution: '018764000000001',
+      invoice_prefix: 'FE',
+      range_from: 1,
+      range_to: 100,
+      resolution_date: '2026-01-15',
+      valid_until: '2030-01-15',
+    },
+  })
+  expect(resolution.ok()).toBeTruthy()
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: 'Comidas' } })
+  const product = await request.post(`${API}/products`, {
+    headers: auth,
+    data: { name: 'Arepa', type: 'final', unit: 'unidad', sale_price: 4321, tracks_stock: false, category_id: (await category.json()).data.id },
+  })
+  expect(product.status()).toBe(201)
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { items: [{ product_id: (await product.json()).data.id, quantity: 1 }] },
+  })
+  expect(order.status()).toBe(201)
+  const { id: orderId, created_at: createdAt } = (await order.json()).data
+
+  // Cobrado (FE1), revertido por el admin y cobrado otra vez.
+  const pay = async () => {
+    const paid = await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+    expect(paid.ok()).toBeTruthy()
+    return (await paid.json()).data
+  }
+  await pay()
+  const reverted = await request.post(`${API}/orders/${orderId}/revert-payment`, {
+    headers: auth,
+    data: { reason: 'Cobro a la mesa equivocada' },
+  })
+  expect(reverted.ok()).toBeTruthy()
+  const paidAt = new Date((await pay()).paid_at)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const saleDay = `${pad(paidAt.getDate())}/${pad(paidAt.getMonth() + 1)}/${paidAt.getFullYear()}`
+
+  await freezeTime(page, createdAt)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, credentials.email, credentials.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Pedidos del día' }).click()
+  const printTicket = async (): Promise<{ popup: Page; text: string }> => {
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup'),
+      page.locator('tbody tr', { hasText: '$4.321' }).getByRole('button', { name: 'Factura' }).click(),
+    ])
+    await expect(popup.locator('body')).toContainText('FACTURA DE VENTA No.')
+    await popup.setViewportSize({ width: 420, height: 650 })
+    return { popup, text: await popup.locator('body').innerText() }
+  }
+
+  const ticket = await printTicket()
+  await ticket.popup.screenshot({ path: '../screenshots/fix-tiquete-detalles-tirilla-420.png', fullPage: true })
+  expect(ticket.text).toContain('FACTURA DE VENTA No. FE2')
+  expect(ticket.text).not.toContain('FACTURA DE VENTA No. FE1')
+  expect(ticket.text).not.toContain('Responsable de IVA')
+  expect(ticket.text).toContain('Resol. DIAN 018764000000001 de 15/01/2026')
+  expect(ticket.text).toContain('Autoriza de FE1 a FE100')
+  expect(ticket.text).toContain('Vigencia 15/01/2026 hasta 15/01/2030')
+  expect(ticket.text).toContain(`FECHA   : ${saleDay}`)
+  expect(ticket.text).not.toMatch(/\d{4}-\d{2}-\d{2}/)
+  await ticket.popup.close()
+
+  // Con el NIT cargado en Datos del negocio, el régimen sale junto a él.
+  const nit = `900${Date.now() % 1_000_000}`
+  const business = await request.put(`${API}/invoicing/business`, {
+    headers: auth,
+    data: { legal_name: 'Tirilla SAS', nit, tax_regime: 'common', address: 'Calle 10 # 5-20', phone: '3001234567' },
+  })
+  expect(business.ok()).toBeTruthy()
+  const withNit = await printTicket()
+  expect(withNit.text).toContain(`NIT ${nit}`)
+  expect(withNit.text).toContain('Responsable de IVA')
+  expect(withNit.text).toContain('FACTURA DE VENTA No. FE2')
+  await withNit.popup.close()
 })
