@@ -99,6 +99,7 @@ export interface OrderReceipt {
     /** common | simplified | large_taxpayer (ver taxRegimeLabels) */
     tax_regime: string | null
   }
+  /** The resolution this order's number was taken from, never the current one; null without it. */
   resolution: {
     number: string
     date: string | null
