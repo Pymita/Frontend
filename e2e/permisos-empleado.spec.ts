@@ -1,4 +1,5 @@
 import { expect, test, type Locator } from '@playwright/test'
+import { encode } from 'uqr'
 import { ADMIN, API, COMPANY_SLUG, PLATFORM, apiLogin, lastResetLink, loginUI, openSidebarGroup, sidebarGroup, sidebarItem, totp } from './helpers'
 
 /**
@@ -412,10 +413,53 @@ test.describe('verificación en dos pasos de la cuenta de plataforma', () => {
     await expect(page.getByRole('heading', { name: 'Seguridad' })).toBeVisible()
     await expect(page.getByText('Sin activar')).toBeVisible()
 
+    const setupResponse = page.waitForResponse(response => response.url().endsWith('/auth/two-factor/setup'))
     await page.getByRole('button', { name: 'Activar verificación en dos pasos' }).click()
+    const { uri } = (await (await setupResponse).json()).data as { uri: string }
+
+    // A QR to scan from a laptop screen; the typed secret stays below as the fallback.
+    const qr = page.getByRole('img', { name: 'Código QR para agregar Servify POS a tu app de autenticación' })
+    await expect(qr).toBeVisible()
+    await expect(page.getByText('Escanéalo con Google Authenticator o Authy. Si no puedes escanearlo, escribe esta clave:')).toBeVisible()
+    const shown = (await qr.boundingBox())!
+    expect(shown.width).toBeGreaterThanOrEqual(200)
+    expect(shown.width).toBeLessThanOrEqual(260)
+
+    // The image encodes exactly the link the API returned: the center of every
+    // module, the 4-module light quiet zone included, matches that link's matrix.
+    const expected = encode(uri, { ecc: 'M', border: 4 })
+    const drawn = await qr.evaluate(async (img: HTMLImageElement, size) => {
+      await img.decode()
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      const context = canvas.getContext('2d')!
+      context.drawImage(img, 0, 0)
+      const cell = img.naturalWidth / size
+      const modules = Array.from({ length: size }, (_, y) => Array.from({ length: size }, (_, x) => {
+        const [r, g, b] = context.getImageData(Math.floor((x + 0.5) * cell), Math.floor((y + 0.5) * cell), 1, 1).data
+        return r + g + b < 384
+      }))
+      return { width: img.naturalWidth, height: img.naturalHeight, modules }
+    }, expected.size)
+    expect(drawn.width).toBeGreaterThan(0)
+    expect(drawn.height).toBe(drawn.width)
+    expect(drawn.modules).toEqual(expected.data)
+
     secret = (await page.getByTestId('two-factor-secret').innerText()).replace(/\s/g, '')
     expect(secret).toMatch(/^[A-Z2-7]{32}$/)
-    await expect(page.getByRole('link', { name: 'Abrir en la app' })).toHaveAttribute('href', /^otpauth:\/\/totp\//)
+    expect(uri).toContain(`secret=${secret}&`)
+    await expect(page.getByRole('link', { name: 'Abrir en la app' })).toHaveAttribute('href', uri)
+
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(qr).toBeInViewport({ ratio: 1 })
+    await page.screenshot({ path: '../screenshots/qr-dos-pasos-1440.png' })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.locator('.v-navigation-drawer')).not.toBeInViewport()
+    await expect(page.getByText('Sin activar')).toBeInViewport({ ratio: 1 })
+    await expect(qr).toBeInViewport({ ratio: 1 })
+    await page.screenshot({ path: '../screenshots/qr-dos-pasos-390.png' })
+    await page.setViewportSize({ width: 1280, height: 720 })
 
     await page.getByLabel('Código de 6 dígitos').fill(totp(secret))
     await page.getByRole('button', { name: 'Activar', exact: true }).click()

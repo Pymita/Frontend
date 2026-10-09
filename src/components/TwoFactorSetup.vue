@@ -1,6 +1,6 @@
 <template>
   <v-card>
-    <v-card-title class="d-flex align-center ga-2">
+    <v-card-title class="d-flex align-center ga-2 text-wrap">
       <v-icon icon="mdi-shield-key" />
       Verificación en dos pasos
       <v-spacer />
@@ -53,7 +53,20 @@
         <ol class="text-body-2 mb-4 pl-4">
           <li class="mb-2">Instala Google Authenticator, Microsoft Authenticator o Authy en tu celular.</li>
           <li class="mb-2">
-            Agrega una cuenta con esta clave (o ábrela desde el celular con el enlace):
+            Agrega la cuenta en la app:
+            <div class="my-3">
+              <img
+                v-if="qr"
+                :src="qr.src"
+                :width="qr.size"
+                :height="qr.size"
+                alt="Código QR para agregar Servify POS a tu app de autenticación"
+                class="d-block"
+              />
+              <span v-else-if="qrFailed" class="text-medium-emphasis">No pudimos mostrar el código QR.</span>
+              <v-progress-circular v-else indeterminate color="primary" />
+            </div>
+            Escanéalo con Google Authenticator o Authy. Si no puedes escanearlo, escribe esta clave:
             <div class="d-flex align-center flex-wrap ga-2 mt-2">
               <code class="text-body-1" data-testid="two-factor-secret">{{ groupedSecret }}</code>
               <v-btn size="small" variant="text" prepend-icon="mdi-content-copy" @click="copySecret">Copiar</v-btn>
@@ -90,7 +103,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useTheme } from 'vuetify'
 import authService from '../services/authService'
 import { useAuthStore } from '../stores/auth'
 import { errorMessage } from '../utils/errors'
@@ -111,6 +125,40 @@ const error = ref('')
 const notice = ref('')
 
 const groupedSecret = computed(() => setup.value?.secret.replace(/(.{4})(?=.)/g, '$1 ') ?? '')
+
+const theme = useTheme()
+const qr = ref<{ src: string; size: number } | null>(null)
+const qrFailed = ref(false)
+// 4 CSS px per module: about 230 px, easy to scan from a laptop screen.
+const QR_MODULE_PX = 4
+
+watch(() => setup.value?.uri, async (uri) => {
+  qr.value = null
+  qrFailed.value = false
+  if (!uri) return
+  try {
+    // Drawn here, never by a QR service: the link carries the secret.
+    const { encode } = await import('uqr')
+    // A 4-module light border is the quiet zone scanners need to find the code.
+    const { size, data } = encode(uri, { ecc: 'M', border: 4 })
+    // Twice the pixels it is shown at: modules stay sharp on high-density screens.
+    const scale = QR_MODULE_PX * 2
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = size * scale
+    const context = canvas.getContext('2d')!
+    // Scanners expect dark modules on a light background.
+    const { surface, 'on-surface': ink } = theme.current.value.colors
+    context.fillStyle = surface
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    context.fillStyle = ink
+    data.forEach((row, y) => row.forEach((dark, x) => {
+      if (dark) context.fillRect(x * scale, y * scale, scale, scale)
+    }))
+    qr.value = { src: canvas.toDataURL('image/png'), size: size * QR_MODULE_PX }
+  } catch {
+    qrFailed.value = true
+  }
+})
 
 const run = async (action: () => Promise<void>, fallback: string) => {
   saving.value = true
