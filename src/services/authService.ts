@@ -6,7 +6,7 @@ import type {
   ChangePasswordData,
   UpdateProfileData
 } from '../types'
-import type { TwoFactorChallenge, TwoFactorSetup } from '../types/auth'
+import type { PrivacyStatus, TwoFactorChallenge, TwoFactorSetup } from '../types/auth'
 
 class AuthService {
   /**
@@ -97,6 +97,16 @@ class AuthService {
     localStorage.setItem('user_data', JSON.stringify(user))
     
     return user
+  }
+
+  /** Records that the user accepted the policy in force and keeps it in the stored session. */
+  async acceptPrivacy(): Promise<PrivacyStatus> {
+    const response = await api.post<{ message: string; privacy: PrivacyStatus }>('/auth/privacy/accept')
+    const user = this.getUser()
+    if (user) {
+      localStorage.setItem('user_data', JSON.stringify({ ...user, privacy: response.data.privacy }))
+    }
+    return response.data.privacy
   }
 
   /**

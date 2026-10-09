@@ -53,6 +53,9 @@ const router = createRouter({
   // GitHub Pages (la app vive bajo un subdirectorio del dominio).
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
+  // The page renders after the browser's own jump to #section, so a link
+  // such as /privacidad#eliminacion needs the router to scroll there.
+  scrollBehavior: to => (to.hash ? { el: to.hash, top: 16 } : undefined),
 })
 
 setupRouterGuards(router)

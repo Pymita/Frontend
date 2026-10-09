@@ -39,6 +39,20 @@ export const useAuthStore = defineStore('auth', () => {
     return subscription?.status === 'suspended' ? subscription.notice : null
   })
 
+  // Ley 1581: the app asks every user to accept the policy in force before
+  // using it. A session stored before the field existed has not accepted
+  // either. The API does not block, so this is the control.
+  const mustAcceptPrivacy = computed((): boolean => {
+    return !!user.value && user.value.privacy?.accepted !== true
+  })
+
+  const acceptPrivacy = async (): Promise<void> => {
+    const privacy = await authService.acceptPrivacy()
+    if (user.value) {
+      user.value = { ...user.value, privacy }
+    }
+  }
+
   /** El backend contestó 402: la cuenta acaba de quedar en solo lectura. */
   const markBlocked = (message?: string | null): void => {
     blockedMessage.value = message || 'Tu cuenta está en modo solo lectura por falta de pago'
@@ -136,9 +150,11 @@ export const useAuthStore = defineStore('auth', () => {
     isActive,
     isReadOnly,
     readOnlyMessage,
+    mustAcceptPrivacy,
     
     // Actions
     login,
+    acceptPrivacy,
     completeTwoFactor,
     logout,
     getCurrentUser,

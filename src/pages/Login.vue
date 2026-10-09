@@ -232,6 +232,12 @@
             class="mt-3"
             :text="successMessage"
           />
+
+          <div class="text-center mt-6">
+            <a :href="privacyHref" target="_blank" rel="noopener" class="text-caption text-medium-emphasis">
+              Política de privacidad
+            </a>
+          </div>
         </v-card>
       </v-col>
     </v-row>
@@ -275,6 +281,7 @@ const STEP_SUBTITLES: Record<Step, string> = {
 }
 
 const year = new Date().getFullYear()
+const privacyHref = router.resolve('/privacidad').href
 
 // El enlace del correo abre /restablecer-contrasena con el token.
 const step = ref<Step>(route.name === 'ResetPassword' ? 'reset' : 'login')

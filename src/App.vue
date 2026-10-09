@@ -1,7 +1,7 @@
 <template>
   <v-app>
     <v-navigation-drawer
-      v-if="$route.name !== 'Login' && isAuthenticated"
+      v-if="showShell"
       v-model="drawer"
       app
       :permanent="!smAndDown"
@@ -86,7 +86,7 @@
     </v-navigation-drawer>
 
     <!-- App Bar -->
-    <v-app-bar v-if="$route.name !== 'Login' && isAuthenticated" app color="surface" flat border="b">
+    <v-app-bar v-if="showShell" app color="surface" flat border="b">
       <v-app-bar-nav-icon v-if="smAndDown" aria-label="Abrir menú" @click="drawer = !drawer" />
       <v-app-bar-title>{{ pageTitle }}</v-app-bar-title>
       <div class="d-flex align-center ga-2 mr-4">
@@ -102,7 +102,7 @@
     <v-main>
       <!-- Aviso de suscripción: prueba por vencer, pago vencido o cuenta bloqueada -->
       <v-alert
-        v-if="subscriptionNotice"
+        v-if="showShell && subscriptionNotice"
         :type="subscriptionAlertType"
         variant="tonal"
         density="compact"
@@ -114,7 +114,7 @@
       <!-- Alerta de la resolución de facturación: rango por agotarse o
            vencer. El umbral lo calcula el backend según el ritmo del local. -->
       <v-alert
-        v-if="resolutionNotice"
+        v-if="showShell && resolutionNotice"
         :type="resolutionBlocking ? 'error' : 'warning'"
         variant="tonal"
         density="compact"
@@ -126,6 +126,49 @@
 
       <router-view :key="route.fullPath" />
     </v-main>
+
+    <!-- Ley 1581: prior, express and informed authorization. Nothing behind
+         it can be used until the user accepts or signs out. -->
+    <v-dialog :model-value="showPrivacyDialog" persistent max-width="520" scrollable>
+      <v-card>
+        <v-card-title class="pt-5 px-6">Política de privacidad</v-card-title>
+        <v-card-text class="px-6">
+          <p class="mb-3">
+            Para seguir usando {{ APP_NAME }} necesitamos tu autorización para tratar tus datos personales: tu nombre,
+            correo o usuario, teléfono y los datos de tus sesiones. Los usamos para darte acceso, proteger tu cuenta y
+            prestarle el servicio a tu negocio, nunca para publicidad.
+          </p>
+          <p class="mb-4">
+            En la política está qué datos tratamos, con quién los compartimos y cómo puedes consultarlos, corregirlos o
+            pedir que los eliminemos.
+          </p>
+          <a :href="privacyHref" target="_blank" rel="noopener" class="text-primary">
+            Leer la política de privacidad{{ privacyVersion ? ` (versión ${privacyVersion})` : '' }}
+          </a>
+          <v-checkbox
+            v-model="privacyChecked"
+            label="Leí y acepto la política de privacidad y tratamiento de datos personales"
+            color="primary"
+            hide-details
+            class="mt-4"
+          />
+          <v-alert v-if="privacyError" type="error" variant="tonal" density="compact" class="mt-3" :text="privacyError" />
+        </v-card-text>
+        <v-card-actions class="flex-wrap ga-2 px-6 pb-5">
+          <v-btn variant="text" :disabled="acceptingPrivacy" @click="logout">Cerrar sesión</v-btn>
+          <v-spacer />
+          <v-btn
+            color="primary"
+            variant="flat"
+            :disabled="!privacyChecked"
+            :loading="acceptingPrivacy"
+            @click="acceptPrivacy"
+          >
+            Aceptar y continuar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Loading overlay -->
     <v-overlay v-model="loading" persistent class="align-center justify-center">
@@ -145,6 +188,7 @@ import invoicingService from './services/invoicingService'
 import { useAuthStore } from './stores/auth'
 import { effectiveFeatures } from './types/auth'
 import { APP_ICON, APP_NAME } from './utils/branding'
+import { errorMessage } from './utils/errors'
 import { SUBSCRIPTION_BLOCKED_EVENT, TWO_FACTOR_REQUIRED_EVENT } from './services/api'
 import type { MenuItem } from './types'
 
@@ -166,6 +210,8 @@ watch(() => route.fullPath, () => {
 // Usar computed del store directamente
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const currentUser = computed(() => authStore.user)
+// Public pages (login, reset password, the privacy policy) render bare.
+const showShell = computed(() => isAuthenticated.value && route.meta.requiresAuth === true)
 const isAdmin = computed(() => authStore.isAdmin)
 const isSuperAdmin = computed(() => currentUser.value?.role === 'super_admin')
 // Company of the logged-in session (multi-tenant backend).
@@ -313,6 +359,34 @@ const logout = async (): Promise<void> => {
     await router.push('/login')
   } finally {
     loading.value = false
+  }
+}
+
+// --- Privacy policy acceptance ---
+const showPrivacyDialog = computed(() => showShell.value && authStore.mustAcceptPrivacy)
+const privacyVersion = computed(() => currentUser.value?.privacy?.version)
+const privacyHref = router.resolve('/privacidad').href
+const privacyChecked = ref(false)
+const acceptingPrivacy = ref(false)
+const privacyError = ref('')
+
+// Another user may sign in on the same tab: the box always starts unchecked.
+watch(showPrivacyDialog, visible => {
+  if (visible) {
+    privacyChecked.value = false
+    privacyError.value = ''
+  }
+})
+
+const acceptPrivacy = async (): Promise<void> => {
+  acceptingPrivacy.value = true
+  privacyError.value = ''
+  try {
+    await authStore.acceptPrivacy()
+  } catch (error) {
+    privacyError.value = errorMessage(error, 'No fue posible guardar tu aceptación. Inténtalo de nuevo.')
+  } finally {
+    acceptingPrivacy.value = false
   }
 }
 
