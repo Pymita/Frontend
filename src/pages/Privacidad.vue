@@ -27,8 +27,8 @@
       <h2 id="responsable" class="text-h6">1. Responsable del tratamiento</h2>
       <ul>
         <li>
-          Nombre: {{ POLICY.ownerName }}, persona natural, identificada con cédula de ciudadanía {{ POLICY.ownerId }},
-          quien presta el servicio bajo la marca Servify POS y publica la aplicación en Google Play.
+          Nombre: {{ POLICY.ownerName }}, persona natural, quien presta el servicio bajo la marca Servify POS y publica
+          la aplicación en Google Play.
         </li>
         <li>Domicilio: {{ POLICY.city }}, Colombia.</li>
         <li>Dirección: {{ POLICY.address }}.</li>
@@ -602,7 +602,7 @@
       <p>
         <strong>Quién atiende.</strong> {{ POLICY.ownerName }}, como responsable, atiende directamente las consultas y
         reclamos sobre datos personales (art. 2.2.2.25.4.4 del Decreto 1074 de 2015), por correo a
-        <a :href="mailto">{{ POLICY.email }}</a> o por escrito a {{ POLICY.address }}, {{ POLICY.city }}. El trámite es
+        <a :href="mailto">{{ POLICY.email }}</a> o por escrito a {{ POLICY.address }}. El trámite es
         gratuito.
       </p>
       <p><strong>Consultas</strong> (conocer los datos, pedir prueba de la autorización o saber cómo se han usado):</p>
@@ -694,22 +694,21 @@ import { onMounted, onUnmounted } from 'vue'
 import { APP_ICON, APP_NAME } from '@/utils/branding'
 
 /**
- * The responsible party's details and the retention periods: fill them here
- * and nowhere else. A value still in [BRACKETS] means the policy is not ready
- * to publish. `version` must match `auth.privacy_policy_version` in the
+ * The responsible party's details and the retention periods: change them here
+ * and nowhere else. The ID number is left out on purpose (the law does not
+ * require it). `version` must match `auth.privacy_policy_version` in the
  * backend: raising both asks every user to accept the policy again.
  */
 const POLICY = {
   version: '1.0',
-  effectiveDate: '[FECHA DE ENTRADA EN VIGENCIA]',
-  ownerName: '[NOMBRE COMPLETO]',
-  ownerId: '[CÉDULA]',
-  city: '[CIUDAD]',
-  address: '[DIRECCIÓN]',
-  phone: '[TELÉFONO]',
+  effectiveDate: '10 de octubre de 2026',
+  ownerName: 'Valentina Morales Sanchez',
+  city: 'Manizales',
+  address: 'Carrera 20 # 25-59, Manizales',
+  phone: '3205607590',
   email: 'soporte@servifypos.com',
-  daysAfterTermination: '[PLAZO TRAS LA TERMINACIÓN]',
-  externalBackupsKept: '[PLAZO DE COPIAS EXTERNAS]',
+  daysAfterTermination: 90,
+  externalBackupsKept: '3 meses',
 }
 
 const SITE = 'https://app.servifypos.com'

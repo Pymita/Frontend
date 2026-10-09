@@ -15,6 +15,17 @@ async function horizontalOverflow(page: Page): Promise<number> {
   return page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
 }
 
+/** The responsible party's details, as section 1 lists them. */
+const responsibleBlock = (page: Page) => page.locator('#responsable + ul')
+
+/** Screenshots the page from the top down to the end of the responsible party's details. */
+async function screenshotTop(page: Page, path: string): Promise<void> {
+  const box = await responsibleBlock(page).boundingBox()
+  const width = page.viewportSize()!.width
+  const scrollY = await page.evaluate(() => window.scrollY)
+  await page.screenshot({ path, fullPage: true, clip: { x: 0, y: 0, width, height: scrollY + box!.y + box!.height + 24 } })
+}
+
 /** Waits for the dialog's opening animation, so a screenshot shows it as the user sees it. */
 async function settled(dialog: Locator): Promise<void> {
   await dialog.evaluate(el =>
@@ -42,21 +53,34 @@ test('la política se lee sin iniciar sesión, se enlaza desde el login y abre e
   await expect(page.getByRole('heading', { level: 1, name: 'Política de privacidad', exact: true })).toBeVisible()
   await expect(page).toHaveTitle('Política de privacidad · Servify POS')
   await expect(page.locator('.v-navigation-drawer')).toHaveCount(0)
-  await expect(page.getByText('Versión 1.0. Fecha de entrada en vigencia:')).toBeVisible()
+  await expect(page.getByText('Versión 1.0. Fecha de entrada en vigencia: 10 de octubre de 2026.')).toBeVisible()
   await expect(page.getByRole('heading', { name: '1. Responsable del tratamiento' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'soporte@servifypos.com' }).first()).toHaveAttribute('href', 'mailto:soporte@servifypos.com')
+  const responsible = responsibleBlock(page)
+  await expect(responsible.getByText('Nombre: Valentina Morales Sanchez, persona natural,')).toBeVisible()
+  await expect(responsible.getByText('Dirección: Carrera 20 # 25-59, Manizales.')).toBeVisible()
+  await expect(responsible.getByText('Teléfono: 3205607590.')).toBeVisible()
+  await expect(responsible.getByRole('link', { name: 'soporte@servifypos.com' })).toHaveAttribute('href', 'mailto:soporte@servifypos.com')
+  // The owner's ID number is not published, not even as an empty label.
+  await expect(responsible).not.toContainText(/cédula|identificad/i)
+  await expect(page.getByText(/cédula de ciudadanía/i)).toHaveCount(0)
+  await expect(page.getByText('por escrito a Carrera 20 # 25-59, Manizales. El trámite es gratuito.')).toBeVisible()
+  await expect(page.getByText('se eliminan 90 días después de la terminación')).toBeVisible()
+  await expect(page.getByText('mensuales se guardan 3 meses.')).toBeVisible()
   // The authorization paragraph describes what the app does, and nothing
   // written for the owner of the draft reaches the public page.
   await expect(page.getByText(`le pide marcar la casilla "${CONSENT}"`)).toBeVisible()
   await expect(page.getByText(/PENDIENTE DE IMPLEMENTAR|Nota para Valentina|Fuentes consultadas/)).toHaveCount(0)
-  await page.screenshot({ path: '../screenshots/politica-privacidad-pagina-1440.png' })
+  await expect(page.locator('article')).not.toContainText('[')
+  expect(await page.locator('article').innerHTML()).not.toMatch(/\[[^\]]*\]/)
+  await screenshotTop(page, '../screenshots/politica-privacidad-pagina-1440.png')
   await expect(page.getByRole('row', { name: /^Resend Envío de correos transaccionales/ })).toBeVisible()
   await page.locator('.providers').screenshot({ path: '../screenshots/politica-privacidad-proveedores-1440.png' })
 
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByRole('heading', { level: 1, name: 'Política de privacidad', exact: true })).toBeVisible()
   expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0)
-  await page.screenshot({ path: '../screenshots/politica-privacidad-pagina-390.png' })
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await screenshotTop(page, '../screenshots/politica-privacidad-pagina-390.png')
   // The providers of section 9: a table on a desktop, one block each on a phone.
   const providerBlocks = page.locator('div:has(> dl.provider)')
   await expect(providerBlocks.getByText('Dónde:')).toHaveCount(5)
