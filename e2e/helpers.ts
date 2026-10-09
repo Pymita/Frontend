@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { createHmac } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { crc32, inflateRawSync } from 'node:zlib'
@@ -50,10 +51,38 @@ export async function raisePlanLimits(
 }
 
 /**
+ * The user accepts the privacy policy in force through the API, as the
+ * consent dialog would. Idempotent: accepting again keeps the first proof.
+ */
+export async function acceptPrivacyPolicy(
+  request: APIRequestContext,
+  login: string,
+  password: string,
+  company?: string,
+): Promise<void> {
+  const token = await apiLogin(request, login, password, company)
+  const response = await request.post(`${API}/auth/privacy/accept`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  })
+  expect(response.ok()).toBeTruthy()
+}
+
+/**
  * Login por interfaz: para los tests que VERIFICAN la experiencia real.
  * Un login sin '@' es un usuario interno: la web pide además el negocio.
+ * The policy is accepted first, so the consent dialog does not cover the
+ * page under test; `privacidad.spec.ts` passes `acceptPrivacy: false`.
  */
-export async function loginUI(page: Page, login: string, password: string, company = COMPANY_SLUG): Promise<void> {
+export async function loginUI(
+  page: Page,
+  login: string,
+  password: string,
+  company = COMPANY_SLUG,
+  { acceptPrivacy = true }: { acceptPrivacy?: boolean } = {},
+): Promise<void> {
+  if (acceptPrivacy) {
+    await acceptPrivacyPolicy(page.request, login, password, login.includes('@') ? undefined : company)
+  }
   await page.goto('/login')
   await page.getByLabel('Correo o usuario').fill(login)
   if (!login.includes('@')) {
@@ -258,6 +287,17 @@ export function xlsxRows(file: Buffer, sheet = 1): string[][] {
     }
     return Array.from(cells, cell => cell ?? '')
   })
+}
+
+const E2E_DATABASE = '../backend/database/e2e.sqlite'
+
+/**
+ * Runs one SQL statement on the e2e database, for what no endpoint can
+ * arrange (e.g. a proof of an older policy version, as after a version bump).
+ * PHP's PDO, because the backend already needs it: no extra dependency.
+ */
+export function e2eSql(sql: string): void {
+  execFileSync('php', ['-r', '(new PDO("sqlite:" . $argv[1]))->exec($argv[2]);', E2E_DATABASE, sql])
 }
 
 /**

@@ -82,6 +82,14 @@ export interface User {
   features?: Feature[]
   /** Verificación en dos pasos (solo la cuenta de plataforma la usa). */
   two_factor?: { enabled: boolean; setup_required: boolean }
+  /** Privacy policy in force and whether this user accepted it (missing in sessions older than the field). */
+  privacy?: PrivacyStatus
+}
+
+export interface PrivacyStatus {
+  version: string
+  accepted: boolean
+  accepted_at: string | null
 }
 
 /** Acceso efectivo: usa features del backend o cae al comportamiento por rol */

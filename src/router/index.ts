@@ -19,6 +19,7 @@ const Empleados = () => import('../pages/Empleados.vue')
 const Kardex = () => import('../pages/Kardex.vue')
 const Finanzas = () => import('../pages/Finanzas.vue')
 const Configuracion = () => import('../pages/Configuracion.vue')
+const Privacidad = () => import('../pages/Privacidad.vue')
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -46,6 +47,14 @@ export const routes: RouteRecordRaw[] = [
     path: '/restablecer-contrasena',
     name: 'ResetPassword',
     component: Login,
+    meta: { requiresAuth: false },
+  },
+  {
+    // Public on purpose: Google Play and Ley 1581 require the policy at a URL
+    // anyone can open, signed in or not.
+    path: '/privacidad',
+    name: 'Privacidad',
+    component: Privacidad,
     meta: { requiresAuth: false },
   },
   {
@@ -206,7 +215,7 @@ export const setupRouterGuards = (router: any) => {
 
     if (requiresAuth && !isAuthenticated) {
       next('/login')
-    } else if (isAuthenticated && mustSetUpTwoFactor && to.path !== '/plataforma/seguridad') {
+    } else if (requiresAuth && isAuthenticated && mustSetUpTwoFactor && to.path !== '/plataforma/seguridad') {
       // La cuenta de plataforma sin segundo factor solo puede configurarlo.
       next('/plataforma/seguridad')
     } else if (requiresSuperAdmin && !isSuperAdmin) {
