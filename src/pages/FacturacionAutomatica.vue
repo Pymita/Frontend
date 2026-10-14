@@ -538,6 +538,7 @@
             :items="visibleCustomers"
             :loading="loadingCustomers"
             :search="customerSearch"
+            :custom-filter="customerFilter"
             class="elevation-0"
             no-data-text="No hay clientes registrados">
             <template #item.name="{ item }">
@@ -899,7 +900,11 @@
                 </v-select>
               </v-col>
               <v-col cols="12" md="8">
-                <v-text-field v-model="customerForm.document_number" density="comfortable" :rules="[rules.required]">
+                <v-text-field
+                  v-model="customerForm.document_number"
+                  density="comfortable"
+                  :rules="[rules.required, documentRule(customerForm.document_type)]"
+                  @blur="tidyCustomerDocument">
                   <template #label>
                     NIT / Número de documento <span class="text-error font-weight-bold">*</span>
                   </template>
@@ -1174,6 +1179,7 @@ import type { ImportFormat } from '../services/productImportService'
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from '../services/salesService'
 import { useAuthStore } from '../stores/auth'
 import { errorMessage } from '../utils/errors'
+import { documentProblem, documentRule, normalizeDocument } from '../utils/validation'
 import {
   customerImportStatusColors,
   customerImportStatusLabels,
@@ -1734,6 +1740,11 @@ const visibleCustomers = computed(() =>
   onlyRecurring.value ? customers.value.filter(c => c.recurring_active) : customers.value,
 )
 
+// La tabla solo busca en sus columnas y el documento va bajo el nombre: se compara aparte, con o sin puntos.
+const customerFilter = (value: string, query: string, item?: { raw: Customer }) =>
+  (value == null ? '' : String(value)).toLocaleLowerCase().includes(query.toLocaleLowerCase()) ||
+  (/\d/.test(query) && !!item?.raw.document_number?.includes(normalizeDocument(query)))
+
 const documentTypes = [
   { value: 'CC', title: 'Cédula de ciudadanía (CC)' },
   { value: 'NIT', title: 'NIT' },
@@ -1818,6 +1829,14 @@ const openCustomerDialog = (customer?: Customer) => {
   customerDialog.value = true
 }
 
+// Al salir del campo se ve el documento como queda guardado (sin puntos ni espacios).
+const tidyCustomerDocument = () => {
+  const { document_number, document_type } = customerForm.value
+  if (!documentProblem(document_number, document_type)) {
+    customerForm.value.document_number = normalizeDocument(document_number, document_type)
+  }
+}
+
 const saveCustomer = async () => {
   const { valid } = await customerFormRef.value.validate()
   if (!valid) return
@@ -1825,6 +1844,7 @@ const saveCustomer = async () => {
   const { id, ...form } = customerForm.value
   const payload = {
     ...form,
+    document_number: normalizeDocument(form.document_number, form.document_type),
     email: form.email || undefined,
     monthly_fee: blank(form.monthly_fee) ? null : Number(form.monthly_fee),
     billing_day: blank(form.billing_day) ? null : Number(form.billing_day),

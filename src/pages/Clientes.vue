@@ -216,7 +216,8 @@
                   v-model="formData.document_number"
                   variant="outlined"
                   density="comfortable"
-                  :rules="[rules.required]"
+                  :rules="[rules.required, documentRule(formData.document_type)]"
+                  @blur="tidyDocument"
                 >
                   <template #label>
                     Número de documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
@@ -319,7 +320,9 @@
                   v-model="supplierForm.document_number"
                   label="Documento / NIT"
                   variant="outlined"
-                  density="comfortable" />
+                  density="comfortable"
+                  :rules="[documentRule()]"
+                  @blur="tidySupplierDocument" />
               </v-col>
               <v-col cols="12" md="6">
                 <v-text-field
@@ -372,6 +375,7 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/errors';
+import { documentProblem, documentRule, normalizeDocument } from '@/utils/validation'
 import { ref, onMounted } from 'vue'
 import { billingService, type Customer, type PersonType, type Supplier } from '@/services/billingService'
 import LockableButton from '../components/LockableButton.vue'
@@ -480,17 +484,29 @@ const openDialog = (cliente?: Customer) => {
   dialog.value = true
 }
 
+// Al salir del campo se ve el documento como queda guardado (sin puntos ni espacios).
+const tidyDocument = () => {
+  const { document_number, document_type } = formData.value
+  if (!documentProblem(document_number, document_type)) {
+    formData.value.document_number = normalizeDocument(document_number, document_type)
+  }
+}
+
 const save = async () => {
   const { valid } = await form.value.validate()
   if (!valid) return
 
+  const payload = {
+    ...formData.value,
+    document_number: normalizeDocument(formData.value.document_number, formData.value.document_type),
+  }
   saving.value = true
   try {
     if (editing.value?.id) {
-      await billingService.updateCustomer(editing.value.id, formData.value)
+      await billingService.updateCustomer(editing.value.id, payload)
       showMessage('Cliente actualizado exitosamente', 'success')
     } else {
-      await billingService.createCustomer(formData.value)
+      await billingService.createCustomer(payload)
       showMessage('Cliente creado exitosamente', 'success')
     }
     dialog.value = false
@@ -590,17 +606,25 @@ const openSupplierDialog = (supplier?: Supplier) => {
   supplierDialog.value = true
 }
 
+const tidySupplierDocument = () => {
+  const document = supplierForm.value.document_number
+  if (!documentProblem(document)) {
+    supplierForm.value.document_number = normalizeDocument(document)
+  }
+}
+
 const saveSupplier = async () => {
   const { valid } = await supplierFormRef.value.validate()
   if (!valid) return
 
+  const payload = { ...supplierForm.value, document_number: normalizeDocument(supplierForm.value.document_number) }
   savingSupplier.value = true
   try {
     if (supplierEditing.value?.id) {
-      await billingService.updateSupplier(supplierEditing.value.id, supplierForm.value)
+      await billingService.updateSupplier(supplierEditing.value.id, payload)
       showMessage('Proveedor actualizado exitosamente', 'success')
     } else {
-      await billingService.createSupplier(supplierForm.value)
+      await billingService.createSupplier(payload)
       showMessage('Proveedor creado exitosamente', 'success')
     }
     supplierDialog.value = false
