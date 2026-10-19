@@ -80,6 +80,30 @@
             </v-btn-toggle>
           </v-card-title>
           <v-card-text>
+            <!-- A shop next to the fees: its products, its automatic billing, or both together.
+                 The choice rules the chart, its total and the best sellers. -->
+            <v-btn-toggle
+              v-if="showOriginChoice"
+              v-model="salesOrigin"
+              mandatory
+              color="primary"
+              density="compact"
+              variant="outlined"
+              divided
+              role="group"
+              aria-label="Origen de las ventas"
+              class="mb-3"
+            >
+              <v-btn
+                v-for="option in salesOriginOptions"
+                :key="option.value"
+                :value="option.value"
+                :size="xs ? 'small' : 'default'"
+                :aria-pressed="salesOrigin === option.value"
+              >
+                {{ option.title }}
+              </v-btn>
+            </v-btn-toggle>
             <v-row v-if="period === 'range'" dense class="mb-2">
               <v-col cols="6" sm="4">
                 <DateField v-model="range.from" label="Desde" density="compact" hide-details />
@@ -92,7 +116,7 @@
               {{ periodError }}
             </v-alert>
             <div v-if="salesPeriod && !periodError" class="text-body-2 text-medium-emphasis mb-2">
-              {{ periodCaption }}: <strong class="text-high-emphasis">{{ money(salesPeriod.meta.total) }}</strong>
+              {{ periodCaption }}: <strong class="text-high-emphasis">{{ money(periodTotal) }}</strong>
               en {{ periodSalesCount }}
               <span v-if="salesPeriod.meta.bucket !== 'day'">
                 · un punto por {{ salesPeriod.meta.bucket === 'week' ? 'semana' : 'mes' }}
@@ -280,7 +304,7 @@
 </template>
 
 <script setup lang="ts">
-import { money } from '@/utils/money'
+import { money, percent } from '@/utils/money'
 import { formatDay } from '@/utils/dates'
 import { ref, reactive, onMounted, computed, watch, nextTick, type ComponentPublicInstance } from 'vue'
 import DateField from '../components/DateField.vue'
@@ -290,6 +314,7 @@ import {
   type DateRange,
   type LowStockProduct,
   type SalesPeriod,
+  type SalesSelection,
   type TopProductsPeriod,
   type SetupChecklist,
   type SetupStep,
@@ -298,7 +323,7 @@ import { useAuthStore } from '@/stores/auth'
 import type { Feature } from '@/types/auth'
 import { errorMessage } from '@/utils/errors'
 import { fonts } from '@/theme'
-import { useTheme } from 'vuetify'
+import { useDisplay, useTheme } from 'vuetify'
 import { Line } from 'vue-chartjs'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from 'chart.js'
 
@@ -308,6 +333,8 @@ ChartJS.defaults.font.family = fonts.body
 
 const theme = useTheme()
 const authStore = useAuthStore()
+// On a phone the three origins fit one row only as small buttons.
+const { xs } = useDisplay()
 
 // What the dashboard shows follows the company's modules, never its business type.
 const hasModule = (module: Feature): boolean => (authStore.user?.company?.modules ?? []).includes(module)
@@ -316,11 +343,25 @@ const hasModule = (module: Feature): boolean => (authStore.user?.company?.module
 const recurringBilling = computed(() => hasModule('recurring_billing'))
 const takesOrders = computed(() => hasModule('orders'))
 const showStock = computed(() => !recurringBilling.value || hasModule('inventory'))
+
+// Only a company that sells both ways chooses what to see; it starts on everything.
+const showOriginChoice = computed(() => recurringBilling.value && takesOrders.value)
+const salesOrigin = ref<SalesSelection>('all')
+const salesOriginOptions: { value: SalesSelection; title: string }[] = [
+  { value: 'all', title: 'Todo' },
+  { value: 'order', title: 'Productos' },
+  { value: 'recurring', title: 'Facturación automática' },
+]
+// Everyone else asks as before: products, or concepts for a company without orders.
+const originParam = computed(() => (showOriginChoice.value ? salesOrigin.value : undefined))
+
 // Without orders there are no products to rank: the card ranks billed concepts.
-const topConcepts = computed(() => recurringBilling.value && !takesOrders.value)
+const topConcepts = computed(() =>
+  showOriginChoice.value ? salesOrigin.value === 'recurring' : recurringBilling.value && !takesOrders.value,
+)
 const shareOf = computed(() => {
   if (topConcepts.value) return 'de lo facturado'
-  return recurringBilling.value ? 'de los pedidos' : 'de las ventas'
+  return showOriginChoice.value && salesOrigin.value === 'order' ? 'de los pedidos' : 'de las ventas'
 })
 
 const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`
@@ -392,8 +433,13 @@ const periodCaption = computed(() => {
   return meta ? `Del ${formatDay(meta.from)} al ${formatDay(meta.to)}` : 'Rango'
 })
 
-const percent = (value: number): string =>
-  `${Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 1 })} %`
+// The total of what is shown: both origins, or the chosen one.
+const periodTotal = computed(() => {
+  const meta = salesPeriod.value?.meta
+  if (!meta) return 0
+  if (!showOriginChoice.value || salesOrigin.value === 'all') return meta.total
+  return salesOrigin.value === 'order' ? meta.orders_total : meta.recurring_total
+})
 
 // "en 3 pedidos"; with automatic billing the documents are counted too.
 const periodSalesCount = computed(() => {
@@ -402,7 +448,8 @@ const periodSalesCount = computed(() => {
   const orders = plural(meta.orders_count, 'pedido', 'pedidos')
   if (!recurringBilling.value) return orders
   const documents = plural(meta.recurring_count ?? 0, 'documento', 'documentos')
-  return takesOrders.value ? `${orders} y ${documents}` : documents
+  if (!takesOrders.value || salesOrigin.value === 'recurring') return documents
+  return salesOrigin.value === 'order' ? orders : `${orders} y ${documents}`
 })
 
 // Cambiar rápido de periodo no debe dejar pintada una respuesta vieja.
@@ -418,7 +465,7 @@ const loadPeriod = async () => {
   try {
     const [sales, top] = await Promise.all([
       dashboardService.getSalesWeek(requested),
-      dashboardService.getTopProducts(requested),
+      dashboardService.getTopProducts(requested, originParam.value),
     ])
     if (current !== periodRequest) return
     salesPeriod.value = sales
@@ -432,6 +479,8 @@ const loadPeriod = async () => {
     if (current === periodRequest) periodLoading.value = false
   }
 }
+
+watch(salesOrigin, loadPeriod)
 
 watch([period, () => range.from, () => range.to], () => {
   // Al pasar a "Rango" se parte del periodo que ya se estaba viendo.
@@ -516,28 +565,39 @@ const stats = computed(() => recurringBilling.value ? recurringStats.value : [
   stockStat.value,
 ])
 
-const chartData = computed(() => {
-  const primary = theme.current.value.colors.primary
-  return {
-    labels: salesPoints.value.map(d => d.day),
-    datasets: [
-      {
-        label: 'Ventas ($)',
-        data: salesPoints.value.map(d => d.total),
-        // Canvas cannot read CSS variables: the theme color plus a hex alpha.
-        backgroundColor: `${primary}24`,
-        borderColor: primary,
-        borderWidth: 2,
-        fill: true,
-        tension: 0.4,
-      },
-    ],
-  }
+// "Todo" stacks the two origins, so the top edge is the total and the lines never
+// cover each other; each origin keeps its color when shown alone.
+const chartSeries = computed(() => {
+  const colors = theme.current.value.colors
+  const points = salesPoints.value
+  if (!showOriginChoice.value) return [{ name: 'Ventas', values: points.map(d => d.total), color: colors.primary }]
+  const products = { name: 'Productos', values: points.map(d => d.orders_total ?? 0), color: colors.secondary }
+  const billing = { name: 'Facturación automática', values: points.map(d => d.recurring_total ?? 0), color: colors.primary }
+  if (salesOrigin.value === 'order') return [products]
+  if (salesOrigin.value === 'recurring') return [billing]
+  return [products, billing]
 })
+const stacked = computed(() => chartSeries.value.length > 1)
+
+const chartData = computed(() => ({
+  labels: salesPoints.value.map(d => d.day),
+  datasets: chartSeries.value.map((series, index) => ({
+    label: `${series.name} ($)`,
+    data: series.values,
+    // Canvas cannot read CSS variables: the theme color plus a hex alpha.
+    backgroundColor: `${series.color}24`,
+    borderColor: series.color,
+    borderWidth: 2,
+    fill: index === 0 ? 'origin' : '-1',
+    tension: 0.4,
+  })),
+}))
 
 const chartOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
+  // Stacked, one tooltip names both parts of the point and their total.
+  ...(stacked.value ? { interaction: { mode: 'index' as const, intersect: false } } : {}),
   plugins: {
     legend: {
       display: true,
@@ -553,13 +613,11 @@ const chartOptions = computed(() => ({
         },
         label: function(context: any) {
           // Pesos colombianos: sin decimales y con separador de miles.
-          return `Ventas: ${money(context.parsed.y)}`
+          return `${chartSeries.value[context.datasetIndex]?.name ?? 'Ventas'}: ${money(context.parsed.y)}`
         },
-        // A shop next to the fees: how much of the point is automatic billing.
-        afterLabel: function(context: any) {
-          if (!recurringBilling.value || !takesOrders.value) return ''
-          const point = salesPoints.value[context.dataIndex]
-          return point ? `Facturación automática: ${money(point.recurring_total ?? 0)}` : ''
+        footer: function(items: any[]) {
+          const point = salesPoints.value[items[0]?.dataIndex ?? -1]
+          return stacked.value && point ? `Total: ${money(point.total)}` : ''
         }
       }
     }
@@ -567,9 +625,10 @@ const chartOptions = computed(() => ({
   scales: {
     y: {
       beginAtZero: true,
+      stacked: stacked.value,
       // Sin ventas el eje iba de $0 a $1 en décimas y el formato en pesos
       // las redondeaba: "$1" repetido. Pesos enteros y una escala mínima.
-      suggestedMax: salesPoints.value.some(d => d.total > 0) ? undefined : 100000,
+      suggestedMax: chartSeries.value.some(series => series.values.some(value => value > 0)) ? undefined : 100000,
       ticks: {
         precision: 0,
         callback: function(value: any) {

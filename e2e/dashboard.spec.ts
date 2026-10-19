@@ -122,6 +122,8 @@ test('el gráfico cambia entre semana, mes y rango, y más vendidos sigue el per
   await expect(chart.getByRole('button', { name: 'Semana', exact: true })).toHaveAttribute('aria-pressed', 'false')
   await expect(chart).toContainText('Ventas del mes')
   await expect(chart).toContainText(`Este mes: ${money(month.total)} en ${month.orders_count}`)
+  // A restaurant sells one way: the chart has no origin to choose.
+  await expect(chart.getByRole('group', { name: 'Origen de las ventas' })).toHaveCount(0)
   await expect(topProducts).toContainText('Este mes')
   await expect(topProducts.locator('.v-list-item', { hasText: juiceName })).toContainText('3 vendidos · 1 pedido')
   await expect(chart.locator('canvas')).toBeVisible()
@@ -356,19 +358,54 @@ test('con facturación automática el inicio muestra ventas y cartera, no los pe
   await expect(page.getByText(/pendientes? de cobro/)).toHaveCount(0)
 
   const chart = page.locator('.v-card').filter({ has: page.getByRole('button', { name: 'Semana' }) })
-  await expect(chart).toContainText('Este mes: $435.000 en 1 pedido y 2 documentos')
+  const caption = chart.locator('div', { hasText: /^\s*Este mes:/ })
+  const origin = chart.getByRole('group', { name: 'Origen de las ventas' })
+  const top = page.locator('.v-card').filter({ has: page.locator('.mdi-trophy') })
+  const soda = top.locator('.v-list-item', { hasText: sodaName })
+  const fees = top.locator('.v-list-item', { hasText: 'Cuota de administración' })
+
+  // "Todo" first: both origins in the total and among the best sellers, each a share of everything sold.
+  await expect(origin.getByRole('button', { name: 'Todo' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(caption).toHaveText(/^\s*Este mes: \$435\.000 en 1 pedido y 2 documentos\s*$/)
   await expect(chart.locator('canvas')).toBeVisible()
-  // The shop's products stay the best sellers; their share is of what the orders sold.
-  const top = page.locator('.v-card', { hasText: 'Más vendidos' })
-  await expect(top.locator('.v-list-item', { hasText: sodaName })).toContainText('2 vendidos · 1 pedido')
-  await expect(top).toContainText('100 % de los pedidos')
+  await expect(top).toContainText('Más vendidos')
+  await expect(fees).toContainText('2 documentos')
+  await expect(fees).toContainText('$430.000')
+  await expect(fees).toContainText('98,9 % de las ventas')
+  await expect(soda).toContainText('2 vendidos · 1 pedido')
+  await expect(soda).toContainText('1,1 % de las ventas')
 
   await expect(page.locator('.v-progress-circular')).toHaveCount(0)
-  await page.screenshot({ path: '../screenshots/ventas-facturacion-dashboard-1440.png', fullPage: true })
+  await page.mouse.move(0, 0)
+  await page.screenshot({ path: '../screenshots/ventas-servicios-dashboard-todo-1440.png', fullPage: true })
+
+  // "Productos": the shop alone, its share of what the orders sold.
+  await origin.getByRole('button', { name: 'Productos' }).click()
+  await expect(origin.getByRole('button', { name: 'Productos' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(caption).toHaveText(/^\s*Este mes: \$5\.000 en 1 pedido\s*$/)
+  await expect(top).toContainText('Más vendidos')
+  await expect(soda).toContainText('100 % de los pedidos')
+  await expect(fees).toHaveCount(0)
+
+  // "Facturación automática": the documents alone, ranked as the concepts billed.
+  await origin.getByRole('button', { name: 'Facturación automática' }).click()
+  await expect(caption).toHaveText(/^\s*Este mes: \$430\.000 en 2 documentos\s*$/)
+  await expect(top).toContainText('Más facturados')
+  await expect(fees).toContainText('2 documentos')
+  await expect(fees).toContainText('100 % de lo facturado')
+  await expect(soda).toHaveCount(0)
+  await expect(page.locator('.v-progress-circular')).toHaveCount(0)
+  await page.mouse.move(0, 0)
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/ventas-servicios-dashboard-facturacion-1440.png', fullPage: true })
+
+  await origin.getByRole('button', { name: 'Todo' }).click()
+  await expect(caption).toHaveText(/^\s*Este mes: \$435\.000 en 1 pedido y 2 documentos\s*$/)
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(metricCard(page, 'Vencido')).toBeVisible()
+  await expect(page.locator('.v-progress-circular')).toHaveCount(0)
   await page.waitForTimeout(300)
-  await page.screenshot({ path: '../screenshots/ventas-facturacion-dashboard-390.png', fullPage: true })
+  await page.screenshot({ path: '../screenshots/ventas-servicios-dashboard-todo-390.png', fullPage: true })
 })
 
 test('un conjunto sin pedidos ve lo facturado, su cartera y los conceptos más facturados', async ({ page, request }) => {
@@ -396,6 +433,8 @@ test('un conjunto sin pedidos ve lo facturado, su cartera y los conceptos más f
 
   const chart = page.locator('.v-card').filter({ has: page.getByRole('button', { name: 'Semana' }) })
   await expect(chart).toContainText('Este mes: $580.000 en 3 documentos')
+  // Documents are all it sells: nothing to choose between.
+  await expect(chart.getByRole('group', { name: 'Origen de las ventas' })).toHaveCount(0)
   const top = page.locator('.v-card', { hasText: 'Más facturados' })
   const fee = top.locator('.v-list-item', { hasText: 'Cuota de administración' })
   await expect(fee).toContainText('2 documentos')

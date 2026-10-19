@@ -184,14 +184,14 @@ test('con facturación automática los documentos son ventas con su número, cli
   await expect(document).toBeVisible()
   await search.fill('')
 
-  // Each concept is a row of "Por producto"; "Por mesa" says it is only orders.
+  // Each concept is a "Servicios" row of "Por producto"; "Por mesa" says it is only orders.
   await page.getByRole('button', { name: 'Por producto' }).click()
   await expect(page.getByRole('columnheader', { name: 'Producto o concepto' })).toBeVisible()
   const concept = page.locator('tbody tr', { hasText: 'Cuota de administración' })
-  await expect(concept).toContainText('Facturación automática')
+  await expect(concept).toContainText('Servicios')
   await expect(concept).toContainText('$250.000')
   await expect(page.locator('tbody tr', { hasText: 'Gaseosa Tienda' })).toContainText('$5.000')
-  await expect(page.getByText('Cada concepto facturado es una fila, sin costo: no pasa por el kardex.')).toBeVisible()
+  await expect(page.getByText('Lo facturado sale en la categoría Servicios, un concepto por fila y sin costo: no pasa por el kardex.')).toBeVisible()
   await page.getByRole('button', { name: 'Por mesa' }).click()
   await expect(page.getByText('Por mesa cuenta solo los pedidos: los documentos de facturación automática no tienen mesa.')).toBeVisible()
 
