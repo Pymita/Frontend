@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { API, PLATFORM, apiLogin, buildXlsx, displayDate, field, freezeTime, loginUI, sidebarItem, xlsxRows } from './helpers'
+import { API, PLATFORM, apiLogin, buildXlsx, displayDate, field, freezeTime, loginUI, pageRule, pdfPageSize, pdfPages, sidebarItem, xlsxRows } from './helpers'
 
 /**
  * Facturación automática: un conjunto cobra la misma cuota cada mes. Se
@@ -888,6 +888,15 @@ test('un abono al cliente paga lo más viejo primero e imprime su recibo de caja
   await expect(popup.locator('tbody tr').nth(1)).toContainText('$200.000')
   await popup.setViewportSize({ width: 900, height: 1100 })
   await popup.screenshot({ path: '../screenshots/recibo-de-caja.png', fullPage: true })
+
+  // The receipt fits half letter too: one half page, with both lines.
+  await popup.getByRole('button', { name: 'Media carta' }).click()
+  await expect.poll(() => pageRule(popup)).toContain('size: 5.5in 8.5in')
+  await expect(popup.locator('.items tbody tr')).toHaveCount(2)
+  const halfPdf = await popup.pdf({ preferCSSPageSize: true })
+  expect(pdfPages(halfPdf)).toBe(1)
+  expect(pdfPageSize(halfPdf)).toEqual([396, 612])
+  await popup.screenshot({ path: '../screenshots/recibo-de-caja-media-carta.png', fullPage: true })
 })
 
 test('la cuenta de cobro sale con el encabezado del negocio y el valor en letras', async ({ page, request }) => {
@@ -944,6 +953,20 @@ test('la cuenta de cobro sale con el encabezado del negocio y el valor en letras
   await expect(body).toContainText('FIRMA VENDEDOR')
   await popup.setViewportSize({ width: 900, height: 1100 })
   await popup.screenshot({ path: '../screenshots/cuenta-de-cobro.png', fullPage: true })
+
+  // The concept box is as tall as its one line, with no fixed empty area under it.
+  const emptyUnderLines = await popup.locator('.items').evaluate(box =>
+    box.querySelector('.totals')!.getBoundingClientRect().top - box.querySelector('table')!.getBoundingClientRect().bottom)
+  expect(emptyUnderLines).toBeLessThan(20)
+  // A one-line document offers half letter, and printed so it is one half page.
+  await expect.poll(() => pageRule(popup)).toContain('size: letter')
+  await popup.getByRole('button', { name: 'Media carta' }).click()
+  await expect(popup.getByRole('button', { name: 'Media carta' })).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(() => pageRule(popup)).toContain('size: 5.5in 8.5in')
+  const halfPdf = await popup.pdf({ preferCSSPageSize: true })
+  expect(pdfPages(halfPdf)).toBe(1)
+  expect(pdfPageSize(halfPdf)).toEqual([396, 612])
+  await popup.screenshot({ path: '../screenshots/cuenta-de-cobro-media-carta.png', fullPage: true })
   await popup.close()
 
   // Todos los del mes en una sola ventana, uno por hoja.
