@@ -5,7 +5,12 @@ import { orderPaymentMethodLabels } from '../utils/labels'
 export type PaymentMethod = 'cash' | 'credit_card' | 'debit_card' | 'transfer' | 'nequi' | 'daviplata' | 'other'
 
 export interface Sale {
+  /** Id interno del pedido: nunca se muestra. */
   id: number
+  /** Número del pedido en la empresa (una venta siempre lo tiene). */
+  number: number | null
+  /** #<número del pedido>-<n>: la venta dentro de su pedido */
+  reference: string | null
   invoice_number: string | null
   invoicing_resolution: string | null
   paid_at: string | null

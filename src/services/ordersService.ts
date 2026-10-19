@@ -25,7 +25,7 @@ export interface OrderPayment {
   invoice_number?: string | null;
   /** Secuencia del pago dentro del pedido (la n en #pedido-n) */
   invoice_sequence?: number | null;
-  /** Etiqueta amigable #pedido-n */
+  /** Etiqueta amigable #<número del pedido>-n; null en un abono antes del primer cobro */
   reference?: string | null;
   created_at: string;
 }
@@ -110,6 +110,8 @@ export interface OrderReceipt {
     valid_until: string | null
   } | null
   invoice_number: string | null
+  /** Número del pedido; null mientras no se ha cobrado nada */
+  number?: number | null
   paid_at: string | null
   created_at: string
   is_paid: boolean
@@ -128,7 +130,10 @@ export interface OrderReceipt {
 }
 
 export interface Order {
+  /** Clave interna: nunca se muestra. */
   id: number;
+  /** Número del pedido en la empresa ("Pedido #12"): lo toma al primer cobro; null antes. */
+  number?: number | null;
   dining_table: {
     id: number;
     number: number;

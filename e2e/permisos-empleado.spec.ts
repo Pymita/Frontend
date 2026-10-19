@@ -95,7 +95,6 @@ test('un cajero no crea mesas ni cancela pedidos con productos', async ({ page, 
   await expect(page.getByRole('button', { name: /^Editar la mesa/ })).toHaveCount(0)
 
   await page.goto('/pedidos')
-  await page.getByRole('textbox', { name: 'Buscar mesa o pedido' }).fill(`#${orderId}`)
   const row = page.locator('tbody tr', { hasText: '$7.531' })
   await row.getByRole('button', { name: 'Más acciones del pedido' }).click()
   await expect(page.getByRole('listitem').filter({ hasText: 'Imprimir cuenta' })).toBeVisible()
