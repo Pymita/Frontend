@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { crc32, inflateRawSync } from 'node:zlib'
 import { expect, type APIRequestContext, type Page } from '@playwright/test'
 
-export const API = 'http://127.0.0.1:8010/api'
+export const API = `http://127.0.0.1:${process.env.E2E_API_PORT ?? '8010'}/api`
 
 /** Credenciales que crean los seeders (base e2e recién sembrada). */
 export const ADMIN = { email: 'admin@saboresdeltrigo.com', password: 'admin123' }
