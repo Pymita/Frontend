@@ -737,6 +737,115 @@ test('"Seleccionar los del día" vuelve a marcar a quienes cortan ese día despu
   await expect(billSelected).toHaveText('Facturar seleccionados (2)')
 })
 
+test('cambiar el corte a hoy lo marca en Facturar, y quien ya tiene su documento del mes lo dice', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'cambio-corte')
+  const auth = { Authorization: `Bearer ${company.token}` }
+
+  // El "hoy" de la página es el día en que el API creó a Ana.
+  const first = await request.post(`${API}/customers`, {
+    headers: auth,
+    data: { document_type: 'CC', document_number: '6001', name: 'Ana Cambia Corte', recurring_active: true, monthly_fee: 250000 },
+  })
+  expect(first.status()).toBe(201)
+  const { id: anaId, created_at: createdAt } = (await first.json()).data
+  const today: string = createdAt.slice(0, 10)
+  const [year, month, day] = today.split('-').map(Number) as [number, number, number]
+  const otherDay = day === 10 ? 12 : 10
+  const dayText = dayLabel(new Date(year, month - 1, day))
+  const monthName = new Date(year, month - 1, 1).toLocaleDateString('es-CO', { month: 'long', year: 'numeric' })
+
+  expect((await request.put(`${API}/customers/${anaId}`, { headers: auth, data: { billing_day: otherDay } })).ok()).toBeTruthy()
+  const betoId = await createResident(request, company.token, { name: 'Beto Ya Facturado', document_number: '6002', billing_day: otherDay })
+  await createResident(request, company.token, { name: 'Carla A Mano', document_number: '6003', billing_day: otherDay })
+  // Beto ya tiene su documento de este mes.
+  const billed = await request.post(`${API}/recurring-billing/invoices/generate`, {
+    headers: auth,
+    data: { period: today.slice(0, 7), issue_date: today, items: [{ customer_id: betoId }] },
+  })
+  expect(billed.status()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await freezeTime(page, createdAt)
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Facturación automática').click()
+
+  const checkbox = (name: string) => row(page, name).locator('input[type="checkbox"]')
+  const billSelected = page.getByRole('button', { name: /^Facturar seleccionados/ })
+  const hint = (text: string) => page.locator('.v-window-item--active .v-alert', { hasText: text })
+
+  // Lo que la página trae por defecto: hoy y este mes. Nadie corta hoy.
+  await expect(field(page, 'Día a facturar').locator('input')).toHaveValue(displayDate(today))
+  await expect(field(page, 'Mes a facturar').locator('input')).toHaveValue(monthName)
+  await expect(hint(`Nadie tiene su corte el ${dayText}`)).toBeVisible()
+  await checkbox('Carla A Mano').check()
+
+  // Como lo hizo Valentina: en Clientes le cambia el corte y vuelve a Facturar.
+  const setCutoff = async (name: string, value: number) => {
+    await page.getByRole('tab', { name: /Clientes/ }).click()
+    await page.getByRole('button', { name: `Editar a ${name}` }).click()
+    const dialog = page.getByRole('dialog')
+    await field(page, 'Día de corte (vence)').locator('input').fill(String(value))
+    await dialog.getByRole('button', { name: 'Guardar' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(row(page, name)).toContainText(`Día ${value}`)
+    await page.getByRole('tab', { name: /Facturar/ }).click()
+  }
+
+  // Beto ya tiene su documento del mes: con el corte hoy no se factura dos
+  // veces, y el aviso lo dice en lugar de "nadie tiene su corte".
+  await setCutoff('Beto Ya Facturado', day)
+  await expect(row(page, 'Beto Ya Facturado')).toContainText('CC-1 · Por pagar')
+  await expect(hint(`Beto Ya Facturado tiene su corte el ${dayText}, pero ya tiene su documento de ${monthName} (CC-1): cada cliente se factura una vez por mes.`)).toBeVisible()
+  await expect(hint('Nadie tiene su corte')).toHaveCount(0)
+
+  await setCutoff('Ana Cambia Corte', day)
+  await expect(checkbox('Ana Cambia Corte')).toBeChecked()
+  await expect(checkbox('Carla A Mano')).toBeChecked()
+  await expect(billSelected).toHaveText('Facturar seleccionados (2)')
+  await expect(hint(`1 cliente tiene su corte el ${dayText}. Beto Ya Facturado también tiene su corte ese día, pero ya tiene su documento de ${monthName}.`)).toBeVisible()
+
+  // Si el corte sale de hoy se desmarca solo ella; lo marcado a mano sigue.
+  await setCutoff('Ana Cambia Corte', otherDay)
+  await expect(checkbox('Ana Cambia Corte')).not.toBeChecked()
+  await expect(checkbox('Carla A Mano')).toBeChecked()
+  await setCutoff('Ana Cambia Corte', day)
+  await expect(checkbox('Ana Cambia Corte')).toBeChecked()
+
+  await billSelected.click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Generar' }).click()
+  await expect(page.getByText('Se generaron 2 documentos')).toBeVisible()
+  await expect(row(page, 'Ana Cambia Corte')).toContainText('CC-2 · Por pagar')
+  // Los dos que cortan hoy ya tienen documento: no es que nadie corte hoy.
+  await expect(hint(`Los 2 clientes con corte el ${dayText} ya tienen su documento de ${monthName}: cada cliente se factura una vez por mes.`)).toBeVisible()
+  await expect(hint('Nadie tiene su corte')).toHaveCount(0)
+
+  // Cambiado desde otro lado (otro equipo, el API) y se vuelve a entrar a Facturar.
+  const doraId = await createResident(request, company.token, { name: 'Dora Otro Equipo', document_number: '6004', billing_day: otherDay })
+  expect((await request.put(`${API}/customers/${doraId}`, { headers: auth, data: { billing_day: day } })).ok()).toBeTruthy()
+  await sidebarItem(page, 'Inicio').click()
+  await expect(page).toHaveURL(/dashboard/)
+  await sidebarItem(page, 'Facturación automática').click()
+  await expect(checkbox('Dora Otro Equipo')).toBeChecked()
+  await expect(billSelected).toHaveText('Facturar seleccionados (1)')
+  const dueAndBilled = hint(`Quedó marcado 1 cliente con corte el ${dayText}. Puedes marcar o desmarcar otros. Hay 2 más con ese corte que ya tienen su documento de ${monthName}.`)
+  await expect(dueAndBilled).toBeVisible()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/fecha-de-corte-aviso-1440.png' })
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await dueAndBilled.scrollIntoViewIfNeeded()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/fecha-de-corte-aviso-390.png' })
+
+  // Corte el 31 en un mes corto: le toca el último día del mes.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await createResident(request, company.token, { name: 'Elena Corte 31', document_number: '6005', billing_day: 31 })
+  await field(page, 'Día a facturar').locator('input').fill('2025-02-28')
+  await expect(field(page, 'Mes a facturar').locator('input')).toHaveValue('febrero de 2025')
+  await expect(checkbox('Elena Corte 31')).toBeChecked()
+  await expect(checkbox('Carla A Mano')).not.toBeChecked()
+})
+
 test('un abono al cliente paga lo más viejo primero e imprime su recibo de caja', async ({ page, request }) => {
   const company = await createRecurringCompany(request, 'recibo')
   const ana = await createResident(request, company.token, { name: 'Ana Recibo', document_number: '3001' })
