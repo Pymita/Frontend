@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, displayDate, freezeTime, loginUI, raisePlanLimits } from './helpers'
+import { ADMIN, API, apiLogin, displayDate, freezeTime, loginUI, raisePlanLimits, watchPrinting } from './helpers'
 
 /**
  * La web crea pedidos con productos reales (antes solo existía el pedido
@@ -234,6 +234,7 @@ test('desde el plano se ve el pedido de la mesa y se gestiona ahí mismo', async
   const orderId = (await order.json()).data.id
 
   await loginUI(page, ADMIN.email, ADMIN.password)
+  const printing = await watchPrinting(page)
   await page.goto('/plano')
   const tableNode = page.locator('g.table-node').filter({
     has: page.locator('text.table-number', { hasText: new RegExp(`^${table.number}$`) }),
@@ -261,9 +262,10 @@ test('desde el plano se ve el pedido de la mesa y se gestiona ahí mismo', async
   // Cobrar también desde aquí.
   await planDialog.getByRole('button', { name: 'Cobrar' }).click()
   const payDialog = page.getByRole('dialog').filter({ hasText: `Cobrar pedido #${orderId}` })
-  await payDialog.getByLabel('Imprimir la factura al cobrar').uncheck()
   await payDialog.getByRole('button', { name: 'Confirmar cobro' }).click()
   await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Imprimir tirilla' })).toBeVisible()
+  expect(await printing()).toEqual({ opened: 0, printed: 0 })
 
   // La mesa queda libre y lista para un pedido nuevo con ella ya elegida.
   const freeDialog = page.getByRole('dialog').filter({ hasText: 'La mesa no tiene pedidos por cobrar.' })

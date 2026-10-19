@@ -261,6 +261,29 @@ export function buildXlsx(rows: string[][]): Buffer {
   return Buffer.concat([...parts, ...central, end])
 }
 
+/**
+ * Counts the windows the page opens and the print dialogs it asks for, from
+ * the next navigation on, so a spec can prove that nothing printed by itself.
+ * Windows still open (an explicit print keeps working); `print()` is counted
+ * instead of shown, on the page and on every window it opened.
+ */
+export async function watchPrinting(page: Page): Promise<() => Promise<{ opened: number; printed: number }>> {
+  await page.addInitScript(() => {
+    const counts = { opened: 0, printed: 0 }
+    const count = () => { counts.printed++ }
+    const open = window.open.bind(window)
+    Object.assign(window, { __printing: counts })
+    window.print = count
+    window.open = (...args: Parameters<typeof window.open>) => {
+      counts.opened++
+      const opened = open(...args)
+      if (opened) opened.print = count
+      return opened
+    }
+  })
+  return () => page.evaluate(() => ({ ...(window as unknown as { __printing: { opened: number; printed: number } }).__printing }))
+}
+
 /** Las filas de una hoja de un .xlsx que escribió el backend (textos en línea y números). */
 export function xlsxRows(file: Buffer, sheet = 1): string[][] {
   const name = `xl/worksheets/sheet${sheet}.xml`

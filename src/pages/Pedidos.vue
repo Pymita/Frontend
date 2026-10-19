@@ -491,8 +491,9 @@
       Dialog Cobrar. El orden importa: primero se imprime la CUENTA (sin
       número de factura) con el total con y sin propina, el cliente elige, y
       solo al confirmar el cobro el backend toma el consecutivo de la
-      resolución DIAN y se imprime la FACTURA. Imprimir la factura antes de
-      cobrar gastaría un consecutivo en una venta que quizá no ocurre.
+      resolución DIAN. Imprimir la factura antes de cobrar gastaría un
+      consecutivo en una venta que quizá no ocurre. Cobrar no imprime nada:
+      la tirilla se pide desde el mensaje del cobro o con "Factura" en la fila.
     -->
     <v-dialog v-model="payDialog" max-width="760" persistent scrollable>
       <v-card v-if="selectedOrder">
@@ -697,14 +698,6 @@
           </v-card>
 
           </template>
-
-          <v-checkbox
-            v-model="printOnPay"
-            label="Imprimir la factura al cobrar"
-            density="compact"
-            hide-details
-            class="mt-1"
-          />
         </v-card-text>
         <v-card-actions class="flex-wrap">
           <v-btn
@@ -772,7 +765,7 @@
     <PartialPaymentDialog
       v-model="pagoDialog"
       :order="selectedOrder"
-      @paid="message => { showMessage(message); loadOrders(); }"
+      @paid="onPartialPaid"
       @failed="message => showMessage(message, 'error')"
     />
 
@@ -928,8 +921,16 @@
       </v-card>
     </v-dialog>
 
-    <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="snackbarColor === 'error' ? 9000 : 3000" closable>
+    <v-snackbar
+      v-model="snackbar"
+      :color="snackbarColor"
+      :timeout="snackbarColor === 'error' ? 9000 : snackbarAction ? 10000 : 3000"
+      closable
+    >
       {{ snackbarText }}
+      <template v-if="snackbarAction" #actions>
+        <v-btn @click="runSnackbarAction">{{ snackbarAction.text }}</v-btn>
+      </template>
     </v-snackbar>
   </v-container>
 </template>
@@ -1077,6 +1078,8 @@ const agregarGuestNames = ref<Record<number, string>>({});
 const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref('success');
+interface MessageAction { text: string; run: () => void }
+const snackbarAction = ref<MessageAction | null>(null);
 
 const headers = [
   { title: 'Mesa', key: 'dining_table', sortable: false },
@@ -1090,10 +1093,17 @@ const headers = [
   { title: '', key: 'actions', sortable: false, align: 'end' as const, width: 200 },
 ];
 
-const showMessage = (text: string, color = 'success') => {
+const showMessage = (text: string, color = 'success', action: MessageAction | null = null) => {
   snackbarText.value = text;
   snackbarColor.value = color;
+  snackbarAction.value = action;
   snackbar.value = true;
+};
+
+const runSnackbarAction = () => {
+  const action = snackbarAction.value;
+  snackbar.value = false;
+  action?.run();
 };
 
 // --- Billar: reloj en vivo para los tiempos en curso ---
@@ -1298,12 +1308,12 @@ const payMethodOptions = options(orderPaymentMethodLabels);
 
 /**
  * Preferencias de caja, guardadas en este navegador: si el negocio sugiere
- * propina (y cuánto) y si imprime la factura al cobrar. Un local chico que
- * no maneja propina la apaga una vez y no vuelve a verla.
+ * propina y cuánto. Un local chico que no maneja propina la apaga una vez y
+ * no vuelve a verla. Imprimir no es una preferencia: cobrar nunca imprime.
  */
 const CASHIER_PREFS_KEY = 'pos.cashier_prefs';
-const loadCashierPrefs = (): { tipEnabled: boolean; tipPercent: number; printOnPay: boolean } => {
-  const defaults = { tipEnabled: false, tipPercent: 10, printOnPay: true };
+const loadCashierPrefs = (): { tipEnabled: boolean; tipPercent: number } => {
+  const defaults = { tipEnabled: false, tipPercent: 10 };
   try {
     const raw = localStorage.getItem(CASHIER_PREFS_KEY);
     return raw ? { ...defaults, ...JSON.parse(raw) } : defaults;
@@ -1314,13 +1324,12 @@ const loadCashierPrefs = (): { tipEnabled: boolean; tipPercent: number; printOnP
 const cashierPrefs = loadCashierPrefs();
 const tipEnabled = ref(cashierPrefs.tipEnabled);
 const tipPercent = ref(cashierPrefs.tipPercent);
-const printOnPay = ref(cashierPrefs.printOnPay);
 
-watch([tipEnabled, tipPercent, printOnPay], ([enabled, percent, print]) => {
+watch([tipEnabled, tipPercent], ([enabled, percent]) => {
   try {
     localStorage.setItem(
       CASHIER_PREFS_KEY,
-      JSON.stringify({ tipEnabled: enabled, tipPercent: percent, printOnPay: print }),
+      JSON.stringify({ tipEnabled: enabled, tipPercent: percent }),
     );
   } catch {
     // Sin almacenamiento (modo privado): las preferencias duran la sesión.
@@ -1391,6 +1400,9 @@ const openPayDialog = async (order: Order) => {
   }
 };
 
+/** Printing is the cashier's choice: the message of a charge offers the ticket, nothing prints by itself. */
+const ticketAction = (print: () => void): MessageAction => ({ text: 'Imprimir tirilla', run: print });
+
 /**
  * Registra el pago con o sin propina. El backend asigna aquí el consecutivo
  * de la resolución DIAN (si está configurada); por eso la factura se
@@ -1399,9 +1411,6 @@ const openPayDialog = async (order: Order) => {
 const confirmarCobro = async (withTip: boolean) => {
   if (!selectedOrder.value) return;
   const order = selectedOrder.value;
-  // La ventana de la factura se abre ya, en el clic; si se abriera después
-  // de esperar al servidor el navegador la bloquearía.
-  const win = printOnPay.value ? openPrintWindow() : null;
   saving.value = true;
   try {
     const paid = await ordersService.markPaid(order.id, {
@@ -1410,14 +1419,10 @@ const confirmarCobro = async (withTip: boolean) => {
       tip: withTip ? payTip.value : 0,
       customer_id: payCustomerId.value ?? undefined,
     });
-    showMessage(withTip ? 'Pedido cobrado con propina' : 'Pedido cobrado');
+    showMessage(withTip ? 'Pedido cobrado con propina' : 'Pedido cobrado', 'success', ticketAction(() => printReceipt(paid)));
     payDialog.value = false;
     loadOrders();
-    if (win) {
-      await printReceipt(paid, win);
-    }
   } catch (error) {
-    win?.close();
     showMessage(errorMessage(error, 'No fue posible cobrar el pedido. Inténtalo de nuevo.'), 'error');
   } finally {
     saving.value = false;
@@ -1440,7 +1445,6 @@ const cobrarPersona = async (guest: OrderGuest, withTip = false) => {
 
   // Solo se cobra propina si el cajero la escribió y confirmó "con propina".
   const tip = withTip && tipEnabled.value ? guestTip(guest) : 0;
-  const win = printOnPay.value ? openPrintWindow() : null;
   saving.value = true;
   try {
     const updated = await ordersService.recordPartialPayment(order.id, {
@@ -1452,19 +1456,16 @@ const cobrarPersona = async (guest: OrderGuest, withTip = false) => {
     loadOrders();
 
     if (updated.payment_status === 'paid') {
-      showMessage('Cuenta saldada: todas las personas pagaron');
+      showMessage('Cuenta saldada: todas las personas pagaron', 'success', ticketAction(() => printReceipt(updated)));
       payDialog.value = false;
-      if (win) await printReceipt(updated, win);
     } else {
-      showMessage(`${guest.label} pagó ${money(guest.pending_amount + tip)}`);
-      if (win) {
-        // Comprobante de lo que pagó esta persona (no es la factura).
-        const r = await ordersService.receipt(order.id, guest.number);
-        fillPrintWindow(win, `${guest.label} - pedido #${order.id}`, buildTicket(r, order.id, { preBill: true, paidNow: true }));
-      }
+      showMessage(
+        `${guest.label} pagó ${money(guest.pending_amount + tip)}`,
+        'success',
+        ticketAction(() => printGuestReceipt(order, guest)),
+      );
     }
   } catch (error) {
-    win?.close();
     showMessage(errorMessage(error, 'No se pudo cobrar a esta persona'), 'error');
   } finally {
     saving.value = false;
@@ -1631,7 +1632,8 @@ const fillPrintWindow = (win: Window, title: string, body: string) => {
 };
 
 /** Factura (o comprobante) de un pedido ya cobrado. */
-const printReceipt = async (order: Order, win: Window | null = openPrintWindow()) => {
+const printReceipt = async (order: Order) => {
+  const win = openPrintWindow();
   if (!win) return;
   try {
     const r = await ordersService.receipt(order.id);
@@ -1640,6 +1642,25 @@ const printReceipt = async (order: Order, win: Window | null = openPrintWindow()
     win.close();
     showMessage(errorMessage(error, 'No fue posible generar la factura. Inténtalo de nuevo.'), 'error');
   }
+};
+
+/** Comprobante de lo que acaba de pagar una persona (cuentas separadas): no es la factura. */
+const printGuestReceipt = async (order: Order, guest: OrderGuest) => {
+  const win = openPrintWindow();
+  if (!win) return;
+  try {
+    const r = await ordersService.receipt(order.id, guest.number);
+    fillPrintWindow(win, `${guest.label} - pedido #${order.id}`, buildTicket(r, order.id, { preBill: true, paidNow: true }));
+  } catch (error) {
+    win.close();
+    showMessage(errorMessage(error, 'No fue posible generar el comprobante. Inténtalo de nuevo.'), 'error');
+  }
+};
+
+/** Pago parcial: cuando cierra la cuenta, el mensaje ofrece la tirilla como el cobro completo. */
+const onPartialPaid = (message: string, order: Order) => {
+  showMessage(message, 'success', order.payment_status === 'paid' ? ticketAction(() => printReceipt(order)) : null);
+  loadOrders();
 };
 
 /** Cuenta de una sola persona (cuentas separadas), con su parte prorrateada. */

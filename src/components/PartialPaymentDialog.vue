@@ -172,12 +172,12 @@ import MoneyField from './MoneyField.vue'
 /**
  * Cobrar una parte de la cuenta: por productos (factura parcial que descuenta
  * inventario) o por monto (abono, sin factura). La página muestra el mensaje
- * de `paid` o `failed` y recarga su lista.
+ * de `paid` (con el pedido como quedó) o `failed` y recarga su lista.
  */
 const props = defineProps<{ modelValue: boolean; order: Order | null }>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  paid: [message: string]
+  paid: [message: string, order: Order]
   failed: [message: string]
 }>()
 
@@ -279,6 +279,7 @@ const registrarPago = async () => {
       updated.payment_status === 'paid'
         ? 'Cuenta saldada: pedido pagado por completo'
         : (payload.items ? 'Factura parcial registrada' : 'Abono registrado'),
+      updated,
     )
   } catch (error) {
     emit('failed', errorMessage(error, 'No fue posible registrar el pago. Inténtalo de nuevo.'))
