@@ -1,11 +1,10 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { ADMIN, API, PLATFORM, apiLogin, displayDate, field, loginUI } from './helpers'
+import { ADMIN, API, PLATFORM, apiLogin, displayDate, field, loginUI, watchPrinting } from './helpers'
 
 /**
  * Cobro desde la web: el botón "Cobrar" está en la fila, el diálogo ofrece
  * propina voluntaria (con y sin), y la venta queda con la propina sumada al
- * total. La factura se imprime al cobrar: aquí se apaga para no abrir
- * ventanas en el test.
+ * total. Cobrar nunca imprime nada por sí solo.
  */
 test('cobrar un pedido con propina desde el diálogo de cobro', async ({ page, request }) => {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
@@ -37,6 +36,7 @@ test('cobrar un pedido con propina desde el diálogo de cobro', async ({ page, r
   const orderId = (await order.json()).data.id
 
   await loginUI(page, ADMIN.email, ADMIN.password)
+  const printing = await watchPrinting(page)
   await page.goto('/pedidos')
 
   // La tabla ya no muestra el cliente: la fila se ubica por su total único.
@@ -44,7 +44,6 @@ test('cobrar un pedido con propina desde el diálogo de cobro', async ({ page, r
   await row.getByRole('button', { name: 'Cobrar' }).click()
 
   const dialog = page.getByRole('dialog')
-  await dialog.getByLabel('Imprimir la factura al cobrar').uncheck()
 
   // Sin propina sugerida solo hay un total y un botón de confirmar.
   await expect(dialog.getByText('Total sin propina:')).toBeVisible()
@@ -62,6 +61,7 @@ test('cobrar un pedido con propina desde el diálogo de cobro', async ({ page, r
 
   await dialog.getByRole('button', { name: 'Cobrar con propina' }).click()
   await expect(page.getByText('Pedido cobrado con propina')).toBeVisible()
+  expect(await printing()).toEqual({ opened: 0, printed: 0 })
   await page.getByRole('button', { name: 'Pagados' }).click()
   await expect(page.locator('tr', { hasText: '$22.700' }).first()).toBeVisible()
 
@@ -103,24 +103,69 @@ test('cobrar sin propina deja el total tal cual', async ({ page, request }) => {
   const orderId = (await order.json()).data.id
 
   await loginUI(page, ADMIN.email, ADMIN.password)
+  const printing = await watchPrinting(page)
   await page.goto('/pedidos')
 
   await page.locator('tr', { hasText: '$18.300' }).first().getByRole('button', { name: 'Cobrar' }).click()
 
   const dialog = page.getByRole('dialog')
-  await dialog.getByLabel('Imprimir la factura al cobrar').uncheck()
   await dialog.getByLabel('Sugerir propina voluntaria').check()
   await expect(dialog.getByText('Total con propina:')).toBeVisible()
 
   // El cliente no quiso dejar propina.
   await dialog.getByRole('button', { name: 'Cobrar sin propina' }).click()
   await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
+  expect(await printing()).toEqual({ opened: 0, printed: 0 })
 
   const paid = await request.get(`${API}/orders/${orderId}`, { headers: auth })
   const data = (await paid.json()).data
   expect(data.tip).toBe(0)
   expect(data.total).toBe(18300)
   expect(data.payment_status).toBe('paid')
+})
+
+/**
+ * A counter sale (no table) charged from Pedidos opens no window and asks for
+ * no print dialog: the cashier who wants the ticket asks for it in the
+ * success message, and only that click prints.
+ */
+test('una venta de mostrador cobrada no imprime nada hasta pedir la tirilla', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const productId = await seedSimpleProduct(request, auth, `Empanada Mostrador ${Date.now()}`, 24681)
+  const order = await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: productId, quantity: 1 }] } })
+  expect(order.status()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  const printing = await watchPrinting(page)
+  await page.goto('/pedidos')
+  await page.locator('tr', { hasText: '$24.681' }).first().getByRole('button', { name: 'Cobrar' }).click()
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText('Total sin propina:')).toBeVisible()
+  await expect(dialog.getByLabel('Imprimir la factura al cobrar')).toHaveCount(0)
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/cobrar-sin-imprimir-dialogo-1440.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/cobrar-sin-imprimir-dialogo-390.png' })
+  await dialog.getByRole('button', { name: 'Confirmar cobro' }).click()
+  await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
+  expect(await printing()).toEqual({ opened: 0, printed: 0 })
+  await expect(dialog).toHaveCount(0)
+  await page.screenshot({ path: '../screenshots/cobrar-sin-imprimir-mensaje-390.png' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/cobrar-sin-imprimir-mensaje-1440.png' })
+
+  const [ticket] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('button', { name: 'Imprimir tirilla' }).click(),
+  ])
+  await expect(ticket.locator('body')).toContainText('$24.681')
+  await expect(ticket.locator('body')).toContainText('GRACIAS POR SU COMPRA')
+  expect(await printing()).toEqual({ opened: 1, printed: 1 })
 })
 
 async function seedSimpleProduct(request: any, auth: any, name: string, price: number) {
@@ -144,6 +189,7 @@ test('un abono por monto es un anticipo, no una factura', async ({ page, request
   const orderId = (await order.json()).data.id
 
   await loginUI(page, ADMIN.email, ADMIN.password)
+  const printing = await watchPrinting(page)
   await page.goto('/pedidos')
 
   const row = page.locator('tr', { hasText: '$30.000' }).first()
@@ -177,6 +223,14 @@ test('un abono por monto es un anticipo, no una factura', async ({ page, request
   await page.getByText('Registrar pago parcial').click()
   await expect(dialog.getByText('Pagos registrados')).toBeVisible()
   await expect(dialog.getByText('Abono', { exact: true })).toBeVisible()
+
+  // The rest closes the account; nothing prints until the cashier asks for the ticket.
+  await dialog.getByRole('button', { name: 'Por monto' }).click()
+  await expect(dialog.getByLabel('Monto a pagar')).toHaveValue('20.000')
+  await dialog.getByRole('button', { name: /Cobrar/ }).click()
+  await expect(page.getByText('Cuenta saldada: pedido pagado por completo')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Imprimir tirilla' })).toBeVisible()
+  expect(await printing()).toEqual({ opened: 0, printed: 0 })
 })
 
 test('cobrar por productos emite una factura de venta parcial', async ({ page, request }) => {
