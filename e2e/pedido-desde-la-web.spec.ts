@@ -261,7 +261,8 @@ test('desde el plano se ve el pedido de la mesa y se gestiona ahí mismo', async
 
   // Cobrar también desde aquí.
   await planDialog.getByRole('button', { name: 'Cobrar' }).click()
-  const payDialog = page.getByRole('dialog').filter({ hasText: `Cobrar pedido #${orderId}` })
+  // Sin cobrar todavía no tiene número: se nombra por su mesa.
+  const payDialog = page.getByRole('dialog').filter({ hasText: `Cobrar pedido de ${tableName}` })
   await payDialog.getByRole('button', { name: 'Confirmar cobro' }).click()
   await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Imprimir tirilla' })).toBeVisible()
@@ -291,11 +292,19 @@ test('la lista de pedidos pide solo la página visible, también al refrescarse 
   for (let n = 0; n < 11; n++) {
     const created = await request.post(`${API}/orders`, {
       headers: auth,
-      data: { items: [{ product_id: productId, quantity: 1 }] },
+      data: { items: [{ product_id: productId, quantity: n === 0 ? 2 : 1 }] },
     })
     expect(created.status()).toBe(201)
     ids.push((await created.json()).data.id)
   }
+  // An order takes its number at its first charge: one of the two units, so it stays pending.
+  const first = (await (await request.get(`${API}/orders/${ids[0]}`, { headers: auth })).json()).data
+  const charged = await request.post(`${API}/orders/${ids[0]}/partial-payment`, {
+    headers: auth,
+    data: { items: [{ order_item_id: first.items[0].id, quantity: 1 }] },
+  })
+  const number = (await charged.json()).data.number
+  expect(number).toBeGreaterThan(0)
 
   const listRequests: string[] = []
   page.on('request', r => {
@@ -313,11 +322,12 @@ test('la lista de pedidos pide solo la página visible, también al refrescarse 
   await expect(page.getByText(/^11-\d+ de \d+$/)).toBeVisible()
 
   // El primero de los once quedó en la segunda página; por número aparece solo.
-  await page.getByRole('textbox', { name: 'Buscar mesa o pedido' }).fill(`#${ids[0]}`)
+  await page.getByRole('textbox', { name: 'Buscar mesa o pedido' }).fill(`#${number}`)
   await expect(page.getByText('1-1 de 1')).toBeVisible()
+  await expect(page.locator('tbody tr').first()).toContainText(`#${number}`)
 
   // Un pedido nuevo llega por el refresco en vivo, que también pide una página.
-  const refreshed = page.waitForRequest(r => /\/api\/orders\?/.test(r.url()) && r.url().includes(`q=%23${ids[0]}`), { timeout: 15_000 })
+  const refreshed = page.waitForRequest(r => /\/api\/orders\?/.test(r.url()) && r.url().includes(`q=%23${number}`), { timeout: 15_000 })
   await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: productId, quantity: 1 }] } })
   await refreshed
 
