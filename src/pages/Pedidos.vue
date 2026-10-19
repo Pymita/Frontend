@@ -218,7 +218,7 @@
                   @click="printReceipt(item)"
                 >
                   <v-icon start>mdi-printer</v-icon>
-                  Factura
+                  Tirilla
                 </v-btn>
                 <v-menu v-if="isOpen(item) || item.payment_status === 'paid'">
                   <template #activator="{ props }">
@@ -228,6 +228,12 @@
                   </template>
                   <!-- Neutral icons; only the destructive entries are colored. -->
                   <v-list density="compact">
+                    <v-list-item v-if="invoicedSales(item).length" @click="printSaleInvoices(item, invoicedSales(item))">
+                      <template #prepend>
+                        <v-icon>mdi-file-document-outline</v-icon>
+                      </template>
+                      <v-list-item-title>Generar factura</v-list-item-title>
+                    </v-list-item>
                     <v-list-item v-if="item.payment_status === 'paid'" @click="openTipDialog(item)">
                       <template #prepend>
                         <v-icon>mdi-hand-coin</v-icon>
@@ -493,7 +499,7 @@
       solo al confirmar el cobro el backend toma el consecutivo de la
       resolución DIAN. Imprimir la factura antes de cobrar gastaría un
       consecutivo en una venta que quizá no ocurre. Cobrar no imprime nada:
-      la tirilla se pide desde el mensaje del cobro o con "Factura" en la fila.
+      la tirilla y la factura se piden desde el mensaje del cobro o en la fila.
     -->
     <v-dialog v-model="payDialog" max-width="760" persistent scrollable>
       <v-card v-if="selectedOrder">
@@ -924,12 +930,14 @@
     <v-snackbar
       v-model="snackbar"
       :color="snackbarColor"
-      :timeout="snackbarColor === 'error' ? 9000 : snackbarAction ? 10000 : 3000"
+      :timeout="snackbarColor === 'error' ? 9000 : snackbarActions.length ? 10000 : 3000"
       closable
     >
       {{ snackbarText }}
-      <template v-if="snackbarAction" #actions>
-        <v-btn @click="runSnackbarAction">{{ snackbarAction.text }}</v-btn>
+      <template v-if="snackbarActions.length" #actions>
+        <v-btn v-for="action in snackbarActions" :key="action.text" @click="runSnackbarAction(action)">
+          {{ action.text }}
+        </v-btn>
       </template>
     </v-snackbar>
   </v-container>
@@ -943,6 +951,7 @@ import {
   ordersService,
   type Order,
   type OrderItem,
+  type OrderPayment,
   type OrderPaymentMethod,
   type OrderReceipt,
 } from '@/services/ordersService';
@@ -969,7 +978,13 @@ import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
 import { money } from '@/utils/money';
 import { formatFullDateTime, formatIsoDate, formatRecent, todayIso } from '@/utils/dates';
-import { taxRegimeText } from '@/utils/printDocuments';
+import {
+  fillDocumentWindow,
+  openDocumentWindow,
+  saleDocumentNumber,
+  saleInvoiceHtml,
+  taxRegimeText,
+} from '@/utils/printDocuments';
 import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage';
 import type { PageQuery, PaginatedResponse } from '@/types/api';
 import type { OrderGuest } from '@/services/ordersService';
@@ -1079,7 +1094,7 @@ const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref('success');
 interface MessageAction { text: string; run: () => void }
-const snackbarAction = ref<MessageAction | null>(null);
+const snackbarActions = ref<MessageAction[]>([]);
 
 const headers = [
   { title: 'Mesa', key: 'dining_table', sortable: false },
@@ -1093,17 +1108,16 @@ const headers = [
   { title: '', key: 'actions', sortable: false, align: 'end' as const, width: 200 },
 ];
 
-const showMessage = (text: string, color = 'success', action: MessageAction | null = null) => {
+const showMessage = (text: string, color = 'success', actions: MessageAction[] = []) => {
   snackbarText.value = text;
   snackbarColor.value = color;
-  snackbarAction.value = action;
+  snackbarActions.value = actions;
   snackbar.value = true;
 };
 
-const runSnackbarAction = () => {
-  const action = snackbarAction.value;
+const runSnackbarAction = (action: MessageAction) => {
   snackbar.value = false;
-  action?.run();
+  action.run();
 };
 
 // --- Billar: reloj en vivo para los tiempos en curso ---
@@ -1403,6 +1417,17 @@ const openPayDialog = async (order: Order) => {
 /** Printing is the cashier's choice: the message of a charge offers the ticket, nothing prints by itself. */
 const ticketAction = (print: () => void): MessageAction => ({ text: 'Imprimir tirilla', run: print });
 
+/** The sales of an order that have a factura: an abono or a tip added later sold no products. */
+const invoicedSales = (order: Order): OrderPayment[] =>
+  (order.payments ?? []).filter(p => p.kind === 'sale' && (Number(p.sale_amount) > 0 || (p.items?.length ?? 0) > 0));
+
+/** "Generar factura" of what a charge just sold: the sales that were not on the order before it. */
+const invoiceActions = (before: Order, after: Order): MessageAction[] => {
+  const known = new Set((before.payments ?? []).map(p => p.id));
+  const sales = invoicedSales(after).filter(p => !known.has(p.id));
+  return sales.length ? [{ text: 'Generar factura', run: () => printSaleInvoices(after, sales) }] : [];
+};
+
 /**
  * Registra el pago con o sin propina. El backend asigna aquí el consecutivo
  * de la resolución DIAN (si está configurada); por eso la factura se
@@ -1419,7 +1444,10 @@ const confirmarCobro = async (withTip: boolean) => {
       tip: withTip ? payTip.value : 0,
       customer_id: payCustomerId.value ?? undefined,
     });
-    showMessage(withTip ? 'Pedido cobrado con propina' : 'Pedido cobrado', 'success', ticketAction(() => printReceipt(paid)));
+    showMessage(withTip ? 'Pedido cobrado con propina' : 'Pedido cobrado', 'success', [
+      ticketAction(() => printReceipt(paid)),
+      ...invoiceActions(order, paid),
+    ]);
     payDialog.value = false;
     loadOrders();
   } catch (error) {
@@ -1456,14 +1484,16 @@ const cobrarPersona = async (guest: OrderGuest, withTip = false) => {
     loadOrders();
 
     if (updated.payment_status === 'paid') {
-      showMessage('Cuenta saldada: todas las personas pagaron', 'success', ticketAction(() => printReceipt(updated)));
+      showMessage('Cuenta saldada: todas las personas pagaron', 'success', [
+        ticketAction(() => printReceipt(updated)),
+        ...invoiceActions(order, updated),
+      ]);
       payDialog.value = false;
     } else {
-      showMessage(
-        `${guest.label} pagó ${money(guest.pending_amount + tip)}`,
-        'success',
+      showMessage(`${guest.label} pagó ${money(guest.pending_amount + tip)}`, 'success', [
         ticketAction(() => printGuestReceipt(order, guest)),
-      );
+        ...invoiceActions(order, updated),
+      ]);
     }
   } catch (error) {
     showMessage(errorMessage(error, 'No se pudo cobrar a esta persona'), 'error');
@@ -1657,10 +1687,40 @@ const printGuestReceipt = async (order: Order, guest: OrderGuest) => {
   }
 };
 
-/** Pago parcial: cuando cierra la cuenta, el mensaje ofrece la tirilla como el cobro completo. */
+/**
+ * Pago parcial: cuando cierra la cuenta, el mensaje ofrece la tirilla como el
+ * cobro completo; una venta por productos ofrece su factura, un abono nada.
+ */
 const onPartialPaid = (message: string, order: Order) => {
-  showMessage(message, 'success', order.payment_status === 'paid' ? ticketAction(() => printReceipt(order)) : null);
+  const before = selectedOrder.value ?? order;
+  showMessage(message, 'success', [
+    ...(order.payment_status === 'paid' ? [ticketAction(() => printReceipt(order))] : []),
+    ...invoiceActions(before, order),
+  ]);
   loadOrders();
+};
+
+/**
+ * Factura de venta en hoja de una o varias ventas del pedido (comprobante de
+ * venta si se cobraron sin resolución), con el encabezado de Datos del negocio.
+ */
+const printSaleInvoices = async (order: Order, sales: OrderPayment[]) => {
+  const win = openDocumentWindow();
+  if (!win) {
+    showMessage('El navegador bloqueó la ventana de impresión: permite las ventanas emergentes para este sitio', 'error');
+    return;
+  }
+  try {
+    const [business, receipts] = await Promise.all([
+      billingService.getBusiness(),
+      Promise.all(sales.map(sale => ordersService.saleReceipt(order.id, sale.id))),
+    ]);
+    const title = receipts.length === 1 ? saleDocumentNumber(receipts[0]!) : `${receipts.length} facturas`;
+    fillDocumentWindow(win, title, receipts.map(receipt => saleInvoiceHtml(business, receipt)).join(''));
+  } catch (error) {
+    win.close();
+    showMessage(errorMessage(error, 'No fue posible generar la factura. Inténtalo de nuevo.'), 'error');
+  }
 };
 
 /** Cuenta de una sola persona (cuentas separadas), con su parte prorrateada. */

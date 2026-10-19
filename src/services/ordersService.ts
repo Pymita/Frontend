@@ -115,7 +115,15 @@ export interface OrderReceipt {
   is_paid: boolean
   dining_table: string | null
   waiter: string | null
-  customer: { name: string | null; document: string | null }
+  customer: {
+    name: string | null
+    document: string | null
+    /** Only on the receipt of one sale (?payment=). */
+    document_type?: string | null
+    address?: string | null
+    city?: string | null
+    phone?: string | null
+  }
   items: { quantity: number; name: string; unit_price: number; total: number; tax_rate: number }[]
   subtotal: number
   discount: number
@@ -125,6 +133,8 @@ export interface OrderReceipt {
   total: number
   payment_methods: string[]
   time_amount: number | null
+  /** The sale this receipt is about (?payment=); absent on the whole order's ticket. */
+  sale?: { id: number; reference: string; sale_amount: number } | null
 }
 
 export interface Order {
@@ -256,6 +266,14 @@ export const ordersService = {
   async receipt(id: number, guest?: number | null): Promise<OrderReceipt> {
     const response = await api.get<ApiResponse<OrderReceipt>>(`/orders/${id}/receipt`, {
       params: guest ? { guest } : undefined,
+    });
+    return response.data.data;
+  },
+
+  /** One sale of the order (its lines, number, resolution and method): the data of its letter factura. */
+  async saleReceipt(orderId: number, paymentId: number): Promise<OrderReceipt> {
+    const response = await api.get<ApiResponse<OrderReceipt>>(`/orders/${orderId}/receipt`, {
+      params: { payment: paymentId },
     });
     return response.data.data;
   },

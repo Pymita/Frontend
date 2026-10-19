@@ -17,6 +17,8 @@ export interface Sale {
   subtotal: number
   tip: number
   total: number
+  /** The sale payment of the order this row is (its letter factura prints from it). */
+  payment_id?: number | null
 }
 
 export interface SalesSummary {

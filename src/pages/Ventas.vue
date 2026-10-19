@@ -370,6 +370,17 @@
             <template #item.total="{ item }">
               <span class="font-weight-bold">{{ money(item.total) }}</span>
             </template>
+            <template #item.actions="{ item }">
+              <v-btn
+                v-if="item.id && item.payment_id && item.subtotal > 0"
+                icon="mdi-printer"
+                size="small"
+                variant="text"
+                :aria-label="`Imprimir ${saleDocumentName(item)}`"
+                :title="`Imprimir ${saleDocumentName(item)}`"
+                @click="printSale(item)"
+              />
+            </template>
             <template #no-data>
               <p class="text-medium-emphasis py-6">No hay ventas en el rango seleccionado</p>
             </template>
@@ -515,6 +526,7 @@ import salesService, {
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,
   type ProductSalesReport,
+  type Sale,
   type SalesFilters,
   type SalesReport,
   type SalesView,
@@ -527,7 +539,14 @@ import { useAuthStore } from '@/stores/auth'
 import { useReadOnly } from '@/composables/useReadOnly'
 import { effectiveFeatures } from '@/types/auth'
 import { customerLabel } from '@/utils/labels'
-import { cashCloseHtml, fillDocumentWindow, openDocumentWindow } from '@/utils/printDocuments'
+import {
+  cashCloseHtml,
+  fillDocumentWindow,
+  openDocumentWindow,
+  saleDocumentNumber,
+  saleInvoiceHtml,
+} from '@/utils/printDocuments'
+import { ordersService } from '@/services/ordersService'
 
 // Hoy en local (los inputs date usan YYYY-MM-DD): el día de trabajo actual
 // es lo primero que quiere ver quien abre la pestaña.
@@ -738,6 +757,30 @@ const printCashClose = async (session: CashSession) => {
   }
 }
 
+/** What the row's print button prints: the factura with a DIAN number, the comprobante without one. */
+const saleDocumentName = (sale: Sale): string =>
+  sale.invoice_number ? `la factura ${sale.invoice_number}` : `el comprobante del pedido #${sale.id}`
+
+/** The sale as a letter document, as Pedidos prints it after charging. */
+const printSale = async (sale: Sale) => {
+  if (!sale.id || !sale.payment_id) return
+  const win = openDocumentWindow()
+  if (!win) {
+    notify('El navegador bloqueó la ventana de impresión: permite las ventanas emergentes para este sitio', 'error')
+    return
+  }
+  try {
+    const [business, receipt] = await Promise.all([
+      billingService.getBusiness(),
+      ordersService.saleReceipt(sale.id, sale.payment_id),
+    ])
+    fillDocumentWindow(win, saleDocumentNumber(receipt), saleInvoiceHtml(business, receipt))
+  } catch (error) {
+    win.close()
+    notify(errorMessage(error, 'No fue posible generar la factura para imprimir. Inténtalo de nuevo.'), 'error')
+  }
+}
+
 const canExport = computed(() => {
   if (view.value === 'cash') return false
   if (view.value === 'products') return (productReport.value?.products.length ?? 0) > 0
@@ -767,6 +810,7 @@ const headers = [
   { title: 'Método', key: 'payment_methods', sortable: false },
   { title: 'Propina', key: 'tip', align: 'end' as const },
   { title: 'Total', key: 'total', align: 'end' as const },
+  { title: '', key: 'actions', align: 'end' as const, sortable: false },
 ]
 
 const methodOptions = Object.entries(PAYMENT_METHOD_LABELS).map(([value, title]) => ({ value, title }))

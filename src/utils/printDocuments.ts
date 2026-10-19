@@ -1,15 +1,17 @@
 import { money } from './money'
 /**
  * Documentos imprimibles en hoja carta: cuenta de cobro / factura de venta y
- * recibo de caja de la facturación automática, y el cierre de caja de un
- * turno. Es UNA plantilla para todas las empresas: el encabezado sale de los
- * datos de cada una (Configuración > Datos del negocio), así que cada negocio
- * imprime con su nombre, NIT, régimen, dirección, teléfonos y observaciones.
+ * recibo de caja de la facturación automática, la factura de venta de una
+ * venta del POS y el cierre de caja de un turno. Es UNA plantilla para todas
+ * las empresas: el encabezado sale de los datos de cada una (Configuración >
+ * Datos del negocio), así que cada negocio imprime con su nombre, NIT,
+ * régimen, dirección, teléfonos y observaciones.
  */
-import { orderPaymentMethodLabels, taxRegimeLabels } from './labels'
+import { customerLabel, orderPaymentMethodLabels, taxRegimeLabels } from './labels'
 import { APP_NAME } from './branding'
 import { formatFullDateTime, formatIsoDate } from './dates'
 import type { CashSession } from '../services/salesService'
+import type { OrderReceipt } from '../services/ordersService'
 
 export interface DocumentBusiness {
   legal_name: string
@@ -269,6 +271,85 @@ export const invoiceHtml = (
       <div>${notes || '&nbsp;'}</div>
     </div>
     ${footer('RECIBIDO / CLIENTE', 'FIRMA VENDEDOR')}
+  </section>`
+}
+
+/** What a POS sale document is numbered with: its DIAN number, or its `#<order>-<n>` reference without one. */
+export const saleDocumentNumber = (sale: OrderReceipt): string => sale.invoice_number || sale.sale?.reference || ''
+
+/**
+ * One POS sale (`GET /orders/{id}/receipt?payment=`) as a letter document:
+ * with a DIAN number it is the factura de venta with the resolution that
+ * number came from in the header; without one it is the internal
+ * comprobante de venta, numbered with its reference, as the ticket calls it.
+ * Its value is the sale without the voluntary tip, which prints apart.
+ */
+export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt): string => {
+  const isInvoice = !!sale.invoice_number
+  const value = Number(sale.total) - Number(sale.tip || 0)
+  const lines = sale.items.map(item => ({ ...item, tax: item.tax_rate > 0 ? `${item.tax_rate}%` : '—' }))
+  if (sale.time_amount && sale.time_amount > 0) {
+    lines.push({ quantity: 1, name: 'Tiempo de mesa', unit_price: sale.time_amount, total: sale.time_amount, tax_rate: 0, tax: '—' })
+  }
+  const documentType = sale.customer.document_type
+  const methods = sale.payment_methods.map(method => METHOD_LABELS[method] ?? method).join(' + ')
+  const notes = [business.document_notes].filter(Boolean).map(escape).join('<br>')
+
+  return `
+  <section class="document">
+    ${header(business, isInvoice ? 'FACTURA DE VENTA' : 'COMPROBANTE DE VENTA', saleDocumentNumber(sale), isInvoice ? sale.resolution : null)}
+    <div class="box party">
+      <div class="party-grid">
+        <div>
+          ${partyRows([
+            ['CLIENTE', customerLabel(sale.customer.name)],
+            [documentType === 'NIT' ? 'NIT' : documentType || 'CC/NIT', sale.customer.document],
+            ['DIRECCIÓN', sale.customer.address],
+            ['TELÉFONO', sale.customer.phone],
+          ])}
+        </div>
+        <div>
+          ${partyRows([
+            ['FECHA (D/M/A)', sale.paid_at ? formatFullDateTime(sale.paid_at) : ''],
+            ['MESA', sale.dining_table],
+            ['ATENDIÓ', sale.waiter],
+            ['FORMA DE PAGO', methods],
+          ])}
+        </div>
+      </div>
+    </div>
+    <div class="box items">
+      <table>
+        <thead>
+          <tr><th class="left">DESCRIPCIÓN</th><th>CANT.</th><th class="right">VL. UNIDAD</th><th class="center">IMPUESTO</th><th class="right">VR. TOTAL</th></tr>
+        </thead>
+        <tbody>
+          ${lines.map(line => `
+          <tr>
+            <td class="left">${escape(line.name)}</td>
+            <td class="center">${line.quantity}</td>
+            <td class="right">${money(line.unit_price)}</td>
+            <td class="center">${line.tax}</td>
+            <td class="right">${money(line.total)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="totals">
+        <div><span>SUBTOTAL:</span> <span>${money(sale.subtotal)}</span></div>
+        ${sale.discount > 0 ? `<div><span>DESCUENTO:</span> <span>-${money(sale.discount)}</span></div>` : ''}
+        ${sale.delivery_fee > 0 ? `<div><span>DOMICILIO:</span> <span>${money(sale.delivery_fee)}</span></div>` : ''}
+        ${sale.included_vat > 0 ? `<div><span>IMPUESTO (INCLUIDO):</span> <span>${money(sale.included_vat)}</span></div>` : ''}
+        <div class="grand-total"><span>TOTAL:</span> <span>${money(value)}</span></div>
+        ${sale.tip > 0 ? `<div><span>PROPINA VOLUNTARIA:</span> <span>${money(sale.tip)}</span></div>` : ''}
+        ${sale.tip > 0 ? `<div class="grand-total"><span>TOTAL PAGADO:</span> <span>${money(sale.total)}</span></div>` : ''}
+      </div>
+    </div>
+    <div class="son"><span class="label">SON:</span> ${escape(amountInWords(value))}</div>
+    <div class="box notes">
+      <div class="label">OBSERVACIONES:</div>
+      <div>${notes || '&nbsp;'}</div>
+    </div>
+    ${footer('RECIBIDO / CLIENTE', 'ATENDIÓ')}
   </section>`
 }
 

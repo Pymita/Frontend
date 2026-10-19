@@ -594,3 +594,179 @@ test('quien ve Ventas sin ser admin imprime los cierres pero no los corrige', as
   expect(refused.status()).toBe(403)
 })
 
+/**
+ * A POS sale prints as a letter factura de venta, like the automatic-billing
+ * one: the business header with the resolution its number came from, the
+ * products of that sale with quantity, unit value, tax and total, the
+ * payment method and the amount in words. From the charge's message in
+ * Pedidos and from its row in Ventas.
+ */
+test('la venta se imprime en hoja como factura de venta, desde Pedidos y desde Ventas', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `factura-hoja-${Date.now()}`)
+  const resolution = await request.put(`${API}/invoicing/resolution`, {
+    headers: auth,
+    data: {
+      invoicing_resolution: '018764000000001',
+      invoice_prefix: 'FE',
+      range_from: 1,
+      range_to: 100,
+      resolution_date: '2026-01-15',
+      valid_until: '2030-01-15',
+    },
+  })
+  expect(resolution.ok()).toBeTruthy()
+  const nit = `901${Date.now() % 1_000_000}`
+  const business = await request.put(`${API}/invoicing/business`, {
+    headers: auth,
+    data: {
+      legal_name: 'Hoja Carta SAS',
+      nit,
+      tax_regime: 'common',
+      address: 'Calle 10 # 5-20',
+      city: 'Popayán',
+      phone: '3001234567',
+      document_notes: 'Gracias por tu compra',
+    },
+  })
+  expect(business.ok()).toBeTruthy()
+  const tax = (await (await request.post(`${API}/taxes`, { headers: auth, data: { name: 'Impoconsumo E2E', rate: 8 } })).json()).data
+  const categoryId = (await (await request.post(`${API}/categories`, { headers: auth, data: { name: 'Comidas' } })).json()).data.id
+  const product = async (name: string, price: number, taxId?: number): Promise<number> => (await (await request.post(`${API}/products`, {
+    headers: auth,
+    data: { name, type: 'final', unit: 'und', sale_price: price, tracks_stock: false, category_id: categoryId, ...(taxId ? { tax_id: taxId } : {}) },
+  })).json()).data.id
+  const beer = await product('Cerveza Club', 6500)
+  const empanada = await product('Empanada de pipián', 3000, tax.id)
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { customer_name: 'Mesa Hoja', items: [{ product_id: beer, quantity: 2 }, { product_id: empanada, quantity: 3 }] },
+  })
+  expect(order.status()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, credentials.email, credentials.password)
+  const printing = await watchPrinting(page)
+  await page.goto('/pedidos')
+  await page.locator('tr', { hasText: '$22.000' }).first().getByRole('button', { name: 'Cobrar' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirmar cobro' }).click()
+  await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Imprimir tirilla' })).toBeVisible()
+  expect(await printing()).toEqual({ opened: 0, printed: 0 })
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/factura-ventas-productos-mensaje-1440.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/factura-ventas-productos-mensaje-390.png' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+
+  const [invoice] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('button', { name: 'Generar factura' }).click(),
+  ])
+  await expect(invoice.locator('.doc-number')).toContainText('FACTURA DE VENTA')
+  await expect(invoice.locator('.doc-number .number')).toHaveText('FE1')
+  await expect(invoice.locator('.header .business')).toContainText('Hoja Carta SAS')
+  await expect(invoice.locator('.header .business')).toContainText(`NIT: ${nit}`)
+  await expect(invoice.locator('.header .business .resolution')).toHaveText(
+    'Resolución DIAN N.º 018764000000001 del 15/01/2026 · Rango FE1 a FE100 · Vigente hasta 15/01/2030',
+  )
+  const rows = invoice.locator('.items tbody tr')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0).locator('td')).toHaveText(['Cerveza Club', '2', '$6.500', '—', '$13.000'])
+  await expect(rows.nth(1).locator('td')).toHaveText(['Empanada de pipián', '3', '$3.000', '8%', '$9.000'])
+  await expect(invoice.locator('.totals')).toContainText('IMPUESTO (INCLUIDO): $667')
+  await expect(invoice.locator('.totals')).toContainText('TOTAL: $22.000')
+  await expect(invoice.locator('.totals')).not.toContainText('PROPINA')
+  await expect(invoice.locator('.party')).toContainText('CLIENTE: Mesa Hoja')
+  await expect(invoice.locator('.party')).toContainText('FORMA DE PAGO: Efectivo')
+  await expect(invoice.locator('.son')).toHaveText('SON: VEINTIDÓS MIL PESOS M/CTE')
+  await expect(invoice.locator('.notes')).toContainText('Gracias por tu compra')
+  await expect(invoice.locator('body')).not.toContainText(/CUFE|electrónica/i)
+  await invoice.setViewportSize({ width: 1440, height: 900 })
+  await invoice.screenshot({ path: '../screenshots/factura-ventas-productos-factura-1440.png', fullPage: true })
+  await invoice.setViewportSize({ width: 816, height: 1056 })
+  await invoice.screenshot({ path: '../screenshots/factura-ventas-productos-factura-carta.png', fullPage: true })
+  await invoice.close()
+
+  // Later, from the paid order's row: "Tirilla" is the ticket, the menu has the factura.
+  await page.getByRole('button', { name: 'Pagados' }).click()
+  const paidRow = page.locator('tbody tr', { hasText: '$22.000' })
+  await expect(paidRow.getByRole('button', { name: 'Tirilla' })).toBeVisible()
+  await paidRow.getByRole('button', { name: 'Más acciones del pedido' }).click()
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/factura-ventas-productos-menu-1440.png' })
+  const [fromRow] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('listitem').filter({ hasText: 'Generar factura' }).click(),
+  ])
+  await expect(fromRow.locator('.doc-number .number')).toHaveText('FE1')
+  await fromRow.close()
+
+  // The same document from its row in Ventas.
+  await page.goto('/ventas')
+  const saleRow = page.locator('tbody tr', { hasText: 'FE1' })
+  await expect(saleRow).toContainText('$22.000')
+  await page.screenshot({ path: '../screenshots/factura-ventas-productos-ventas-1440.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/factura-ventas-productos-ventas-390.png' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const [again] = await Promise.all([
+    page.waitForEvent('popup'),
+    saleRow.getByRole('button', { name: 'Imprimir la factura FE1' }).click(),
+  ])
+  await expect(again.locator('.doc-number .number')).toHaveText('FE1')
+  await expect(again.locator('.items tbody tr')).toHaveCount(2)
+  await expect(again.locator('.totals')).toContainText('TOTAL: $22.000')
+})
+
+/**
+ * Without a resolution a sale is the internal comprobante de venta, numbered
+ * with its reference; a table charged by person gets one per sale, with only
+ * what that person paid. Pedidos and Ventas print the same document.
+ */
+test('sin resolución, la venta de una persona sale en hoja como comprobante con solo lo suyo', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `comprobante-hoja-${Date.now()}`)
+  const arepa = await seedSimpleProduct(request, auth, 'Arepa Persona', 4200)
+  const juice = await seedSimpleProduct(request, auth, 'Jugo Persona', 3100)
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { items: [{ product_id: arepa, quantity: 1, guest_number: 1 }, { product_id: juice, quantity: 2, guest_number: 2 }] },
+  })
+  const orderId = (await order.json()).data.id
+
+  await loginUI(page, credentials.email, credentials.password)
+  await page.goto('/pedidos')
+  await page.locator('tr', { hasText: '$10.400' }).first().getByRole('button', { name: 'Cobrar' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.locator('.v-list-item', { hasText: 'Persona 1' }).getByRole('button', { name: 'Cobrar', exact: true }).click()
+  await expect(page.getByText('Persona 1 pagó $4.200')).toBeVisible()
+  const sale = (await (await request.get(`${API}/orders/${orderId}`, { headers: auth })).json()).data.payments[0]
+
+  const expectComprobante = async (doc: Page) => {
+    await expect(doc.locator('.doc-number')).toContainText('COMPROBANTE DE VENTA')
+    await expect(doc.locator('.doc-number .number')).toHaveText(sale.reference)
+    await expect(doc.locator('.resolution')).toHaveCount(0)
+    await expect(doc.locator('.items tbody tr td')).toHaveText(['Arepa Persona', '1', '$4.200', '—', '$4.200'])
+    await expect(doc.locator('.totals')).toContainText('TOTAL: $4.200')
+    await expect(doc.locator('.party')).toContainText('CLIENTE: Consumidor final')
+    await expect(doc.locator('body')).not.toContainText('Jugo Persona')
+    await expect(doc.locator('body')).not.toContainText(/FACTURA DE VENTA|Resolución/)
+  }
+  const [fromPedidos] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('button', { name: 'Generar factura' }).click(),
+  ])
+  await expectComprobante(fromPedidos)
+  await fromPedidos.setViewportSize({ width: 816, height: 1056 })
+  await fromPedidos.screenshot({ path: '../screenshots/factura-ventas-productos-comprobante-carta.png', fullPage: true })
+  await fromPedidos.close()
+
+  await page.goto('/ventas')
+  const [fromVentas] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('button', { name: `Imprimir el comprobante del pedido #${orderId}` }).click(),
+  ])
+  await expectComprobante(fromVentas)
+})
+
