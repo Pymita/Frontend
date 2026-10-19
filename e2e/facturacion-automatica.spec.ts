@@ -194,7 +194,7 @@ test('importa clientes desde Excel: plantilla, revisión fila por fila y los vá
   await expect(dialog).toContainText('Todavía no se creó ningún cliente')
   const resultRow = (text: string) => dialog.locator('tbody tr', { hasText: text })
   await expect(resultRow('Correo Malo')).toContainText('Con error')
-  await expect(resultRow('Correo Malo')).toContainText('La columna correo debe ser un correo válido.')
+  await expect(resultRow('Correo Malo')).toContainText('El correo "no-es-correo" no es válido: corrígelo o deja vacía la columna correo.')
   await expect(resultRow('Correo Malo').locator('td').first()).toHaveText('5')
   await expect(resultRow('Ana Repetida')).toContainText('El documento 1001 está repetido en el archivo (ya venía en la fila 2).')
   await expect(resultRow('Dora Cambiada')).toContainText('Se salta')
@@ -244,10 +244,103 @@ test('importa clientes desde Excel: plantilla, revisión fila por fila y los vá
   await dialog.locator('input[type="file"]').setInputFiles({ name: 'clientes.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: file })
   await dialog.getByRole('button', { name: 'Revisar archivo' }).click()
   await expect(dialog).toContainText('Ninguna fila se puede crear. 3 filas se saltan. 2 filas tienen errores y no se importan.')
-  await expect(resultRow('Correo Malo')).toContainText('La columna correo debe ser un correo válido.')
+  await expect(resultRow('Correo Malo')).toContainText('El correo "no-es-correo" no es válido: corrígelo o deja vacía la columna correo.')
   await expect(dialog.getByRole('button', { name: 'Importar clientes', exact: true })).toBeDisabled()
   await page.waitForTimeout(400)
   await page.screenshot({ path: '../screenshots/importar-clientes-resultado-390.png' })
+})
+
+/**
+ * Una cédula con puntos ya no queda tal cual (el buscador no la encontraba
+ * y la misma persona entraba dos veces): el formulario y el Excel la
+ * guardan solo con números, y en un archivo grande cada fila que no entra
+ * dice su número, lo que trae y qué escribir.
+ */
+test('los documentos con puntos quedan solo con números y en 200 filas la mala dice su fila y qué escribir', async ({ page, request }) => {
+  test.setTimeout(90_000)
+  const company = await createRecurringCompany(request, 'documentos')
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Facturación automática').click()
+  await page.getByRole('tab', { name: /Clientes/ }).click()
+
+  // A mano: la cédula con puntos se ve y se guarda solo con números.
+  await page.getByRole('button', { name: 'Nuevo cliente' }).click()
+  const dialog = page.getByRole('dialog')
+  const documento = field(page, 'NIT / Número de documento *').locator('input')
+  await documento.fill('1.002.655.357')
+  await documento.blur()
+  await expect(documento).toHaveValue('1002655357')
+  await field(page, 'Nombre *').locator('input').fill('Ana Formulario')
+  await dialog.getByLabel('Incluir en la facturación automática').uncheck()
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Cliente creado exitosamente')).toBeVisible()
+  await expect(row(page, 'Ana Formulario')).toContainText('CC 1002655357')
+
+  // Desde Excel: 200 filas con cédulas con puntos, un NIT con su DV, la misma
+  // cédula de Ana, una con una letra y una repetida escrita con puntos.
+  const columns = await request.get(`${API}/recurring-billing/customers/import/columns`, {
+    headers: { Authorization: `Bearer ${company.token}` },
+  })
+  const headers: string[] = (await columns.json()).data.columns.map((column: { label: string }) => column.label)
+  const fileRow = (cells: Record<string, string>) => headers.map(header => cells[header] ?? '')
+  const rows = Array.from({ length: 200 }, (_, index) => {
+    const n = index + 1
+    const document = String(1003000000 + n)
+    return fileRow({
+      nombre: `Apto ${n}`,
+      numero_documento: n % 10 === 0 ? document.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : document,
+    })
+  })
+  rows[2] = fileRow({ nombre: 'Inversiones Andinas SAS', tipo_documento: 'NIT', numero_documento: '900.608.736 - 1' })
+  rows[4] = fileRow({ nombre: 'Ana Otra Vez', numero_documento: '1.002.655.357' })
+  rows[49] = fileRow({ nombre: 'Apto 50 con letra', numero_documento: '10030000SO' })
+  rows[119] = fileRow({ nombre: 'Apto 120 repetido', numero_documento: '1.003.000.001' })
+
+  await page.getByRole('button', { name: 'Importar clientes desde Excel' }).click()
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'clientes.xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: buildXlsx([headers, ...rows]),
+  })
+  await dialog.getByRole('button', { name: 'Revisar archivo' }).click()
+  await expect(dialog).toContainText('197 clientes se pueden crear. 1 fila se salta. 2 filas tienen errores y no se importan.')
+
+  // Lo que hay que corregir va primero, con el número de fila del Excel.
+  const resultRow = (text: string) => dialog.locator('tbody tr', { hasText: text })
+  await expect(resultRow('Apto 50 con letra').locator('td').first()).toHaveText('51')
+  await expect(resultRow('Apto 50 con letra')).toContainText('Con error')
+  await expect(resultRow('Apto 50 con letra')).toContainText('La cédula «10030000SO» tiene letras o símbolos: escribe solo los números del documento.')
+  await expect(resultRow('Apto 120 repetido').locator('td').first()).toHaveText('121')
+  await expect(resultRow('Apto 120 repetido')).toContainText('El documento 1003000001 (en el archivo dice «1.003.000.001») está repetido en el archivo (ya venía en la fila 2).')
+  await expect(resultRow('Ana Otra Vez')).toContainText('Ya existe: Ana Formulario tiene el documento 1002655357 (en el archivo dice «1.002.655.357»). No se modificó.')
+  await expect(resultRow('Inversiones Andinas SAS')).toContainText('El documento «900.608.736 - 1» queda como 900608736-1.')
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/documentos-clientes-importar-revision-1440.png' })
+
+  await dialog.getByRole('button', { name: 'Importar 197 clientes' }).click()
+  await expect(dialog.locator('.v-alert').first()).toContainText(
+    'Se crearon 197 clientes. 1 fila se salta. 2 filas tienen errores y no se importan.',
+  )
+  await expect(resultRow('Apto 50 con letra')).toContainText('Con error')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/documentos-clientes-importar-resultado-390.png' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await dialog.getByRole('button', { name: 'Cerrar' }).click()
+
+  // En la lista: el NIT con su DV y la cédula que venía con puntos, solo con
+  // números. El buscador encuentra por documento, escrito con o sin puntos.
+  const search = page.getByRole('textbox', { name: 'Buscar por nombre o documento' })
+  await search.fill('900608736')
+  await expect(row(page, 'Inversiones Andinas SAS')).toContainText('NIT 900608736-1')
+  await search.fill('1.003.000.010')
+  await expect(page.locator('.v-window-item--active tbody tr')).toHaveCount(1)
+  await expect(row(page, 'Apto 10')).toContainText('CC 1003000010')
+
+  const customers = await request.get(`${API}/customers?per_page=1`, { headers: { Authorization: `Bearer ${company.token}` } })
+  expect((await customers.json()).meta.total).toBe(198)
 })
 
 test('la cartera muestra el saldo por cliente y registra abonos hasta pagar', async ({ page, request }) => {

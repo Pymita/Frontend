@@ -42,6 +42,57 @@ test('un cliente jurídico y frecuente se guarda así y se puede cambiar', async
 })
 
 /**
+ * Una cédula con puntos se guarda solo con números: antes quedaba tal cual,
+ * el buscador no la encontraba por sus números y la misma persona se podía
+ * crear dos veces.
+ */
+test('la cédula con puntos se guarda solo con números y escrita otra vez dice quién la tiene', async ({ page }) => {
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/clientes')
+
+  const digits = `1${String(Date.now()).slice(-9)}`
+  const dotted = digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  const nombre = `Cédula Con Puntos ${digits}`
+  const dialog = page.getByRole('dialog')
+  const documento = field(page, 'Número de documento *').locator('input')
+
+  await page.getByRole('button', { name: /Nuevo cliente/ }).click()
+  await documento.fill('10O2.655.357')
+  await documento.blur()
+  await expect(dialog).toContainText('La cédula «10O2.655.357» tiene letras o símbolos: escribe solo los números del documento.')
+  await page.waitForTimeout(400)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.screenshot({ path: '../screenshots/documentos-clientes-cedula-con-letra-1440.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/documentos-clientes-cedula-con-letra-390.png' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+
+  await documento.fill(dotted)
+  await documento.blur()
+  await expect(documento).toHaveValue(digits)
+  await field(page, 'Nombre / Razón social *').locator('input').fill(nombre)
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+
+  await expect(page.getByText('Cliente creado exitosamente')).toBeVisible()
+  await expect(page.locator('tr', { hasText: nombre })).toContainText(digits)
+
+  // La misma cédula, escrita con espacios: el backend la reconoce.
+  await page.getByRole('button', { name: /Nuevo cliente/ }).click()
+  await documento.fill(digits.replace(/(\d{3})(?=\d)/g, '$1 '))
+  await field(page, 'Nombre / Razón social *').locator('input').fill(`${nombre} repetido`)
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText(`Ya existe un cliente con el documento ${digits}: ${nombre}. Búscalo en la lista en lugar de crearlo de nuevo.`)).toBeVisible()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+
+  // Se encuentra buscándola con o sin puntos.
+  await page.getByRole('textbox', { name: 'Buscar cliente' }).fill(dotted)
+  await expect(page.getByText('1-1 de 1')).toBeVisible()
+  await expect(page.locator('tbody tr', { hasText: nombre })).toContainText(digits)
+})
+
+/**
  * La pestaña Proveedores vive junto a Clientes: trae un proveedor por defecto
  * (el nombre de la empresa, que no se puede borrar) y deja crear los demás.
  */
@@ -59,11 +110,13 @@ test('la pestaña Proveedores trae el proveedor por defecto y permite crear otro
 
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Nombre').fill(nombre)
+  await dialog.getByLabel('Documento / NIT').fill('900.123.456 - 7')
   await dialog.getByLabel('Teléfono').fill('3005551234')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
 
   await expect(page.getByText('Proveedor creado exitosamente')).toBeVisible()
-  await expect(page.locator('tr', { hasText: nombre })).toBeVisible()
+  // El NIT queda sin puntos y con su dígito de verificación.
+  await expect(page.locator('tr', { hasText: nombre })).toContainText('900123456-7')
 })
 
 /**
