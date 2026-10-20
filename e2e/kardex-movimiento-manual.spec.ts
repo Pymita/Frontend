@@ -213,6 +213,8 @@ test('una línea inválida muestra su mensaje y no se guarda ninguna línea', as
   await page.getByRole('button', { name: /Registrar movimiento/ }).click()
   await field(page, 'Tipo de documento *').click()
   await page.getByRole('option', { name: /FC — Factura de compra/ }).click()
+  // The default supplier is prefilled only if the suppliers loaded before the dialog opened.
+  await page.getByLabel('Proveedor *').fill('Lechería Línea E2E')
   await pickLineProduct(page, 1, milk)
   await lineField(page, 1, 'Cantidad *').locator('input').fill('4')
   await page.getByRole('button', { name: 'Agregar producto' }).click()
