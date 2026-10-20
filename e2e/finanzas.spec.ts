@@ -80,8 +80,10 @@ test('un aporte del dueño suma a la caja sin ser utilidad y un egreso suelto s�
   await expect(page.getByText('Movimiento eliminado')).toBeVisible()
   await expect(expense).toHaveCount(0)
   expect((await figures(request, auth)).netProfit).toBe(before.netProfit)
-  // Without automatic billing "Ventas" has no breakdown by origin.
+  // Without automatic billing "Ventas" has no breakdown by origin, and the balance no cartera or abonos.
   await expect(page.locator('tr', { hasText: 'Facturación automática' })).toHaveCount(0)
+  await expect(page.locator('tr', { hasText: 'Cuentas por cobrar (cartera)' })).toHaveCount(0)
+  await expect(page.getByText(/abonos de facturación automática/)).toHaveCount(0)
 })
 
 test('el estado de resultados suma los documentos emitidos a las ventas, sin contar sus abonos', async ({ page, request }) => {
@@ -115,10 +117,82 @@ test('el estado de resultados suma los documentos emitidos a las ventas, sin con
   await page.goto('/finanzas')
 
   await expect(page.locator('tr', { hasText: /^Ventas/ })).toContainText('$255.000')
-  await expect(page.locator('tr', { hasText: 'Pedidos' })).toContainText('$5.000')
-  await expect(page.locator('tr', { hasText: 'Facturación automática' })).toContainText('$250.000')
+  // By the exact cell: the balance also writes "abonos de facturación automática".
+  await expect(page.locator('tr', { has: page.getByText('Pedidos', { exact: true }) })).toContainText('$5.000')
+  await expect(page.locator('tr', { has: page.getByText('Facturación automática', { exact: true }) })).toContainText('$250.000')
   await expect(page.locator('tr', { hasText: 'Utilidad bruta' })).toContainText('$255.000')
   // Administración unfolds by itself on this page: the capture waits for the drawer to settle.
   await page.waitForTimeout(400)
   await page.screenshot({ path: '../screenshots/ventas-facturacion-finanzas-1440.png', fullPage: true })
+})
+
+/**
+ * The balance holds what automatic billing collected (in Caja, by method) and
+ * what it is still owed (the cartera); a charged and reverted sale costs nothing.
+ */
+test('el balance suma los abonos a la caja y la cartera como cuenta por cobrar, y un cobro revertido no cuesta', async ({ page, request }) => {
+  const company = await createCompany(request, 'finanzas-cartera', { business_type: 'recurring', modules: SHOP_WITH_FEES })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: 'Bebidas' } })
+  const beer = await request.post(`${API}/products`, {
+    headers: auth,
+    data: {
+      name: 'Cerveza Tienda', type: 'final', unit: 'und', unit_cost: 2000, sale_price: 6000,
+      tracks_stock: true, current_stock: 10, category_id: (await category.json()).data.id,
+    },
+  })
+  const beerId = (await beer.json()).data.id
+  const charge = async (quantity: number): Promise<number> => {
+    const order = await request.post(`${API}/orders`, {
+      headers: auth,
+      data: { order_type: 'takeaway', items: [{ product_id: beerId, quantity }] },
+    })
+    const orderId = (await order.json()).data.id
+    expect((await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: { payment_method: 'cash' } })).ok()).toBeTruthy()
+    return orderId
+  }
+  // Two beers charged to the wrong table and reverted; one sold.
+  const wrong = await charge(2)
+  const reverted = await request.post(`${API}/orders/${wrong}/revert-payment`, { headers: auth, data: { reason: 'Mesa equivocada' } })
+  expect(reverted.ok(), await reverted.text()).toBeTruthy()
+  await charge(1)
+
+  const [ana] = await issueDocuments(request, company.token, [
+    { name: 'Ana Apto 101', document_number: '1001', monthly_fee: 250000 },
+    { name: 'Beto Apto 102', document_number: '1002', monthly_fee: 180000 },
+  ])
+  for (const [amount, method] of [[100000, 'cash'], [50000, 'transfer']] as const) {
+    const abono = await request.post(`${API}/recurring-billing/invoices/${ana!.id}/payments`, {
+      headers: auth,
+      data: { amount, payment_method: method },
+    })
+    expect(abono.ok(), await abono.text()).toBeTruthy()
+  }
+
+  await freezeTime(page, ana!.issued_at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/finanzas')
+
+  // Caja: the beer sold (6.000) and the abonos (150.000); the reverted charge left nothing.
+  await expect(page.locator('tr', { hasText: 'Caja (cobrado − pagado)' })).toContainText('$156.000')
+  await expect(page.getByText('Incluye $150.000 de abonos de facturación automática (Efectivo $100.000 · Transferencia $50.000)')).toBeVisible()
+  // What Ana still owes (100.000) and Beto's 180.000.
+  await expect(page.locator('tr', { hasText: 'Cuentas por cobrar (cartera)' })).toContainText('$280.000')
+  // Nine beers left at 2.000.
+  await expect(page.locator('tr', { hasText: 'Inventario valorizado' })).toContainText('$18.000')
+  await expect(page.locator('tr', { hasText: 'Total activos' })).toContainText('$454.000')
+  await expect(page.locator('tr', { hasText: 'Patrimonio' })).toContainText('$454.000')
+
+  // The income statement: the beer sold costs its 2.000; the reverted two cost nothing.
+  await expect(page.locator('tr', { hasText: /^Ventas/ })).toContainText('$436.000')
+  await expect(page.locator('tr', { hasText: 'Costo de ventas (kardex)' })).toContainText('$2.000')
+  await expect(page.locator('tr', { hasText: 'Utilidad bruta' })).toContainText('$434.000')
+
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/finanzas-cartera-y-costo-1440.png', fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.locator('tr', { hasText: 'Cuentas por cobrar (cartera)' })).toBeVisible()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/finanzas-cartera-y-costo-390.png', fullPage: true })
 })

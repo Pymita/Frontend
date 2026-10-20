@@ -111,6 +111,17 @@
                 <td class="pl-8">Caja (cobrado − pagado)</td>
                 <td class="text-right">{{ money(balance.assets.cash) }}</td>
               </tr>
+              <!-- Abonos of automatic billing are cash already in; the cartera is what is still owed. -->
+              <tr v-if="balance.assets.billing_abonos?.total">
+                <td colspan="2" class="pl-12 text-caption text-medium-emphasis">
+                  Incluye {{ money(balance.assets.billing_abonos.total) }} de abonos de facturación automática
+                  <span v-if="billingAbonosByMethod">({{ billingAbonosByMethod }})</span>
+                </td>
+              </tr>
+              <tr v-if="showReceivables">
+                <td class="pl-8">Cuentas por cobrar (cartera)</td>
+                <td class="text-right">{{ money(balance.assets.accounts_receivable) }}</td>
+              </tr>
               <tr>
                 <td class="pl-8">Inventario valorizado (costo promedio)</td>
                 <td class="text-right">{{ money(balance.assets.inventory) }}</td>
@@ -286,10 +297,13 @@ import kardexService, {
   type MovementKind,
   type MovementKindOption,
 } from '../services/kardexService'
+import type { PaymentMethod } from '../services/salesService'
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
+import { useAuthStore } from '@/stores/auth'
+import { orderPaymentMethodLabels } from '@/utils/labels'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
 const isReadOnly = useReadOnly()
@@ -297,6 +311,22 @@ const isReadOnly = useReadOnly()
 const loadingIncome = ref(false)
 const income = ref<IncomeStatement | null>(null)
 const balance = ref<BalanceReport | null>(null)
+
+// "Efectivo $100.000 · Transferencia $50.000", in the order of the method list.
+const billingAbonosByMethod = computed(() => {
+  const byMethod = balance.value?.assets.billing_abonos?.by_method ?? {}
+  return (Object.keys(orderPaymentMethodLabels) as PaymentMethod[])
+    .filter(method => (byMethod[method] ?? 0) > 0)
+    .map(method => `${orderPaymentMethodLabels[method]} ${money(byMethod[method])}`)
+    .join(' · ')
+})
+
+// A company that bills monthly fees always sees its cartera; anyone else only if it has one.
+const authStore = useAuthStore()
+const showReceivables = computed(() =>
+  (balance.value?.assets.accounts_receivable ?? 0) > 0
+  || (authStore.user?.company?.modules ?? []).includes('recurring_billing'),
+)
 
 const uncostedLabel = computed(() =>
   (balance.value?.assets.uncosted_stock ?? [])

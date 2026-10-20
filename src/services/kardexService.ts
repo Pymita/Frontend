@@ -1,5 +1,5 @@
 import api from './api'
-import type { SaleOrigin } from './salesService'
+import type { PaymentMethod, SaleOrigin } from './salesService'
 
 export interface DocumentType {
   id: number
@@ -61,7 +61,12 @@ export interface KardexReport {
 export interface BalanceReport {
   as_of: string
   assets: {
+    /** What orders and automatic-billing abonos collected, minus what was paid. */
     cash: number
+    /** The part of cash that came in as abonos of automatic billing, by payment method. */
+    billing_abonos: { total: number; by_method: Partial<Record<PaymentMethod, number>> }
+    /** What customers still owe on issued documents: the cartera. */
+    accounts_receivable: number
     inventory: number
     /** Productos con unidades en el kardex pero sin costo: suman $0 al inventario */
     uncosted_stock?: { id: number; name: string; unit: string | null; quantity: number }[]
