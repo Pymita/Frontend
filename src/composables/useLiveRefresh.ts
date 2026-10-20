@@ -2,7 +2,7 @@ import { onMounted, onUnmounted } from 'vue'
 import api from '@/services/api'
 
 interface ChangesResponse {
-  data: { version: string; latest_id: number }
+  data: { version: string; latest_id: number; orders_count: number }
 }
 
 /**
@@ -14,11 +14,11 @@ interface ChangesResponse {
  * how the cashier's screen picks them up within seconds.
  */
 export function useLiveRefresh(
-  onChange: (info: { latestId: number; previousLatestId: number | null }) => void,
+  onChange: (info: { newOrders: number }) => void,
   intervalMs = 4000,
 ) {
   let version: string | null = null
-  let latestId: number | null = null
+  let ordersCount: number | null = null
   let timer: ReturnType<typeof setInterval> | null = null
   let checking = false
 
@@ -30,11 +30,12 @@ export function useLiveRefresh(
       const next = response.data.data
       const first = version === null
       const moved = next.version !== version
-      const previousLatestId = latestId
+      const previousCount = ordersCount
       version = next.version
-      latestId = next.latest_id
+      ordersCount = next.orders_count
       if (!first && moved) {
-        onChange({ latestId: next.latest_id, previousLatestId })
+        // Ids are shared by every company: only the company's own count says how many arrived.
+        onChange({ newOrders: Math.max(0, next.orders_count - (previousCount ?? next.orders_count)) })
       }
     } catch {
       // Sin red o backend caído: se vuelve a intentar en el siguiente ciclo.

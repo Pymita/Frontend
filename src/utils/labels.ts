@@ -2,6 +2,7 @@
  * Etiquetas en español para los enums del API (que ahora viajan en inglés).
  * Los valores de datos son ingleses; los textos visibles para el usuario, españoles.
  */
+import { formatTime } from './dates'
 
 // ===== Pedidos =====
 export const paymentStatusLabels: Record<string, string> = {
@@ -146,3 +147,27 @@ export const customerLabel = (name?: string | null): string => {
   const trimmed = name?.trim()
   return trimmed && trimmed !== 'Cliente' ? trimmed : 'Consumidor final'
 }
+
+interface NamedOrder {
+  number?: number | null
+  dining_table?: { display_name: string } | null
+  customer_name?: string | null
+  created_at?: string
+}
+
+/**
+ * Lo que sigue a "pedido" (mismas reglas en mobile/src/utils/labels.ts): su
+ * número, "#12", desde el primer cobro. Antes no tiene número (el id es
+ * interno y compartido entre empresas): se nombra por su mesa, su cliente o
+ * la hora en que entró ("de Mesa 4", "de Ana", "de las 02:30 p. m.").
+ */
+export const orderReference = (order: NamedOrder): string => {
+  if (order.number) return `#${order.number}`
+  const customer = customerLabel(order.customer_name)
+  const who = order.dining_table?.display_name || (customer !== 'Consumidor final' ? customer : '')
+  if (who) return `de ${who}`
+  return order.created_at ? `de las ${formatTime(order.created_at)}` : 'sin cobrar'
+}
+
+/** "Pedido #12" o, antes del primer cobro, "Pedido de Mesa 4". */
+export const orderLabel = (order: NamedOrder): string => `Pedido ${orderReference(order)}`
