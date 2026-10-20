@@ -1339,6 +1339,8 @@ test('vender a crédito: el pedido queda cobrado, Ventas lo cuenta una vez y Car
   await expect(close.getByText('+ Abonos de cuotas en efectivo').locator('..')).toContainText('$10.000')
   await expect(close.getByTestId('cash-expected')).toHaveText('$10.000')
   await close.getByRole('button', { name: 'Cerrar caja' }).click()
+  // The abono must not fall in the second of the cut, which belongs to the next shift.
+  await nextSecond()
   await close.getByRole('button', { name: 'Sí, cerrar caja' }).click()
   await expect(close.getByTestId('cash-credit-sales')).toHaveText('$94.200 a crédito, en Cartera')
   const [summary] = await Promise.all([
