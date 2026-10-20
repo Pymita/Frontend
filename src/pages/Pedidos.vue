@@ -162,8 +162,8 @@
             </template>
             
             <template #item.payment_status="{ item }">
-              <v-chip :color="getPagoColor(item.payment_status)" size="small">
-                {{ getPagoText(item.payment_status) }}
+              <v-chip :color="getPagoColor(paymentState(item))" size="small">
+                {{ getPagoText(paymentState(item)) }}
               </v-chip>
             </template>
             
@@ -528,7 +528,7 @@
 
           <v-select
             v-model="payMethod"
-            :items="payMethodOptions"
+            :items="chargeMethodOptions"
             label="Método de pago"
             class="mb-1"
           />
@@ -642,14 +642,88 @@
             :items="customers"
             :item-title="(c: any) => `${c.name} (${c.document_number})`"
             item-value="id"
-            label="Cliente (opcional)"
-            hint="Se registra en la venta y sale en la factura"
+            :label="onCredit ? undefined : 'Cliente (opcional)'"
+            :hint="onCredit ? 'Queda debiendo la venta en Cartera' : 'Se registra en la venta y sale en la factura'"
             persistent-hint
             clearable
-          />
+          >
+            <template v-if="onCredit" #label>
+              Cliente que queda debiendo <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+            </template>
+          </v-autocomplete>
+
+          <!-- A crédito: what the customer owes goes to Cartera, nothing to the drawer. -->
+          <template v-if="onCredit">
+            <v-btn
+              v-if="!newCustomerOpen"
+              variant="text"
+              color="primary"
+              size="small"
+              prepend-icon="mdi-account-plus"
+              class="mt-1"
+              @click="openNewCustomer"
+            >
+              Nuevo cliente
+            </v-btn>
+            <v-card v-else variant="outlined" class="pa-3 mt-3">
+              <v-form ref="newCustomerFormRef" @submit.prevent="createCreditCustomer">
+                <div class="text-subtitle-2 mb-2">Nuevo cliente</div>
+                <v-row dense>
+                  <v-col cols="12" sm="5">
+                    <v-select
+                      v-model="newCustomer.document_type"
+                      :items="options(customerDocumentTypeLabels)"
+                      label="Tipo de documento"
+                      density="compact"
+                    />
+                  </v-col>
+                  <v-col cols="12" sm="7">
+                    <v-text-field
+                      v-model="newCustomer.document_number"
+                      label="Número de documento"
+                      density="compact"
+                      :rules="[filled('Escribe el número de documento'), documentRule(newCustomer.document_type)]"
+                    />
+                  </v-col>
+                  <v-col cols="12" sm="7">
+                    <v-text-field
+                      v-model="newCustomer.name"
+                      label="Nombre"
+                      density="compact"
+                      :rules="[filled('Escribe el nombre del cliente')]"
+                    />
+                  </v-col>
+                  <v-col cols="12" sm="5">
+                    <v-text-field v-model="newCustomer.phone" label="Teléfono (opcional)" density="compact" />
+                  </v-col>
+                </v-row>
+                <v-alert v-if="newCustomerError" type="error" variant="tonal" density="compact" class="mb-2">
+                  {{ newCustomerError }}
+                </v-alert>
+                <div class="d-flex justify-end ga-2">
+                  <v-btn variant="text" @click="newCustomerOpen = false">Cancelar</v-btn>
+                  <v-btn type="submit" color="primary" variant="tonal" :loading="creatingCustomer">Crear cliente</v-btn>
+                </div>
+              </v-form>
+            </v-card>
+
+            <DateField
+              v-model="payDueDate"
+              label="Vence"
+              :min="todayIso()"
+              :hint="dueDateHint"
+              persistent-hint
+              class="mt-3"
+            />
+            <v-alert type="info" variant="tonal" density="compact" class="mt-3">
+              No entra dinero a la caja: la venta queda en la cartera
+              {{ creditCustomer ? `de ${creditCustomer.name}` : 'del cliente' }} y sus abonos se registran en Cartera.
+            </v-alert>
+          </template>
 
           <!-- Propina: apagada, el negocio no la ofrece y no aparece en la cuenta. -->
           <v-switch
+            v-if="!onCredit"
             v-model="tipEnabled"
             label="Sugerir propina voluntaria"
             color="primary"
@@ -657,7 +731,7 @@
             density="compact"
             class="mt-3"
           />
-          <template v-if="tipEnabled">
+          <template v-if="tipEnabled && !onCredit">
             <v-row dense class="mt-1">
               <v-col cols="5">
                 <v-text-field
@@ -694,7 +768,11 @@
               <span>Ya pagado (personas que pagaron aparte):</span>
               <span>{{ money(selectedOrder.amount_paid) }}</span>
             </div>
-            <div class="d-flex justify-space-between tabular-nums">
+            <div v-if="onCredit" class="d-flex justify-space-between tabular-nums">
+              <span>Queda debiendo:</span>
+              <strong>{{ money(selectedOrder.pending_balance) }}</strong>
+            </div>
+            <div v-else class="d-flex justify-space-between tabular-nums">
               <span>Total sin propina:</span>
               <strong>{{ money(payBase) }}</strong>
             </div>
@@ -729,8 +807,14 @@
             >
               Cobrar con propina
             </v-btn>
-            <v-btn color="primary" variant="flat" :loading="saving" @click="confirmarCobro(false)">
-              {{ tipOffered ? 'Cobrar sin propina' : 'Confirmar cobro' }}
+            <v-btn
+              color="primary"
+              variant="flat"
+              :loading="saving"
+              :disabled="onCredit && (!payCustomerId || !payDueDate)"
+              @click="confirmarCobro(false)"
+            >
+              {{ onCredit ? 'Vender a crédito' : tipOffered ? 'Cobrar sin propina' : 'Confirmar cobro' }}
             </v-btn>
           </template>
         </v-card-actions>
@@ -963,11 +1047,16 @@ import {
   paymentStatusLabels,
   paymentStatusColors,
   orderPaymentMethodLabels,
+  saleMethodLabels,
+  customerDocumentTypeLabels,
   orderLabel,
   orderReference,
+  paymentState,
   label,
   options,
 } from '@/utils/labels';
+import { documentRule } from '@/utils/validation';
+import type { SaleMethod } from '@/services/salesService';
 import LockableButton from '../components/LockableButton.vue'
 import CashRegisterPanel from '../components/CashRegisterPanel.vue'
 import PartialPaymentDialog from '../components/PartialPaymentDialog.vue'
@@ -980,7 +1069,7 @@ import { effectiveFeatures } from '@/types/auth';
 import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/utils/orderLines';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
 import { money } from '@/utils/money';
-import { formatFullDateTime, formatIsoDate, formatRecent, todayIso } from '@/utils/dates';
+import { creditDueDate, formatDay, formatFullDateTime, formatIsoDate, formatRecent, todayIso } from '@/utils/dates';
 import {
   fillDocumentWindow,
   openDocumentWindow,
@@ -1320,12 +1409,67 @@ const getPagoText = (estado: string) => label(paymentStatusLabels, estado) || es
 // --- Cobro: método, cliente y propina (voluntaria) ---
 const payDialog = ref(false);
 const printing = ref(false);
-const payMethod = ref<OrderPaymentMethod>('cash');
+const payMethod = ref<SaleMethod>('cash');
 const payTip = ref(0);
 const payCustomerId = ref<number | null>(null);
 const customers = ref<Customer[]>([]);
 
 const payMethodOptions = options(orderPaymentMethodLabels);
+
+// "A crédito" closes the whole order and leaves it owed in Cartera, so it
+// takes the Cartera permission too (the API refuses it without one).
+const canSellOnCredit = computed(() =>
+  canCharge.value && effectiveFeatures(authStore.user).some(f => f === 'customers' || f === 'recurring_billing'),
+);
+const chargeMethodOptions = computed(() =>
+  payMode.value === 'together' && canSellOnCredit.value
+    ? [...payMethodOptions, { value: 'credit', title: label(saleMethodLabels, 'credit') }]
+    : payMethodOptions,
+);
+const onCredit = computed(() => payMode.value === 'together' && payMethod.value === 'credit');
+const payDueDate = ref('');
+const creditCustomer = computed(() => customers.value.find(c => c.id === payCustomerId.value) ?? null);
+const dueDateHint = computed(() =>
+  creditCustomer.value?.billing_day
+    ? `Su día de corte es el ${creditCustomer.value.billing_day}: vence el ${formatDay(payDueDate.value)}`
+    : 'Sin día de corte: vence en 30 días',
+);
+
+// A customer created right there, while charging on credit.
+const emptyNewCustomer = () => ({ document_type: 'CC', document_number: '', name: '', phone: '' });
+const newCustomer = ref(emptyNewCustomer());
+const newCustomerOpen = ref(false);
+const newCustomerFormRef = ref<any>(null);
+const newCustomerError = ref('');
+const creatingCustomer = ref(false);
+const filled = (message: string) => (value: string | null) => !!value?.trim() || message;
+
+const openNewCustomer = () => {
+  newCustomer.value = emptyNewCustomer();
+  newCustomerError.value = '';
+  newCustomerOpen.value = true;
+};
+
+const createCreditCustomer = async () => {
+  const { valid } = await newCustomerFormRef.value.validate();
+  if (!valid) return;
+  creatingCustomer.value = true;
+  newCustomerError.value = '';
+  try {
+    const created = await billingService.createCustomer({
+      ...newCustomer.value,
+      name: newCustomer.value.name.trim(),
+      phone: newCustomer.value.phone.trim() || undefined,
+    });
+    customers.value = [...customers.value, created];
+    payCustomerId.value = created.id;
+    newCustomerOpen.value = false;
+  } catch (error) {
+    newCustomerError.value = errorMessage(error, 'No fue posible crear el cliente. Inténtalo de nuevo.');
+  } finally {
+    creatingCustomer.value = false;
+  }
+};
 
 /**
  * Preferencias de caja, guardadas en este navegador: si el negocio sugiere
@@ -1388,8 +1532,8 @@ const useGuestSuggested = (guest: OrderGuest) => {
   guestTips.value[guest.number ?? 0] = guestSuggestedTip(guest);
 };
 
-/** Se le ofrece propina al cliente: hay sugerencia y vale más de cero. */
-const tipOffered = computed(() => tipEnabled.value && payTip.value > 0);
+/** Se le ofrece propina al cliente: hay sugerencia y vale más de cero. A crédito no lleva propina. */
+const tipOffered = computed(() => !onCredit.value && tipEnabled.value && payTip.value > 0);
 
 const suggestedTip = (order: Order) =>
   Math.round((consumptionOf(order) * Math.max(0, Number(tipPercent.value) || 0)) / 100);
@@ -1403,11 +1547,24 @@ watch([tipEnabled, tipPercent], () => {
 // Cuentas separadas: juntos (un solo cobro) o cada persona lo suyo.
 const payMode = ref<'together' | 'split'>('together');
 
+watch(payMode, mode => {
+  if (mode === 'split' && payMethod.value === 'credit') payMethod.value = 'cash';
+});
+watch(onCredit, credit => {
+  if (credit && !payCustomerId.value && selectedOrder.value?.customer_id) payCustomerId.value = selectedOrder.value.customer_id;
+});
+// The default due date follows the customer chosen; it can be changed after.
+watch([onCredit, creditCustomer], ([credit, customer]) => {
+  if (credit) payDueDate.value = creditDueDate(customer?.billing_day);
+});
+
 const openPayDialog = async (order: Order) => {
   selectedOrder.value = order;
   payMethod.value = 'cash';
   payTip.value = tipEnabled.value ? suggestedTip(order) : 0;
   payCustomerId.value = null;
+  payDueDate.value = '';
+  newCustomerOpen.value = false;
   payMode.value = hasGuests(order) ? 'split' : 'together';
   guestTips.value = {};
   payDialog.value = true;
@@ -1443,15 +1600,17 @@ const invoiceActions = (before: Order, after: Order): MessageAction[] => {
 const confirmarCobro = async (withTip: boolean) => {
   if (!selectedOrder.value) return;
   const order = selectedOrder.value;
+  const credit = onCredit.value;
   saving.value = true;
   try {
-    const paid = await ordersService.markPaid(order.id, {
+    const { order: paid, message } = await ordersService.markPaid(order.id, {
       payment_method: payMethod.value,
       // Sin propina se manda 0: si el pedido traía una, queda en cero.
-      tip: withTip ? payTip.value : 0,
+      tip: withTip && !credit ? payTip.value : 0,
       customer_id: payCustomerId.value ?? undefined,
+      due_date: credit ? payDueDate.value : undefined,
     });
-    showMessage(withTip ? 'Pedido cobrado con propina' : 'Pedido cobrado', 'success', [
+    showMessage(credit ? message : withTip ? 'Pedido cobrado con propina' : 'Pedido cobrado', 'success', [
       ticketAction(() => printReceipt(paid)),
       ...invoiceActions(order, paid),
     ]);
@@ -1471,7 +1630,8 @@ const confirmarCobro = async (withTip: boolean) => {
  */
 const cobrarPersona = async (guest: OrderGuest, withTip = false) => {
   const order = selectedOrder.value;
-  if (!order) return;
+  const method = payMethod.value;
+  if (!order || method === 'credit') return;
 
   const items = order.items
     .filter(i => (i.guest_number ?? null) === (guest.number ?? null) && i.unpaid_quantity > 0)
@@ -1484,7 +1644,7 @@ const cobrarPersona = async (guest: OrderGuest, withTip = false) => {
   try {
     const updated = await ordersService.recordPartialPayment(order.id, {
       items,
-      payment_method: payMethod.value,
+      payment_method: method,
       tip: tip > 0 ? tip : undefined,
     });
     selectedOrder.value = updated;
@@ -1596,7 +1756,7 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
             ]
           : []),
         ...(opts.paidNow
-          ? [line, center('PAGADO'), r.payment_methods.length ? center(r.payment_methods.map(m => label(orderPaymentMethodLabels, m)).join(' + ')) : '']
+          ? [line, center('PAGADO'), r.payment_methods.length ? center(r.payment_methods.map(m => label(saleMethodLabels, m)).join(' + ')) : '']
           : []),
       ]
     : [
@@ -1606,7 +1766,7 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
         r.tip > 0 ? amountLine('PROPINA VOLUNTARIA', r.tip) : '',
         amountLine(r.tip > 0 ? 'TOTAL PAGADO' : 'TOTAL', r.total),
         r.payment_methods.length
-          ? `FORMA DE PAGO: ${r.payment_methods.map(m => label(orderPaymentMethodLabels, m)).join(' + ')}`
+          ? `FORMA DE PAGO: ${r.payment_methods.map(m => label(saleMethodLabels, m)).join(' + ')}`
           : '',
       ];
 

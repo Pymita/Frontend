@@ -1,6 +1,6 @@
 import api from './api';
 import type { PageQuery, PaginatedResponse } from '@/types/api';
-import type { PaymentMethod } from './salesService';
+import type { PaymentMethod, SaleMethod } from './salesService';
 
 export type PaymentStatus = 'pending' | 'paid' | 'partial';
 export type OrderItemStatus = 'pending' | 'preparing' | 'ready' | 'delivered';
@@ -19,7 +19,8 @@ export interface OrderPayment {
   tip: number;
   /** Ingreso reconocido por este pago, sin propina (0 en abonos) */
   sale_amount: number;
-  payment_method: OrderPaymentMethod;
+  /** 'credit' for the sale that closed the order on credit (nothing came in). */
+  payment_method: SaleMethod;
   items: { order_item_id: number; quantity: number }[] | null;
   /** Consecutivo DIAN de esta venta; null en abonos o sin resolución */
   invoice_number?: string | null;
@@ -144,6 +145,7 @@ export interface Order {
   id: number;
   /** Número del pedido en la empresa ("Pedido #12"): lo toma al primer cobro; null antes. */
   number?: number | null;
+  customer_id?: number | null;
   dining_table: {
     id: number;
     number: number;
@@ -240,15 +242,23 @@ export const ordersService = {
 
   async markPaid(
     id: number,
-    payload: { payment_method?: OrderPaymentMethod; tip?: number; customer_id?: number | null } = {},
-  ): Promise<Order> {
+    payload: {
+      /** 'credit': the customer owes it in Cartera; needs customer_id. */
+      payment_method?: SaleMethod;
+      tip?: number;
+      customer_id?: number | null;
+      /** Due date of a credit sale (AAAA-MM-DD); without it the API uses the customer's next cutoff. */
+      due_date?: string | null;
+    } = {},
+  ): Promise<{ order: Order; message: string }> {
     const response = await api.post<ApiResponse<Order>>(`/orders/${id}/pay`, {
       ...(payload.payment_method ? { payment_method: payload.payment_method } : {}),
       // Se manda también el 0: si el pedido traía propina, "sin propina" la quita.
       ...(payload.tip !== undefined ? { tip: payload.tip } : {}),
       ...(payload.customer_id ? { customer_id: payload.customer_id } : {}),
+      ...(payload.due_date ? { due_date: payload.due_date } : {}),
     });
-    return response.data.data;
+    return { order: response.data.data, message: response.data.message };
   },
 
   /**

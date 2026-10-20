@@ -141,6 +141,21 @@ export const formatRecent = (value: string): string => {
   return `${date.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit' })} ${time}`
 }
 
+/**
+ * When a sale on credit made on `from` falls due: the customer's next cutoff
+ * day after it (clamped to short months), or 30 days later without one. Same
+ * rule as the API's `Customer::creditDueDate()`, which applies it when the
+ * charge sends no date.
+ */
+export const creditDueDate = (billingDay?: number | null, from = new Date()): string => {
+  const day = new Date(from.getFullYear(), from.getMonth(), from.getDate())
+  if (!billingDay) return toIsoDate(new Date(day.getFullYear(), day.getMonth(), day.getDate() + 30))
+  const cutoff = (year: number, month: number) =>
+    new Date(year, month, Math.min(billingDay, new Date(year, month + 1, 0).getDate()))
+  const thisMonth = cutoff(day.getFullYear(), day.getMonth())
+  return toIsoDate(thisMonth > day ? thisMonth : cutoff(day.getFullYear(), day.getMonth() + 1))
+}
+
 /** "2025-01" → "enero de 2025". */
 export const formatIsoMonth = (iso: string): string => {
   const [year, month] = iso.split('-').map(Number)

@@ -4,15 +4,19 @@ import {
   ADMIN,
   API,
   PLATFORM,
+  SHOP_WITH_FEES,
   apiLogin,
+  createCompany,
   displayDate,
   e2eSql,
   field,
+  issueDocuments,
   loginUI,
   pageRule,
   pdfPageSize,
   pdfPages,
   pdfText,
+  pickOption,
   watchPrinting,
   xlsxRows,
 } from './helpers'
@@ -1103,3 +1107,207 @@ test('la factura crece con sus líneas, se pagina en carta y la corta también s
   }
 })
 
+
+/**
+ * "A crédito": the order is charged (numbered, counted once in Ventas) but no
+ * money comes into the shift; what the customer owes is a document in
+ * Cartera, paid with abonos (recibos de caja RC-n) that the shift does count.
+ * Cartera never offers to cancel it, and once it has an abono the admin
+ * cannot revert its charge either.
+ */
+test('vender a crédito: el pedido queda cobrado, Ventas lo cuenta una vez y Cartera recibe sus abonos', async ({ page, request }) => {
+  const company = await createCompany(request, `credito-${Date.now()}`, { business_type: 'restaurant', modules: SHOP_WITH_FEES })
+  const auth = { Authorization: `Bearer ${company.token}`, Accept: 'application/json' }
+  const productId = await seedSimpleProduct(request, auth, `Bandeja Fiada ${Date.now()}`, 31400)
+  const customer = await request.post(`${API}/customers`, {
+    headers: auth,
+    data: { document_type: 'CC', document_number: '7001', name: 'Ana Fiado' },
+  })
+  expect(customer.status(), await customer.text()).toBe(201)
+  // A monthly document of another payer: Cartera offers to cancel that one, never a credit sale.
+  await issueDocuments(request, company.token, [{ name: 'Beto Cuota', document_number: '7002', monthly_fee: 90000 }])
+  for (const quantity of [1, 2]) {
+    const order = await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: productId, quantity }] } })
+    expect(order.status()).toBe(201)
+  }
+  const in30Days = isoDay(30)
+  const in45Days = isoDay(45)
+
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  const chargeOnCredit = async (total: string) => {
+    await page.locator('tbody tr', { hasText: total }).getByRole('button', { name: 'Cobrar' }).click()
+    await field(page, 'Método de pago').click()
+    await pickOption(page, 'A crédito')
+  }
+  const dialog = page.getByRole('dialog')
+  const pickAna = async () => {
+    await dialog.getByRole('combobox', { name: /Cliente que queda debiendo/ }).fill('Ana')
+    await page.getByRole('option', { name: /Ana Fiado/ }).click()
+  }
+
+  // On a phone first (the page loads at that width), then the sale at desktop width.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/pedidos')
+  await chargeOnCredit('$31.400')
+  await pickAna()
+  await dialog.getByRole('button', { name: 'Vender a crédito' }).scrollIntoViewIfNeeded()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/venta-a-credito-cobro-390.png' })
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/pedidos')
+
+  // The first order, on credit to a customer who already exists.
+  await chargeOnCredit('$31.400')
+  await expect(dialog.getByLabel('Sugerir propina voluntaria')).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: 'Vender a crédito' })).toBeDisabled()
+  await pickAna()
+  await expect(field(page, 'Vence').locator('input')).toHaveValue(displayDate(in30Days))
+  await expect(dialog).toContainText('Sin día de corte: vence en 30 días')
+  await expect(dialog).toContainText('No entra dinero a la caja: la venta queda en la cartera de Ana Fiado')
+  await expect(dialog).toContainText('Queda debiendo:')
+  await expect(dialog).toContainText('$31.400')
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/venta-a-credito-cobro-1440.png' })
+  await dialog.getByRole('button', { name: 'Vender a crédito' }).click()
+  await expect(page.getByText('Venta a crédito: Ana Fiado queda debiendo $31.400 en Cartera.')).toBeVisible()
+
+  // The second one, to a customer created right there, due on a date typed by hand.
+  await chargeOnCredit('$62.800')
+  await dialog.getByRole('button', { name: 'Nuevo cliente' }).click()
+  await field(page, 'Número de documento').locator('input').fill('7003')
+  await field(page, 'Nombre').locator('input').fill('Carlos Nuevo')
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/venta-a-credito-nuevo-cliente-1440.png' })
+  await dialog.getByRole('button', { name: 'Crear cliente' }).click()
+  await expect(dialog).toContainText('la venta queda en la cartera de Carlos Nuevo')
+  await field(page, 'Vence').locator('input').fill(displayDate(in45Days))
+  await field(page, 'Vence').locator('input').press('Enter')
+  await dialog.getByRole('button', { name: 'Vender a crédito' }).click()
+  await expect(page.getByText('Venta a crédito: Carlos Nuevo queda debiendo $62.800 en Cartera.')).toBeVisible()
+
+  // Pedidos: both charged, read as on credit, nothing left to charge.
+  await page.getByRole('button', { name: 'Pagados' }).click()
+  for (const total of ['$31.400', '$62.800']) {
+    const row = page.locator('tbody tr', { hasText: total })
+    await expect(row.locator('.v-chip', { hasText: 'A crédito' })).toBeVisible()
+    await expect(row.getByRole('button', { name: 'Cobrar' })).toHaveCount(0)
+  }
+
+  // Ventas: each one once, as an order charged on credit, next to the monthly document.
+  await page.goto('/ventas')
+  const sales = page.locator('.v-data-table tbody tr')
+  await expect(sales.filter({ hasText: 'Pedido #1' })).toHaveCount(1)
+  await expect(sales.filter({ hasText: 'Pedido #2' })).toHaveCount(1)
+  await expect(sales.filter({ hasText: 'Pedido #1' })).toContainText('A crédito')
+  await expect(sales.filter({ hasText: 'Pedido #1' })).toContainText('$31.400')
+  await expect(page.locator('.v-chip', { hasText: 'A crédito: $94.200' })).toBeVisible()
+  await expect(page.locator('.v-chip', { hasText: 'Facturación automática: $90.000' })).toBeVisible()
+
+  // Cartera: what each one owes, as a "Venta a crédito" of its order.
+  await page.goto('/cartera')
+  const anaPanel = page.locator('.v-expansion-panel', { hasText: 'Ana Fiado' })
+  await expect(anaPanel).toContainText('Saldo $31.400')
+  await anaPanel.locator('.v-expansion-panel-title').click()
+  const credit = anaPanel.locator('tbody tr', { hasText: '#1-1' })
+  await expect(credit).toContainText('Venta a crédito')
+  await expect(credit).toContainText('Pedido #1')
+  await expect(credit).not.toContainText('(')
+  await expect(credit).toContainText(dayLabel(in30Days))
+  await expect(credit).toContainText('Por pagar')
+  await expect(credit.getByRole('button', { name: 'Anular #1-1' })).toHaveCount(0)
+  await expect(credit.getByRole('button', { name: 'Imprimir #1-1' })).toBeVisible()
+  const carlos = page.locator('.v-expansion-panel', { hasText: 'Carlos Nuevo' })
+  await carlos.locator('.v-expansion-panel-title').click()
+  await expect(carlos.locator('tbody tr', { hasText: '#2-1' })).toContainText(dayLabel(in45Days))
+  const beto = page.locator('.v-expansion-panel', { hasText: 'Beto Cuota' })
+  await beto.locator('.v-expansion-panel-title').click()
+  await expect(beto.getByRole('button', { name: 'Anular CC-1' })).toBeVisible()
+  await credit.scrollIntoViewIfNeeded()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/venta-a-credito-cartera-1440.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await anaPanel.locator('.v-expansion-panel-title').click()
+  await credit.scrollIntoViewIfNeeded()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/venta-a-credito-cartera-390.png' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.reload()
+  await anaPanel.locator('.v-expansion-panel-title').click()
+
+  // Its factura is the POS one of the sale, "A crédito" as the way it was paid.
+  const [factura] = await Promise.all([
+    page.waitForEvent('popup'),
+    credit.getByRole('button', { name: 'Imprimir #1-1' }).click(),
+  ])
+  await expect(factura.locator('body')).toContainText('COMPROBANTE DE VENTA')
+  await expect(factura.locator('body')).toContainText('A crédito')
+  await factura.close()
+
+  // An abono of $10.000 in cash: recibo de caja RC-1, the balance drops.
+  await anaPanel.getByRole('button', { name: 'Registrar abono', exact: true }).click()
+  const abono = page.getByRole('dialog').filter({ hasText: 'Abono de Ana Fiado' })
+  await field(page, 'Valor del abono').locator('input').fill('10000')
+  await abono.getByRole('button', { name: 'Registrar abono' }).click()
+  await expect(abono).toContainText('Abono registrado en el recibo de caja RC-1 por $10.000')
+  await abono.getByRole('button', { name: 'Cerrar' }).click()
+  await expect(anaPanel).toContainText('Saldo $21.400')
+  await expect(credit).toContainText('Abonada')
+  await expect(page.getByTestId('historico-abonos').locator('tbody tr', { hasText: 'RC-1' })).toContainText('$10.000')
+
+  // The shift: the abono is its cash; the sales on credit brought none.
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Cerrar caja' }).click()
+  const close = page.getByRole('dialog')
+  await expect(close.getByTestId('cash-sales-total')).toHaveText('$94.200')
+  await expect(close.getByTestId('cash-credit-sales')).toHaveText('$94.200 a crédito, en Cartera')
+  await expect(close).toContainText('Aún no hay cobros en este turno.')
+  await expect(close).toContainText('+ Abonos de cuotas en efectivo')
+  await expect(close.getByTestId('cash-expected')).toHaveText('$10.000')
+  await close.getByRole('button', { name: 'Cerrar caja' }).click()
+  await close.getByRole('button', { name: 'Sí, cerrar caja' }).click()
+  await expect(close.getByTestId('cash-credit-sales')).toHaveText('$94.200 a crédito, en Cartera')
+  const [summary] = await Promise.all([
+    page.waitForEvent('popup'),
+    close.getByRole('button', { name: 'Imprimir resumen' }).click(),
+  ])
+  await expect(summary.locator('.doc-number')).toContainText('CIERRE DE CAJA')
+  const printed = await summary.locator('body').innerText()
+  expect(printed).toMatch(/Ventas a crédito \(en Cartera\)\s+\$94\.200/)
+  expect(printed).toMatch(/Abonos de cuotas · Efectivo\s+\$10\.000/)
+  expect(printed).toMatch(/EFECTIVO DEL TURNO\s+\$10\.000/)
+  await summary.close()
+  await close.getByRole('button', { name: 'Listo' }).click()
+
+  // The closes' Excel and PDF say it too, next to the sales.
+  await openCashCloses(page)
+  const download = async (name: string) => {
+    const [file] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name }).click()])
+    return readFileSync((await file.path())!)
+  }
+  const [header, closed] = xlsxRows(await download('Descargar Excel'))
+  expect(closed?.[header!.indexOf('Ventas (sin propina)')]).toBe('94200')
+  expect(closed?.[header!.indexOf('Ventas a crédito (en Cartera)')]).toBe('94200')
+  expect(closed?.[header!.indexOf('Total recibido')]).toBe('10000')
+  expect(pdfText(await download('Descargar PDF'))).toContain('Ventas a crédito (en Cartera)\n$94.200')
+  await page.goto('/pedidos')
+
+  // With an abono, reverting the charge is refused and the order stays on credit.
+  await page.getByRole('button', { name: 'Pagados' }).click()
+  const anaRow = page.locator('tbody tr', { hasText: '$31.400' })
+  await anaRow.getByRole('button', { name: 'Más acciones del pedido' }).click()
+  await page.getByRole('listitem').filter({ hasText: 'Revertir cobro' }).click()
+  const revert = page.getByRole('dialog').filter({ hasText: 'Revertir cobro' })
+  await revert.getByLabel(/¿Por qué se revierte\?/).fill('Era de otro cliente')
+  await revert.getByRole('button', { name: 'Revertir cobro' }).click()
+  await expect(page.getByText('La venta a crédito ya tiene abonos en Cartera: revierte esos abonos antes de revertir el cobro.')).toBeVisible()
+  await revert.getByRole('button', { name: 'Cancelar' }).click()
+  await expect(anaRow.locator('.v-chip', { hasText: 'A crédito' })).toBeVisible()
+})
+
+/** "19 nov 2026", as Cartera writes a due date. */
+const dayLabel = (iso: string): string => {
+  const [year = 0, month = 1, day = 1] = iso.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
+}

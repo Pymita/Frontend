@@ -1,8 +1,11 @@
 import api from './api'
 
-import { orderPaymentMethodLabels } from '../utils/labels'
+import { orderPaymentMethodLabels, saleMethodLabels } from '../utils/labels'
 
 export type PaymentMethod = 'cash' | 'credit_card' | 'debit_card' | 'transfer' | 'nequi' | 'daviplata' | 'other'
+
+/** How a sale was charged: a way money comes in, or on credit (it goes to Cartera). */
+export type SaleMethod = PaymentMethod | 'credit'
 
 /** An order charged at the POS, or an automatic-billing document issued. */
 export type SaleOrigin = 'order' | 'recurring'
@@ -28,7 +31,7 @@ export interface Sale {
   customer_name: string | null
   waiter: string | null
   user_id: number | null
-  payment_methods: PaymentMethod[]
+  payment_methods: SaleMethod[]
   subtotal: number
   tip: number
   total: number
@@ -41,14 +44,14 @@ export interface SalesSummary {
   total: number
   tips: number
   /** POS sales only: documents have no payment method. */
-  by_payment_method: Partial<Record<PaymentMethod, number>>
+  by_payment_method: Partial<Record<SaleMethod, number>>
   by_origin: Record<SaleOrigin, { count: number; total: number }>
 }
 
 export interface SalesFilters {
   from?: string
   to?: string
-  payment_method?: PaymentMethod | ''
+  payment_method?: SaleMethod | ''
   user_id?: number | null
   q?: string
   origin?: SaleOrigin | ''
@@ -106,6 +109,7 @@ export interface TableSalesReport {
 export type SalesView = 'sales' | 'products' | 'tables' | 'cash'
 
 export const PAYMENT_METHOD_LABELS = orderPaymentMethodLabels as Record<PaymentMethod, string>
+export const SALE_METHOD_LABELS = saleMethodLabels as Record<SaleMethod, string>
 
 const cleanFilters = (filters: SalesFilters): Record<string, string | number> => {
   const params: Record<string, string | number> = {}
@@ -174,6 +178,8 @@ export interface CashSession {
     total_collected: number
     sales_total: number | null
     sales_count: number | null
+    /** Part of the sales charged on credit: owed in Cartera, never in the drawer. Null on older closes. */
+    credit_sales: { count: number; total: number } | null
     orders_count: number | null
     tips_total: number | null
     order_abonos: number | null
@@ -195,6 +201,8 @@ export interface CashPeriodTotals {
   closes: number
   sales_total: number | null
   sales_count: number | null
+  /** Sales on credit of the period's closes (in sales_total, never received); null when no close has the figure. */
+  credit_sales: number | null
   tips_total: number | null
   order_abonos: number | null
   by_method: Record<string, { count: number; amount: number; tips: number }>

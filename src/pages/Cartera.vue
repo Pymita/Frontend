@@ -150,7 +150,7 @@
                 <td class="text-no-wrap">{{ formatDay(doc.issued_at) }}</td>
                 <td class="text-no-wrap">{{ label(documentKindLabels, doc.document_kind) }}</td>
                 <td class="font-weight-medium text-no-wrap">{{ doc.document_number }}</td>
-                <td>{{ doc.concept }} <span class="text-medium-emphasis">({{ periodName(doc.period) }})</span></td>
+                <td>{{ doc.concept }} <span v-if="doc.period" class="text-medium-emphasis">({{ periodName(doc.period) }})</span></td>
                 <td class="text-no-wrap">
                   {{ formatDay(doc.due_date) }}
                   <v-chip v-if="doc.overdue" size="x-small" color="error" variant="tonal" class="ml-1">Vencida</v-chip>
@@ -165,11 +165,12 @@
                 </td>
                 <td class="text-end text-no-wrap">
                   <v-btn
+                    v-if="doc.document_kind !== 'credit_sale' || canPrintSales"
                     icon="mdi-printer"
                     size="small"
                     variant="text"
                     :aria-label="`Imprimir ${doc.document_number}`"
-                    @click="printInvoice(doc.id)" />
+                    @click="printInvoice(doc)" />
                   <v-btn
                     size="small"
                     variant="text"
@@ -180,7 +181,7 @@
                     {{ doc.balance > 0 ? 'Abonar' : 'Ver abonos' }}
                   </v-btn>
                   <v-btn
-                    v-if="canCancel && doc.paid === 0"
+                    v-if="canCancel && doc.paid === 0 && doc.document_kind !== 'credit_sale'"
                     icon="mdi-cancel"
                     size="small"
                     variant="text"
@@ -454,7 +455,7 @@
               </thead>
               <tbody>
                 <tr v-for="line in distribution" :key="line.id">
-                  <td>{{ line.document_number }} <span class="text-medium-emphasis">({{ periodName(line.period) }})</span></td>
+                  <td>{{ line.document_number }} <span v-if="line.period" class="text-medium-emphasis">({{ periodName(line.period) }})</span></td>
                   <td>{{ formatDay(line.due_date) }}</td>
                   <td class="text-end tabular-nums">{{ money(line.balance) }}</td>
                   <td class="text-end tabular-nums font-weight-bold">{{ line.applied ? money(line.applied) : '—' }}</td>
@@ -538,8 +539,11 @@ import {
   invoiceHtml,
   openDocumentWindow,
   receiptHtml,
+  saleDocumentNumber,
+  saleInvoiceHtml,
   type DocumentBusiness,
 } from '../utils/printDocuments'
+import { ordersService } from '../services/ordersService'
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from '../services/salesService'
 import { useAuthStore } from '../stores/auth'
 import { effectiveFeatures } from '../types/auth'
@@ -584,11 +588,22 @@ const business = ref<DocumentBusiness | null>(null)
 const printBlocked = () =>
   notify('El navegador bloqueó la ventana de impresión: permite las ventanas emergentes para este sitio', 'error')
 
-const printInvoice = async (id: number) => {
+// A credit sale prints the POS factura of its order's sale, not the monthly template.
+const canPrintSales = computed(() => effectiveFeatures(authStore.user).some(f => f === 'orders' || f === 'reports'))
+
+const printInvoice = async (receivable: ReceivableDocument) => {
   const win = openDocumentWindow()
   if (!win) return printBlocked()
   try {
-    const doc = await billingService.getInvoiceDocument(id)
+    if (receivable.document_kind === 'credit_sale' && receivable.order_id && receivable.order_payment_id) {
+      const [header, sale] = await Promise.all([
+        business.value ? Promise.resolve(business.value) : billingService.getBusiness(),
+        ordersService.saleReceipt(receivable.order_id, receivable.order_payment_id),
+      ])
+      fillDocumentWindow(win, saleDocumentNumber(sale), saleInvoiceHtml(header, sale))
+      return
+    }
+    const doc = await billingService.getInvoiceDocument(receivable.id)
     fillDocumentWindow(win, doc.invoice.document_number, invoiceHtml(doc.business, doc.invoice, doc.resolution))
   } catch (error) {
     win.close()

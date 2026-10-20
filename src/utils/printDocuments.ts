@@ -7,7 +7,7 @@ import { money } from './money'
  * Datos del negocio), así que cada negocio imprime con su nombre, NIT,
  * régimen, dirección, teléfonos y observaciones.
  */
-import { customerLabel, orderPaymentMethodLabels, taxRegimeLabels } from './labels'
+import { customerLabel, documentKindLabels, saleMethodLabels, taxRegimeLabels } from './labels'
 import { APP_NAME } from './branding'
 import { formatFullDateTime, formatIsoDate } from './dates'
 import type { CashSession } from '../services/salesService'
@@ -38,11 +38,11 @@ export interface DocumentResolution {
 }
 
 export interface PrintableInvoice {
-  document_kind: 'invoice' | 'collection'
+  document_kind: 'invoice' | 'collection' | 'credit_sale'
   document_number: string
   issued_at: string
   due_date: string | null
-  period: string
+  period: string | null
   customer_name: string
   customer_document_type: string | null
   customer_document: string | null
@@ -82,7 +82,7 @@ export interface PrintableReceipt {
   total: number
   lines: {
     payment_id?: number
-    document_kind: 'invoice' | 'collection' | null
+    document_kind: 'invoice' | 'collection' | 'credit_sale' | null
     document_number: string | null
     concept: string | null
     period: string | null
@@ -92,7 +92,7 @@ export interface PrintableReceipt {
   }[]
 }
 
-const METHOD_LABELS = orderPaymentMethodLabels
+const METHOD_LABELS = saleMethodLabels
 
 // ===== Valor en letras =====
 
@@ -240,7 +240,7 @@ export const invoiceHtml = (
             ['FECHA (D/M/A)', dmy(invoice.issued_at)],
             ['VENCE', dmy(invoice.due_date)],
             ['CIUDAD', invoice.customer_city],
-            ['PERÍODO', periodName(invoice.period)],
+            ['PERÍODO', invoice.period ? periodName(invoice.period) : null],
           ])}
         </div>
       </div>
@@ -384,7 +384,7 @@ export const receiptHtml = (business: DocumentBusiness, receipt: PrintableReceip
         <tbody>
           ${receipt.lines.map(line => `
           <tr>
-            <td class="left">Abono a ${line.document_kind === 'invoice' ? 'factura' : 'cuenta de cobro'} ${escape(line.document_number)}${line.concept ? ` · ${escape(line.concept)}` : ''}${line.period ? ` (${escape(periodName(line.period))})` : ''}</td>
+            <td class="left">Abono a ${(documentKindLabels[line.document_kind ?? ''] ?? 'Cuenta de cobro').toLowerCase()} ${escape(line.document_number)}${line.concept ? ` · ${escape(line.concept)}` : ''}${line.period ? ` (${escape(periodName(line.period))})` : ''}</td>
             <td class="right">${money(line.document_total)}</td>
             <td class="right">${money(line.amount)}</td>
             <td class="right">${money(line.balance)}</td>
@@ -493,6 +493,7 @@ export const cashCloseHtml = (business: DocumentBusiness, session: CashSession):
               ...(detailed
                 ? [
                     ['Ventas (sin propina)', summary.sales_total],
+                    ...(summary.credit_sales?.total ? [['Ventas a crédito (en Cartera)', summary.credit_sales.total] as [string, number]] : []),
                     ['Propinas', summary.tips_total],
                     ['Abonos a cuentas abiertas', summary.order_abonos],
                   ] as [string, number | null][]
