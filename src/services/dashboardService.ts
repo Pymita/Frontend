@@ -27,7 +27,10 @@ export interface DashboardStats {
   receivables: Receivables | null;
 }
 
-/** A product of the orders, or a billed concept for a company without orders. */
+/** What a company that sells both ways chooses to see: everything, or one origin. */
+export type SalesSelection = 'all' | SaleOrigin;
+
+/** A product of the orders, or a billed concept (without orders, or when chosen). */
 export interface TopProduct {
   name: string;
   origin: SaleOrigin;
@@ -42,7 +45,7 @@ export interface TopProduct {
   orders_count: number;
   /** Concepts only. */
   documents_count?: number;
-  /** % of all product (or concept) sales in the period, not only of the top rows. */
+  /** % of everything the selection sold in the period, not only of the top rows. */
   share: number;
 }
 
@@ -64,8 +67,9 @@ export interface SalesWeekDay {
   end: string;
   /** Label for the axis ("lun.", "5 abr.", "ene. 2026"). */
   day: string;
-  /** Orders and documents together. */
+  /** Orders and documents together: orders_total + recurring_total. */
   total: number;
+  orders_total: number;
   /** POS sales. */
   orders_count: number;
   recurring_total: number;
@@ -82,12 +86,19 @@ export interface DateRange {
 
 export interface SalesPeriod {
   points: SalesWeekDay[];
-  meta: DateRange & { bucket: SalesBucket; total: number; orders_count: number; recurring_total: number; recurring_count: number };
+  meta: DateRange & {
+    bucket: SalesBucket;
+    total: number;
+    orders_total: number;
+    orders_count: number;
+    recurring_total: number;
+    recurring_count: number;
+  };
 }
 
 export interface TopProductsPeriod {
   products: TopProduct[];
-  meta: DateRange & { total: number };
+  meta: DateRange & { total: number; origin: SalesSelection };
 }
 
 interface ApiResponse<T, M = undefined> {
@@ -124,9 +135,14 @@ export const dashboardService = {
     return response.data.data;
   },
 
-  /** Without a range the API returns today's sales. */
-  async getTopProducts(range?: DateRange): Promise<TopProductsPeriod> {
-    const response = await api.get<ApiResponse<TopProduct[], TopProductsPeriod['meta']>>('/dashboard/top-products', { params: range });
+  /**
+   * Without a range the API returns today's sales; without an origin, the
+   * products (the concepts for a company without orders).
+   */
+  async getTopProducts(range?: DateRange, origin?: SalesSelection): Promise<TopProductsPeriod> {
+    const response = await api.get<ApiResponse<TopProduct[], TopProductsPeriod['meta']>>('/dashboard/top-products', {
+      params: { ...range, ...(origin ? { origin } : {}) },
+    });
     return { products: response.data.data, meta: response.data.meta };
   },
 

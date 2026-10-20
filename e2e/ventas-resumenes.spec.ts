@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, loginUI } from './helpers'
+import { ADMIN, API, SHOP_WITH_FEES, apiLogin, createCompany, freezeTime, issueDocuments, loginUI } from './helpers'
 
 /**
  * Ventas: además del listado, un resumen por producto (unidades, neto,
@@ -51,6 +51,10 @@ test('resumen por producto y por mesa con descarga a Excel', async ({ page, requ
   await expect(productRow).toContainText('4')
   await expect(productRow).toContainText('$10.000')
   await expect(productRow).toContainText('$6.000')
+  // Without automatic billing the view reads as it always did: no services, no share, no origin.
+  await expect(page.getByRole('columnheader', { name: 'Producto', exact: true })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'Participación' })).toHaveCount(0)
+  await expect(page.getByRole('group', { name: 'Origen de las ventas' })).toHaveCount(0)
 
   // Por mesa: la mesa 77 con sus 2 ventas.
   await page.getByRole('button', { name: 'Por mesa' }).click()
@@ -64,6 +68,103 @@ test('resumen por producto y por mesa con descarga a Excel', async ({ page, requ
     page.getByRole('button', { name: 'Descargar Excel' }).click(),
   ])
   expect(download.suggestedFilename()).toContain('ventas_por_mesa')
+})
+
+/**
+ * A shop next to the fees: what the documents billed is "Servicios", one row
+ * per concept however each document wrote it, next to the products the
+ * orders sold; the origin shows products only, services only or both.
+ */
+test('con facturación automática por producto agrupa lo facturado en Servicios y deja ver productos, servicios o todo', async ({ page, request }) => {
+  const company = await createCompany(request, 'servicios', { business_type: 'recurring', modules: SHOP_WITH_FEES })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: 'Tienda' } })
+  const product = await request.post(`${API}/products`, {
+    headers: auth,
+    data: {
+      name: 'Gaseosa Tienda', type: 'final', unit: 'und', unit_cost: 1000, sale_price: 2500,
+      tracks_stock: false, category_id: (await category.json()).data.id,
+    },
+  })
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { order_type: 'takeaway', payment_status: 'paid', items: [{ product_id: (await product.json()).data.id, quantity: 2 }] },
+  })
+  expect(order.ok(), await order.text()).toBeTruthy()
+
+  // The fee written two ways is one service, named as most documents wrote it; a cancelled document is no sale.
+  const [ana, , , , dario] = await issueDocuments(request, company.token, [
+    { name: 'Ana Apto 101', document_number: '1001', monthly_fee: 250000 },
+    { name: 'Eva Apto 105', document_number: '1005', monthly_fee: 100000 },
+    { name: 'Beto Apto 102', document_number: '1002', monthly_fee: 150000, billing_concept: 'cuota de administración' },
+    { name: 'Carla Parqueadero 7', document_number: '1003', monthly_fee: 80000, billing_concept: 'Cuota parqueadero' },
+    { name: 'Darío Apto 104', document_number: '1004', monthly_fee: 60000 },
+  ])
+  expect((await request.post(`${API}/recurring-billing/invoices/${dario!.id}/cancel`, { headers: auth })).ok()).toBeTruthy()
+
+  await freezeTime(page, ana!.issued_at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/ventas')
+  await page.getByRole('button', { name: 'Por producto' }).click()
+
+  const fee = page.locator('tbody tr', { hasText: /cuota de administración/i })
+  const parking = page.locator('tbody tr', { hasText: 'Cuota parqueadero' })
+  const soda = page.locator('tbody tr', { hasText: 'Gaseosa Tienda' })
+  const netSold = page.getByText('Neto vendido', { exact: true }).locator('..')
+  const totalSold = page.locator('.v-card', { hasText: 'Total vendido' })
+  const origin = page.getByRole('group', { name: 'Origen de las ventas' })
+
+  // Todos: $500.000 + $80.000 of services and $5.000 of products, each a share of $585.000.
+  await expect(origin.getByRole('button', { name: 'Todos' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(origin.getByRole('button', { name: 'Productos' })).toBeVisible()
+  await expect(origin.getByRole('button', { name: 'Servicios' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'Participación' })).toBeVisible()
+  await expect(netSold).toContainText('$585.000')
+  await expect(fee).toHaveCount(1)
+  await expect(fee.locator('td').first()).toHaveText('Cuota de administración')
+  await expect(fee).toContainText('Servicios')
+  await expect(fee).toContainText('$500.000')
+  await expect(fee).toContainText('85,5 %')
+  await expect(parking).toContainText('Servicios')
+  await expect(parking).toContainText('$80.000')
+  await expect(parking).toContainText('13,7 %')
+  await expect(soda).toContainText('Tienda')
+  await expect(soda).toContainText('$5.000')
+  await expect(soda).toContainText('0,9 %')
+  await expect(totalSold).toContainText('$585.000')
+  await page.mouse.move(0, 0)
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/ventas-servicios-por-producto-1440.png', fullPage: true })
+
+  // Servicios: only what was billed, its share of $580.000; the totals on top follow.
+  await origin.getByRole('button', { name: 'Servicios' }).click()
+  await expect(soda).toHaveCount(0)
+  await expect(netSold).toContainText('$580.000')
+  await expect(totalSold).toContainText('$580.000')
+  await expect(fee).toContainText('86,2 %')
+  await expect(parking).toContainText('13,8 %')
+
+  // Productos: only what the orders sold.
+  await origin.getByRole('button', { name: 'Productos' }).click()
+  await expect(fee).toHaveCount(0)
+  await expect(parking).toHaveCount(0)
+  await expect(netSold).toContainText('$5.000')
+  await expect(totalSold).toContainText('$5.000')
+  await expect(soda).toContainText('100 %')
+
+  // The same choice is "Pedidos" in the list of sales.
+  await page.getByRole('button', { name: 'Ventas', exact: true }).click()
+  await expect(origin.getByRole('button', { name: 'Pedidos' })).toHaveAttribute('aria-pressed', 'true')
+
+  await origin.getByRole('button', { name: 'Todos' }).click()
+  await page.getByRole('button', { name: 'Por producto' }).click()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(fee).toContainText('85,5 %')
+  await expect(totalSold).toContainText('$585.000')
+  await page.mouse.move(0, 0)
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/ventas-servicios-por-producto-390.png', fullPage: true })
 })
 
 /**

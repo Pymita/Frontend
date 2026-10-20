@@ -60,7 +60,8 @@ export interface SalesReport {
 
 /**
  * Qué se vendió, producto por producto (neto = después de descuentos
- * generales). Each concept of the documents is a row too, with no cost.
+ * generales). Each concept of the documents is a row too, in the category
+ * "Servicios", with no cost.
  */
 export interface ProductSalesRow {
   name: string
@@ -71,7 +72,10 @@ export interface ProductSalesRow {
   net: number
   cost: number
   profit: number
+  /** Orders, or documents for a concept. */
   orders_count: number
+  /** % of what the view sold (products, services or both). */
+  share: number
 }
 
 export interface ProductSalesReport {

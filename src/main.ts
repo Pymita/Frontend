@@ -17,7 +17,7 @@ import { componentDefaults, lightTheme } from './theme'
 import App from './App.vue'
 
 // Configuración de rutas
-import { routes, setupRouterGuards } from './router'
+import { reloadOnNewBuild, routes, setupRouterGuards } from './router'
 
 // Crear instancias
 const app = createApp(App)
@@ -59,6 +59,7 @@ const router = createRouter({
 })
 
 setupRouterGuards(router)
+reloadOnNewBuild(router)
 
 // Usar plugins
 app.use(pinia)

@@ -360,6 +360,65 @@ test('en escritorio el menú sigue fijo y sin botón para abrirlo', async ({ pag
 })
 
 /**
+ * Cada merge vuelve a desplegar la web y los archivos del build anterior dejan
+ * de existir: una pestaña abierta desde antes pide la página siguiente con un
+ * nombre viejo y falla. La app carga la versión nueva sola, una vez.
+ */
+const pageModule = (name: string) => (url: URL) =>
+  url.pathname.endsWith(`/src/pages/${name}.vue`) && !url.searchParams.has('vue')
+
+test('después de un despliegue, entrar abre Inicio aunque la pestaña tenga la versión anterior', async ({ page }) => {
+  let requests = 0
+  await page.route(pageModule('Dashboard'), route =>
+    ++requests === 1 ? route.fulfill({ status: 404, body: 'Not found' }) : route.fallback())
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+
+  await expect(page).toHaveURL(/\/dashboard$/)
+  await expect(page.locator('.v-app-bar')).toContainText('Inicio')
+  await expect(page.locator('.v-main').getByText('Pedidos hoy', { exact: true })).toBeVisible()
+  await expect(page.getByText(/No pudimos cargar/)).toHaveCount(0)
+  // Failed once, loaded once more from the server, and stopped there.
+  expect(requests).toBe(2)
+})
+
+test('después de un despliegue, el menú abre la página pedida aunque la pestaña tenga la versión anterior', async ({ page }) => {
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  let requests = 0
+  await page.route(pageModule('Ventas'), route =>
+    ++requests === 1 ? route.fulfill({ status: 404, body: 'Not found' }) : route.fallback())
+
+  await sidebarItem(page, 'Ventas').click()
+
+  await expect(page).toHaveURL(/\/ventas$/)
+  await expect(page.locator('.v-app-bar')).toContainText('Ventas')
+  await expect(page.getByRole('button', { name: 'Por producto' })).toBeVisible()
+  expect(requests).toBe(2)
+})
+
+test('si la página tampoco carga después de recargar, lo dice en vez de recargar sin fin', async ({ page }) => {
+  let requests = 0
+  await page.route(pageModule('Dashboard'), route => {
+    requests++
+    return route.fulfill({ status: 404, body: 'Not found' })
+  })
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+
+  const alert = page.getByRole('alert').filter({ hasText: 'No pudimos cargar esta parte de la app' })
+  await expect(alert).toContainText('No pudimos cargar esta parte de la app. Revisa tu conexión a internet y recarga la página.')
+  await expect(alert.getByRole('button', { name: 'Recargar' })).toBeVisible()
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.screenshot({ path: '../screenshots/recargar-version-nueva-error-1440.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: '../screenshots/recargar-version-nueva-error-390.png' })
+
+  // Nothing else reloads by itself: one failure, one automatic load, then the message.
+  await page.waitForTimeout(1500)
+  expect(requests).toBe(2)
+})
+
+/**
  * La dueña de un negocio olvidó su contraseña: pide el enlace, llega al
  * correo (en e2e, al log del backend) y elige una nueva desde ese enlace.
  */
