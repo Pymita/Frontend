@@ -60,28 +60,16 @@
               :error-messages="errors.company"
             />
 
-            <v-text-field
+            <PasswordField
               v-model="password"
               v-bind="passwordAttrs"
               label="Contraseña"
-              :type="showPassword ? 'text' : 'password'"
               prepend-inner-icon="mdi-lock"
               autocomplete="current-password"
               variant="outlined"
               class="mb-3"
               :error-messages="errors.password"
-            >
-              <template #append-inner>
-                <v-btn
-                  :icon="showPassword ? 'mdi-eye' : 'mdi-eye-off'"
-                  :aria-label="showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
-                  variant="text"
-                  size="small"
-                  density="comfortable"
-                  @click="showPassword = !showPassword"
-                />
-              </template>
-            </v-text-field>
+            />
 
             <v-btn
               type="submit"
@@ -176,10 +164,9 @@
 
           <!-- 4. Nueva contraseña (llega desde el enlace del correo) -->
           <v-form v-else ref="resetForm" @submit.prevent="saveNewPassword">
-            <v-text-field
+            <PasswordField
               v-model="newPassword"
               label="Contraseña nueva"
-              :type="showPassword ? 'text' : 'password'"
               prepend-inner-icon="mdi-lock"
               :rules="passwordRules"
               :hint="PASSWORD_HINT"
@@ -187,24 +174,12 @@
               autocomplete="new-password"
               variant="outlined"
               class="mb-3"
-            >
-              <template #append-inner>
-                <v-btn
-                  :icon="showPassword ? 'mdi-eye' : 'mdi-eye-off'"
-                  :aria-label="showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
-                  variant="text"
-                  size="small"
-                  density="comfortable"
-                  @click="showPassword = !showPassword"
-                />
-              </template>
-            </v-text-field>
-            <v-text-field
+            />
+            <PasswordField
               v-model="newPasswordConfirmation"
-              label="Repite la contraseña"
-              :type="showPassword ? 'text' : 'password'"
+              label="Confirmar contraseña"
               prepend-inner-icon="mdi-lock-check"
-              :rules="[(v: string) => v === newPassword || 'Las dos contraseñas no coinciden']"
+              :rules="confirmPasswordRules(() => newPassword)"
               autocomplete="new-password"
               variant="outlined"
               class="mb-3"
@@ -254,7 +229,8 @@ import { z } from 'zod'
 import { useAuthStore } from '../stores/auth'
 import authService from '../services/authService'
 import { errorMessage } from '../utils/errors'
-import { PASSWORD_HINT, passwordRules } from '../utils/validation'
+import { PASSWORD_HINT, confirmPasswordRules, passwordRules } from '../utils/validation'
+import PasswordField from '../components/PasswordField.vue'
 import type { LoginCredentials } from '../types'
 
 type Step = 'login' | 'two_factor' | 'forgot' | 'reset'
@@ -327,7 +303,6 @@ const needsCompany = computed((): boolean => !!loginId.value && !loginId.value.i
 const loading = ref<boolean>(false)
 const error = ref<string>('')
 const successMessage = ref<string>('')
-const showPassword = ref<boolean>(false)
 
 const challenge = ref<string | null>(null)
 const twoFactorCode = ref('')

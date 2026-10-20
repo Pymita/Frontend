@@ -21,6 +21,11 @@ export const optionalPasswordRules = [
   (v: string) => !v || /[0-9]/.test(v) || 'Debe incluir al menos un número',
 ]
 
+/** "Confirmar contraseña" must repeat the new password: a typo hides behind the dots. */
+export const confirmPasswordRules = (password: () => string) => [
+  (v: string) => (v ?? '') === (password() ?? '') || 'Las contraseñas no coinciden.',
+]
+
 /*
  * Número de documento: espejo de Customer::normalizeDocument() y
  * Customer::documentProblem() del backend, con los mismos mensajes.

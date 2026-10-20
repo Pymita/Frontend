@@ -105,17 +105,25 @@
                 />
               </v-col>
               <v-col cols="6">
-                <v-text-field
+                <v-text-field v-model="formData.phone" label="Teléfono (opcional)" />
+              </v-col>
+              <v-col cols="12" sm="6">
+                <PasswordField
                   v-model="formData.password"
                   :label="editing ? 'Nueva contraseña (opcional)' : 'Contraseña'"
-                  type="password"
                   :rules="currentPasswordRules"
                   :hint="PASSWORD_HINT"
                   persistent-hint
+                  autocomplete="new-password"
                 />
               </v-col>
-              <v-col cols="6">
-                <v-text-field v-model="formData.phone" label="Teléfono (opcional)" />
+              <v-col cols="12" sm="6">
+                <PasswordField
+                  v-model="passwordConfirmation"
+                  label="Confirmar contraseña"
+                  :rules="confirmPasswordRules(() => formData.password)"
+                  autocomplete="new-password"
+                />
               </v-col>
               <v-col cols="6">
                 <v-select
@@ -199,8 +207,9 @@ import { computed, onMounted, ref } from 'vue'
 import usersService, { type CompanyUser } from '../services/usersService'
 import { ALL_FEATURES, type Feature } from '../types/auth'
 import { useAuthStore } from '../stores/auth'
-import { PASSWORD_HINT, optionalPasswordRules, passwordRules } from '../utils/validation'
+import { PASSWORD_HINT, confirmPasswordRules, optionalPasswordRules, passwordRules } from '../utils/validation'
 import LockableButton from '../components/LockableButton.vue'
+import PasswordField from '../components/PasswordField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
@@ -289,9 +298,11 @@ const chargeOrders = computed({
 const isSelf = computed(() => editing.value?.id === authStore.user?.id)
 
 const currentPasswordRules = computed(() => editing.value ? optionalPasswordRules : passwordRules)
+const passwordConfirmation = ref('')
 
 const openDialog = (user?: CompanyUser) => {
   editing.value = user ?? null
+  passwordConfirmation.value = ''
   formData.value = user
     ? {
         name: user.name,
