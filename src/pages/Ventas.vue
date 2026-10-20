@@ -293,7 +293,7 @@
             </div>
           </v-card-text>
           <v-card-text v-if="recurringBilling" class="text-body-2 text-medium-emphasis pb-0">
-            Cada concepto facturado es una fila, sin costo: no pasa por el kardex.
+            Lo facturado sale en la categoría Servicios, un concepto por fila y sin costo: no pasa por el kardex.
           </v-card-text>
           <v-data-table
             :headers="productHeaders"
@@ -317,6 +317,7 @@
             <template #item.profit="{ item }">
               <span :class="item.profit >= 0 ? 'text-success' : 'text-error'">{{ money(item.profit) }}</span>
             </template>
+            <template #item.share="{ item }">{{ percent(item.share) }}</template>
             <template #no-data>
               <p class="text-medium-emphasis py-6">No hay ventas en el rango seleccionado</p>
             </template>
@@ -577,7 +578,7 @@
 </template>
 
 <script setup lang="ts">
-import { money } from '@/utils/money'
+import { money, percent } from '@/utils/money'
 import { formatDateTime, formatIsoDate, parseTimeText, toIsoDate, toTimeText, todayIso } from '@/utils/dates'
 import { computed, onMounted, ref, watch } from 'vue'
 import DateField from '../components/DateField.vue'
@@ -651,7 +652,12 @@ const showOriginFilter = computed(() => recurringBilling.value && (authStore.use
 const originIcons: Record<string, string> = { order: 'mdi-receipt', recurring: 'mdi-calendar-sync' }
 // The filter and the totals name each group; a row's chip names its own origin.
 const originGroupLabels: Record<SaleOrigin, string> = { order: 'Pedidos', recurring: 'Facturación automática' }
-const originOptions = [{ value: 'all', title: 'Todos' }, ...options(originGroupLabels)]
+// "Por producto" reads what was sold: the orders' products and the documents' services.
+const productOriginLabels: Record<SaleOrigin, string> = { order: 'Productos', recurring: 'Servicios' }
+const originOptions = computed(() => [
+  { value: 'all', title: 'Todos' },
+  ...options(view.value === 'products' ? productOriginLabels : originGroupLabels),
+])
 // A toggle needs a value for "Todos"; the API takes no origin for it.
 const originChoice = computed({
   get: () => filters.value.origin || 'all',
@@ -669,6 +675,8 @@ const productHeaders = computed(() => [
   { title: 'Costo', key: 'cost', align: 'end' as const },
   { title: 'Ganancia', key: 'profit', align: 'end' as const },
   { title: 'Ventas', key: 'orders_count', align: 'end' as const },
+  // Products next to services: how much of what is shown each one is.
+  ...(recurringBilling.value ? [{ title: 'Participación', key: 'share', align: 'end' as const }] : []),
 ])
 
 const tableHeaders = computed(() => [
@@ -909,8 +917,9 @@ const methodsLabel = (methods: PaymentMethod[]): string =>
   methods.map(m => PAYMENT_METHOD_LABELS[m] ?? m).join(' + ') || '—'
 
 
-// Cada vista consulta lo suyo; los totales de arriba siempre son del listado.
-const load = async () => {
+// Cada vista consulta lo suyo; los totales de arriba siempre son del listado,
+// so a filter changed from another view refreshes them too.
+const load = async (refreshTotals = false) => {
   loading.value = true
   try {
     if (view.value === 'products') {
@@ -920,7 +929,7 @@ const load = async () => {
     } else if (view.value === 'cash') {
       cashSessions.value = await salesService.cashSessions({ from: filters.value.from || undefined, to: filters.value.to || undefined })
     }
-    if (view.value === 'sales' || !report.value) {
+    if (view.value === 'sales' || refreshTotals || !report.value) {
       report.value = await salesService.report(filters.value)
     }
   } catch (error) {
@@ -930,7 +939,7 @@ const load = async () => {
   }
 }
 
-watch(view, load)
+watch(view, () => load())
 
 const exportExcel = async () => {
   exporting.value = true
@@ -950,10 +959,10 @@ watch(
   filters,
   () => {
     clearTimeout(reloadTimer)
-    reloadTimer = setTimeout(load, 300)
+    reloadTimer = setTimeout(() => load(true), 300)
   },
   { deep: true },
 )
 
-onMounted(load)
+onMounted(() => load())
 </script>

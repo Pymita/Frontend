@@ -15,6 +15,10 @@ export const money = (value: number | string | null | undefined): string => form
 /** Costos unitarios, que pueden llevar centavos ("$3,45" el gramo). */
 export const preciseMoney = (value: number | string | null | undefined): string => format(value, 2)
 
+/** La parte de un total, con una cifra decimal como la manda el API ("86,2 %"). */
+export const percent = (value: number | null | undefined): string =>
+  `${Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 1 })} %`
+
 /** Un valor dentro de un campo de pesos: con puntos de miles y sin el signo ("250.000"). */
 export const moneyInput = (value: number | null | undefined): string =>
   value === null || value === undefined || !Number.isFinite(Number(value))
