@@ -102,7 +102,7 @@ test('el admin le da a un mesero el permiso de cobrar y lo que cobra desde la ap
   await dialog.getByLabel('Confirmar contraseña').fill('clave123')
 
   // A waiter: only orders, nothing to manage on the web.
-  for (const label of ['Menú y categorías', 'Productos e inventario', 'Recetas y costeo', 'Cobro por tiempo (billar)', 'Clientes', 'Inicio, ventas y reportes', 'Facturación automática y cartera']) {
+  for (const label of ['Menú y categorías', 'Productos e inventario', 'Recetas y costeo', 'Cobro por tiempo (billar)', 'Clientes y cartera', 'Inicio, ventas y reportes', 'Facturación automática y cartera']) {
     const box = dialog.getByLabel(label, { exact: true })
     if ((await box.count()) && (await box.isChecked())) await box.uncheck()
   }

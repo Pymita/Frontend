@@ -242,7 +242,7 @@ const featureLabels: Record<Feature, string> = {
   menu: 'Menú y categorías',
   inventory: 'Productos e inventario',
   recipes: 'Recetas y costeo',
-  customers: 'Clientes',
+  customers: 'Clientes y cartera',
   expenses: 'Gastos',
   reports: 'Inicio, ventas y reportes',
   recurring_billing: 'Facturación automática y cartera',

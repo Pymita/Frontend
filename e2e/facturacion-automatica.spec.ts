@@ -14,6 +14,7 @@ import {
   sidebarItem,
   xlsxRows,
   type CompanySession,
+  type IssuedDocument,
 } from './helpers'
 
 /**
@@ -348,8 +349,9 @@ test('la cartera muestra el saldo por cliente y registra abonos hasta pagar', as
   expect(generated.status()).toBe(201)
 
   await loginUI(page, company.credentials.email, company.credentials.password)
-  await sidebarItem(page, 'Facturación automática').click()
-  await page.getByRole('tab', { name: /Cartera/ }).click()
+  await sidebarItem(page, 'Cartera').click()
+  await expect(page).toHaveURL(/\/cartera$/)
+  await expect(page.getByRole('heading', { name: 'Cartera' })).toBeVisible()
 
   await expect(page.locator('.v-card', { hasText: 'Saldo por cobrar' })).toContainText('$250.000')
   await expect(page.locator('.v-card', { hasText: 'Vencido' }).first()).toContainText('$250.000')
@@ -396,6 +398,129 @@ test('la cartera muestra el saldo por cliente y registra abonos hasta pagar', as
   await expect(page.locator('.v-expansion-panel', { hasText: 'Ana Apto 101' })).toContainText('Saldo $0')
 })
 
+/**
+ * Cartera is its own page in Operación, right under Facturación automática,
+ * and the Cartera tab of Facturación automática leads there.
+ */
+test('la cartera es su propia página en Operación y la pestaña de Facturación automática lleva a ella', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'cartera-menu')
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const ana = await createResident(request, company.token, { name: 'Ana Apto 101', document_number: '1001' })
+  const beto = await createResident(request, company.token, { name: 'Beto Apto 102', document_number: '1002', monthly_fee: 150000 })
+  const generated = await request.post(`${API}/recurring-billing/invoices/generate`, {
+    headers: auth,
+    data: { period: PERIOD, issue_date: ISSUED_IN_PERIOD, items: [{ customer_id: ana }, { customer_id: beto }] },
+  })
+  expect(generated.status()).toBe(201)
+  const anaInvoice = (await generated.json()).data.created.find((i: IssuedDocument) => i.customer_name === 'Ana Apto 101')
+  const abono = await request.post(`${API}/recurring-billing/invoices/${anaInvoice.id}/payments`, {
+    headers: auth,
+    data: { amount: 100000, payment_method: 'transfer', paid_at: ISSUED_IN_PERIOD },
+  })
+  expect(abono.status()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+
+  const titles = await page.locator('.v-navigation-drawer .v-list-item-title').allInnerTexts()
+  expect(titles.indexOf('Cartera')).toBe(titles.indexOf('Facturación automática') + 1)
+  await expect(sidebarItem(page, 'Cartera')).toBeInViewport()
+
+  await sidebarItem(page, 'Facturación automática').click()
+  await expect(page.getByRole('heading', { name: 'Facturación automática' })).toBeVisible()
+  await page.getByRole('tab', { name: /Cartera/ }).click()
+  await expect(page).toHaveURL(/\/cartera$/)
+  await expect(page.getByRole('heading', { name: 'Cartera' })).toBeVisible()
+  await expect(page.locator('.v-app-bar')).toContainText('Cartera')
+  await expect(page.locator('.v-navigation-drawer .v-list-item--active')).toHaveText('Cartera')
+
+  await expect(page.locator('.v-card', { hasText: 'Saldo por cobrar' })).toContainText('$300.000')
+  await expect(page.locator('.v-card', { hasText: 'Clientes con saldo' })).toContainText('2')
+  await expect(page.locator('.v-card', { hasText: 'Abonado' })).toContainText('$100.000')
+  await expect(page.locator('.v-expansion-panel', { hasText: 'Ana Apto 101' })).toContainText('Saldo $150.000')
+  await expect(page.locator('.v-expansion-panel', { hasText: 'Beto Apto 102' })).toContainText('Saldo $150.000')
+  const history = page.getByTestId('historico-abonos')
+  await expect(history.locator('tbody tr', { hasText: 'RC-1' })).toContainText('Transferencia')
+  await expect(history.locator('tbody tr', { hasText: 'RC-1' })).toContainText('$100.000')
+
+  const panel = page.locator('.v-expansion-panel', { hasText: 'Ana Apto 101' })
+  await panel.locator('.v-expansion-panel-title').click()
+  await expect(panel.locator('tbody tr', { hasText: 'CC-1' })).toContainText('Abonada')
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/cartera-en-el-menu-pagina-1440.png', fullPage: true })
+  await page.screenshot({ path: '../screenshots/cartera-en-el-menu-menu-1440.png' })
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await expect(page.locator('.v-expansion-panel', { hasText: 'Beto Apto 102' })).toContainText('Saldo $150.000')
+  await expect(page.locator('.v-navigation-drawer')).not.toBeInViewport()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/cartera-en-el-menu-pagina-390.png', fullPage: true })
+  await page.getByRole('button', { name: 'Abrir menú' }).click()
+  await expect(sidebarItem(page, 'Cartera')).toBeInViewport()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/cartera-en-el-menu-menu-390.png' })
+})
+
+/**
+ * The cartera opens with Clientes too (the API's `customers` or
+ * `recurring_billing`): an employee with Clientes alone registers an abono
+ * and reads the histórico, while reverting and cancelling stay the admin's.
+ */
+test('un empleado con solo clientes ve la Cartera, registra un abono y lee el histórico', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'cartera-clientes')
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const ana = await createResident(request, company.token, { name: 'Ana Clientes', document_number: '9101' })
+  const generated = await request.post(`${API}/recurring-billing/invoices/generate`, {
+    headers: auth,
+    data: { period: PERIOD, issue_date: ISSUED_IN_PERIOD, items: [{ customer_id: ana }] },
+  })
+  expect(generated.status()).toBe(201)
+  const slug = (await (await request.get(`${API}/auth/me`, { headers: auth })).json()).user.company.slug
+  const employee = { username: `cartera.${Date.now() % 1_000_000}`, password: 'secreto123' }
+  const created = await request.post(`${API}/users`, {
+    headers: auth,
+    data: { name: 'Cajera Cartera', role: 'employee', permissions: ['customers'], ...employee },
+  })
+  expect(created.status(), await created.text()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, employee.username, employee.password, slug)
+  await expect(sidebarItem(page, 'Facturación automática')).toHaveCount(0)
+  await sidebarItem(page, 'Cartera').click()
+  await expect(page).toHaveURL(/\/cartera$/)
+
+  const panel = page.locator('.v-expansion-panel', { hasText: 'Ana Clientes' })
+  await expect(panel).toContainText('Saldo $250.000')
+  await panel.getByRole('button', { name: 'Registrar abono', exact: true }).click()
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Abono de Ana Clientes' })
+  await field(page, 'Valor del abono').locator('input').fill('100000')
+  await dialog.getByRole('button', { name: 'Registrar abono' }).click()
+  await expect(dialog).toContainText('Abono registrado en el recibo de caja RC-1 por $100.000')
+  await dialog.getByRole('button', { name: 'Cerrar' }).click()
+  await expect(panel).toContainText('Saldo $150.000')
+
+  const history = page.getByTestId('historico-abonos')
+  const receipt = history.locator('tbody tr', { hasText: 'RC-1' })
+  await expect(receipt).toContainText('Ana Clientes')
+  await expect(receipt).toContainText('Efectivo')
+  await expect(receipt).toContainText('$100.000')
+  await expect(receipt).toContainText('Cajera Cartera')
+
+  await panel.locator('.v-expansion-panel-title').click()
+  const document = panel.locator('tbody tr', { hasText: 'CC-1' })
+  await expect(document).toContainText('Abonada')
+  await expect(document.getByRole('button', { name: 'Anular CC-1' })).toHaveCount(0)
+  await document.getByRole('button', { name: 'Abonar' }).click()
+  const documentDialog = page.getByRole('dialog').filter({ hasText: 'CC-1 · Ana Clientes' })
+  await expect(documentDialog.locator('tbody tr', { hasText: 'RC-1' })).toContainText('$100.000')
+  await expect(documentDialog.getByRole('button', { name: 'Revertir' })).toHaveCount(0)
+  await documentDialog.getByRole('button', { name: 'Cerrar' }).click()
+
+  await page.goto('/facturacion-automatica')
+  await expect(page).not.toHaveURL(/facturacion-automatica/)
+})
+
 test('el histórico de abonos lista parciales y totales y descarga el PDF', async ({ page, request }) => {
   test.setTimeout(60_000)
   const company = await createRecurringCompany(request, 'historico')
@@ -435,8 +560,7 @@ test('el histórico de abonos lista parciales y totales y descarga el PDF', asyn
 
   await page.setViewportSize({ width: 1440, height: 900 })
   await loginUI(page, company.credentials.email, company.credentials.password)
-  await sidebarItem(page, 'Facturación automática').click()
-  await page.getByRole('tab', { name: /Cartera/ }).click()
+  await sidebarItem(page, 'Cartera').click()
 
   const history = page.getByTestId('historico-abonos')
   await expect(history).toContainText('Histórico de abonos')
@@ -616,7 +740,9 @@ test('capturas de facturación y cartera en escritorio y en pantalla angosta', a
     await expect(row(page, 'Ana Apto 101')).toContainText('CC-1')
     await page.screenshot({ path: `../screenshots/facturacion-automatica-${name}.png`, fullPage: true })
 
+    // The Cartera tab is still there and opens the Cartera page.
     await page.getByRole('tab', { name: /Cartera/ }).click()
+    await expect(page).toHaveURL(/\/cartera$/)
     const panel = page.locator('.v-expansion-panel', { hasText: 'Ana Apto 101' })
     await panel.locator('.v-expansion-panel-title').click()
     await expect(panel.locator('tbody tr', { hasText: 'CC-1' })).toBeVisible()
@@ -853,8 +979,7 @@ test('un abono al cliente paga lo más viejo primero e imprime su recibo de caja
   }
 
   await loginUI(page, company.credentials.email, company.credentials.password)
-  await sidebarItem(page, 'Facturación automática').click()
-  await page.getByRole('tab', { name: /Cartera/ }).click()
+  await sidebarItem(page, 'Cartera').click()
 
   const panel = page.locator('.v-expansion-panel', { hasText: 'Ana Recibo' })
   await panel.getByRole('button', { name: 'Registrar abono', exact: true }).click()
