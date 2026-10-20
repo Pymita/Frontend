@@ -39,7 +39,8 @@ export interface Customer {
 
 // ===== Facturación automática =====
 export type RecurringInvoiceStatus = 'pending' | 'partial' | 'paid' | 'cancelled'
-export type DocumentKind = 'invoice' | 'collection'
+/** 'credit_sale': an order charged "A crédito" in Pedidos, owed in Cartera (its factura is the order's sale). */
+export type DocumentKind = 'invoice' | 'collection' | 'credit_sale'
 
 /** Fila lista para facturar en un período: se puede editar antes de generar. */
 export interface RecurringPreviewRow {
@@ -106,12 +107,17 @@ export interface RecurringPayment {
 export interface RecurringInvoice {
   id: number
   customer_id: number | null
-  sequence: number
+  /** The order and sale payment of a credit sale; null for a monthly document. */
+  order_id: number | null
+  order_payment_id: number | null
+  /** The CC-n consecutive; a credit sale has none. */
+  sequence: number | null
   document_kind: DocumentKind
   document_number: string
   invoice_number: string | null
   invoicing_resolution: string | null
-  period: string
+  /** Billed month; a credit sale bills none. */
+  period: string | null
   issued_at: string
   due_date: string | null
   customer_name: string
@@ -154,8 +160,12 @@ export interface ReceivableDocument {
   id: number
   issued_at: string
   document_kind: DocumentKind
+  /** A credit sale prints the factura of this sale of its order. */
+  order_id: number | null
+  order_payment_id: number | null
   document_number: string
-  period: string
+  /** Billed month; null for a credit sale. */
+  period: string | null
   concept: string
   due_date: string | null
   overdue: boolean

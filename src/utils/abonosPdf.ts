@@ -150,6 +150,7 @@ export async function downloadAbonosPdf(
 interface CloseFigures {
   sales_total: number | null
   sales_count: number | null
+  credit_sales: number | null
   tips_total: number | null
   by_method: Record<string, { amount: number } | undefined>
   recurring_by_method: Partial<Record<string, number>>
@@ -164,6 +165,7 @@ interface CloseFigures {
 const closeFigures = (close: CashSession): CloseFigures => ({
   sales_total: close.summary.sales_total,
   sales_count: close.summary.sales_count,
+  credit_sales: close.summary.credit_sales?.total ?? null,
   tips_total: close.summary.tips_total,
   by_method: close.summary.by_method ?? {},
   recurring_by_method: close.summary.recurring_by_method ?? {},
@@ -202,6 +204,7 @@ const figureRows = (figures: CloseFigures, countedLabel: string): RowInput[] => 
   const received: [string, CellDef | string][] = [
     ['Ventas (sin propina)', moneyOrDash(figures.sales_total)],
     ['N.º de ventas', figures.sales_count === null ? '—' : String(figures.sales_count)],
+    ...(figures.credit_sales ? [['Ventas a crédito (en Cartera)', money(figures.credit_sales)] as [string, string]] : []),
     ['Propinas', moneyOrDash(figures.tips_total)],
     ...charged.sort(byListOrder).map(method =>
       [`Cobros · ${methodLabel(method)}`, money(figures.by_method[method]?.amount ?? 0)] as [string, string]),

@@ -9,12 +9,15 @@ export const paymentStatusLabels: Record<string, string> = {
   pending: 'Por pagar',
   paid: 'Pagado',
   partial: 'Pago parcial',
+  // Not an API status: a paid order whose sale went to Cartera (`paymentState()`).
+  credit: 'A crédito',
 }
 
 export const paymentStatusColors: Record<string, string> = {
   pending: 'error',
   partial: 'warning',
   paid: 'success',
+  credit: 'info',
 }
 
 export const orderStatusLabels: Record<string, string> = {
@@ -59,6 +62,8 @@ export const recurringInvoiceStatusColors: Record<string, string> = {
 export const documentKindLabels: Record<string, string> = {
   invoice: 'Factura',
   collection: 'Cuenta de cobro',
+  // An order charged "A crédito" in Pedidos: what the customer owes for it.
+  credit_sale: 'Venta a crédito',
 }
 
 /** Where a sale in Ventas comes from: an order charged or a document issued. */
@@ -124,6 +129,24 @@ export const orderPaymentMethodLabels: Record<string, string> = {
   other: 'Otro',
 }
 
+/**
+ * How a sale was charged: the methods money comes in by, plus "A crédito"
+ * (OrderPayment::CREDIT), which brings none. Only for reading a sale; the
+ * selects where money is received keep `orderPaymentMethodLabels`.
+ */
+export const saleMethodLabels: Record<string, string> = {
+  ...orderPaymentMethodLabels,
+  credit: 'A crédito',
+}
+
+/** The documents asked when a customer is created while charging (Customer::DOCUMENT_TYPES takes more). */
+export const customerDocumentTypeLabels: Record<string, string> = {
+  CC: 'Cédula de ciudadanía (CC)',
+  NIT: 'NIT',
+  CE: 'Cédula de extranjería (CE)',
+  Pasaporte: 'Pasaporte',
+}
+
 /** Régimen tributario de la empresa, como debe leerse en la tirilla. */
 export const taxRegimeLabels: Record<string, string> = {
   common: 'Responsable de IVA',
@@ -177,3 +200,9 @@ export const orderReference = (order: NamedOrder): string => {
 
 /** "Pedido #12" o, antes del primer cobro, "Pedido de Mesa 4". */
 export const orderLabel = (order: NamedOrder): string => `Pedido ${orderReference(order)}`
+
+/** The key of `paymentStatusLabels` an order reads: a paid order sold on credit is still owed, in Cartera. */
+export const paymentState = (order: { payment_status: string; payments?: { payment_method: string }[] | null }): string =>
+  order.payment_status === 'paid' && order.payments?.some(payment => payment.payment_method === 'credit')
+    ? 'credit'
+    : order.payment_status

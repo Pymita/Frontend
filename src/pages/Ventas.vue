@@ -616,7 +616,9 @@ import LockableButton from '../components/LockableButton.vue'
 import MoneyField from '../components/MoneyField.vue'
 import salesService, {
   PAYMENT_METHOD_LABELS,
+  SALE_METHOD_LABELS,
   type PaymentMethod,
+  type SaleMethod,
   type ProductSalesReport,
   type Sale,
   type SaleOrigin,
@@ -965,7 +967,7 @@ const headers = computed(() => [
   { title: '', key: 'actions', align: 'end' as const, sortable: false },
 ])
 
-const methodOptions = Object.entries(PAYMENT_METHOD_LABELS).map(([value, title]) => ({ value, title }))
+const methodOptions = Object.entries(SALE_METHOD_LABELS).map(([value, title]) => ({ value, title }))
 
 // Los meseros del filtro salen de las ventas cargadas: sin llamados extra
 // y sin exigir permisos de administración de empleados.
@@ -995,13 +997,13 @@ const methodBreakdown = computed(() =>
     .filter(([, amount]) => (amount ?? 0) > 0)
     .map(([method, amount]) => ({
       method,
-      label: PAYMENT_METHOD_LABELS[method as PaymentMethod] ?? method,
+      label: SALE_METHOD_LABELS[method as SaleMethod] ?? method,
       amount: amount ?? 0,
     })),
 )
 
-const methodsLabel = (methods: PaymentMethod[]): string =>
-  methods.map(m => PAYMENT_METHOD_LABELS[m] ?? m).join(' + ') || '—'
+const methodsLabel = (methods: SaleMethod[]): string =>
+  methods.map(m => SALE_METHOD_LABELS[m] ?? m).join(' + ') || '—'
 
 
 // Cada vista consulta lo suyo; los totales de arriba siempre son del listado,

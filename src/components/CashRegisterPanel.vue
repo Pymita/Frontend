@@ -52,6 +52,9 @@
                     {{ plural(shown.summary.sales_count ?? 0, 'venta', 'ventas') }} ·
                     {{ plural(shown.summary.orders_count ?? 0, 'pedido', 'pedidos') }}
                   </div>
+                  <div v-if="shown.summary.credit_sales?.total" class="text-caption text-medium-emphasis" data-testid="cash-credit-sales">
+                    {{ money(shown.summary.credit_sales.total) }} a crédito, en Cartera
+                  </div>
                 </div>
                 <div>
                   <div class="text-caption text-medium-emphasis">Propinas</div>
