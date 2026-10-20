@@ -43,7 +43,7 @@
               </v-chip>
             </template>
             <v-list-item-title class="text-body-2">
-              {{ pay.invoice_number || pay.reference || ('#' + order!.id) }}
+              {{ pay.invoice_number || pay.reference || formatTime(pay.created_at) }}
               <span class="text-caption text-medium-emphasis"> · {{ paymentMethodLabel(pay.payment_method) }}</span>
             </v-list-item-title>
             <template #append>
@@ -66,7 +66,7 @@
         <template v-if="paymentMode === 'items'">
           <p class="text-body-2 text-medium-emphasis mb-2">
             Marca lo que va a pagar este grupo. Cada cobro por productos es una
-            <strong>factura de venta parcial</strong> (#{{ order?.id }}-n) y
+            <strong>factura de venta parcial</strong><template v-if="order?.number"> (#{{ order.number }}-n)</template> y
             descuenta su inventario. Los descuentos del pedido se reparten proporcionalmente.
           </p>
           <v-table density="compact" class="mb-3">
@@ -166,6 +166,7 @@ import {
 } from '@/services/ordersService'
 import { orderPaymentMethodLabels, options } from '@/utils/labels'
 import { money } from '@/utils/money'
+import { formatTime } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors'
 import MoneyField from './MoneyField.vue'
 

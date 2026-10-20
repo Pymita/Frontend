@@ -43,15 +43,19 @@
                 <span class="text-caption text-medium-emphasis">Acceso total</span>
               </template>
               <template v-else>
-                <v-chip
-                  v-for="feature in item.features"
-                  :key="feature"
-                  size="x-small"
-                  class="mr-1 mb-1"
-                  variant="outlined"
-                >
-                  {{ featureLabel(feature) }}
-                </v-chip>
+                <template v-for="feature in item.features" :key="feature">
+                  <v-chip size="x-small" class="mr-1 mb-1" variant="outlined">
+                    {{ featureLabel(feature) }}
+                  </v-chip>
+                  <v-chip
+                    v-if="feature === 'orders' && item.can_charge_orders"
+                    size="x-small"
+                    class="mr-1 mb-1"
+                    variant="outlined"
+                  >
+                    Cobrar pedidos
+                  </v-chip>
+                </template>
               </template>
             </template>
             <template #item.last_login_at="{ item }">
@@ -101,17 +105,25 @@
                 />
               </v-col>
               <v-col cols="6">
-                <v-text-field
+                <v-text-field v-model="formData.phone" label="Teléfono (opcional)" />
+              </v-col>
+              <v-col cols="12" sm="6">
+                <PasswordField
                   v-model="formData.password"
                   :label="editing ? 'Nueva contraseña (opcional)' : 'Contraseña'"
-                  type="password"
                   :rules="currentPasswordRules"
                   :hint="PASSWORD_HINT"
                   persistent-hint
+                  autocomplete="new-password"
                 />
               </v-col>
-              <v-col cols="6">
-                <v-text-field v-model="formData.phone" label="Teléfono (opcional)" />
+              <v-col cols="12" sm="6">
+                <PasswordField
+                  v-model="passwordConfirmation"
+                  label="Confirmar contraseña"
+                  :rules="confirmPasswordRules(() => formData.password)"
+                  autocomplete="new-password"
+                />
               </v-col>
               <v-col cols="6">
                 <v-select
@@ -143,15 +155,28 @@
                 El empleado solo verá y podrá usar las funciones marcadas
               </p>
               <v-row dense>
-                <v-col v-for="feature in allFeatures" :key="feature" cols="6">
-                  <v-checkbox
-                    v-model="formData.permissions"
-                    :label="featureLabel(feature)"
-                    :value="feature"
-                    density="compact"
-                    hide-details
-                  />
-                </v-col>
+                <template v-for="feature in allFeatures" :key="feature">
+                  <v-col cols="6">
+                    <v-checkbox
+                      v-model="formData.permissions"
+                      :label="featureLabel(feature)"
+                      :value="feature"
+                      density="compact"
+                      hide-details
+                    />
+                  </v-col>
+                  <!-- Tomar pedidos y recibir la plata son trabajos distintos: cobrar va aparte. -->
+                  <v-col v-if="feature === 'orders'" cols="6">
+                    <v-checkbox
+                      v-model="chargeOrders"
+                      label="Cobrar pedidos"
+                      :disabled="!formData.permissions.includes('orders')"
+                      hint="Registra pagos y propinas, también desde la app"
+                      persistent-hint
+                      density="compact"
+                    />
+                  </v-col>
+                </template>
               </v-row>
             </template>
             <p v-else class="text-caption text-medium-emphasis mt-3">
@@ -182,8 +207,9 @@ import { computed, onMounted, ref } from 'vue'
 import usersService, { type CompanyUser } from '../services/usersService'
 import { ALL_FEATURES, type Feature } from '../types/auth'
 import { useAuthStore } from '../stores/auth'
-import { PASSWORD_HINT, optionalPasswordRules, passwordRules } from '../utils/validation'
+import { PASSWORD_HINT, confirmPasswordRules, optionalPasswordRules, passwordRules } from '../utils/validation'
 import LockableButton from '../components/LockableButton.vue'
+import PasswordField from '../components/PasswordField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
@@ -258,14 +284,25 @@ const formData = ref({
   role: 'employee' as 'admin' | 'employee',
   active: true,
   permissions: [] as Feature[],
+  canChargeOrders: true,
+})
+
+// Cobrar is part of Pedidos: without it the box reads unchecked and nothing is granted.
+const chargeOrders = computed({
+  get: () => formData.value.canChargeOrders && formData.value.permissions.includes('orders'),
+  set: (value: boolean) => {
+    formData.value.canChargeOrders = value
+  },
 })
 
 const isSelf = computed(() => editing.value?.id === authStore.user?.id)
 
 const currentPasswordRules = computed(() => editing.value ? optionalPasswordRules : passwordRules)
+const passwordConfirmation = ref('')
 
 const openDialog = (user?: CompanyUser) => {
   editing.value = user ?? null
+  passwordConfirmation.value = ''
   formData.value = user
     ? {
         name: user.name,
@@ -276,6 +313,7 @@ const openDialog = (user?: CompanyUser) => {
         role: user.role as 'admin' | 'employee',
         active: user.active,
         permissions: [...user.features],
+        canChargeOrders: user.can_charge_orders,
       }
     : {
         name: '',
@@ -286,6 +324,7 @@ const openDialog = (user?: CompanyUser) => {
         role: 'employee',
         active: true,
         permissions: allFeatures.value.filter(f => f !== 'expenses'),
+        canChargeOrders: true,
       }
   dialog.value = true
 }
@@ -303,6 +342,7 @@ const save = async () => {
       phone: formData.value.phone || undefined,
       role: formData.value.role,
       permissions: formData.value.role === 'employee' ? formData.value.permissions : undefined,
+      can_charge_orders: formData.value.role === 'employee' ? chargeOrders.value : undefined,
     }
 
     if (editing.value) {

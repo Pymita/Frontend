@@ -1,4 +1,4 @@
-import type { RouteRecordRaw } from 'vue-router'
+import type { RouteRecordRaw, Router } from 'vue-router'
 import { effectiveFeatures } from '../types/auth'
 const Dashboard = () => import('../pages/Dashboard.vue')
 const Login = () => import('../pages/Login.vue')
@@ -249,6 +249,47 @@ export const setupRouterGuards = (router: any) => {
     } else {
       next()
     }
+  })
+}
+
+// Every merge redeploys the web and the previous build's chunks disappear: a
+// tab opened before it fails to load the next page until it loads the new build.
+const STALE_BUILD_ERROR =
+  /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Unable to preload CSS/i
+const STALE_BUILD_RELOADED_AT = 'stale_build_reloaded_at'
+const STALE_BUILD_RELOAD_GAP_MS = 10_000
+
+/** App.vue tells the user to reload when a page cannot load even after reloading. */
+export const PAGE_LOAD_FAILED_EVENT = 'page-load-failed'
+
+export const reloadOnNewBuild = (router: Router) => {
+  let reloading = false
+
+  // At most one automatic load every 10 s: if the new build fails too (offline,
+  // a broken deploy) the user reads what to do instead of looping.
+  const loadFromServer = (href: string): void => {
+    if (reloading) return
+    const reloadedAt = Number(sessionStorage.getItem(STALE_BUILD_RELOADED_AT) ?? 0)
+    if (!navigator.onLine || Date.now() - reloadedAt < STALE_BUILD_RELOAD_GAP_MS) {
+      window.dispatchEvent(new CustomEvent(PAGE_LOAD_FAILED_EVENT))
+      return
+    }
+    reloading = true
+    sessionStorage.setItem(STALE_BUILD_RELOADED_AT, String(Date.now()))
+    window.location.assign(href)
+  }
+
+  router.onError((error, to) => {
+    if (STALE_BUILD_ERROR.test(String(error?.message ?? error))) {
+      loadFromServer(router.resolve(to.fullPath).href)
+    }
+  })
+
+  // Lazy imports outside a navigation (the 2FA QR) only raise this event. A
+  // route's chunk raises it too, but router.onError, which knows the page the
+  // user was going to, runs first and the queued load finds it already going.
+  window.addEventListener('vite:preloadError', () => {
+    setTimeout(() => loadFromServer(window.location.href))
   })
 }
 

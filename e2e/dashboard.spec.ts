@@ -1,5 +1,16 @@
-import { expect, test, type APIRequestContext } from '@playwright/test'
-import { ADMIN, API, apiLogin, displayDate, loginUI } from './helpers'
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import {
+  ADMIN,
+  API,
+  SHOP_WITH_FEES,
+  apiLogin,
+  createCompany,
+  displayDate,
+  e2eSql,
+  freezeTime,
+  issueDocuments,
+  loginUI,
+} from './helpers'
 
 /**
  * Dashboard: lo que el dueño mira primero. Las métricas cuentan lo mismo
@@ -111,6 +122,8 @@ test('el gráfico cambia entre semana, mes y rango, y más vendidos sigue el per
   await expect(chart.getByRole('button', { name: 'Semana', exact: true })).toHaveAttribute('aria-pressed', 'false')
   await expect(chart).toContainText('Ventas del mes')
   await expect(chart).toContainText(`Este mes: ${money(month.total)} en ${month.orders_count}`)
+  // A restaurant sells one way: the chart has no origin to choose.
+  await expect(chart.getByRole('group', { name: 'Origen de las ventas' })).toHaveCount(0)
   await expect(topProducts).toContainText('Este mes')
   await expect(topProducts.locator('.v-list-item', { hasText: juiceName })).toContainText('3 vendidos · 1 pedido')
   await expect(chart.locator('canvas')).toBeVisible()
@@ -193,6 +206,8 @@ test('primeros pasos queda bajo las métricas y solo muestra lo obligatorio pend
   await expect(metric).toBeVisible()
   await expect(guideCard).toBeVisible()
   await expect(page.getByText('Pedidos recientes')).toHaveCount(0)
+  // A restaurant without automatic billing has no cartera on its dashboard.
+  await expect(page.getByText('Saldo por cobrar')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Mes', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByText('Ventas del mes')).toBeVisible()
 
@@ -279,6 +294,158 @@ test('capturas del tablero en escritorio y en celular', async ({ page }) => {
   })
   await page.waitForTimeout(300)
   await page.screenshot({ path: '../screenshots/mobile-sin-menu.png', fullPage: true })
+})
+
+/** A metric card of the dashboard, by its exact title. */
+const metricCard = (page: Page, title: string) =>
+  page.locator('.v-card').filter({ has: page.getByText(title, { exact: true }) })
+
+/**
+ * A condominium that also runs a little shop: its dashboard is about sales
+ * (orders and documents) and the cartera, not about open orders.
+ */
+test('con facturación automática el inicio muestra ventas y cartera, no los pedidos pendientes', async ({ page, request }) => {
+  const company = await createCompany(request, 'tienda-cuotas', { business_type: 'recurring', modules: SHOP_WITH_FEES })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const sodaName = `Gaseosa Tienda ${Date.now()}`
+  const sodaId = await createProduct(request, auth, {
+    name: sodaName, type: 'final', unit: 'und', unit_cost: 1000, sale_price: 2500, tracks_stock: false,
+  })
+  await chargedSale(request, auth, sodaId, 2)
+
+  // Open since two days ago: a restaurant would get "pedido pendiente de cobro" on top.
+  const open = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { order_type: 'takeaway', items: [{ product_id: sodaId, quantity: 1 }] },
+  })
+  expect(open.ok(), await open.text()).toBeTruthy()
+  e2eSql(`UPDATE orders SET created_at = datetime('now', '-2 days') WHERE id = ${(await open.json()).data.id}`)
+
+  const [ana] = await issueDocuments(request, company.token, [
+    { name: 'Ana Apto 101', document_number: '1001', monthly_fee: 250000 },
+    { name: 'Beto Apto 102', document_number: '1002', monthly_fee: 180000 },
+  ])
+  const abono = await request.post(`${API}/recurring-billing/invoices/${ana!.id}/payments`, {
+    headers: auth,
+    data: { amount: 50000, payment_method: 'cash' },
+  })
+  expect(abono.ok(), await abono.text()).toBeTruthy()
+  // Billed in January 2025 and never paid: overdue.
+  await issueDocuments(request, company.token, [{ name: 'Carla Apto 103', document_number: '1003', monthly_fee: 90000 }], {
+    issue_date: '2025-01-02',
+  })
+  const stats = (await (await request.get(`${API}/dashboard/stats`, { headers: auth })).json()).data
+  expect(stats.overdue_pending.count).toBe(1)
+
+  await freezeTime(page, ana!.issued_at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/dashboard')
+
+  // 2 sodas (5.000) + 250.000 + 180.000; the abono of 50.000 is cash, not a second sale.
+  await expect(metricCard(page, 'Ventas hoy')).toContainText('$435.000')
+  await expect(metricCard(page, 'Ventas hoy')).toContainText('$435.000 este mes')
+  await expect(metricCard(page, 'Ventas hoy')).toContainText('Pedidos y facturación')
+  await expect(metricCard(page, 'Saldo por cobrar')).toContainText('$470.000')
+  await expect(metricCard(page, 'Saldo por cobrar')).toContainText('3 clientes con saldo')
+  await expect(metricCard(page, 'Vencido')).toContainText('$90.000')
+  await expect(metricCard(page, 'Vencido')).toContainText('1 documento vencido')
+  await expect(metricCard(page, 'Vencido')).toContainText('Requiere cobro')
+  // It has inventory: the stock card and list stay.
+  await expect(page.getByText('Stock bajo', { exact: true })).toHaveCount(2)
+  await expect(page.getByText('Pedidos hoy', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Productos activos', { exact: true })).toHaveCount(0)
+  await expect(page.getByText(/pendientes? de cobro/)).toHaveCount(0)
+
+  const chart = page.locator('.v-card').filter({ has: page.getByRole('button', { name: 'Semana' }) })
+  const caption = chart.locator('div', { hasText: /^\s*Este mes:/ })
+  const origin = chart.getByRole('group', { name: 'Origen de las ventas' })
+  const top = page.locator('.v-card').filter({ has: page.locator('.mdi-trophy') })
+  const soda = top.locator('.v-list-item', { hasText: sodaName })
+  const fees = top.locator('.v-list-item', { hasText: 'Cuota de administración' })
+
+  // "Todo" first: both origins in the total and among the best sellers, each a share of everything sold.
+  await expect(origin.getByRole('button', { name: 'Todo' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(caption).toHaveText(/^\s*Este mes: \$435\.000 en 1 pedido y 2 documentos\s*$/)
+  await expect(chart.locator('canvas')).toBeVisible()
+  await expect(top).toContainText('Más vendidos')
+  await expect(fees).toContainText('2 documentos')
+  await expect(fees).toContainText('$430.000')
+  await expect(fees).toContainText('98,9 % de las ventas')
+  await expect(soda).toContainText('2 vendidos · 1 pedido')
+  await expect(soda).toContainText('1,1 % de las ventas')
+
+  await expect(page.locator('.v-progress-circular')).toHaveCount(0)
+  await page.mouse.move(0, 0)
+  await page.screenshot({ path: '../screenshots/ventas-servicios-dashboard-todo-1440.png', fullPage: true })
+
+  // "Productos": the shop alone, its share of what the orders sold.
+  await origin.getByRole('button', { name: 'Productos' }).click()
+  await expect(origin.getByRole('button', { name: 'Productos' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(caption).toHaveText(/^\s*Este mes: \$5\.000 en 1 pedido\s*$/)
+  await expect(top).toContainText('Más vendidos')
+  await expect(soda).toContainText('100 % de los pedidos')
+  await expect(fees).toHaveCount(0)
+
+  // "Facturación automática": the documents alone, ranked as the concepts billed.
+  await origin.getByRole('button', { name: 'Facturación automática' }).click()
+  await expect(caption).toHaveText(/^\s*Este mes: \$430\.000 en 2 documentos\s*$/)
+  await expect(top).toContainText('Más facturados')
+  await expect(fees).toContainText('2 documentos')
+  await expect(fees).toContainText('100 % de lo facturado')
+  await expect(soda).toHaveCount(0)
+  await expect(page.locator('.v-progress-circular')).toHaveCount(0)
+  await page.mouse.move(0, 0)
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/ventas-servicios-dashboard-facturacion-1440.png', fullPage: true })
+
+  await origin.getByRole('button', { name: 'Todo' }).click()
+  await expect(caption).toHaveText(/^\s*Este mes: \$435\.000 en 1 pedido y 2 documentos\s*$/)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(metricCard(page, 'Vencido')).toBeVisible()
+  await expect(page.locator('.v-progress-circular')).toHaveCount(0)
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/ventas-servicios-dashboard-todo-390.png', fullPage: true })
+})
+
+test('un conjunto sin pedidos ve lo facturado, su cartera y los conceptos más facturados', async ({ page, request }) => {
+  const company = await createCompany(request, 'conjunto-inicio', { business_type: 'recurring' })
+  const [first] = await issueDocuments(request, company.token, [
+    { name: 'Ana Apto 101', document_number: '1001', monthly_fee: 250000 },
+    { name: 'Beto Apto 102', document_number: '1002', monthly_fee: 250000 },
+    { name: 'Carla Parqueadero 7', document_number: '1003', monthly_fee: 80000, billing_concept: 'Cuota parqueadero' },
+  ])
+
+  await freezeTime(page, first!.issued_at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/dashboard')
+
+  await expect(metricCard(page, 'Ventas hoy')).toContainText('$580.000')
+  await expect(metricCard(page, 'Ventas hoy')).toContainText('Facturación automática')
+  await expect(metricCard(page, 'Saldo por cobrar')).toContainText('$580.000')
+  await expect(metricCard(page, 'Vencido')).toContainText('$0')
+  await expect(metricCard(page, 'Vencido')).toContainText('Ningún documento vencido')
+  await expect(metricCard(page, 'Vencido')).toContainText('Al día')
+  // No inventory module: neither the stock card nor the stock list.
+  await expect(page.getByText('Stock bajo', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Todo el stock está bien')).toHaveCount(0)
+
+  const chart = page.locator('.v-card').filter({ has: page.getByRole('button', { name: 'Semana' }) })
+  await expect(chart).toContainText('Este mes: $580.000 en 3 documentos')
+  // Documents are all it sells: nothing to choose between.
+  await expect(chart.getByRole('group', { name: 'Origen de las ventas' })).toHaveCount(0)
+  const top = page.locator('.v-card', { hasText: 'Más facturados' })
+  const fee = top.locator('.v-list-item', { hasText: 'Cuota de administración' })
+  await expect(fee).toContainText('2 documentos')
+  await expect(fee).toContainText('$500.000')
+  await expect(fee).toContainText('86,2 % de lo facturado')
+  await expect(top.locator('.v-list-item', { hasText: 'Cuota parqueadero' })).toContainText('1 documento')
+  await expect(page.getByText('Más vendidos')).toHaveCount(0)
+
+  await expect(page.getByTestId('setup-guide')).toBeVisible()
+  await expect(page.locator('.v-progress-circular')).toHaveCount(0)
+  await page.screenshot({ path: '../screenshots/ventas-facturacion-dashboard-conjunto-1440.png', fullPage: true })
 })
 
 test('si el resumen no carga lo dice y deja reintentar, en vez de quedar en blanco', async ({ page }) => {

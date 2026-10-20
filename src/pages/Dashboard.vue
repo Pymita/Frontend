@@ -1,9 +1,10 @@
 <template>
   <v-container fluid class="pa-4">
     <!-- Pedidos sin cobrar de días anteriores: es plata que se pierde si
-         nadie la ve. Va arriba de todo, antes de cualquier estadística. -->
+         nadie la ve. Va arriba de todo, antes de cualquier estadística.
+         With automatic billing the dashboard is about sales and cartera. -->
     <v-alert
-      v-if="!loading && overdueCount > 0"
+      v-if="!loading && !recurringBilling && overdueCount > 0"
       type="warning"
       variant="tonal"
       icon="mdi-alert-circle"
@@ -39,7 +40,7 @@
     <v-row>
       <!-- Estadísticas principales -->
       <!-- The figure stays in text color; only the chip, which means something, is colored. -->
-      <v-col cols="12" md="3" v-for="stat in stats" :key="stat.title">
+      <v-col cols="12" :md="12 / stats.length" v-for="stat in stats" :key="stat.title">
         <v-card class="pa-4 h-100">
           <div class="text-subtitle-2 text-medium-emphasis">
             {{ stat.title }}
@@ -79,6 +80,30 @@
             </v-btn-toggle>
           </v-card-title>
           <v-card-text>
+            <!-- A shop next to the fees: its products, its automatic billing, or both together.
+                 The choice rules the chart, its total and the best sellers. -->
+            <v-btn-toggle
+              v-if="showOriginChoice"
+              v-model="salesOrigin"
+              mandatory
+              color="primary"
+              density="compact"
+              variant="outlined"
+              divided
+              role="group"
+              aria-label="Origen de las ventas"
+              class="mb-3"
+            >
+              <v-btn
+                v-for="option in salesOriginOptions"
+                :key="option.value"
+                :value="option.value"
+                :size="xs ? 'small' : 'default'"
+                :aria-pressed="salesOrigin === option.value"
+              >
+                {{ option.title }}
+              </v-btn>
+            </v-btn-toggle>
             <v-row v-if="period === 'range'" dense class="mb-2">
               <v-col cols="6" sm="4">
                 <DateField v-model="range.from" label="Desde" density="compact" hide-details />
@@ -91,8 +116,8 @@
               {{ periodError }}
             </v-alert>
             <div v-if="salesPeriod && !periodError" class="text-body-2 text-medium-emphasis mb-2">
-              {{ periodCaption }}: <strong class="text-high-emphasis">{{ money(salesPeriod.meta.total) }}</strong>
-              en {{ salesPeriod.meta.orders_count }} {{ salesPeriod.meta.orders_count === 1 ? 'pedido' : 'pedidos' }}
+              {{ periodCaption }}: <strong class="text-high-emphasis">{{ money(periodTotal) }}</strong>
+              en {{ periodSalesCount }}
               <span v-if="salesPeriod.meta.bucket !== 'day'">
                 · un punto por {{ salesPeriod.meta.bucket === 'week' ? 'semana' : 'mes' }}
               </span>
@@ -115,7 +140,7 @@
         <v-card class="h-100">
           <v-card-title class="d-flex align-center">
             <v-icon class="mr-2">mdi-trophy</v-icon>
-            Más vendidos
+            {{ topConcepts ? 'Más facturados' : 'Más vendidos' }}
           </v-card-title>
           <v-card-subtitle v-if="topPeriod">{{ periodCaption }}</v-card-subtitle>
           <v-card-text>
@@ -132,7 +157,10 @@
                   </v-avatar>
                 </template>
                 <v-list-item-title class="font-weight-medium text-wrap">{{ product.name }}</v-list-item-title>
-                <v-list-item-subtitle>
+                <v-list-item-subtitle v-if="product.origin === 'recurring'">
+                  {{ plural(product.documents_count ?? 0, 'documento', 'documentos') }}
+                </v-list-item-subtitle>
+                <v-list-item-subtitle v-else>
                   {{ product.sold }} {{ product.sold === 1 ? 'vendido' : 'vendidos' }} · {{ product.orders_count }} {{ product.orders_count === 1 ? 'pedido' : 'pedidos' }}
                 </v-list-item-subtitle>
                 <v-progress-linear
@@ -145,7 +173,7 @@
                 <template v-slot:append>
                   <div class="text-right ml-2">
                     <div class="font-weight-bold tabular-nums">{{ money(product.total) }}</div>
-                    <div class="text-caption text-medium-emphasis">{{ percent(product.share) }} de las ventas</div>
+                    <div class="text-caption text-medium-emphasis">{{ percent(product.share) }} {{ shareOf }}</div>
                   </div>
                 </template>
               </v-list-item>
@@ -161,9 +189,9 @@
       </v-col>
     </v-row>
 
-    <v-row class="mt-4">
+    <v-row v-if="showStock || showGuide" class="mt-4">
       <!-- Productos con stock bajo -->
-      <v-col cols="12" :md="showGuide ? 6 : 12">
+      <v-col v-if="showStock" cols="12" :md="showGuide ? 6 : 12">
         <v-card class="h-100">
           <v-card-title>
             <v-icon class="mr-2" color="warning">mdi-alert-circle</v-icon>
@@ -203,7 +231,7 @@
       </v-col>
 
       <!-- Primeros pasos sits beside stock, under the metrics, so the KPIs stay first. -->
-      <v-col v-if="showGuide" cols="12" md="6">
+      <v-col v-if="showGuide" cols="12" :md="showStock ? 6 : 12">
         <v-card class="h-100 d-flex flex-column" data-testid="setup-guide">
           <template v-if="setup">
             <v-card-title class="d-flex align-center flex-wrap ga-2">
@@ -276,7 +304,7 @@
 </template>
 
 <script setup lang="ts">
-import { money } from '@/utils/money'
+import { money, percent } from '@/utils/money'
 import { formatDay } from '@/utils/dates'
 import { ref, reactive, onMounted, computed, watch, nextTick, type ComponentPublicInstance } from 'vue'
 import DateField from '../components/DateField.vue'
@@ -286,14 +314,16 @@ import {
   type DateRange,
   type LowStockProduct,
   type SalesPeriod,
+  type SalesSelection,
   type TopProductsPeriod,
   type SetupChecklist,
   type SetupStep,
 } from '@/services/dashboardService'
 import { useAuthStore } from '@/stores/auth'
+import type { Feature } from '@/types/auth'
 import { errorMessage } from '@/utils/errors'
 import { fonts } from '@/theme'
-import { useTheme } from 'vuetify'
+import { useDisplay, useTheme } from 'vuetify'
 import { Line } from 'vue-chartjs'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from 'chart.js'
 
@@ -302,15 +332,51 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, T
 ChartJS.defaults.font.family = fonts.body
 
 const theme = useTheme()
+const authStore = useAuthStore()
+// On a phone the three origins fit one row only as small buttons.
+const { xs } = useDisplay()
+
+// What the dashboard shows follows the company's modules, never its business type.
+const hasModule = (module: Feature): boolean => (authStore.user?.company?.modules ?? []).includes(module)
+// A company that bills monthly fees reads sales and cartera here, even if it
+// also takes orders in a little shop: no open orders, tables or kitchen.
+const recurringBilling = computed(() => hasModule('recurring_billing'))
+const takesOrders = computed(() => hasModule('orders'))
+const showStock = computed(() => !recurringBilling.value || hasModule('inventory'))
+
+// Only a company that sells both ways chooses what to see; it starts on everything.
+const showOriginChoice = computed(() => recurringBilling.value && takesOrders.value)
+const salesOrigin = ref<SalesSelection>('all')
+const salesOriginOptions: { value: SalesSelection; title: string }[] = [
+  { value: 'all', title: 'Todo' },
+  { value: 'order', title: 'Productos' },
+  { value: 'recurring', title: 'Facturación automática' },
+]
+// Everyone else asks as before: products, or concepts for a company without orders.
+const originParam = computed(() => (showOriginChoice.value ? salesOrigin.value : undefined))
+
+// Without orders there are no products to rank: the card ranks billed concepts.
+const topConcepts = computed(() =>
+  showOriginChoice.value ? salesOrigin.value === 'recurring' : recurringBilling.value && !takesOrders.value,
+)
+const shareOf = computed(() => {
+  if (topConcepts.value) return 'de lo facturado'
+  return showOriginChoice.value && salesOrigin.value === 'order' ? 'de los pedidos' : 'de las ventas'
+})
+
+const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`
 
 const dashStats = ref<DashboardStats>({
   orders_today: 0,
   sales_today: 0,
   orders_month: 0,
   sales_month: 0,
+  recurring_today: 0,
+  recurring_month: 0,
   active_products: 0,
   low_stock: 0,
   overdue_pending: { count: 0, balance: 0 },
+  receivables: null,
 })
 
 const lowStockProducts = ref<LowStockProduct[]>([])
@@ -367,8 +433,24 @@ const periodCaption = computed(() => {
   return meta ? `Del ${formatDay(meta.from)} al ${formatDay(meta.to)}` : 'Rango'
 })
 
-const percent = (value: number): string =>
-  `${Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 1 })} %`
+// The total of what is shown: both origins, or the chosen one.
+const periodTotal = computed(() => {
+  const meta = salesPeriod.value?.meta
+  if (!meta) return 0
+  if (!showOriginChoice.value || salesOrigin.value === 'all') return meta.total
+  return salesOrigin.value === 'order' ? meta.orders_total : meta.recurring_total
+})
+
+// "en 3 pedidos"; with automatic billing the documents are counted too.
+const periodSalesCount = computed(() => {
+  const meta = salesPeriod.value?.meta
+  if (!meta) return ''
+  const orders = plural(meta.orders_count, 'pedido', 'pedidos')
+  if (!recurringBilling.value) return orders
+  const documents = plural(meta.recurring_count ?? 0, 'documento', 'documentos')
+  if (!takesOrders.value || salesOrigin.value === 'recurring') return documents
+  return salesOrigin.value === 'order' ? orders : `${orders} y ${documents}`
+})
 
 // Cambiar rápido de periodo no debe dejar pintada una respuesta vieja.
 let periodRequest = 0
@@ -383,7 +465,7 @@ const loadPeriod = async () => {
   try {
     const [sales, top] = await Promise.all([
       dashboardService.getSalesWeek(requested),
-      dashboardService.getTopProducts(requested),
+      dashboardService.getTopProducts(requested, originParam.value),
     ])
     if (current !== periodRequest) return
     salesPeriod.value = sales
@@ -398,6 +480,8 @@ const loadPeriod = async () => {
   }
 }
 
+watch(salesOrigin, loadPeriod)
+
 watch([period, () => range.from, () => range.to], () => {
   // Al pasar a "Rango" se parte del periodo que ya se estaba viendo.
   if (period.value === 'range' && !range.from && !range.to && salesPeriod.value) {
@@ -408,7 +492,58 @@ watch([period, () => range.from, () => range.to], () => {
   loadPeriod()
 })
 
-const stats = computed(() => [
+const stockStat = computed(() => ({
+  title: 'Stock bajo',
+  value: dashStats.value.low_stock.toString(),
+  subtitle: dashStats.value.low_stock > 0 ? 'Requiere atención' : 'Todo bien',
+  trend: {
+    icon: dashStats.value.low_stock > 0 ? 'mdi-alert' : 'mdi-check-circle',
+    text: 'Inventario',
+    color: dashStats.value.low_stock > 0 ? 'warning' : 'success'
+  }
+}))
+
+// Sales (orders + documents) and the cartera; stock only with inventory.
+const recurringStats = computed(() => {
+  const receivables = dashStats.value.receivables
+  return [
+    {
+      title: 'Ventas hoy',
+      value: money(dashStats.value.sales_today),
+      subtitle: `${money(dashStats.value.sales_month)} este mes`,
+      trend: {
+        icon: 'mdi-cash',
+        text: takesOrders.value ? 'Pedidos y facturación' : 'Facturación automática',
+        color: 'success',
+      },
+    },
+    ...(receivables
+      ? [
+          {
+            title: 'Saldo por cobrar',
+            value: money(receivables.balance),
+            subtitle: receivables.customers === 0
+              ? 'Nadie tiene saldo pendiente'
+              : `${plural(receivables.customers, 'cliente', 'clientes')} con saldo`,
+            trend: { icon: 'mdi-account-cash', text: 'Cartera', color: 'info' },
+          },
+          {
+            title: 'Vencido',
+            value: money(receivables.overdue_balance),
+            subtitle: receivables.overdue_documents === 0
+              ? 'Ningún documento vencido'
+              : plural(receivables.overdue_documents, 'documento vencido', 'documentos vencidos'),
+            trend: receivables.overdue_balance > 0
+              ? { icon: 'mdi-alert', text: 'Requiere cobro', color: 'warning' }
+              : { icon: 'mdi-check-circle', text: 'Al día', color: 'success' },
+          },
+        ]
+      : []),
+    ...(hasModule('inventory') ? [stockStat.value] : []),
+  ]
+})
+
+const stats = computed(() => recurringBilling.value ? recurringStats.value : [
   {
     title: 'Pedidos hoy',
     value: dashStats.value.orders_today.toString(),
@@ -427,40 +562,42 @@ const stats = computed(() => [
     subtitle: 'En el menú',
     trend: { icon: 'mdi-silverware-fork-knife', text: 'Disponibles', color: 'info' }
   },
-  {
-    title: 'Stock bajo',
-    value: dashStats.value.low_stock.toString(),
-    subtitle: dashStats.value.low_stock > 0 ? 'Requiere atención' : 'Todo bien',
-    trend: {
-      icon: dashStats.value.low_stock > 0 ? 'mdi-alert' : 'mdi-check-circle',
-      text: 'Inventario',
-      color: dashStats.value.low_stock > 0 ? 'warning' : 'success'
-    }
-  }
+  stockStat.value,
 ])
 
-const chartData = computed(() => {
-  const primary = theme.current.value.colors.primary
-  return {
-    labels: salesPoints.value.map(d => d.day),
-    datasets: [
-      {
-        label: 'Ventas ($)',
-        data: salesPoints.value.map(d => d.total),
-        // Canvas cannot read CSS variables: the theme color plus a hex alpha.
-        backgroundColor: `${primary}24`,
-        borderColor: primary,
-        borderWidth: 2,
-        fill: true,
-        tension: 0.4,
-      },
-    ],
-  }
+// "Todo" stacks the two origins, so the top edge is the total and the lines never
+// cover each other; each origin keeps its color when shown alone.
+const chartSeries = computed(() => {
+  const colors = theme.current.value.colors
+  const points = salesPoints.value
+  if (!showOriginChoice.value) return [{ name: 'Ventas', values: points.map(d => d.total), color: colors.primary }]
+  const products = { name: 'Productos', values: points.map(d => d.orders_total ?? 0), color: colors.secondary }
+  const billing = { name: 'Facturación automática', values: points.map(d => d.recurring_total ?? 0), color: colors.primary }
+  if (salesOrigin.value === 'order') return [products]
+  if (salesOrigin.value === 'recurring') return [billing]
+  return [products, billing]
 })
+const stacked = computed(() => chartSeries.value.length > 1)
+
+const chartData = computed(() => ({
+  labels: salesPoints.value.map(d => d.day),
+  datasets: chartSeries.value.map((series, index) => ({
+    label: `${series.name} ($)`,
+    data: series.values,
+    // Canvas cannot read CSS variables: the theme color plus a hex alpha.
+    backgroundColor: `${series.color}24`,
+    borderColor: series.color,
+    borderWidth: 2,
+    fill: index === 0 ? 'origin' : '-1',
+    tension: 0.4,
+  })),
+}))
 
 const chartOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
+  // Stacked, one tooltip names both parts of the point and their total.
+  ...(stacked.value ? { interaction: { mode: 'index' as const, intersect: false } } : {}),
   plugins: {
     legend: {
       display: true,
@@ -476,7 +613,11 @@ const chartOptions = computed(() => ({
         },
         label: function(context: any) {
           // Pesos colombianos: sin decimales y con separador de miles.
-          return `Ventas: ${money(context.parsed.y)}`
+          return `${chartSeries.value[context.datasetIndex]?.name ?? 'Ventas'}: ${money(context.parsed.y)}`
+        },
+        footer: function(items: any[]) {
+          const point = salesPoints.value[items[0]?.dataIndex ?? -1]
+          return stacked.value && point ? `Total: ${money(point.total)}` : ''
         }
       }
     }
@@ -484,9 +625,10 @@ const chartOptions = computed(() => ({
   scales: {
     y: {
       beginAtZero: true,
+      stacked: stacked.value,
       // Sin ventas el eje iba de $0 a $1 en décimas y el formato en pesos
       // las redondeaba: "$1" repetido. Pesos enteros y una escala mínima.
-      suggestedMax: salesPoints.value.some(d => d.total > 0) ? undefined : 100000,
+      suggestedMax: chartSeries.value.some(series => series.values.some(value => value > 0)) ? undefined : 100000,
       ticks: {
         precision: 0,
         callback: function(value: any) {
@@ -497,7 +639,6 @@ const chartOptions = computed(() => ({
   }
 }))
 
-const authStore = useAuthStore()
 const setup = ref<SetupChecklist | null>(null)
 const loadError = ref('')
 const showCompleted = ref(false)

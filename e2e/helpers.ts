@@ -50,6 +50,74 @@ export async function raisePlanLimits(
   expect(response.ok()).toBeTruthy()
 }
 
+export interface CompanySession {
+  credentials: { email: string; password: string }
+  token: string
+}
+
+/** A condominium that also runs a little shop: it takes orders and bills monthly fees. */
+export const SHOP_WITH_FEES = ['orders', 'menu', 'inventory', 'customers', 'recurring_billing', 'expenses', 'reports']
+
+/**
+ * A company of its own, created through the platform as support would, with
+ * its admin's API token. `modules` overrides the preset of the business type.
+ */
+export async function createCompany(
+  request: APIRequestContext,
+  slug: string,
+  data: { business_type?: string; modules?: string[] } = {},
+): Promise<CompanySession> {
+  const superToken = await apiLogin(request, PLATFORM.email, PLATFORM.password)
+  const credentials = { email: `admin.${slug}.${Date.now()}@e2e.test`, password: 'conjunto2026' }
+
+  const response = await request.post(`${API}/platform/companies`, {
+    headers: { Authorization: `Bearer ${superToken}` },
+    data: { name: `E2E ${slug} ${Date.now()}`, admin: { name: 'Administradora E2E', ...credentials }, ...data },
+  })
+  expect(response.status()).toBe(201)
+
+  return { credentials, token: await apiLogin(request, credentials.email, credentials.password) }
+}
+
+export interface IssuedDocument {
+  id: number
+  document_number: string
+  customer_name: string
+  issued_at: string
+  total: number
+}
+
+/**
+ * Monthly documents issued through the API, one new payer per entry, in that
+ * order (CC-1, CC-2…). Without `issue_date` they are issued today.
+ */
+export async function issueDocuments(
+  request: APIRequestContext,
+  token: string,
+  payers: { name: string; document_number: string; monthly_fee: number; billing_concept?: string }[],
+  { issue_date }: { issue_date?: string } = {},
+): Promise<IssuedDocument[]> {
+  const headers = { Authorization: `Bearer ${token}` }
+  const items = []
+  for (const payer of payers) {
+    const customer = await request.post(`${API}/customers`, {
+      headers,
+      data: { document_type: 'CC', city: 'Bogotá', recurring_active: true, billing_day: 10, ...payer },
+    })
+    expect(customer.status(), await customer.text()).toBe(201)
+    items.push({ customer_id: (await customer.json()).data.id })
+  }
+
+  const day = issue_date ?? new Date().toLocaleDateString('en-CA')
+  const response = await request.post(`${API}/recurring-billing/invoices/generate`, {
+    headers,
+    data: { period: day.slice(0, 7), items, ...(issue_date ? { issue_date } : {}) },
+  })
+  expect(response.status(), await response.text()).toBe(201)
+
+  return (await response.json()).data.created
+}
+
 /**
  * The user accepts the privacy policy in force through the API, as the
  * consent dialog would. Idempotent: accepting again keeps the first proof.

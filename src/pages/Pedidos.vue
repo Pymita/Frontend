@@ -146,11 +146,12 @@
             show-expand
           >
             <template #item.dining_table="{ item }">
-              <div class="d-flex align-center">
+              <div class="d-flex align-center text-no-wrap">
                 <v-avatar color="primary" size="32" class="mr-2">
                   <span class="text-caption">{{ item.dining_table?.number || '?' }}</span>
                 </v-avatar>
                 <span>{{ item.dining_table?.display_name || 'Sin mesa' }}</span>
+                <span v-if="item.number" class="text-caption text-medium-emphasis ml-2">#{{ item.number }}</span>
               </div>
             </template>
             
@@ -201,7 +202,7 @@
               <div class="d-flex align-center justify-end ga-1 text-no-wrap">
                 <!-- Cobrar es la acción principal de la página: a la vista, no en el menú. -->
                 <LockableButton
-                  v-if="isOpen(item)"
+                  v-if="isOpen(item) && canCharge"
                   icon="mdi-cash-check"
                   color="primary"
                   size="small"
@@ -234,7 +235,7 @@
                       </template>
                       <v-list-item-title>Generar factura</v-list-item-title>
                     </v-list-item>
-                    <v-list-item v-if="item.payment_status === 'paid'" @click="openTipDialog(item)">
+                    <v-list-item v-if="item.payment_status === 'paid' && canCharge" @click="openTipDialog(item)">
                       <template #prepend>
                         <v-icon>mdi-hand-coin</v-icon>
                       </template>
@@ -258,7 +259,7 @@
                       </template>
                       <v-list-item-title>Aplicar descuento</v-list-item-title>
                     </v-list-item>
-                    <v-list-item v-if="isOpen(item)" @click="openPagoDialog(item)">
+                    <v-list-item v-if="isOpen(item) && canCharge" @click="openPagoDialog(item)">
                       <template #prepend>
                         <v-icon>mdi-cash-plus</v-icon>
                       </template>
@@ -442,7 +443,7 @@
         <v-card-title>Agregar propina</v-card-title>
         <v-card-text>
           <p class="text-body-2 text-medium-emphasis mb-3">
-            El pedido #{{ tippingOrder?.id }} ya está pagado. La propina es
+            El pedido {{ tippingOrder && orderReference(tippingOrder) }} ya está pagado. La propina es
             voluntaria (Ley 1935 de 2018) y se registra aparte de la venta.
           </p>
           <MoneyField v-model="tipAmount" label="Propina" autofocus empty-as-zero />
@@ -504,8 +505,8 @@
     <v-dialog v-model="payDialog" max-width="760" persistent scrollable>
       <v-card v-if="selectedOrder">
         <v-card-title class="d-flex align-center">
-          Cobrar pedido #{{ selectedOrder.id }}
-          <span v-if="selectedOrder.dining_table" class="text-body-2 text-medium-emphasis ml-2">
+          Cobrar pedido {{ orderReference(selectedOrder) }}
+          <span v-if="selectedOrder.number && selectedOrder.dining_table" class="text-body-2 text-medium-emphasis ml-2">
             {{ selectedOrder.dining_table.display_name }}
           </span>
           <v-spacer />
@@ -894,7 +895,7 @@
       <v-card>
         <v-card-title class="bg-primary">
           <v-icon start>mdi-plus-box</v-icon>
-          Agregar productos al pedido #{{ selectedOrder?.id }}
+          Agregar productos al pedido {{ selectedOrder && orderReference(selectedOrder) }}
         </v-card-title>
         <v-card-text class="pt-4">
           <ProductPicker
@@ -962,6 +963,8 @@ import {
   paymentStatusLabels,
   paymentStatusColors,
   orderPaymentMethodLabels,
+  orderLabel,
+  orderReference,
   label,
   options,
 } from '@/utils/labels';
@@ -1130,6 +1133,10 @@ const isAdmin = computed(() => authStore.isAdmin);
 const canManageOrders = computed(() =>
   effectiveFeatures(authStore.user).includes('orders'),
 );
+
+// Charging (the whole bill, by person, a partial payment, a tip) takes
+// "Cobrar pedidos". A session stored before the field leaves it to the API.
+const canCharge = computed(() => authStore.user?.can_charge_orders ?? true);
 
 const nowTick = ref(Date.now());
 const tickInterval = setInterval(() => { nowTick.value = Date.now(); }, 15_000);
@@ -1491,7 +1498,7 @@ const cobrarPersona = async (guest: OrderGuest, withTip = false) => {
       payDialog.value = false;
     } else {
       showMessage(`${guest.label} pagó ${money(guest.pending_amount + tip)}`, 'success', [
-        ticketAction(() => printGuestReceipt(order, guest)),
+        ticketAction(() => printGuestReceipt(updated, guest)),
         ...invoiceActions(order, updated),
       ]);
     }
@@ -1536,7 +1543,7 @@ interface TicketOptions {
  * resolución, o cuenta previa) sale como comprobante o cuenta, sin
  * mencionar la resolución: un documento sin consecutivo no es factura.
  */
-const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {}): string => {
+const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
   const line = '-'.repeat(TICKET_WIDTH);
   const isInvoice = !opts.preBill && !!r.invoice_number;
 
@@ -1553,7 +1560,6 @@ const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {})
   const header = opts.preBill
     ? [
         center(opts.paidNow ? 'COMPROBANTE DE PAGO' : 'CUENTA DE COBRO'),
-        center(`Pedido #${orderId}`),
         r.guest ? center(r.guest.label.toUpperCase()) : '',
         center('(No es factura de venta)'),
       ]
@@ -1572,7 +1578,6 @@ const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {})
         ]
       : [
           center('COMPROBANTE DE VENTA'),
-          center(`Pedido #${orderId}`),
         ];
 
   const totals = opts.preBill
@@ -1617,6 +1622,8 @@ const buildTicket = (r: OrderReceipt, orderId: number, opts: TicketOptions = {})
     line,
     `CLIENTE : ${r.customer.name || 'Consumidor final'}`,
     r.customer.document ? `CC/NIT  : ${r.customer.document}` : '',
+    // Before its first charge an order has no number: the table, customer and date name it.
+    r.number ? `PEDIDO  : #${r.number}` : '',
     `FECHA   : ${formatFullDateTime((!opts.preBill && r.paid_at) || r.created_at)}`,
     r.dining_table ? `MESA    : ${r.dining_table}` : '',
     r.waiter ? `ATENDIÓ: ${r.waiter}` : '',
@@ -1667,7 +1674,7 @@ const printReceipt = async (order: Order) => {
   if (!win) return;
   try {
     const r = await ordersService.receipt(order.id);
-    fillPrintWindow(win, r.invoice_number || `Pedido #${order.id}`, buildTicket(r, order.id));
+    fillPrintWindow(win, r.invoice_number || orderLabel({ ...order, number: r.number }), buildTicket(r));
   } catch (error) {
     win.close();
     showMessage(errorMessage(error, 'No fue posible generar la factura. Inténtalo de nuevo.'), 'error');
@@ -1680,7 +1687,7 @@ const printGuestReceipt = async (order: Order, guest: OrderGuest) => {
   if (!win) return;
   try {
     const r = await ordersService.receipt(order.id, guest.number);
-    fillPrintWindow(win, `${guest.label} - pedido #${order.id}`, buildTicket(r, order.id, { preBill: true, paidNow: true }));
+    fillPrintWindow(win, `${guest.label} - ${orderLabel(order)}`, buildTicket(r, { preBill: true, paidNow: true }));
   } catch (error) {
     win.close();
     showMessage(errorMessage(error, 'No fue posible generar el comprobante. Inténtalo de nuevo.'), 'error');
@@ -1736,7 +1743,7 @@ const printGuestBill = async (order: Order, guest: number | null) => {
     const tip = tipEnabled.value
       ? Math.round((tipBase * Math.max(0, Number(tipPercent.value) || 0)) / 100)
       : 0;
-    fillPrintWindow(win, `${r.guest?.label ?? 'Compartido'} - pedido #${order.id}`, buildTicket(r, order.id, {
+    fillPrintWindow(win, `${r.guest?.label ?? 'Compartido'} - ${orderLabel(order)}`, buildTicket(r, {
       preBill: true,
       suggestedTip: tip,
       tipPercent: tipEnabled.value ? tipPercent.value : undefined,
@@ -1767,7 +1774,7 @@ const printPreBill = async (order: Order) => {
     // el consumo ya pagado (amount_paid menos la propina que ya entró), no el
     // dinero con propina, para que "POR PAGAR" cuadre con "Total sin propina".
     const consumptionPaid = Math.max(0, Number(order.amount_paid || 0) - Number(order.tip_paid || 0));
-    fillPrintWindow(win, `Cuenta pedido #${order.id}`, buildTicket(r, order.id, {
+    fillPrintWindow(win, `Cuenta - ${orderLabel(order)}`, buildTicket(r, {
       preBill: true,
       suggestedTip: tip,
       tipPercent: tipEnabled.value ? tipPercent.value : undefined,
@@ -1951,7 +1958,8 @@ const crearPedido = async () => {
     const activo = error.response?.data?.active_order;
 
     if (activo) {
-      showMessage(`La mesa ya tiene el pedido #${activo.id} abierto: agrégale los productos desde ahí.`, 'error');
+      const which = activo.number ? `abierto el pedido #${activo.number}` : 'un pedido abierto';
+      showMessage(`La mesa ya tiene ${which}: agrégale los productos desde ahí.`, 'error');
     } else {
       showMessage(errorMessage(error, 'No fue posible crear el pedido. Inténtalo de nuevo.'), 'error');
     }
@@ -2028,13 +2036,12 @@ const playNewOrderChime = () => {
   }
 };
 
-useLiveRefresh(({ latestId, previousLatestId }) => {
+useLiveRefresh(({ newOrders }) => {
   // Recarga sin spinner: la tabla no parpadea mientras se está cobrando.
   loadOrders(true);
   // Desde el plano solo importa la mesa abierta: sin avisos de otros pedidos.
-  if (!props.embedded && previousLatestId !== null && latestId > previousLatestId) {
-    const count = latestId - previousLatestId;
-    showMessage(count === 1 ? `Nuevo pedido #${latestId}` : `${count} pedidos nuevos`, 'info');
+  if (!props.embedded && newOrders > 0) {
+    showMessage(newOrders === 1 ? 'Llegó un pedido nuevo' : `Llegaron ${newOrders} pedidos nuevos`, 'info');
     playNewOrderChime();
   }
 });

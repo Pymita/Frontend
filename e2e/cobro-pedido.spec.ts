@@ -178,6 +178,66 @@ async function seedSimpleProduct(request: any, auth: any, name: string, price: n
   return (await product.json()).data.id
 }
 
+/**
+ * The order number is the company's and is taken when the order is charged:
+ * one cancelled before anyone paid burns none, so the next charge follows the
+ * consecutive, and the ticket, Pedidos and Ventas read that same number.
+ */
+test('un pedido cancelado sin cobrar no gasta número y el siguiente cobro sigue el consecutivo', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const productId = await seedSimpleProduct(request, auth, `Arepa Número ${Date.now()}`, 16253)
+  const newOrder = async (quantity: number) => (await (await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { items: [{ product_id: productId, quantity }] },
+  })).json()).data
+
+  // The last number the company gave.
+  const before = await newOrder(1)
+  const last = (await (await request.post(`${API}/orders/${before.id}/pay`, { headers: auth, data: {} })).json()).data.number
+  expect(last).toBeGreaterThan(0)
+  const toCancel = await newOrder(2)
+  const toCharge = await newOrder(3)
+  expect(toCancel.number).toBeNull()
+  expect(toCharge.number).toBeNull()
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+
+  page.once('dialog', confirmation => confirmation.accept())
+  await page.locator('tbody tr', { hasText: '$32.506' }).getByRole('button', { name: 'Más acciones del pedido' }).click()
+  await page.getByRole('listitem').filter({ hasText: 'Cancelar pedido' }).click()
+  await expect(page.getByText('Pedido cancelado')).toBeVisible()
+
+  // Uncharged it has no number: the dialog names it by the time it came in.
+  const row = page.locator('tbody tr', { hasText: '$48.759' })
+  await expect(row).not.toContainText('#')
+  await row.getByRole('button', { name: 'Cobrar' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('Cobrar pedido de las')
+  await dialog.getByRole('button', { name: 'Confirmar cobro' }).click()
+  await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
+  const [ticket] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('button', { name: 'Imprimir tirilla' }).click(),
+  ])
+  const next = last + 1
+  await expect(ticket.locator('body')).toContainText(`PEDIDO  : #${next}`)
+  await ticket.close()
+
+  await page.getByRole('button', { name: 'Pagados' }).click()
+  await expect(page.locator('tbody tr', { hasText: '$48.759' })).toContainText(`#${next}`)
+
+  const paid = (await (await request.get(`${API}/orders/${toCharge.id}`, { headers: auth })).json()).data
+  expect(paid.number).toBe(next)
+  expect((await (await request.get(`${API}/orders/${toCancel.id}`, { headers: auth })).json()).data.number).toBeNull()
+
+  await page.goto('/ventas')
+  await page.getByRole('textbox', { name: 'Buscar factura o cliente' }).fill(`#${next}`)
+  await expect(page.locator('tbody tr')).toHaveCount(1)
+  await expect(page.locator('tbody tr', { hasText: '$48.759' })).toContainText(paid.invoice_number || `Pedido #${next}`)
+})
+
 test('un abono por monto es un anticipo, no una factura', async ({ page, request }) => {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
   const auth = { Authorization: `Bearer ${token}` }
@@ -259,13 +319,14 @@ test('cobrar por productos emite una factura de venta parcial', async ({ page, r
   await dialog.getByRole('button', { name: /Cobrar/ }).click()
   await expect(page.getByText('Factura parcial registrada')).toBeVisible()
 
-  // Es una venta con su secuencia #pedido-1 y descontó su parte.
+  // Es una venta con su secuencia #pedido-1 (el número que el pedido tomó al cobrarse) y descontó su parte.
   const afterSale = (await (await request.get(`${API}/orders/${orderId}`, { headers: auth })).json()).data
   expect(afterSale.payment_status).toBe('partial')
+  expect(afterSale.number).toBeGreaterThan(0)
   const sale = afterSale.payments.find((p: any) => p.kind === 'sale')
   expect(sale).toBeTruthy()
   expect(sale.invoice_sequence).toBe(1)
-  expect(sale.reference).toBe(`#${orderId}-1`)
+  expect(sale.reference).toBe(`#${afterSale.number}-1`)
 })
 
 /** Adjusting a charge is the admin's: a corrected price and a fixed discount are typed as pesos. */
@@ -765,7 +826,7 @@ test('sin resolución, la venta de una persona sale en hoja como comprobante con
   await page.goto('/ventas')
   const [fromVentas] = await Promise.all([
     page.waitForEvent('popup'),
-    page.getByRole('button', { name: `Imprimir el comprobante del pedido #${orderId}` }).click(),
+    page.getByRole('button', { name: `Imprimir el comprobante ${sale.reference}` }).click(),
   ])
   await expectComprobante(fromVentas)
 })

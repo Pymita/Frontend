@@ -268,26 +268,34 @@
                 >
                   <template #label>Nombre del administrador <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
                 </v-text-field>
+                <v-text-field
+                  v-model="createData.admin.email"
+                  type="email"
+                  class="mt-1"
+                  :rules="[(v: string) => !!v || 'El correo es obligatorio']"
+                >
+                  <template #label>Correo de acceso <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                </v-text-field>
                 <v-row dense class="mt-1">
-                  <v-col cols="6">
-                    <v-text-field
-                      v-model="createData.admin.email"
-                      type="email"
-                      :rules="[(v: string) => !!v || 'El correo es obligatorio']"
-                    >
-                      <template #label>Correo de acceso <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
-                    </v-text-field>
-                  </v-col>
-                  <v-col cols="6">
-                    <v-text-field
+                  <v-col cols="12" sm="6">
+                    <PasswordField
                       v-model="createData.admin.password"
-                      type="password"
                       :rules="passwordRules"
                       :hint="PASSWORD_HINT"
                       persistent-hint
+                      autocomplete="new-password"
                     >
                       <template #label>Contraseña inicial <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
-                    </v-text-field>
+                    </PasswordField>
+                  </v-col>
+                  <v-col cols="12" sm="6">
+                    <PasswordField
+                      v-model="adminPasswordConfirmation"
+                      :rules="confirmPasswordRules(() => createData.admin.password)"
+                      autocomplete="new-password"
+                    >
+                      <template #label>Confirmar contraseña <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                    </PasswordField>
                   </v-col>
                 </v-row>
 
@@ -721,8 +729,9 @@ import { useRoute } from 'vue-router'
 import platformService from '../services/platformService'
 import type { PlatformCompany, PlatformCompanyDetail, PlatformSeller, SellerStats } from '../types/platform'
 import { ALL_FEATURES, type BusinessType, type Feature, type SubscriptionStatus } from '../types/auth'
-import { PASSWORD_HINT, passwordRules } from '../utils/validation'
+import { PASSWORD_HINT, confirmPasswordRules, passwordRules } from '../utils/validation'
 import CopyCatalogDialog from '../components/CopyCatalogDialog.vue'
+import PasswordField from '../components/PasswordField.vue'
 import TwoFactorSetup from '../components/TwoFactorSetup.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'
@@ -875,9 +884,12 @@ const presetModules = (type: BusinessType): Feature[] => BUSINESS_TYPE_PRESETS[t
 const businessTypeLabel = (type: BusinessType): string =>
   businessTypeOptions.find(o => o.value === type)?.title ?? type
 const createData = ref(emptyCreateData())
+// Apart from createData, which goes to the API as it is.
+const adminPasswordConfirmation = ref('')
 
 const openCreateDialog = () => {
   createData.value = emptyCreateData()
+  adminPasswordConfirmation.value = ''
   createDialog.value = true
 }
 

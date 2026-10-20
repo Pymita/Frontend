@@ -1,18 +1,39 @@
 import api from './api';
+import type { SaleOrigin } from './salesService';
+
+/** The cartera as Facturación automática › Cartera adds it up. */
+export interface Receivables {
+  balance: number;
+  overdue_balance: number;
+  /** Customers who still owe something. */
+  customers: number;
+  overdue_documents: number;
+}
 
 export interface DashboardStats {
   orders_today: number;
+  /** Orders charged plus automatic-billing documents issued. */
   sales_today: number;
   orders_month: number;
   sales_month: number;
+  /** The documents' part of sales_today / sales_month. */
+  recurring_today: number;
+  recurring_month: number;
   active_products: number;
   low_stock: number;
   /** Pendientes de cobro creados antes de hoy. */
   overdue_pending: { count: number; balance: number };
+  /** Only for whoever may open automatic billing. */
+  receivables: Receivables | null;
 }
 
+/** What a company that sells both ways chooses to see: everything, or one origin. */
+export type SalesSelection = 'all' | SaleOrigin;
+
+/** A product of the orders, or a billed concept (without orders, or when chosen). */
 export interface TopProduct {
   name: string;
+  origin: SaleOrigin;
   menu_item_id: number | null;
   product_id: number | null;
   /** Units sold. */
@@ -22,7 +43,9 @@ export interface TopProduct {
   /** Net after the order discount, same figure as Ventas "Por producto". */
   total: number;
   orders_count: number;
-  /** % of all product sales in the period (not only of the top rows). */
+  /** Concepts only. */
+  documents_count?: number;
+  /** % of everything the selection sold in the period, not only of the top rows. */
   share: number;
 }
 
@@ -44,8 +67,13 @@ export interface SalesWeekDay {
   end: string;
   /** Label for the axis ("lun.", "5 abr.", "ene. 2026"). */
   day: string;
+  /** Orders and documents together: orders_total + recurring_total. */
   total: number;
+  orders_total: number;
+  /** POS sales. */
   orders_count: number;
+  recurring_total: number;
+  recurring_count: number;
 }
 
 export type SalesBucket = 'day' | 'week' | 'month';
@@ -58,12 +86,19 @@ export interface DateRange {
 
 export interface SalesPeriod {
   points: SalesWeekDay[];
-  meta: DateRange & { bucket: SalesBucket; total: number; orders_count: number };
+  meta: DateRange & {
+    bucket: SalesBucket;
+    total: number;
+    orders_total: number;
+    orders_count: number;
+    recurring_total: number;
+    recurring_count: number;
+  };
 }
 
 export interface TopProductsPeriod {
   products: TopProduct[];
-  meta: DateRange & { total: number };
+  meta: DateRange & { total: number; origin: SalesSelection };
 }
 
 interface ApiResponse<T, M = undefined> {
@@ -100,9 +135,14 @@ export const dashboardService = {
     return response.data.data;
   },
 
-  /** Without a range the API returns today's sales. */
-  async getTopProducts(range?: DateRange): Promise<TopProductsPeriod> {
-    const response = await api.get<ApiResponse<TopProduct[], TopProductsPeriod['meta']>>('/dashboard/top-products', { params: range });
+  /**
+   * Without a range the API returns today's sales; without an origin, the
+   * products (the concepts for a company without orders).
+   */
+  async getTopProducts(range?: DateRange, origin?: SalesSelection): Promise<TopProductsPeriod> {
+    const response = await api.get<ApiResponse<TopProduct[], TopProductsPeriod['meta']>>('/dashboard/top-products', {
+      params: { ...range, ...(origin ? { origin } : {}) },
+    });
     return { products: response.data.data, meta: response.data.meta };
   },
 
