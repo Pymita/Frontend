@@ -202,7 +202,7 @@
               <div class="d-flex align-center justify-end ga-1 text-no-wrap">
                 <!-- Cobrar es la acción principal de la página: a la vista, no en el menú. -->
                 <LockableButton
-                  v-if="isOpen(item)"
+                  v-if="isOpen(item) && canCharge"
                   icon="mdi-cash-check"
                   color="primary"
                   size="small"
@@ -229,7 +229,7 @@
                   </template>
                   <!-- Neutral icons; only the destructive entries are colored. -->
                   <v-list density="compact">
-                    <v-list-item v-if="item.payment_status === 'paid'" @click="openTipDialog(item)">
+                    <v-list-item v-if="item.payment_status === 'paid' && canCharge" @click="openTipDialog(item)">
                       <template #prepend>
                         <v-icon>mdi-hand-coin</v-icon>
                       </template>
@@ -253,7 +253,7 @@
                       </template>
                       <v-list-item-title>Aplicar descuento</v-list-item-title>
                     </v-list-item>
-                    <v-list-item v-if="isOpen(item)" @click="openPagoDialog(item)">
+                    <v-list-item v-if="isOpen(item) && canCharge" @click="openPagoDialog(item)">
                       <template #prepend>
                         <v-icon>mdi-cash-plus</v-icon>
                       </template>
@@ -1119,6 +1119,10 @@ const isAdmin = computed(() => authStore.isAdmin);
 const canManageOrders = computed(() =>
   effectiveFeatures(authStore.user).includes('orders'),
 );
+
+// Charging (the whole bill, by person, a partial payment, a tip) takes
+// "Cobrar pedidos". A session stored before the field leaves it to the API.
+const canCharge = computed(() => authStore.user?.can_charge_orders ?? true);
 
 const nowTick = ref(Date.now());
 const tickInterval = setInterval(() => { nowTick.value = Date.now(); }, 15_000);

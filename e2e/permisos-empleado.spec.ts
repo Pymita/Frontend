@@ -71,7 +71,8 @@ test('empleado con acceso limitado solo ve sus secciones', async ({ page, reques
 
 /**
  * Crear, editar o borrar mesas, y cancelar un pedido que ya tiene productos,
- * es del admin (como revertir un cobro). Quien toma pedidos cobra.
+ * es del admin (como revertir un cobro). Cobrar pide el permiso "Cobrar
+ * pedidos": sin él no se ofrece ningún cobro y el API también lo frena.
  */
 test('un cajero no crea mesas ni cancela pedidos con productos', async ({ page, request }) => {
   const cashier = await createEmployee(request, 'cajero.mesas', ['orders', 'reports'])
@@ -96,12 +97,20 @@ test('un cajero no crea mesas ni cancela pedidos con productos', async ({ page, 
 
   await page.goto('/pedidos')
   const row = page.locator('tbody tr', { hasText: '$7.531' })
+  await expect(row.getByRole('button', { name: 'Cobrar' })).toHaveCount(0)
   await row.getByRole('button', { name: 'Más acciones del pedido' }).click()
   await expect(page.getByRole('listitem').filter({ hasText: 'Imprimir cuenta' })).toBeVisible()
   await expect(page.getByRole('listitem').filter({ hasText: 'Cancelar pedido' })).toHaveCount(0)
+  await expect(page.getByRole('listitem').filter({ hasText: 'Registrar pago parcial' })).toHaveCount(0)
 
   // Aunque se salte la pantalla, el backend dice por qué no.
   const cashierToken = await apiLogin(request, cashier.username, cashier.password, COMPANY_SLUG)
+  const pay = await request.post(`${API}/orders/${orderId}/pay`, {
+    headers: { Authorization: `Bearer ${cashierToken}`, Accept: 'application/json' },
+    data: { payment_method: 'cash' },
+  })
+  expect(pay.status()).toBe(403)
+  expect((await pay.json()).message).toBe('Tu usuario no puede cobrar pedidos. Pídele al administrador el permiso Cobrar pedidos.')
   const cancel = await request.post(`${API}/orders/${orderId}/cancel`, {
     headers: { Authorization: `Bearer ${cashierToken}`, Accept: 'application/json' },
   })
