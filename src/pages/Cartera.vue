@@ -12,6 +12,7 @@
               </p>
             </div>
           </div>
+          <CashRegisterPanel v-if="canUseCashRegister" ref="cashPanel" />
         </div>
       </v-col>
     </v-row>
@@ -130,40 +131,45 @@
           </div>
         </v-expansion-panel-title>
         <v-expansion-panel-text>
+          <!-- Nine columns fit the panel at 1440 px only with half the default cell padding. -->
           <v-table density="compact">
             <thead>
               <tr>
-                <th>Fecha</th>
-                <th>Tipo</th>
-                <th>Documento</th>
-                <th>Concepto</th>
-                <th>Vence</th>
-                <th class="text-end">Valor</th>
-                <th class="text-end">Abonos</th>
-                <th class="text-end">Saldo</th>
-                <th>Estado</th>
-                <th class="text-end">Acciones</th>
+                <th class="px-2">Fecha</th>
+                <th class="px-2">Documento</th>
+                <th class="px-2">Concepto</th>
+                <th class="px-2">Vence</th>
+                <th class="px-2 text-end">Valor</th>
+                <th class="px-2 text-end">Abonos</th>
+                <th class="px-2 text-end">Saldo</th>
+                <th class="px-2">Estado</th>
+                <th class="px-2 text-end">Acciones</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="doc in customer.documents" :key="doc.id">
-                <td class="text-no-wrap">{{ formatDay(doc.issued_at) }}</td>
-                <td class="text-no-wrap">{{ label(documentKindLabels, doc.document_kind) }}</td>
-                <td class="font-weight-medium text-no-wrap">{{ doc.document_number }}</td>
-                <td>{{ doc.concept }} <span v-if="doc.period" class="text-medium-emphasis">({{ periodName(doc.period) }})</span></td>
-                <td class="text-no-wrap">
-                  {{ formatDay(doc.due_date) }}
-                  <v-chip v-if="doc.overdue" size="x-small" color="error" variant="tonal" class="ml-1">Vencida</v-chip>
+                <td class="px-2 text-no-wrap">{{ formatDay(doc.issued_at) }}</td>
+                <td class="px-2 py-1">
+                  <div class="font-weight-medium text-no-wrap">{{ doc.document_number }}</div>
+                  <div class="text-caption text-medium-emphasis text-no-wrap">{{ label(documentKindLabels, doc.document_kind) }}</div>
                 </td>
-                <td class="text-end tabular-nums">{{ money(doc.total) }}</td>
-                <td class="text-end tabular-nums">{{ money(doc.paid) }}</td>
-                <td class="text-end tabular-nums font-weight-bold">{{ money(doc.balance) }}</td>
-                <td>
+                <td class="px-2 py-1">
+                  <div>{{ doc.concept }}</div>
+                  <div v-if="doc.period" class="text-caption text-medium-emphasis">{{ periodName(doc.period) }}</div>
+                </td>
+                <td class="px-2 py-1">
+                  <div class="text-no-wrap">{{ formatDay(doc.due_date) }}</div>
+                  <v-chip v-if="doc.overdue" size="x-small" color="error" variant="tonal">Vencida</v-chip>
+                </td>
+                <td class="px-2 text-end tabular-nums">{{ money(doc.total) }}</td>
+                <td class="px-2 text-end tabular-nums">{{ money(doc.paid) }}</td>
+                <td class="px-2 text-end tabular-nums font-weight-bold">{{ money(doc.balance) }}</td>
+                <td class="px-2">
                   <v-chip size="small" variant="tonal" :color="recurringInvoiceStatusColors[doc.status]">
                     {{ label(recurringInvoiceStatusLabels, doc.status) }}
                   </v-chip>
                 </td>
-                <td class="text-end text-no-wrap">
+                <td class="px-2 text-end text-no-wrap">
                   <v-btn
                     v-if="doc.document_kind !== 'credit_sale' || canPrintSales"
                     icon="mdi-printer"
@@ -522,6 +528,7 @@ import { downloadAbonosPdf } from '@/utils/abonosPdf'
 import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage'
 import { computed, onMounted, ref, watch } from 'vue'
 import LockableButton from '../components/LockableButton.vue'
+import CashRegisterPanel from '../components/CashRegisterPanel.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
@@ -561,6 +568,12 @@ const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
 // Anular un documento es además de la facturación automática (el API lo pide).
 const canCancel = computed(() => isAdmin.value && effectiveFeatures(authStore.user).includes('recurring_billing'))
+// The abonos are cash of the shift: the register opens with orders or automatic
+// billing, like the API (feature:orders,recurring_billing). Clientes alone has none.
+const canUseCashRegister = computed(() =>
+  effectiveFeatures(authStore.user).some(feature => feature === 'orders' || feature === 'recurring_billing'),
+)
+const cashPanel = ref<InstanceType<typeof CashRegisterPanel> | null>(null)
 
 const snackbar = ref({ show: false, text: '', color: 'success' })
 const notify = (text: string, color: 'success' | 'error' | 'warning' = 'success') => {
@@ -752,7 +765,7 @@ const downloadHistoryPdf = async () => {
 }
 
 const refreshCartera = async () => {
-  await Promise.all([loadReceivables(), loadPaymentHistory()])
+  await Promise.all([loadReceivables(), loadPaymentHistory(), cashPanel.value?.load()])
 }
 
 // --- Abonos ---

@@ -676,6 +676,79 @@ test('quien ve Ventas sin ser admin imprime los cierres pero no los corrige', as
 })
 
 /**
+ * A shop that also bills monthly fees has one drawer: the order's charge and
+ * the abonos of the cartera close together, from Cartera too. The abonos come
+ * by method and their cash joins the drawer; the monthly document is the sale
+ * of its issue date in Ventas, never a charge or cash of the shift.
+ */
+test('con pedidos y facturación automática la caja es una y se cierra desde la Cartera con los abonos por medio', async ({ page, request }) => {
+  const company = await createCompany(request, 'caja-una', { business_type: 'recurring', modules: SHOP_WITH_FEES })
+  const auth = { Authorization: `Bearer ${company.token}`, Accept: 'application/json' }
+  const productId = await seedSimpleProduct(request, auth, 'Empanada Caja Una', 15000)
+  await chargeOrder(request, auth, productId, 'cash')
+  const [document] = await issueDocuments(request, company.token, [
+    { name: 'Local Caja Una', document_number: '3301', monthly_fee: 200000 },
+  ])
+  for (const [amount, payment_method] of [[50000, 'cash'], [30000, 'nequi']] as const) {
+    const abono = await request.post(`${API}/recurring-billing/invoices/${document.id}/payments`, {
+      headers: auth,
+      data: { amount, payment_method },
+    })
+    expect(abono.status(), await abono.text()).toBe(201)
+  }
+  const shift = await currentShift(request, auth)
+  await nextSecond()
+
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/cartera')
+  await expect(page.getByTestId('cash-open-chip')).toContainText('Caja abierta desde')
+  await page.getByRole('button', { name: 'Cerrar caja' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText(`Turno ${shift.number} · desde`)
+  await expect(dialog).toContainText('Ventas de pedidos')
+  await expect(dialog.getByTestId('cash-sales-total')).toHaveText('$15.000')
+  await expect(dialog).toContainText('1 venta · 1 pedido')
+  await expect(dialog.locator('tbody tr').filter({ hasText: /^\s*Efectivo/ })).toContainText('$15.000')
+  const abonos = dialog.getByTestId('cash-abono-method')
+  await expect(abonos.filter({ hasText: 'Abonos de cuotas · Efectivo' })).toContainText('$50.000')
+  await expect(abonos.filter({ hasText: 'Abonos de cuotas · Nequi' })).toContainText('$30.000')
+  await expect(dialog.getByTestId('cash-abonos-total')).toHaveText('$80.000')
+  // The drawer: the cash sale and the cash abono. Nequi and the document stay out.
+  await expect(dialog.getByTestId('cash-expected')).toHaveText('$65.000')
+  await expect(dialog).not.toContainText('$200.000')
+  await expect(dialog.getByText('Cuenta el efectivo de las ventas y los abonos, sin la base que dejas en el cajón')).toBeVisible()
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport)
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: `../screenshots/caja-facturacion-automatica-cierre-con-pedidos-${viewport.width}.png` })
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
+
+  await dialog.getByRole('button', { name: 'Cerrar caja' }).click()
+  await expect(dialog).toContainText(`El turno ${shift.number} queda cerrado con $15.000 en ventas y $80.000 en abonos`)
+  await dialog.getByRole('button', { name: 'Sí, cerrar caja' }).click()
+  await expect(dialog).toContainText('Caja cerrada. Desde ahora corre un turno nuevo.')
+  await dialog.getByRole('button', { name: 'Listo' }).click()
+  // The shift Pedidos shows is the one Cartera closed.
+  expect((await currentShift(request, auth)).number).toBe(shift.number + 1)
+  await page.goto('/pedidos')
+  await expect(page.getByTestId('cash-open-chip')).toContainText('Caja abierta desde')
+
+  await openCashCloses(page)
+  await expect(page.locator('.v-data-table thead')).toContainText('Ventas de pedidos')
+  await expect(page.locator('.v-data-table thead')).toContainText('Abonos de cuotas')
+  const row = shiftRow(page, shift.number)
+  await expect(row).toContainText('$15.000')
+  await expect(row).toContainText('$80.000')
+  await expect(row).toContainText('Efectivo: $65.000')
+  await expect(row).toContainText('Nequi: $30.000')
+
+  // Ventas counts the document once, on its issue date; the abonos never add to it.
+  await page.getByRole('button', { name: 'Ventas', exact: true }).click()
+  await expect(page.locator('.v-card', { hasText: 'Total vendido' })).toContainText('$215.000')
+})
+
+/**
  * Ventas › Cierres de caja downloads the closes of the dates on screen, one
  * by one and then the period's totals: the Excel from the API, the PDF from
  * the same figures. The open shift is never in them; an empty period says so.
