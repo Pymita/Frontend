@@ -26,6 +26,9 @@ test('la plataforma copia parte de un catálogo base a una empresa nueva', async
 
   await loginUI(page, PLATFORM.email, PLATFORM.password)
   await page.goto('/plataforma')
+  // The specs before this one add companies, sorted by name: the templates may be past the first page.
+  await page.locator('.v-data-table-footer__items-per-page .v-select').click()
+  await page.getByRole('option', { name: 'Todos' }).click()
 
   // Las plantillas se distinguen de los clientes reales en la lista.
   await expect(page.getByText('Plantilla', { exact: true }).first()).toBeVisible()

@@ -420,14 +420,21 @@ const productsTable = (products: { name: string; quantity: number }[]): string =
 /**
  * Built only from the summary frozen at the close, so a reprint never
  * changes. Closes frozen before 2026-10 have no sales, products or invoice
- * range: they print without them.
+ * range: they print without them. `orders: false` (a company that only bills
+ * monthly fees) prints its abonos without the orders' sales, tips and products.
  */
-export const cashCloseHtml = (business: DocumentBusiness, session: CashSession): string => {
+export const cashCloseHtml = (
+  business: DocumentBusiness,
+  session: CashSession,
+  { orders = true }: { orders?: boolean } = {},
+): string => {
   const summary = session.summary
-  const detailed = summary.sales_total !== null
   const methods = Object.entries(summary.by_method).filter(([, totals]) => totals.count > 0)
   const recurring = Object.entries(summary.recurring_by_method).filter(([, amount]) => (amount ?? 0) > 0)
   const recurringTotal = recurring.reduce((sum, [, amount]) => sum + (amount ?? 0), 0)
+  // Order charges that came in print whatever the modules say.
+  const sales = orders || methods.length > 0
+  const detailed = summary.sales_total !== null && sales
   const products = summary.products ?? []
   const half = Math.ceil(products.length / 2)
   const invoices = summary.first_invoice
@@ -436,7 +443,7 @@ export const cashCloseHtml = (business: DocumentBusiness, session: CashSession):
   const trail = session.adjustments.map(a =>
     `${formatFullDateTime(a.at)} · ${a.user_name} movió ${a.field === 'opened_at' ? 'la apertura' : 'el cierre'} ` +
     `de ${formatFullDateTime(a.from)} a ${formatFullDateTime(a.to)}: ${a.reason}` +
-    (a.before.sales_total !== null && a.after.sales_total !== null
+    (sales && a.before.sales_total !== null && a.after.sales_total !== null
       ? ` (ventas ${money(a.before.sales_total)} → ${money(a.after.sales_total)})`
       : ''))
   const notes = [session.closing_notes, ...trail].filter(Boolean).map(escape).join('<br>')
@@ -453,20 +460,22 @@ export const cashCloseHtml = (business: DocumentBusiness, session: CashSession):
           ])}
         </div>
         <div>
-          ${detailed
-            ? partyRows([
-                ['FACTURAS', invoices ?? 'Sin ventas'],
-                ['VENTAS', String(summary.sales_count ?? 0)],
-                ['PEDIDOS', String(summary.orders_count ?? 0)],
-              ])
-            : '<div class="party-row">Cierre anterior al resumen detallado</div>'}
+          ${!sales
+            ? partyRows([['ABONOS DE CUOTAS', money(recurringTotal)]])
+            : detailed
+              ? partyRows([
+                  ['FACTURAS', invoices ?? 'Sin ventas'],
+                  ['VENTAS', String(summary.sales_count ?? 0)],
+                  ['PEDIDOS', String(summary.orders_count ?? 0)],
+                ])
+              : '<div class="party-row">Cierre anterior al resumen detallado</div>'}
         </div>
       </div>
     </div>
     <div class="box">
       <table class="compact">
         <thead>
-          <tr><th class="left">RECIBIDO POR MEDIO DE PAGO</th><th class="right">COBROS</th><th class="right">PROPINAS</th><th class="right">TOTAL</th></tr>
+          <tr><th class="left">RECIBIDO POR MEDIO DE PAGO</th>${sales ? '<th class="right">COBROS</th><th class="right">PROPINAS</th>' : ''}<th class="right">TOTAL</th></tr>
         </thead>
         <tbody>
           ${methods.map(([method, totals]) => `
@@ -479,11 +488,12 @@ export const cashCloseHtml = (business: DocumentBusiness, session: CashSession):
           ${recurring.map(([method, amount]) => `
           <tr>
             <td class="left">Abonos de cuotas · ${escape(METHOD_LABELS[method] ?? method)}</td>
-            <td class="right"></td>
-            <td class="right"></td>
+            ${sales ? '<td class="right"></td><td class="right"></td>' : ''}
             <td class="right">${money(amount ?? 0)}</td>
           </tr>`).join('')}
-          ${methods.length || recurring.length ? '' : '<tr><td class="left" colspan="4">No hubo cobros en este turno.</td></tr>'}
+          ${methods.length || recurring.length
+            ? ''
+            : `<tr><td class="left" colspan="${sales ? 4 : 2}">No hubo ${sales ? 'cobros' : 'abonos'} en este turno.</td></tr>`}
         </tbody>
       </table>
       <div class="columns">
@@ -506,8 +516,10 @@ export const cashCloseHtml = (business: DocumentBusiness, session: CashSession):
           <tbody>
             ${amountRows([
               ...(session.opening_amount > 0 ? [['+ Base', session.opening_amount] as [string, number]] : []),
-              ['+ Cobros en efectivo (con propinas)', summary.cash_sales],
-              ...(summary.cash_recurring > 0 ? [['+ Abonos de cuotas en efectivo', summary.cash_recurring] as [string, number]] : []),
+              ...(sales ? [['+ Cobros en efectivo (con propinas)', summary.cash_sales] as [string, number]] : []),
+              ...(summary.cash_recurring > 0 || !sales
+                ? [['+ Abonos de cuotas en efectivo', summary.cash_recurring] as [string, number]]
+                : []),
               ['− Gastos pagados en efectivo', summary.cash_expenses],
               ['EFECTIVO DEL TURNO', session.expected_cash, true],
               ...(session.counted_cash !== null ? [['Efectivo contado', session.counted_cash] as [string, number]] : []),

@@ -221,7 +221,7 @@
               </template>
               <div v-else class="d-flex flex-wrap ga-1">
                 <v-chip size="small" color="info" variant="tonal">Abierta</v-chip>
-                <v-chip v-if="item.has_previous_day_movements" size="small" color="warning" variant="tonal">Tiene ventas de otro día</v-chip>
+                <v-chip v-if="item.has_previous_day_movements" size="small" color="warning" variant="tonal">{{ previousDayChip }}</v-chip>
               </div>
             </template>
             <template #item.sales_total="{ item }">
@@ -231,8 +231,11 @@
               </template>
               <span v-else class="text-medium-emphasis">—</span>
             </template>
+            <template #item.abonos="{ item }">
+              <span class="font-weight-bold">{{ money(abonosOf(item)) }}</span>
+            </template>
             <template #item.methods="{ item }">
-              <span v-for="entry in collectedByMethod(item)" :key="entry.method" class="d-block text-caption">
+              <span v-for="entry in collectedByMethod(item)" :key="entry.method" class="d-block text-caption text-no-wrap">
                 {{ entry.label }}: {{ money(entry.amount) }}
               </span>
             </template>
@@ -724,22 +727,43 @@ const tableHeaders = computed(() => [
   { title: 'Total', key: 'total', align: 'end' as const },
 ])
 
-const cashHeaders = [
+// A shift holds the orders' charges and the abonos of the cartera: a
+// condominium without orders closes abonos only, and never a sale.
+const takesOrders = computed(() => authStore.user?.company?.modules?.includes('orders') ?? true)
+const cashHeaders = computed(() => [
   { title: 'N.º', key: 'number', sortable: false },
   { title: 'Apertura', key: 'opened_at', sortable: false },
   { title: 'Cierre', key: 'closed_at', sortable: false },
-  { title: 'Ventas', key: 'sales_total', align: 'end' as const, sortable: false },
+  ...(takesOrders.value
+    ? [{ title: recurringBilling.value ? 'Ventas de pedidos' : 'Ventas', key: 'sales_total', align: 'end' as const, sortable: false }]
+    : []),
+  ...(recurringBilling.value ? [{ title: 'Abonos de cuotas', key: 'abonos', align: 'end' as const, sortable: false }] : []),
   { title: 'Recibido por medio', key: 'methods', sortable: false },
   { title: 'Efectivo del turno', key: 'expected_cash', align: 'end' as const, sortable: false },
   { title: 'Contado', key: 'counted_cash', align: 'end' as const, sortable: false },
   { title: 'Diferencia', key: 'difference', align: 'end' as const, sortable: false },
   { title: 'Acciones', key: 'actions', align: 'end' as const, sortable: false },
-]
+])
+const previousDayChip = computed(() =>
+  `Tiene ${takesOrders.value ? (recurringBilling.value ? 'ventas o abonos' : 'ventas') : 'abonos'} de otro día`,
+)
 
-const collectedByMethod = (session: CashSession) =>
-  Object.entries(session.summary.by_method)
-    .filter(([, totals]) => totals.amount > 0)
-    .map(([method, totals]) => ({ method, label: PAYMENT_METHOD_LABELS[method as PaymentMethod] ?? method, amount: totals.amount }))
+const abonosOf = (session: CashSession): number =>
+  Object.values(session.summary.recurring_by_method ?? {}).reduce<number>((sum, amount) => sum + (amount ?? 0), 0)
+
+// What came in by each method: the orders' charges plus the abonos.
+const collectedByMethod = (session: CashSession) => {
+  const charged = session.summary.by_method as Partial<Record<string, { amount: number }>>
+  const abonos = (session.summary.recurring_by_method ?? {}) as Partial<Record<string, number>>
+  const methods = new Set([...Object.keys(PAYMENT_METHOD_LABELS), ...Object.keys(charged), ...Object.keys(abonos)])
+  return [...methods]
+    .map(method => ({
+      method,
+      label: PAYMENT_METHOD_LABELS[method as PaymentMethod] ?? method,
+      amount: (charged[method]?.amount ?? 0) + (abonos[method] ?? 0),
+    }))
+    .filter(entry => entry.amount > 0)
+}
 
 const salesCountLabel = (count: number): string => `${count} ${count === 1 ? 'venta' : 'ventas'}`
 const moneyOrDash = (value: number | null): string => (value === null ? '—' : money(value))
@@ -874,7 +898,7 @@ const printCashClose = async (session: CashSession) => {
   }
   try {
     const business = await billingService.getBusiness()
-    fillDocumentWindow(win, `Cierre de caja ${session.number}`, cashCloseHtml(business, session))
+    fillDocumentWindow(win, `Cierre de caja ${session.number}`, cashCloseHtml(business, session, { orders: takesOrders.value }))
   } catch (error) {
     win.close()
     notify(errorMessage(error, 'No fue posible generar el cierre para imprimir. Inténtalo de nuevo.'), 'error')
