@@ -1,6 +1,17 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { API, PLATFORM, apiLogin, buildXlsx, displayDate, field, freezeTime, loginUI, sidebarItem, xlsxRows } from './helpers'
+import {
+  API,
+  buildXlsx,
+  createCompany,
+  displayDate,
+  field,
+  freezeTime,
+  loginUI,
+  sidebarItem,
+  xlsxRows,
+  type CompanySession,
+} from './helpers'
 
 /**
  * Facturación automática: un conjunto cobra la misma cuota cada mes. Se
@@ -18,27 +29,8 @@ const ISSUED_IN_PERIOD = '2025-01-02'
 /** Como la página muestra una fecha: "05 de oct de 2026". */
 const dayLabel = (date: Date) => date.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
 
-interface Company {
-  credentials: { email: string; password: string }
-  token: string
-}
-
-async function createRecurringCompany(request: APIRequestContext, slug: string): Promise<Company> {
-  const superToken = await apiLogin(request, PLATFORM.email, PLATFORM.password)
-  const credentials = { email: `admin.${slug}.${Date.now()}@e2e.test`, password: 'conjunto2026' }
-
-  const response = await request.post(`${API}/platform/companies`, {
-    headers: { Authorization: `Bearer ${superToken}` },
-    data: {
-      name: `E2E ${slug} ${Date.now()}`,
-      business_type: 'recurring',
-      admin: { name: 'Administradora E2E', ...credentials },
-    },
-  })
-  expect(response.status()).toBe(201)
-
-  return { credentials, token: await apiLogin(request, credentials.email, credentials.password) }
-}
+const createRecurringCompany = (request: APIRequestContext, slug: string): Promise<CompanySession> =>
+  createCompany(request, slug, { business_type: 'recurring' })
 
 async function createResident(
   request: APIRequestContext,
@@ -1080,4 +1072,42 @@ test('el admin edita los datos del negocio que van en los documentos', async ({ 
   })).json()
   expect(saved.data.legal_name).toBe('Conjunto Los Pinos PH')
   expect(saved.data.document_notes).toBe('Consignar en Cta corriente 123 Davivienda')
+})
+
+/**
+ * What is billed is a sale of the day it is issued: it shows in Inicio and
+ * in Ventas at once, and an abono afterwards is cash, never a second sale.
+ */
+test('lo facturado es venta del día en Inicio y en Ventas, y su abono no la duplica', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'ventas-del-dia')
+  await createResident(request, company.token, { name: 'Ana Apto 101', document_number: '1001' })
+  await createResident(request, company.token, { name: 'Beto Apto 102', document_number: '1002', monthly_fee: 180000 })
+
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await openPeriod(page, todayLocal().slice(0, 7))
+  await page.getByRole('button', { name: 'Facturar a todos (2)' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Se van a generar 2 documentos por $430.000')
+  await page.getByRole('dialog').getByRole('button', { name: 'Generar' }).click()
+  await expect(page.getByText('Se generaron 2 documentos')).toBeVisible()
+
+  await page.getByRole('tab', { name: /Cartera/ }).click()
+  const panel = page.locator('.v-expansion-panel', { hasText: 'Ana Apto 101' })
+  await panel.locator('.v-expansion-panel-title').click()
+  await panel.locator('tbody tr', { hasText: 'CC-1' }).getByRole('button', { name: 'Abonar' }).click()
+  await field(page, 'Valor del abono').locator('input').fill('100000')
+  await page.getByRole('dialog').getByRole('button', { name: 'Registrar abono' }).click()
+  await expect(page.getByText('Abono registrado exitosamente')).toBeVisible()
+  await page.getByRole('dialog').getByRole('button', { name: 'Cerrar' }).click()
+
+  await sidebarItem(page, 'Inicio').click()
+  const card = (title: string) => page.locator('.v-card').filter({ has: page.getByText(title, { exact: true }) })
+  await expect(card('Ventas hoy')).toContainText('$430.000')
+  await expect(card('Saldo por cobrar')).toContainText('$330.000')
+  await expect(page.locator('.v-card', { hasText: 'Más facturados' })).toContainText('Cuota de administración')
+
+  await sidebarItem(page, 'Ventas').click()
+  await expect(page.locator('.v-card', { hasText: 'Total vendido' })).toContainText('$430.000')
+  await expect(page.locator('tbody tr', { hasText: 'CC-1' })).toContainText('Abonada')
+  await expect(page.locator('tbody tr', { hasText: 'CC-2' })).toContainText('Por pagar')
+  await expect(page.locator('tbody tr', { hasText: 'CC-2' })).toContainText('$180.000')
 })

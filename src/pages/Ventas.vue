@@ -6,7 +6,9 @@
           <div>
             <h1 class="text-h4">Ventas</h1>
             <p class="text-body-1 text-medium-emphasis">
-              Pedidos pagados: cuánto se ha vendido, con qué método y por quién
+              {{ recurringBilling
+                ? 'Pedidos cobrados y documentos de facturación automática: cuánto se ha vendido y de dónde viene'
+                : 'Pedidos pagados: cuánto se ha vendido, con qué método y por quién' }}
             </p>
           </div>
           <!-- El tooltip va sobre un span: un botón deshabilitado no emite
@@ -57,8 +59,18 @@
       </v-col>
     </v-row>
 
-    <v-row v-if="methodBreakdown.length" dense class="mb-1">
+    <v-row v-if="methodBreakdown.length || originBreakdown.length" dense class="mb-1">
       <v-col cols="12">
+        <v-chip
+          v-for="entry in originBreakdown"
+          :key="entry.origin"
+          class="mr-2 mb-1"
+          size="small"
+          variant="outlined"
+          :prepend-icon="entry.icon"
+        >
+          {{ entry.label }}: {{ money(entry.amount) }}
+        </v-chip>
         <v-chip
           v-for="entry in methodBreakdown"
           :key="entry.method"
@@ -104,6 +116,7 @@
         <v-text-field
           v-model="filters.q"
           label="Buscar factura o cliente"
+          placeholder="FE120, #12 o Ana"
           density="compact"
           hide-details
           clearable
@@ -112,14 +125,36 @@
       </v-col>
     </v-row>
 
-    <!-- Tres lecturas del mismo rango: venta por venta, qué se vendió y qué dejó cada mesa. -->
+    <!-- Tres lecturas del mismo rango: venta por venta, qué se vendió y qué dejó cada mesa.
+         With orders and automatic billing, the origin narrows every reading but the cash closes. -->
     <v-row dense class="mt-1">
-      <v-col cols="12">
+      <v-col cols="12" class="d-flex flex-wrap align-center ga-2">
         <v-btn-toggle v-model="view" mandatory color="primary" density="comfortable">
           <v-btn value="sales" prepend-icon="mdi-receipt-text">Ventas</v-btn>
           <v-btn value="products" prepend-icon="mdi-food">Por producto</v-btn>
           <v-btn value="tables" prepend-icon="mdi-table-furniture">Por mesa</v-btn>
           <v-btn value="cash" prepend-icon="mdi-cash-register">Cierres de caja</v-btn>
+        </v-btn-toggle>
+        <v-spacer />
+        <v-btn-toggle
+          v-if="showOriginFilter && view !== 'cash'"
+          v-model="originChoice"
+          mandatory
+          color="primary"
+          density="comfortable"
+          variant="outlined"
+          divided
+          role="group"
+          aria-label="Origen de las ventas"
+        >
+          <v-btn
+            v-for="option in originOptions"
+            :key="option.value"
+            :value="option.value"
+            :aria-pressed="originChoice === option.value"
+          >
+            {{ option.title }}
+          </v-btn>
         </v-btn-toggle>
       </v-col>
     </v-row>
@@ -257,6 +292,9 @@
               </div>
             </div>
           </v-card-text>
+          <v-card-text v-if="recurringBilling" class="text-body-2 text-medium-emphasis pb-0">
+            Lo facturado sale en la categoría Servicios, un concepto por fila y sin costo: no pasa por el kardex.
+          </v-card-text>
           <v-data-table
             :headers="productHeaders"
             :items="productReport?.products ?? []"
@@ -265,7 +303,12 @@
             class="elevation-0"
             :items-per-page="25"
           >
-            <template #item.category="{ item }">{{ item.category || '—' }}</template>
+            <template #item.category="{ item }">
+              <v-chip v-if="item.origin === 'recurring'" size="small" variant="outlined" prepend-icon="mdi-calendar-sync">
+                {{ item.category }}
+              </v-chip>
+              <template v-else>{{ item.category || '—' }}</template>
+            </template>
             <template #item.gross="{ item }">{{ money(item.gross) }}</template>
             <template #item.net="{ item }">
               <span class="font-weight-bold">{{ money(item.net) }}</span>
@@ -274,6 +317,7 @@
             <template #item.profit="{ item }">
               <span :class="item.profit >= 0 ? 'text-success' : 'text-error'">{{ money(item.profit) }}</span>
             </template>
+            <template #item.share="{ item }">{{ percent(item.share) }}</template>
             <template #no-data>
               <p class="text-medium-emphasis py-6">No hay ventas en el rango seleccionado</p>
             </template>
@@ -298,6 +342,9 @@
               <div class="text-caption text-medium-emphasis">Total</div>
               <div class="text-h6 tabular-nums">{{ money(tableReport?.summary.total) }}</div>
             </div>
+          </v-card-text>
+          <v-card-text v-if="recurringBilling" class="text-body-2 text-medium-emphasis pb-0">
+            Por mesa cuenta solo los pedidos: los documentos de facturación automática no tienen mesa.
           </v-card-text>
           <v-data-table
             :headers="tableHeaders"
@@ -347,13 +394,39 @@
           >
             <template #item.invoice_number="{ item }">
               <v-chip
+                v-if="item.origin === 'recurring'"
+                size="small"
+                variant="tonal"
+                :color="item.document_kind === 'invoice' ? 'primary' : 'secondary'"
+                :title="label(documentKindLabels, item.document_kind)"
+              >
+                {{ item.invoice_number }}
+              </v-chip>
+              <v-chip
+                v-else
                 size="small"
                 variant="tonal"
                 :color="item.invoice_number ? 'primary' : 'secondary'"
                 :title="item.invoice_number ? 'Factura con consecutivo DIAN' : 'Sin resolución DIAN: se identifica con el número del pedido'"
               >
-                {{ item.invoice_number || `Pedido #${item.id}` }}
+                {{ item.invoice_number || `Pedido #${item.number}` }}
               </v-chip>
+            </template>
+            <!-- A document is a sale the day it is issued, paid or not: its state says whether it is still owed. -->
+            <template #item.origin="{ item }">
+              <div class="d-flex flex-wrap align-center ga-1 py-1">
+                <v-chip size="small" variant="outlined" :prepend-icon="originIcons[item.origin]">
+                  {{ label(saleOriginLabels, item.origin) }}
+                </v-chip>
+                <v-chip
+                  v-if="item.document_status"
+                  size="x-small"
+                  variant="tonal"
+                  :color="recurringInvoiceStatusColors[item.document_status]"
+                >
+                  {{ label(recurringInvoiceStatusLabels, item.document_status) }}
+                </v-chip>
+              </div>
             </template>
             <template #item.customer_name="{ item }">
               {{ customerLabel(item.customer_name) }}
@@ -516,7 +589,7 @@
 </template>
 
 <script setup lang="ts">
-import { money } from '@/utils/money'
+import { money, percent } from '@/utils/money'
 import { formatDateTime, formatIsoDate, parseTimeText, toIsoDate, toTimeText, todayIso } from '@/utils/dates'
 import { computed, onMounted, ref, watch } from 'vue'
 import DateField from '../components/DateField.vue'
@@ -527,6 +600,7 @@ import salesService, {
   type PaymentMethod,
   type ProductSalesReport,
   type Sale,
+  type SaleOrigin,
   type SalesFilters,
   type SalesReport,
   type SalesView,
@@ -538,7 +612,15 @@ import { errorMessage } from '@/utils/errors'
 import { useAuthStore } from '@/stores/auth'
 import { useReadOnly } from '@/composables/useReadOnly'
 import { effectiveFeatures } from '@/types/auth'
-import { customerLabel } from '@/utils/labels'
+import {
+  customerLabel,
+  documentKindLabels,
+  label,
+  options,
+  recurringInvoiceStatusColors,
+  recurringInvoiceStatusLabels,
+  saleOriginLabels,
+} from '@/utils/labels'
 import {
   cashCloseHtml,
   fillDocumentWindow,
@@ -558,6 +640,7 @@ const filters = ref<SalesFilters>({
   payment_method: '',
   user_id: null,
   q: '',
+  origin: '',
 })
 
 const report = ref<SalesReport | null>(null)
@@ -575,8 +658,35 @@ const formatMinutes = (minutes: number): string => {
   return hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`
 }
 
-const productHeaders = [
-  { title: 'Producto', key: 'name' },
+// El cobro por tiempo es un módulo: un restaurante no cobra por tiempo, así que
+// no debe ver la columna ni el resumen de "Tiempo de billar".
+const authStore = useAuthStore()
+const hasTimeBilling = computed(() => effectiveFeatures(authStore.user).includes('time_billing'))
+// A company that bills monthly fees sees where each sale comes from; the
+// rest see the page as it always was.
+const recurringBilling = computed(() => (authStore.user?.company?.modules ?? []).includes('recurring_billing'))
+// Only both kinds of sale need telling apart: a condominium without orders has documents only.
+const showOriginFilter = computed(() => recurringBilling.value && (authStore.user?.company?.modules ?? []).includes('orders'))
+
+const originIcons: Record<string, string> = { order: 'mdi-receipt', recurring: 'mdi-calendar-sync' }
+// The filter and the totals name each group; a row's chip names its own origin.
+const originGroupLabels: Record<SaleOrigin, string> = { order: 'Pedidos', recurring: 'Facturación automática' }
+// "Por producto" reads what was sold: the orders' products and the documents' services.
+const productOriginLabels: Record<SaleOrigin, string> = { order: 'Productos', recurring: 'Servicios' }
+const originOptions = computed(() => [
+  { value: 'all', title: 'Todos' },
+  ...options(view.value === 'products' ? productOriginLabels : originGroupLabels),
+])
+// A toggle needs a value for "Todos"; the API takes no origin for it.
+const originChoice = computed({
+  get: () => filters.value.origin || 'all',
+  set: (value: string) => {
+    filters.value.origin = value === 'all' ? '' : (value as SaleOrigin)
+  },
+})
+
+const productHeaders = computed(() => [
+  { title: recurringBilling.value ? 'Producto o concepto' : 'Producto', key: 'name' },
   { title: 'Categoría', key: 'category' },
   { title: 'Cantidad', key: 'quantity', align: 'end' as const },
   { title: 'Bruto', key: 'gross', align: 'end' as const },
@@ -584,12 +694,9 @@ const productHeaders = [
   { title: 'Costo', key: 'cost', align: 'end' as const },
   { title: 'Ganancia', key: 'profit', align: 'end' as const },
   { title: 'Ventas', key: 'orders_count', align: 'end' as const },
-]
-
-// El cobro por tiempo es un módulo: un restaurante no cobra por tiempo, así que
-// no debe ver la columna ni el resumen de "Tiempo de billar".
-const authStore = useAuthStore()
-const hasTimeBilling = computed(() => effectiveFeatures(authStore.user).includes('time_billing'))
+  // Products next to services: how much of what is shown each one is.
+  ...(recurringBilling.value ? [{ title: 'Participación', key: 'share', align: 'end' as const }] : []),
+])
 
 const tableHeaders = computed(() => [
   { title: 'Mesa', key: 'name' },
@@ -759,7 +866,7 @@ const printCashClose = async (session: CashSession) => {
 
 /** What the row's print button prints: the factura with a DIAN number, the comprobante without one. */
 const saleDocumentName = (sale: Sale): string =>
-  sale.invoice_number ? `la factura ${sale.invoice_number}` : `el comprobante del pedido #${sale.id}`
+  sale.invoice_number ? `la factura ${sale.invoice_number}` : `el comprobante ${sale.reference ?? `del pedido #${sale.number}`}`
 
 /** The sale as a letter document, as Pedidos prints it after charging. */
 const printSale = async (sale: Sale) => {
@@ -802,16 +909,18 @@ const notify = (text: string, color = 'error') => {
   snackbar.value = { show: true, text, color }
 }
 
-const headers = [
+// A document's date is its issue, not a payment: with automatic billing the column is just "Fecha".
+const headers = computed(() => [
   { title: 'Comprobante', key: 'invoice_number', sortable: false },
+  ...(recurringBilling.value ? [{ title: 'Origen', key: 'origin', sortable: false }] : []),
   { title: 'Cliente', key: 'customer_name', sortable: false },
-  { title: 'Fecha de pago', key: 'paid_at' },
+  { title: recurringBilling.value ? 'Fecha' : 'Fecha de pago', key: 'paid_at' },
   { title: 'Mesero', key: 'waiter' },
   { title: 'Método', key: 'payment_methods', sortable: false },
   { title: 'Propina', key: 'tip', align: 'end' as const },
   { title: 'Total', key: 'total', align: 'end' as const },
   { title: '', key: 'actions', align: 'end' as const, sortable: false },
-]
+])
 
 const methodOptions = Object.entries(PAYMENT_METHOD_LABELS).map(([value, title]) => ({ value, title }))
 
@@ -823,6 +932,19 @@ const waiterOptions = computed(() => {
     if (sale.user_id && sale.waiter) seen.set(sale.user_id, sale.waiter)
   }
   return [...seen].map(([value, title]) => ({ value, title }))
+})
+
+// Orders and documents apart; the methods below are the orders' only.
+const originBreakdown = computed(() => {
+  if (!recurringBilling.value) return []
+  return Object.entries(report.value?.summary.by_origin ?? {})
+    .filter(([, totals]) => totals.total > 0)
+    .map(([origin, totals]) => ({
+      origin,
+      icon: originIcons[origin],
+      label: originGroupLabels[origin as SaleOrigin],
+      amount: totals.total,
+    }))
 })
 
 const methodBreakdown = computed(() =>
@@ -839,8 +961,9 @@ const methodsLabel = (methods: PaymentMethod[]): string =>
   methods.map(m => PAYMENT_METHOD_LABELS[m] ?? m).join(' + ') || '—'
 
 
-// Cada vista consulta lo suyo; los totales de arriba siempre son del listado.
-const load = async () => {
+// Cada vista consulta lo suyo; los totales de arriba siempre son del listado,
+// so a filter changed from another view refreshes them too.
+const load = async (refreshTotals = false) => {
   loading.value = true
   try {
     if (view.value === 'products') {
@@ -850,7 +973,7 @@ const load = async () => {
     } else if (view.value === 'cash') {
       cashSessions.value = await salesService.cashSessions({ from: filters.value.from || undefined, to: filters.value.to || undefined })
     }
-    if (view.value === 'sales' || !report.value) {
+    if (view.value === 'sales' || refreshTotals || !report.value) {
       report.value = await salesService.report(filters.value)
     }
   } catch (error) {
@@ -860,7 +983,7 @@ const load = async () => {
   }
 }
 
-watch(view, load)
+watch(view, () => load())
 
 const exportExcel = async () => {
   exporting.value = true
@@ -880,10 +1003,10 @@ watch(
   filters,
   () => {
     clearTimeout(reloadTimer)
-    reloadTimer = setTimeout(load, 300)
+    reloadTimer = setTimeout(() => load(true), 300)
   },
   { deep: true },
 )
 
-onMounted(load)
+onMounted(() => load())
 </script>

@@ -1,4 +1,5 @@
 import api from './api'
+import type { PaymentMethod, SaleOrigin } from './salesService'
 
 export interface DocumentType {
   id: number
@@ -60,7 +61,12 @@ export interface KardexReport {
 export interface BalanceReport {
   as_of: string
   assets: {
+    /** What orders and automatic-billing abonos collected, minus what was paid. */
     cash: number
+    /** The part of cash that came in as abonos of automatic billing, by payment method. */
+    billing_abonos: { total: number; by_method: Partial<Record<PaymentMethod, number>> }
+    /** What customers still owe on issued documents: the cartera. */
+    accounts_receivable: number
     inventory: number
     /** Productos con unidades en el kardex pero sin costo: suman $0 al inventario */
     uncosted_stock?: { id: number; name: string; unit: string | null; quantity: number }[]
@@ -113,7 +119,9 @@ export interface MovementPayload {
 export interface IncomeStatement {
   from: string
   to: string
+  /** Orders charged plus automatic-billing documents issued (abonos never). */
   sales: number
+  sales_by_origin: Record<SaleOrigin, number>
   cost_of_sales: number
   gross_profit: number
   gross_margin: number
@@ -165,15 +173,15 @@ class KardexService {
   }
 
   /**
-   * Movimiento manual del kardex (devolución de ventas, compra suelta...).
-   * Los documentos automáticos (SI, FV, NC) no se aceptan.
+   * Movimiento manual del kardex (devolución de ventas, compra de varios
+   * productos...): un encabezado y una fila del kardex por producto, todas
+   * o ninguna. Los documentos automáticos (SI, FV, NC) no se aceptan.
    */
   async createKardexMovement(payload: {
-    product_id: number
     document_type_id: number
     movement_type: 'in' | 'out'
-    quantity: number
-    unit_cost?: number | null
+    /** Without a cost the line enters at the product's current average cost */
+    items: { product_id: number; quantity: number; unit_cost?: number }[]
     /** Fecha real del documento (retro-fechable, nunca futura) */
     moved_at?: string
     /** Proveedor (FC) o cliente (DV) del movimiento */
@@ -181,9 +189,9 @@ class KardexService {
     reference?: string | null
     /** Observaciones opcionales del movimiento */
     notes?: string
-  }): Promise<KardexMovement> {
-    const response = await api.post<ApiEnvelope<KardexMovement>>('/kardex/movements', payload)
-    return response.data.data
+  }): Promise<{ movements: KardexMovement[]; message: string }> {
+    const response = await api.post<ApiEnvelope<KardexMovement[]>>('/kardex/movements', payload)
+    return { movements: response.data.data, message: response.data.message ?? '' }
   }
 
   async createDocumentType(payload: Pick<DocumentType, 'code' | 'name' | 'direction'>): Promise<DocumentType> {
