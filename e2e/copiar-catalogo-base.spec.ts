@@ -27,7 +27,11 @@ test('la plataforma copia parte de un catálogo base a una empresa nueva', async
   await loginUI(page, PLATFORM.email, PLATFORM.password)
   await page.goto('/plataforma')
 
-  // Las plantillas se distinguen de los clientes reales en la lista.
+  // Las plantillas se distinguen de los clientes reales en la lista. La lista
+  // ordena por nombre y pagina de a 10, y cada spec agrega empresas "E2E …"
+  // antes de ellas: se amplía la página para verlas.
+  await page.locator('.v-data-table-footer__items-per-page .v-select').click()
+  await page.getByRole('option', { name: '100' }).click()
   await expect(page.getByText('Plantilla', { exact: true }).first()).toBeVisible()
 
   const row = page.locator('tr', { hasText: 'Billar Copia E2E' })
