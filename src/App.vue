@@ -100,6 +100,15 @@
 
     <!-- Main Content -->
     <v-main>
+      <!-- Outside the shell too: the login and a first load that failed have no shell. -->
+      <v-alert v-if="pageLoadFailed" type="error" variant="tonal" density="compact" class="ma-3 mb-0">
+        <div class="d-flex align-center flex-wrap ga-3">
+          <span>No pudimos cargar esta parte de la app. Revisa tu conexión a internet y recarga la página.</span>
+          <v-spacer />
+          <v-btn variant="text" @click="reloadPage">Recargar</v-btn>
+        </div>
+      </v-alert>
+
       <!-- Aviso de suscripción: prueba por vencer, pago vencido o cuenta bloqueada -->
       <v-alert
         v-if="showShell && subscriptionNotice"
@@ -190,6 +199,7 @@ import { effectiveFeatures } from './types/auth'
 import { APP_ICON, APP_NAME } from './utils/branding'
 import { errorMessage } from './utils/errors'
 import { SUBSCRIPTION_BLOCKED_EVENT, TWO_FACTOR_REQUIRED_EVENT } from './services/api'
+import { PAGE_LOAD_FAILED_EVENT } from './router'
 import type { MenuItem } from './types'
 
 const route = useRoute()
@@ -243,6 +253,13 @@ const subscriptionAlertType = computed(() => {
 const onSubscriptionBlocked = (event: Event) => {
   authStore.markBlocked((event as CustomEvent).detail)
 }
+
+// The page's code did not load even after reloading on its own (router):
+// the alert stays until a navigation succeeds.
+const pageLoadFailed = ref(false)
+const onPageLoadFailed = () => { pageLoadFailed.value = true }
+watch(() => route.fullPath, () => { pageLoadFailed.value = false })
+const reloadPage = () => window.location.reload()
 
 // El backend cerró el panel porque la cuenta de plataforma no tiene su
 // segundo factor (p. ej. se activó la exigencia con la sesión abierta).
@@ -418,12 +435,14 @@ onMounted(() => {
   authStore.initializeAuth()
   window.addEventListener(SUBSCRIPTION_BLOCKED_EVENT, onSubscriptionBlocked)
   window.addEventListener(TWO_FACTOR_REQUIRED_EVENT, onTwoFactorRequired)
+  window.addEventListener(PAGE_LOAD_FAILED_EVENT, onPageLoadFailed)
   checkResolutionStatus()
 })
 
 onUnmounted(() => {
   window.removeEventListener(SUBSCRIPTION_BLOCKED_EVENT, onSubscriptionBlocked)
   window.removeEventListener(TWO_FACTOR_REQUIRED_EVENT, onTwoFactorRequired)
+  window.removeEventListener(PAGE_LOAD_FAILED_EVENT, onPageLoadFailed)
 })
 </script>
 
