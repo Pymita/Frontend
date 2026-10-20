@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { ADMIN, API, PLATFORM, apiLogin, displayDate, field, loginUI, watchPrinting } from './helpers'
+import { ADMIN, API, PLATFORM, apiLogin, displayDate, field, loginUI, pageRule, pdfPageSize, pdfPages, watchPrinting } from './helpers'
 
 /**
  * Cobro desde la web: el botón "Cobrar" está en la fila, el diálogo ofrece
@@ -829,5 +829,120 @@ test('sin resolución, la venta de una persona sale en hoja como comprobante con
     page.getByRole('button', { name: `Imprimir el comprobante ${sale.reference}` }).click(),
   ])
   await expectComprobante(fromVentas)
+})
+
+/**
+ * The factura grows with its lines, with no fixed empty area. Past one letter
+ * page it is split: every page repeats the document number and the header
+ * row, the totals close the last one and each says "Página n de m". A short
+ * one also prints on half letter, chosen in the window before printing, and
+ * the choice is remembered; a long one stays on letter and the window says
+ * why. With 1, 5, 15, 40 and 120 products the PDF has exactly the pages the
+ * window shows: nothing overflowed or was cut.
+ */
+test('la factura crece con sus líneas, se pagina en carta y la corta también sale en media carta', async ({ page, request }) => {
+  test.setTimeout(180_000)
+  const { credentials, auth } = await createRestaurant(request, `media-hoja-${Date.now()}`)
+  const resolution = await request.put(`${API}/invoicing/resolution`, {
+    headers: auth,
+    data: { invoicing_resolution: '018764000000001', invoice_prefix: 'FE', range_from: 1, range_to: 100, resolution_date: '2026-01-15', valid_until: '2030-01-15' },
+  })
+  expect(resolution.ok()).toBeTruthy()
+  const categoryId = (await (await request.post(`${API}/categories`, { headers: auth, data: { name: 'Surtido' } })).json()).data.id
+  const productName = (n: number) => `Producto ${String(n).padStart(3, '0')}`
+  const products: number[] = []
+  for (let n = 1; n <= 120; n++) {
+    const created = await request.post(`${API}/products`, {
+      headers: auth,
+      data: { name: productName(n), type: 'final', unit: 'und', sale_price: 1000 + n, tracks_stock: false, category_id: categoryId },
+    })
+    products.push((await created.json()).data.id)
+  }
+  // FE1 has 1 line, FE2 5, FE3 15, FE4 40 and FE5 120.
+  for (const lines of [1, 5, 15, 40, 120]) {
+    const order = await request.post(`${API}/orders`, {
+      headers: auth,
+      data: { items: products.slice(0, lines).map(product_id => ({ product_id, quantity: 1 })) },
+    })
+    const paid = await request.post(`${API}/orders/${(await order.json()).data.id}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+    expect(paid.ok()).toBeTruthy()
+  }
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, credentials.email, credentials.password)
+  await page.goto('/ventas')
+  const open = async (number: string): Promise<Page> => {
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup'),
+      page.getByRole('button', { name: `Imprimir la factura ${number}` }).click(),
+    ])
+    await expect(popup.locator('.sheet').first()).toBeVisible()
+    await popup.setViewportSize({ width: 900, height: 1100 })
+    return popup
+  }
+  /** Every line once, the totals once on the last page, the number and header row on every page, and as many PDF pages. */
+  const expectPages = async (popup: Page, number: string, lines: number, size: number[]): Promise<number> => {
+    await expect(popup.locator('.items tbody tr')).toHaveCount(lines)
+    await expect(popup.locator('.items tbody tr').last()).toContainText(productName(lines))
+    const sheets = await popup.locator('.sheet').count()
+    await expect(popup.locator('.totals')).toHaveCount(1)
+    await expect(popup.locator('.sheet').last().locator('.totals')).toHaveCount(1)
+    await expect(popup.locator('.sheet thead')).toHaveCount(sheets)
+    if (sheets > 1) {
+      await expect(popup.locator('.page-foot')).toHaveText(
+        Array.from({ length: sheets }, (_, page) => `FACTURA DE VENTA No. ${number} · Página ${page + 1} de ${sheets}`),
+      )
+      await expect(popup.locator('.page-head .number')).toHaveText(Array(sheets - 1).fill(number))
+    } else {
+      await expect(popup.locator('.page-foot')).toHaveCount(0)
+    }
+    const pdf = await popup.pdf({ preferCSSPageSize: true })
+    expect(pdfPages(pdf)).toBe(sheets)
+    expect(pdfPageSize(pdf)).toEqual(size)
+    return sheets
+  }
+  const LETTER = [612, 792]
+  const HALF = [396, 612]
+  const halfButton = (popup: Page) => popup.getByRole('button', { name: 'Media carta' })
+
+  // One line: a letter page by default, and a half page when chosen.
+  const one = await open('FE1')
+  await expect.poll(() => pageRule(one)).toContain('size: letter')
+  expect(await expectPages(one, 'FE1', 1, LETTER)).toBe(1)
+  await one.screenshot({ path: '../screenshots/factura-media-hoja-1-linea-carta.png', fullPage: true })
+  await halfButton(one).click()
+  await expect.poll(() => pageRule(one)).toContain('size: 5.5in 8.5in')
+  expect(await expectPages(one, 'FE1', 1, HALF)).toBe(1)
+  await one.screenshot({ path: '../screenshots/factura-media-hoja-1-linea-media-carta.png', fullPage: true })
+  for (const [width, height] of [[1440, 900], [390, 844]]) {
+    await one.setViewportSize({ width: width!, height: height! })
+    await one.screenshot({ path: `../screenshots/factura-media-hoja-ventana-${width}.png` })
+  }
+  await one.close()
+
+  // Five and fifteen lines open on the half letter chosen before, one page each.
+  for (const [number, lines] of [['FE2', 5], ['FE3', 15]] as const) {
+    const popup = await open(number)
+    await expect(halfButton(popup)).toHaveAttribute('aria-pressed', 'true')
+    expect(await expectPages(popup, number, lines, HALF)).toBe(1)
+    if (lines === 15) {
+      await popup.screenshot({ path: '../screenshots/factura-media-hoja-15-lineas-media-carta.png', fullPage: true })
+      await popup.getByRole('button', { name: 'Carta', exact: true }).click()
+      expect(await expectPages(popup, number, lines, LETTER)).toBe(1)
+    }
+    await popup.close()
+  }
+
+  // Forty and 120 lines do not fit half letter: letter pages, and the window says why.
+  for (const [number, lines] of [['FE4', 40], ['FE5', 120]] as const) {
+    const popup = await open(number)
+    await expect(halfButton(popup)).toBeDisabled()
+    await expect(popup.getByRole('status')).toHaveText(`No cabe en media carta: la factura de venta ${number} tiene ${lines} líneas. Se imprime en carta.`)
+    const sheets = await expectPages(popup, number, lines, LETTER)
+    expect(sheets).toBeGreaterThanOrEqual(lines === 40 ? 2 : 3)
+    await popup.screenshot({ path: `../screenshots/factura-media-hoja-${lines}-lineas-carta.png`, fullPage: true })
+    await popup.pdf({ path: `../screenshots/factura-media-hoja-${lines}-lineas-carta.pdf`, preferCSSPageSize: true })
+    await popup.close()
+  }
 })
 

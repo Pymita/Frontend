@@ -352,6 +352,22 @@ export async function watchPrinting(page: Page): Promise<() => Promise<{ opened:
   return () => page.evaluate(() => ({ ...(window as unknown as { __printing: { opened: number; printed: number } }).__printing }))
 }
 
+/** The `@page` rule of a print window (text assertions skip `<style>`). */
+export function pageRule(popup: Page): Promise<string> {
+  return popup.locator('#page-size').evaluate(style => style.textContent ?? '')
+}
+
+/** Pages of a PDF that Chromium printed (`page.pdf()`): an overflowing sheet would add one. */
+export function pdfPages(pdf: Buffer): number {
+  return (pdf.toString('latin1').match(/\/Type\s*\/Page(?![s\w])/g) ?? []).length
+}
+
+/** Width and height of the first page in points: letter is 612 × 792, half letter 396 × 612. */
+export function pdfPageSize(pdf: Buffer): number[] {
+  const box = pdf.toString('latin1').match(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/)
+  return box ? [Math.round(Number(box[1])), Math.round(Number(box[2]))] : []
+}
+
 /** Las filas de una hoja de un .xlsx que escribió el backend (textos en línea y números). */
 export function xlsxRows(file: Buffer, sheet = 1): string[][] {
   const name = `xl/worksheets/sheet${sheet}.xml`

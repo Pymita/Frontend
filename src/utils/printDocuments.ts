@@ -1,6 +1,6 @@
 import { money } from './money'
 /**
- * Documentos imprimibles en hoja carta: cuenta de cobro / factura de venta y
+ * Documentos imprimibles en carta o media carta: cuenta de cobro / factura de venta y
  * recibo de caja de la facturación automática, la factura de venta de una
  * venta del POS y el cierre de caja de un turno. Es UNA plantilla para todas
  * las empresas: el encabezado sale de los datos de cada una (Configuración >
@@ -538,8 +538,7 @@ const STYLES = `
   @page { size: letter; margin: 12mm; }
   * { box-sizing: border-box; }
   body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: black; margin: 0; }
-  .document { max-width: 190mm; margin: 0 auto; page-break-after: always; }
-  .document:last-child { page-break-after: auto; }
+  .document { max-width: 190mm; margin: 0 auto; }
   .box { border: 1.5px solid black; border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
   .business { flex: 1; text-align: center; line-height: 1.5; }
@@ -552,9 +551,11 @@ const STYLES = `
   .party-row { margin: 3px 0; }
   table { width: 100%; border-collapse: collapse; }
   th { border-bottom: 1.5px solid black; padding: 4px; font-size: 12px; }
-  td { padding: 6px 4px; vertical-align: top; }
+  td { padding: 4px; vertical-align: top; }
   .left { text-align: left; } .right { text-align: right; } .center { text-align: center; }
-  .items { min-height: 70mm; display: flex; flex-direction: column; justify-content: space-between; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+  .items { display: flex; flex-direction: column; }
   .totals { align-self: flex-end; min-width: 240px; margin-top: 12px; }
   .totals div { display: flex; justify-content: space-between; gap: 16px; margin: 2px 0; }
   .grand-total { font-weight: bold; font-size: 14px; }
@@ -567,6 +568,43 @@ const STYLES = `
   .signatures { display: flex; justify-content: space-between; gap: 40px; margin-top: 36px; }
   .signature { flex: 1; border-top: 1px solid black; padding-top: 4px; text-align: center; font-weight: bold; }
   .printed-by { margin-top: 12px; text-align: center; font-size: 9px; color: dimgray; }
+  .page-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 6px 14px; }
+  .page-head .business-name, .page-head .number { font-size: 14px; margin: 0; }
+  .page-foot { margin-top: 6px; text-align: right; font-size: 10px; }
+  @media screen {
+    body { background: whitesmoke; }
+    .toolbar { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; background: white; border-bottom: 1px solid silver; font-size: 13px; }
+    .toolbar button { font: inherit; padding: 6px 12px; border: 1px solid black; border-radius: 6px; background: white; color: black; cursor: pointer; }
+    .toolbar button[aria-pressed="true"] { background: black; color: white; }
+    .toolbar button:disabled { border-color: silver; color: gray; cursor: not-allowed; }
+    .paper-choice { display: inline-flex; gap: 4px; }
+    .paper-note { flex: 1 1 240px; color: dimgray; }
+    .print-button { font-weight: bold; }
+    .sheets { display: flex; flex-direction: column; gap: 16px; padding: 16px; }
+    .sheet { margin: 0 auto; background: white; box-shadow: 0 1px 4px silver; }
+    body[data-paper="letter"] .sheet { width: 215.9mm; min-height: 279.4mm; padding: 12mm; }
+    body[data-paper="half"] .sheet { width: 139.7mm; min-height: 215.9mm; padding: 8mm; }
+  }
+  @media print {
+    .toolbar { display: none; }
+    .sheet { break-after: page; }
+    .sheet:last-child { break-after: auto; }
+  }
+  body[data-paper="half"] { font-size: 10px; }
+  body[data-paper="half"] .box { padding: 6px 10px; margin-bottom: 6px; border-radius: 8px; }
+  body[data-paper="half"] .header { gap: 8px; }
+  body[data-paper="half"] .party-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  body[data-paper="half"] .business-name, body[data-paper="half"] .number { font-size: 15px; }
+  body[data-paper="half"] .doc-number { min-width: 110px; }
+  body[data-paper="half"] .doc-kind { font-size: 11px; margin-bottom: 3px; }
+  body[data-paper="half"] .resolution { font-size: 9px; }
+  body[data-paper="half"] th { font-size: 10px; padding: 3px; }
+  body[data-paper="half"] td { padding: 3px; }
+  body[data-paper="half"] .totals { min-width: 170px; margin-top: 6px; }
+  body[data-paper="half"] .grand-total { font-size: 12px; }
+  body[data-paper="half"] .notes { min-height: 12mm; }
+  body[data-paper="half"] .signatures { margin-top: 24px; gap: 24px; }
+  body[data-paper="half"] .printed-by { margin-top: 8px; }
 `
 
 /**
@@ -581,13 +619,190 @@ export const openDocumentWindow = (): Window | null => {
   return win
 }
 
+// ===== Hoja: carta o media carta, en páginas =====
+
+type Paper = 'letter' | 'half'
+
+/** Millimetres; the margin is the same on the four sides. */
+const PAPERS: Record<Paper, { label: string; size: string; width: number; height: number; margin: number }> = {
+  letter: { label: 'Carta', size: 'letter', width: 215.9, height: 279.4, margin: 12 },
+  half: { label: 'Media carta', size: '5.5in 8.5in', width: 139.7, height: 215.9, margin: 8 },
+}
+type PaperSize = (typeof PAPERS)[Paper]
+
+const PAPER_KEY = 'pos.paper'
+const PX_PER_MM = 96 / 25.4
+// Kept free at the foot of every page: what the window measured and what the
+// printer lays out may differ by a few pixels of rounding.
+const SAFETY_MM = 4
+
+interface LaidOut { kind: string; number: string; lines: number; pages: number }
+
+const outerHeight = (el: Element): number => {
+  const style = el.ownerDocument.defaultView!.getComputedStyle(el)
+  return el.getBoundingClientRect().height + parseFloat(style.marginTop) + parseFloat(style.marginBottom)
+}
+
+/**
+ * Puts one document on sheets of the paper, measuring it where it was drawn
+ * (same width and fonts the printer uses). When it does not fit one page,
+ * the rows of its items table are split: the first page keeps the whole
+ * header, the next ones repeat the document number and the header row, the
+ * totals, words, notes and signatures close the last one, and every page
+ * says "Página n de m". A row is never cut. A document without an items
+ * table (the cash close) stays one flowing sheet.
+ */
+const layOut = (section: HTMLElement, paper: PaperSize): LaidOut => {
+  const doc = section.ownerDocument
+  const kind = section.querySelector('.doc-kind')?.textContent ?? ''
+  const number = section.querySelector('.doc-number .number')?.textContent ?? ''
+  const items = section.querySelector<HTMLElement>(':scope > .items')
+  const table = items?.querySelector('table')
+  const rows = table?.tBodies[0] ? [...table.tBodies[0].rows] : []
+  const sheet = doc.createElement('div')
+  sheet.className = 'sheet'
+  section.replaceWith(sheet)
+  sheet.append(section)
+
+  const available = (paper.height - 2 * paper.margin - SAFETY_MM) * PX_PER_MM
+  const height = outerHeight(section)
+  const laid: LaidOut = { kind, number, lines: rows.length, pages: Math.max(1, Math.ceil(height / available)) }
+  if (height <= available || !items || !table?.tHead || !rows.length) return laid
+
+  const children = [...section.children]
+  const head = children.slice(0, children.indexOf(items))
+  const tail = children.slice(children.indexOf(items) + 1)
+  const totals = items.querySelector<HTMLElement>(':scope > .totals')
+  const business = section.querySelector('.business-name')?.textContent ?? ''
+  const pageHead = () => {
+    const el = doc.createElement('div')
+    el.className = 'box page-head'
+    el.innerHTML = `<span class="business-name">${escape(business)}</span>` +
+      `<span><span class="doc-kind">${escape(kind)}</span> <span class="label">No.</span> <span class="number">${escape(number)}</span></span>`
+    return el
+  }
+  const pageFoot = (page: number, pages: number) => {
+    const el = doc.createElement('div')
+    el.className = 'page-foot'
+    el.textContent = `${kind} No. ${number} · Página ${page} de ${pages}`
+    return el
+  }
+
+  const samples = [pageHead(), pageFoot(1, 1)]
+  section.append(...samples)
+  const [headHeight = 0, footHeight = 0] = samples.map(outerHeight)
+  samples.forEach(sample => sample.remove())
+  const sum = (elements: Element[]) => elements.reduce((total, el) => total + outerHeight(el), 0)
+  const rowHeights = rows.map(row => row.getBoundingClientRect().height)
+  const totalsHeight = totals ? outerHeight(totals) : 0
+  // The items box around the rows of a page: its border, padding and header row.
+  const box = outerHeight(items) - table.getBoundingClientRect().height - totalsHeight + table.tHead.getBoundingClientRect().height
+  const roomOf = (page: number) => available - footHeight - box - (page === 0 ? sum(head) : headHeight)
+  const closing = totalsHeight + sum(tail)
+
+  const ranges: [number, number][] = []
+  for (let from = 0; from < rows.length;) {
+    const room = roomOf(ranges.length)
+    let to = from
+    let used = 0
+    while (to < rows.length && used + rowHeights[to]! <= room) used += rowHeights[to++]!
+    if (to === from) to++
+    // The totals close the last page: when they do not fit after its rows, its last row moves on with them.
+    if (to === rows.length && used + closing > room && to - from > 1) to--
+    ranges.push([from, to])
+    from = to
+  }
+  const [lastFrom, lastTo] = ranges[ranges.length - 1]!
+  if (rowHeights.slice(lastFrom, lastTo).reduce((a, b) => a + b, 0) + closing > roomOf(ranges.length - 1)) {
+    ranges.push([rows.length, rows.length])
+  }
+
+  const sheets = ranges.map(([from, to], index) => {
+    const last = index === ranges.length - 1
+    const part = doc.createElement('section')
+    part.className = 'document'
+    part.append(...(index === 0 ? head : [pageHead()]))
+    const pageBox = items.cloneNode(false) as HTMLElement
+    const pageTable = table.cloneNode(false) as HTMLTableElement
+    const body = doc.createElement('tbody')
+    body.append(...rows.slice(from, to))
+    pageTable.append(table.tHead!.cloneNode(true), body)
+    pageBox.append(pageTable, ...(last && totals ? [totals] : []))
+    part.append(pageBox, ...(last ? tail : []), pageFoot(index + 1, ranges.length))
+    const page = doc.createElement('div')
+    page.className = 'sheet'
+    page.append(part)
+    return page
+  })
+  sheet.replaceWith(...sheets)
+  return { ...laid, pages: sheets.length }
+}
+
+const render = (doc: Document, sections: string, paper: Paper): LaidOut[] => {
+  const size = PAPERS[paper]
+  doc.body.dataset.paper = paper
+  doc.getElementById('page-size')!.textContent = `@page { size: ${size.size}; margin: ${size.margin}mm; }`
+  const container = doc.querySelector<HTMLElement>('.sheets')!
+  container.innerHTML = sections
+  return [...container.querySelectorAll<HTMLElement>(':scope > .document')].map(section => layOut(section, size))
+}
+
+const halfLetterNote = (laid: LaidOut): string => {
+  const name = `${/^(FACTURA|CUENTA)/.test(laid.kind) ? 'la' : 'el'} ${laid.kind.toLowerCase()} ${laid.number}`
+  const why = laid.lines ? `tiene ${laid.lines} ${laid.lines === 1 ? 'línea' : 'líneas'}` : 'es más largo que media hoja'
+  return `No cabe en media carta: ${name} ${why}. Se imprime en carta.`
+}
+
+const preferredPaper = (): Paper => {
+  try {
+    return localStorage.getItem(PAPER_KEY) === 'half' ? 'half' : 'letter'
+  } catch {
+    return 'letter'
+  }
+}
+
+/**
+ * Shows the documents as sheets of the paper chosen in the window's toolbar
+ * and prints only when asked ("Imprimir o guardar en PDF"), so the size is
+ * chosen before printing or saving. Media carta is offered when every
+ * document fits one half page; otherwise it is letter and the toolbar says
+ * why. The last choice is remembered in this browser.
+ */
 export const fillDocumentWindow = (win: Window, title: string, sections: string): void => {
-  win.document.open()
-  win.document.write(
+  const doc = win.document
+  doc.open()
+  doc.write(
     `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${escape(title)}</title>` +
-      `<style>${STYLES}</style></head><body>${sections}</body></html>`,
+      `<style>${STYLES}</style><style id="page-size"></style></head><body>` +
+      '<div class="toolbar"><span class="label">Tamaño de hoja:</span>' +
+      '<span class="paper-choice" role="group" aria-label="Tamaño de hoja">' +
+      (Object.keys(PAPERS) as Paper[]).map(paper => `<button type="button" data-paper="${paper}" aria-pressed="false">${PAPERS[paper].label}</button>`).join('') +
+      '</span><span class="paper-note" role="status"></span>' +
+      '<button type="button" class="print-button">Imprimir o guardar en PDF</button></div>' +
+      '<main class="sheets"></main></body></html>',
   )
-  win.document.close()
+  doc.close()
+
+  const tooLong = render(doc, sections, 'half').find(laid => laid.pages > 1)
+  const buttons = [...doc.querySelectorAll<HTMLButtonElement>('button[data-paper]')]
+  const choose = (paper: Paper) => {
+    render(doc, sections, paper)
+    buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.paper === paper)))
+  }
+  if (tooLong) {
+    buttons.find(button => button.dataset.paper === 'half')!.disabled = true
+    doc.querySelector('.paper-note')!.textContent = halfLetterNote(tooLong)
+  }
+  buttons.forEach(button => button.addEventListener('click', () => {
+    const paper = button.dataset.paper as Paper
+    choose(paper)
+    try {
+      localStorage.setItem(PAPER_KEY, paper)
+    } catch {
+      // Without storage (private mode) the choice lasts this window.
+    }
+  }))
+  doc.querySelector('.print-button')!.addEventListener('click', () => win.print())
+  choose(!tooLong && preferredPaper() === 'half' ? 'half' : 'letter')
   win.focus()
-  win.print()
 }
