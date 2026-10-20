@@ -183,7 +183,7 @@ test('el gráfico cambia entre semana, mes y rango, y más vendidos sigue el per
   await expect(juiceRow).toContainText('$7.500')
 })
 
-test('primeros pasos queda bajo las métricas y solo muestra lo obligatorio pendiente', async ({ page, request }) => {
+test('primeros pasos queda bajo las métricas: lo pendiente con X roja y lo listo con chulo verde', async ({ page, request }) => {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
   const setup = (await (await request.get(`${API}/dashboard/setup`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -193,7 +193,8 @@ test('primeros pasos queda bajo las métricas y solo muestra lo obligatorio pend
     steps: { key: string; done: boolean; optional: boolean }[]
   }
   const pending = setup.steps.filter(step => !step.done && !step.optional)
-  const hidden = setup.steps.filter(step => step.done || step.optional)
+  const done = setup.steps.filter(step => step.done)
+  const optional = setup.steps.filter(step => !step.done && step.optional)
   const invoicing = setup.steps.find(step => step.key === 'invoicing')
   if (invoicing) expect(invoicing.optional).toBe(true)
 
@@ -217,37 +218,50 @@ test('primeros pasos queda bajo las métricas y solo muestra lo obligatorio pend
   expect(guideBox).toBeTruthy()
   expect(metricBox!.y).toBeLessThan(guideBox!.y)
 
+  const toggle = guideCard.getByRole('button', { name: 'Ver los que ya están listos' })
   if (pending.length === 0) {
+    // Everything required is done: one line, and the list on demand.
     await expect(guideCard).toContainText('Primeros pasos listos')
+    for (const step of setup.steps) {
+      await expect(page.getByTestId(`setup-step-${step.key}`)).toHaveCount(0)
+    }
+    await toggle.click()
   } else {
     await expect(guideCard).toContainText(`${setup.completed} de ${setup.total} listos`)
-    for (const step of pending) {
-      const row = page.getByTestId(`setup-step-${step.key}`)
-      await expect(row.getByLabel('Pendiente')).toBeVisible()
-      await expect(row.locator('.text-error')).toBeVisible()
-    }
-  }
-  for (const step of hidden) {
-    await expect(page.getByTestId(`setup-step-${step.key}`)).toHaveCount(0)
-  }
-  if (invoicing && !invoicing.done) {
-    await expect(page.getByTestId('setup-step-invoicing')).toHaveCount(0)
+    await expect(toggle).toHaveCount(0)
   }
 
-  if (hidden.length === 0) return
-  await guideCard.getByRole('button', { name: 'Ver los que ya están listos' }).click()
-  for (const step of hidden) {
+  // A red X for what is missing, a green check for what is done, in that order.
+  for (const step of pending) {
+    const icon = page.getByTestId(`setup-step-${step.key}`).getByRole('img', { name: 'Pendiente' })
+    await expect(icon).toHaveClass(/mdi-close-circle/)
+    await expect(icon).toHaveClass(/text-error/)
+    await expect(page.getByTestId(`setup-step-${step.key}`).getByRole('link', { name: /^Ir a/ })).toBeVisible()
+  }
+  for (const step of done) {
     const row = page.getByTestId(`setup-step-${step.key}`)
-    await expect(row).toBeVisible()
-    if (step.done) await expect(row.getByLabel('Listo')).toBeVisible()
-    if (step.optional) await expect(row).toContainText('Opcional')
+    const icon = row.getByRole('img', { name: 'Listo' })
+    await expect(icon).toHaveClass(/mdi-check-circle/)
+    await expect(icon).toHaveClass(/text-success/)
+    await expect(row.getByRole('img', { name: 'Pendiente' })).toHaveCount(0)
+    await expect(row.getByRole('link')).toHaveCount(0)
+  }
+  for (const step of optional) {
+    const row = page.getByTestId(`setup-step-${step.key}`)
+    await expect(row).toContainText('Opcional')
+    await expect(row.getByRole('img', { name: 'Opcional' })).toBeAttached()
+    await expect(row.getByRole('img', { name: 'Pendiente' })).toHaveCount(0)
   }
   if (invoicing && !invoicing.done) {
-    await expect(page.getByTestId('setup-step-invoicing').getByLabel('Pendiente')).toHaveCount(0)
+    await expect(page.getByTestId('setup-step-invoicing').getByRole('img', { name: 'Pendiente' })).toHaveCount(0)
   }
-  await guideCard.getByRole('button', { name: 'Ocultar los que ya están listos' }).click()
-  for (const step of hidden) {
-    await expect(page.getByTestId(`setup-step-${step.key}`)).toHaveCount(0)
+  const order = await guideCard.locator('[data-testid^="setup-step-"]').evaluateAll(rows =>
+    rows.map(row => row.getAttribute('data-testid')!.replace('setup-step-', '')))
+  expect(order).toEqual([...pending, ...done, ...optional].map(step => step.key))
+
+  if (pending.length === 0) {
+    await guideCard.getByRole('button', { name: 'Ocultar los que ya están listos' }).click()
+    await expect(guideCard.locator('[data-testid^="setup-step-"]')).toHaveCount(0)
   }
 })
 
