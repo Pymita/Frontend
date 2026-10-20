@@ -22,7 +22,7 @@
           <template v-if="step === 'confirm'">
             <v-alert type="warning" variant="tonal">
               <div class="font-weight-bold mb-1">¿Seguro que quieres cerrar la caja?</div>
-              El turno {{ shown.number }} queda cerrado con {{ money(shown.summary.sales_total) }} en ventas y empieza
+              El turno {{ shown.number }} queda cerrado con {{ closingAmounts }} y empieza
               uno nuevo de inmediato. Si te equivocas, el administrador lo corrige en Ventas › Cierres de caja.
             </v-alert>
             <p v-if="typeof countedCash === 'number'" class="text-body-2 mt-3">
@@ -35,7 +35,7 @@
               {{ resultMessage }}
             </v-alert>
             <v-alert v-else-if="shown.has_previous_day_movements" type="warning" variant="tonal" density="compact" class="mb-4">
-              Este turno tiene ventas desde el {{ formatMomentDay(shown.summary.first_movement_at) }}. Si se te olvidó
+              Este turno tiene {{ received.plain }} desde el {{ formatMomentDay(shown.summary.first_movement_at) }}. Si se te olvidó
               cerrar la caja ese día, pide al administrador que la cierre con esa fecha en Ventas › Cierres de caja:
               así lo de hoy queda en un turno nuevo.
             </v-alert>
@@ -44,21 +44,27 @@
             <p v-if="invoiceRange" class="text-body-2 text-medium-emphasis">Facturas {{ invoiceRange }}</p>
 
             <div class="d-flex flex-wrap ga-6 my-3">
-              <div>
-                <div class="text-caption text-medium-emphasis">Ventas</div>
-                <div class="text-h6 tabular-nums" data-testid="cash-sales-total">{{ money(shown.summary.sales_total) }}</div>
-                <div class="text-caption text-medium-emphasis">
-                  {{ plural(shown.summary.sales_count ?? 0, 'venta', 'ventas') }} ·
-                  {{ plural(shown.summary.orders_count ?? 0, 'pedido', 'pedidos') }}
+              <template v-if="showSales">
+                <div>
+                  <div class="text-caption text-medium-emphasis">{{ salesLabel }}</div>
+                  <div class="text-h6 tabular-nums" data-testid="cash-sales-total">{{ money(shown.summary.sales_total) }}</div>
+                  <div class="text-caption text-medium-emphasis">
+                    {{ plural(shown.summary.sales_count ?? 0, 'venta', 'ventas') }} ·
+                    {{ plural(shown.summary.orders_count ?? 0, 'pedido', 'pedidos') }}
+                  </div>
                 </div>
-              </div>
-              <div>
-                <div class="text-caption text-medium-emphasis">Propinas</div>
-                <div class="text-h6 tabular-nums">{{ money(shown.summary.tips_total) }}</div>
-              </div>
-              <div v-if="shown.summary.order_abonos">
-                <div class="text-caption text-medium-emphasis">Abonos a cuentas abiertas</div>
-                <div class="text-h6 tabular-nums">{{ money(shown.summary.order_abonos) }}</div>
+                <div>
+                  <div class="text-caption text-medium-emphasis">Propinas</div>
+                  <div class="text-h6 tabular-nums">{{ money(shown.summary.tips_total) }}</div>
+                </div>
+                <div v-if="shown.summary.order_abonos">
+                  <div class="text-caption text-medium-emphasis">Abonos a cuentas abiertas</div>
+                  <div class="text-h6 tabular-nums">{{ money(shown.summary.order_abonos) }}</div>
+                </div>
+              </template>
+              <div v-if="showAbonos">
+                <div class="text-caption text-medium-emphasis">Abonos de cuotas</div>
+                <div class="text-h6 tabular-nums" data-testid="cash-abonos-total">{{ money(abonosTotal) }}</div>
               </div>
             </div>
 
@@ -66,8 +72,10 @@
               <thead>
                 <tr>
                   <th>Medio</th>
-                  <th class="text-end">Cobros</th>
-                  <th class="text-end d-none d-sm-table-cell">Propinas</th>
+                  <template v-if="showSales">
+                    <th class="text-end">Cobros</th>
+                    <th class="text-end d-none d-sm-table-cell">Propinas</th>
+                  </template>
                   <th class="text-end">Recibido</th>
                 </tr>
               </thead>
@@ -78,8 +86,16 @@
                   <td class="text-end tabular-nums d-none d-sm-table-cell">{{ money(entry.tips) }}</td>
                   <td class="text-end tabular-nums">{{ money(entry.amount) }}</td>
                 </tr>
-                <tr v-if="!methodRows.length">
-                  <td colspan="4" class="text-medium-emphasis">Aún no hay cobros en este turno.</td>
+                <tr v-for="entry in abonoRows" :key="`abonos-${entry.method}`" data-testid="cash-abono-method">
+                  <td>Abonos de cuotas · {{ entry.label }}</td>
+                  <template v-if="showSales">
+                    <td class="text-end text-medium-emphasis">—</td>
+                    <td class="text-end text-medium-emphasis d-none d-sm-table-cell">—</td>
+                  </template>
+                  <td class="text-end tabular-nums">{{ money(entry.amount) }}</td>
+                </tr>
+                <tr v-if="!methodRows.length && !abonoRows.length">
+                  <td :colspan="showSales ? 4 : 2" class="text-medium-emphasis">Aún no hay {{ received.none }} en este turno.</td>
                 </tr>
               </tbody>
             </v-table>
@@ -88,8 +104,10 @@
               <div v-if="shown.opening_amount > 0" class="d-flex justify-space-between">
                 <span>+ Base</span><span class="tabular-nums">{{ money(shown.opening_amount) }}</span>
               </div>
-              <div class="d-flex justify-space-between"><span>+ Cobros en efectivo (con propinas)</span><span class="tabular-nums">{{ money(shown.summary.cash_sales) }}</span></div>
-              <div v-if="shown.summary.cash_recurring" class="d-flex justify-space-between">
+              <div v-if="showSales" class="d-flex justify-space-between">
+                <span>+ Cobros en efectivo (con propinas)</span><span class="tabular-nums">{{ money(shown.summary.cash_sales) }}</span>
+              </div>
+              <div v-if="showAbonos" class="d-flex justify-space-between">
                 <span>+ Abonos de cuotas en efectivo</span><span class="tabular-nums">{{ money(shown.summary.cash_recurring) }}</span>
               </div>
               <div v-if="shown.summary.cash_expenses" class="d-flex justify-space-between">
@@ -129,7 +147,7 @@
               <MoneyField
                 v-model="countedCash"
                 label="Efectivo contado (opcional)"
-                hint="Cuenta el efectivo de las ventas, sin la base que dejas en el cajón"
+                :hint="`Cuenta el efectivo de ${received.named}, sin la base que dejas en el cajón`"
                 persistent-hint
               />
               <p
@@ -179,9 +197,13 @@ import salesService, { PAYMENT_METHOD_LABELS, type CashSession, type PaymentMeth
 import { billingService } from '../services/billingService'
 import { cashCloseHtml, fillDocumentWindow, openDocumentWindow } from '../utils/printDocuments'
 import { errorMessage } from '../utils/errors'
+import { useAuthStore } from '../stores/auth'
 
 // The printed summary lists up to 20.
 const PRODUCTS_SHOWN = 5
+const METHOD_ORDER = Object.keys(PAYMENT_METHOD_LABELS)
+
+const authStore = useAuthStore()
 
 const session = ref<CashSession | null>(null)
 const closed = ref<CashSession | null>(null)
@@ -225,6 +247,41 @@ const methodRows = computed(() =>
       tips: totals.tips,
       amount: totals.amount,
     })),
+)
+
+// An abono is cash of the cartera, never a sale: its own rows, by method.
+const abonoRows = computed(() =>
+  Object.entries(shown.value?.summary.recurring_by_method ?? {})
+    .filter(([, amount]) => (amount ?? 0) > 0)
+    .sort(([a], [b]) => METHOD_ORDER.indexOf(a) - METHOD_ORDER.indexOf(b))
+    .map(([method, amount]) => ({
+      method,
+      label: PAYMENT_METHOD_LABELS[method as PaymentMethod] ?? method,
+      amount: amount ?? 0,
+    })),
+)
+const abonosTotal = computed(() => abonoRows.value.reduce((sum, entry) => sum + entry.amount, 0))
+
+// The shift is the company's drawer, whoever closes it, so the close follows
+// the company's modules; money that came in always shows. A session stored
+// before `modules` existed sees the close as it always was.
+const companyModules = computed(() => authStore.user?.company?.modules)
+const showSales = computed(() => (companyModules.value?.includes('orders') ?? true) || methodRows.value.length > 0)
+const showAbonos = computed(() => !!companyModules.value?.includes('recurring_billing') || abonoRows.value.length > 0)
+// With monthly fees "venta" is what gets billed: the close's sales are the orders' only.
+const salesLabel = computed(() => (showAbonos.value ? 'Ventas de pedidos' : 'Ventas'))
+const received = computed(() => {
+  if (!showSales.value) return { plain: 'abonos', named: 'los abonos', none: 'abonos' }
+  if (showAbonos.value) return { plain: 'ventas y abonos', named: 'las ventas y los abonos', none: 'cobros ni abonos' }
+  return { plain: 'ventas', named: 'las ventas', none: 'cobros' }
+})
+const closingAmounts = computed(() =>
+  [
+    showSales.value ? `${money(shown.value?.summary.sales_total)} en ventas` : '',
+    showAbonos.value ? `${money(abonosTotal.value)} en abonos` : '',
+  ]
+    .filter(Boolean)
+    .join(' y '),
 )
 
 const topProducts = computed(() => (shown.value?.summary.products ?? []).slice(0, PRODUCTS_SHOWN))
@@ -310,7 +367,7 @@ const printSummary = async () => {
   }
   try {
     const business = await billingService.getBusiness()
-    fillDocumentWindow(win, `Cierre de caja ${summary.number}`, cashCloseHtml(business, summary))
+    fillDocumentWindow(win, `Cierre de caja ${summary.number}`, cashCloseHtml(business, summary, { orders: showSales.value }))
   } catch (error) {
     win.close()
     notify(errorMessage(error, 'No fue posible generar el resumen para imprimir. Inténtalo de nuevo.'), 'error')
@@ -318,4 +375,7 @@ const printSummary = async () => {
 }
 
 onMounted(load)
+
+// The page that owns the money (Cartera) reloads the chip after each abono.
+defineExpose({ load })
 </script>

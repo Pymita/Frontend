@@ -2,11 +2,13 @@ import { readFileSync } from 'node:fs'
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import {
   API,
+  apiLogin,
   buildXlsx,
   createCompany,
   displayDate,
   field,
   freezeTime,
+  issueDocuments,
   loginUI,
   pageRule,
   pdfPageSize,
@@ -446,6 +448,9 @@ test('la cartera es su propia página en Operación y la pestaña de Facturació
   const panel = page.locator('.v-expansion-panel', { hasText: 'Ana Apto 101' })
   await panel.locator('.v-expansion-panel-title').click()
   await expect(panel.locator('tbody tr', { hasText: 'CC-1' })).toContainText('Abonada')
+  // Every column, Estado and the actions included, fits the panel: no sideways scroll at 1440 px.
+  await expect(panel.getByRole('button', { name: 'Imprimir CC-1' })).toBeVisible()
+  expect(await panel.locator('.v-table__wrapper').evaluate(table => table.scrollWidth - table.clientWidth)).toBeLessThanOrEqual(0)
   await page.waitForTimeout(400)
   await page.screenshot({ path: '../screenshots/cartera-en-el-menu-pagina-1440.png', fullPage: true })
   await page.screenshot({ path: '../screenshots/cartera-en-el-menu-menu-1440.png' })
@@ -483,6 +488,11 @@ test('un empleado con solo clientes ve la Cartera, registra un abono y lee el hi
     data: { name: 'Cajera Cartera', role: 'employee', permissions: ['customers'], ...employee },
   })
   expect(created.status(), await created.text()).toBe(201)
+  // Clientes alone has no cash shift (the register is orders or automatic billing).
+  const registerCalls: string[] = []
+  page.on('request', sent => {
+    if (sent.url().includes('/cash-register')) registerCalls.push(sent.url())
+  })
 
   await page.setViewportSize({ width: 1440, height: 900 })
   await loginUI(page, employee.username, employee.password, slug)
@@ -492,6 +502,8 @@ test('un empleado con solo clientes ve la Cartera, registra un abono y lee el hi
 
   const panel = page.locator('.v-expansion-panel', { hasText: 'Ana Clientes' })
   await expect(panel).toContainText('Saldo $250.000')
+  await expect(page.getByTestId('cash-open-chip')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Cerrar caja' })).toHaveCount(0)
   await panel.getByRole('button', { name: 'Registrar abono', exact: true }).click()
   const dialog = page.getByRole('dialog').filter({ hasText: 'Abono de Ana Clientes' })
   await field(page, 'Valor del abono').locator('input').fill('100000')
@@ -519,6 +531,139 @@ test('un empleado con solo clientes ve la Cartera, registra un abono y lee el hi
 
   await page.goto('/facturacion-automatica')
   await expect(page).not.toHaveURL(/facturacion-automatica/)
+  // Registering the abono reloaded the cartera without asking for a shift; the API refuses one anyway.
+  expect(registerCalls).toEqual([])
+  const employeeToken = await apiLogin(request, employee.username, employee.password, slug)
+  const refused = await request.get(`${API}/cash-register/current`, {
+    headers: { Authorization: `Bearer ${employeeToken}`, Accept: 'application/json' },
+  })
+  expect(refused.status()).toBe(403)
+})
+
+/**
+ * A condominium's cash shift is its abonos: every abono of the shift by
+ * method, closed from Cartera. The documents are the sales of their issue
+ * date (Ventas) and what they still owe is the cartera; none of them is a
+ * sale or cash of the close.
+ */
+test('un conjunto sin pedidos cierra la caja desde la Cartera con sus abonos por medio y ninguna venta', async ({ page, request }) => {
+  test.setTimeout(60_000)
+  const company = await createRecurringCompany(request, 'caja-cartera')
+  await issueDocuments(request, company.token, [
+    { name: 'Ana Caja 201', document_number: '2201', monthly_fee: 300000 },
+    { name: 'Beto Caja 202', document_number: '2202', monthly_fee: 250000 },
+  ])
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Cartera').click()
+  await expect(page.getByTestId('cash-open-chip')).toContainText('Caja abierta desde')
+
+  // An abono in cash to the customer, then one by transfer to the document; each reloads the shift.
+  const ana = page.locator('.v-expansion-panel', { hasText: 'Ana Caja 201' })
+  await ana.getByRole('button', { name: 'Registrar abono', exact: true }).click()
+  const customerDialog = page.getByRole('dialog').filter({ hasText: 'Abono de Ana Caja 201' })
+  await customerDialog.getByLabel('Valor del abono').fill('120.000')
+  let shiftReloaded = page.waitForResponse(response => response.url().includes('/cash-register/current'))
+  await customerDialog.getByRole('button', { name: 'Registrar abono' }).click()
+  await expect(customerDialog).toContainText('Abono registrado en el recibo de caja RC-1 por $120.000')
+  await shiftReloaded
+  await customerDialog.getByRole('button', { name: 'Cerrar' }).click()
+
+  const beto = page.locator('.v-expansion-panel', { hasText: 'Beto Caja 202' })
+  await beto.locator('.v-expansion-panel-title').click()
+  await beto.locator('tbody tr', { hasText: 'CC-2' }).getByRole('button', { name: 'Abonar' }).click()
+  const documentDialog = page.getByRole('dialog').filter({ hasText: 'CC-2 · Beto Caja 202' })
+  await documentDialog.getByLabel('Valor del abono').fill('100.000')
+  await documentDialog.locator('.v-input', { hasText: 'Método de pago' }).click()
+  await page.getByRole('option', { name: 'Transferencia' }).click()
+  shiftReloaded = page.waitForResponse(response => response.url().includes('/cash-register/current'))
+  await documentDialog.getByRole('button', { name: 'Registrar abono' }).click()
+  await expect(page.getByText('Abono registrado exitosamente')).toBeVisible()
+  await shiftReloaded
+  await documentDialog.getByRole('button', { name: 'Cerrar' }).click()
+  await expect(page.locator('.v-card', { hasText: 'Saldo por cobrar' })).toContainText('$330.000')
+
+  expect(await beto.locator('.v-table__wrapper').evaluate(table => table.scrollWidth - table.clientWidth)).toBeLessThanOrEqual(0)
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await expect(page.getByText('Abono registrado exitosamente')).toBeHidden({ timeout: 8000 })
+  await page.screenshot({ path: '../screenshots/caja-facturacion-automatica-cartera-encabezado-1440.png' })
+  await beto.screenshot({ path: '../screenshots/caja-facturacion-automatica-cartera-documentos-1440.png' })
+
+  // A close cuts at its own second: what was just registered stays in this shift.
+  await page.waitForTimeout(1000)
+  await page.getByRole('button', { name: 'Cerrar caja' }).click()
+  const close = page.getByRole('dialog').filter({ hasText: 'Cerrar caja' })
+  const abonos = close.getByTestId('cash-abono-method')
+  await expect(abonos.filter({ hasText: 'Abonos de cuotas · Efectivo' })).toContainText('$120.000')
+  await expect(abonos.filter({ hasText: 'Abonos de cuotas · Transferencia' })).toContainText('$100.000')
+  await expect(close.getByTestId('cash-abonos-total')).toHaveText('$220.000')
+  // Only the cash abono is in the drawer; the transfer and the $550.000 billed never are.
+  await expect(close.getByTestId('cash-expected')).toHaveText('$120.000')
+  await expect(close.getByTestId('cash-sales-total')).toHaveCount(0)
+  await expect(close).not.toContainText(/venta|propina|pedido/i)
+  await expect(close).not.toContainText('$550.000')
+  await expect(close.getByText('Cuenta el efectivo de los abonos, sin la base que dejas en el cajón')).toBeVisible()
+  await close.getByLabel('Efectivo contado (opcional)').fill('120.000')
+  await expect(close.getByTestId('cash-difference')).toHaveText('Cuadra: el efectivo está completo')
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/caja-facturacion-automatica-cierre-1440.png' })
+
+  await close.getByRole('button', { name: 'Cerrar caja' }).click()
+  await expect(close).toContainText(/El turno \d+ queda cerrado con \$220\.000 en abonos y empieza/)
+  await close.getByRole('button', { name: 'Sí, cerrar caja' }).click()
+  const done = page.getByRole('dialog').filter({ hasText: 'Caja cerrada' })
+  await expect(done).toContainText('Caja cerrada: el efectivo cuadra.')
+  await expect(done.getByTestId('cash-abono-method')).toHaveCount(2)
+
+  const [printout] = await Promise.all([
+    page.waitForEvent('popup'),
+    done.getByRole('button', { name: 'Imprimir resumen' }).click(),
+  ])
+  await expect(printout.locator('.doc-number')).toContainText('CIERRE DE CAJA')
+  const printed = await printout.locator('body').innerText()
+  expect(printed).toMatch(/Abonos de cuotas · Efectivo\s+\$120\.000/)
+  expect(printed).toMatch(/Abonos de cuotas · Transferencia\s+\$100\.000/)
+  expect(printed).toMatch(/EFECTIVO DEL TURNO\s+\$120\.000/)
+  expect(printed).not.toMatch(/VENTAS|PRODUCTOS|Propinas|Cobros en efectivo/)
+  await printout.close()
+  await done.getByRole('button', { name: 'Listo' }).click()
+  await expect(page.getByTestId('cash-open-chip')).toContainText('Caja abierta desde')
+
+  // Ventas › Cierres de caja reads the same close: abonos by method, no sales column.
+  await sidebarItem(page, 'Ventas').click()
+  await expect(page.locator('.v-card', { hasText: 'Total vendido' })).toContainText('$550.000')
+  await page.getByRole('button', { name: 'Cierres de caja' }).click()
+  const closes = page.locator('.v-data-table')
+  await expect(closes.locator('thead')).toContainText('Abonos de cuotas')
+  await expect(closes.locator('thead')).not.toContainText('Ventas')
+  const closedRow = closes.locator('tbody tr', { hasText: 'Cuadra' })
+  await expect(closedRow).toContainText('$220.000')
+  await expect(closedRow).toContainText('Efectivo: $120.000')
+  await expect(closedRow).toContainText('Transferencia: $100.000')
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/caja-facturacion-automatica-cierres-1440.png' })
+
+  // On a phone the panel sits under the title and the close still fits.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/cartera')
+  await expect(page.getByTestId('cash-open-chip')).toBeVisible()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/caja-facturacion-automatica-cartera-encabezado-390.png' })
+  // The documents scroll inside their panel, never the page, and the actions are reachable.
+  const narrow = page.locator('.v-expansion-panel', { hasText: 'Beto Caja 202' })
+  await narrow.locator('.v-expansion-panel-title').click()
+  const pay = narrow.locator('tbody tr', { hasText: 'CC-2' }).getByRole('button', { name: 'Abonar' })
+  await pay.scrollIntoViewIfNeeded()
+  await expect(pay).toBeInViewport()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  await page.waitForTimeout(300)
+  await narrow.screenshot({ path: '../screenshots/caja-facturacion-automatica-cartera-documentos-390.png' })
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await page.getByRole('button', { name: 'Cerrar caja' }).click()
+  await expect(page.getByRole('dialog').getByTestId('cash-expected')).toHaveText('$0')
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/caja-facturacion-automatica-cierre-390.png' })
 })
 
 test('el histórico de abonos lista parciales y totales y descarga el PDF', async ({ page, request }) => {
