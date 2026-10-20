@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import { ADMIN, API, apiLogin, field, loginUI } from './helpers'
+import { ADMIN, API, SHOP_WITH_FEES, apiLogin, createCompany, field, freezeTime, issueDocuments, loginUI } from './helpers'
 
 /**
  * Finanzas: movimientos que no son venta ni compra. Un aporte del dueño
@@ -80,4 +80,45 @@ test('un aporte del dueño suma a la caja sin ser utilidad y un egreso suelto s�
   await expect(page.getByText('Movimiento eliminado')).toBeVisible()
   await expect(expense).toHaveCount(0)
   expect((await figures(request, auth)).netProfit).toBe(before.netProfit)
+  // Without automatic billing "Ventas" has no breakdown by origin.
+  await expect(page.locator('tr', { hasText: 'Facturación automática' })).toHaveCount(0)
+})
+
+test('el estado de resultados suma los documentos emitidos a las ventas, sin contar sus abonos', async ({ page, request }) => {
+  const company = await createCompany(request, 'finanzas-cuotas', { business_type: 'recurring', modules: SHOP_WITH_FEES })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: 'Tienda' } })
+  const product = await request.post(`${API}/products`, {
+    headers: auth,
+    data: {
+      name: 'Gaseosa Tienda', type: 'final', unit: 'und', unit_cost: 1000, sale_price: 2500,
+      tracks_stock: false, category_id: (await category.json()).data.id,
+    },
+  })
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { order_type: 'takeaway', payment_status: 'paid', items: [{ product_id: (await product.json()).data.id, quantity: 2 }] },
+  })
+  expect(order.ok(), await order.text()).toBeTruthy()
+
+  const [ana, beto] = await issueDocuments(request, company.token, [
+    { name: 'Ana Apto 101', document_number: '1001', monthly_fee: 250000 },
+    { name: 'Beto Apto 102', document_number: '1002', monthly_fee: 180000 },
+  ])
+  // Paid in full: the abono is cash, the sale was the document.
+  await request.post(`${API}/recurring-billing/invoices/${ana!.id}/payments`, { headers: auth, data: { amount: 250000, payment_method: 'cash' } })
+  expect((await request.post(`${API}/recurring-billing/invoices/${beto!.id}/cancel`, { headers: auth })).ok()).toBeTruthy()
+
+  await freezeTime(page, ana!.issued_at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/finanzas')
+
+  await expect(page.locator('tr', { hasText: /^Ventas/ })).toContainText('$255.000')
+  await expect(page.locator('tr', { hasText: 'Pedidos' })).toContainText('$5.000')
+  await expect(page.locator('tr', { hasText: 'Facturación automática' })).toContainText('$250.000')
+  await expect(page.locator('tr', { hasText: 'Utilidad bruta' })).toContainText('$255.000')
+  // Administración unfolds by itself on this page: the capture waits for the drawer to settle.
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: '../screenshots/ventas-facturacion-finanzas-1440.png', fullPage: true })
 })

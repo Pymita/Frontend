@@ -43,6 +43,17 @@
                 <td>Ventas</td>
                 <td class="text-right font-weight-medium">{{ money(income.sales) }}</td>
               </tr>
+              <!-- Documents issued are sales (their abonos are cash, never a second sale). -->
+              <template v-if="income.sales_by_origin?.recurring">
+                <tr>
+                  <td class="pl-12 text-caption text-medium-emphasis">Pedidos</td>
+                  <td class="text-right text-caption text-medium-emphasis">{{ money(income.sales_by_origin.order) }}</td>
+                </tr>
+                <tr>
+                  <td class="pl-12 text-caption text-medium-emphasis">Facturación automática</td>
+                  <td class="text-right text-caption text-medium-emphasis">{{ money(income.sales_by_origin.recurring) }}</td>
+                </tr>
+              </template>
               <tr>
                 <td class="pl-8 text-medium-emphasis">(−) Costo de ventas (kardex)</td>
                 <td class="text-right">{{ money(income.cost_of_sales) }}</td>

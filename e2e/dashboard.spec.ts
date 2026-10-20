@@ -1,5 +1,16 @@
-import { expect, test, type APIRequestContext } from '@playwright/test'
-import { ADMIN, API, apiLogin, displayDate, loginUI } from './helpers'
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import {
+  ADMIN,
+  API,
+  SHOP_WITH_FEES,
+  apiLogin,
+  createCompany,
+  displayDate,
+  e2eSql,
+  freezeTime,
+  issueDocuments,
+  loginUI,
+} from './helpers'
 
 /**
  * Dashboard: lo que el dueño mira primero. Las métricas cuentan lo mismo
@@ -193,6 +204,8 @@ test('primeros pasos queda bajo las métricas y solo muestra lo obligatorio pend
   await expect(metric).toBeVisible()
   await expect(guideCard).toBeVisible()
   await expect(page.getByText('Pedidos recientes')).toHaveCount(0)
+  // A restaurant without automatic billing has no cartera on its dashboard.
+  await expect(page.getByText('Saldo por cobrar')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Mes', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByText('Ventas del mes')).toBeVisible()
 
@@ -279,6 +292,121 @@ test('capturas del tablero en escritorio y en celular', async ({ page }) => {
   })
   await page.waitForTimeout(300)
   await page.screenshot({ path: '../screenshots/mobile-sin-menu.png', fullPage: true })
+})
+
+/** A metric card of the dashboard, by its exact title. */
+const metricCard = (page: Page, title: string) =>
+  page.locator('.v-card').filter({ has: page.getByText(title, { exact: true }) })
+
+/**
+ * A condominium that also runs a little shop: its dashboard is about sales
+ * (orders and documents) and the cartera, not about open orders.
+ */
+test('con facturación automática el inicio muestra ventas y cartera, no los pedidos pendientes', async ({ page, request }) => {
+  const company = await createCompany(request, 'tienda-cuotas', { business_type: 'recurring', modules: SHOP_WITH_FEES })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const sodaName = `Gaseosa Tienda ${Date.now()}`
+  const sodaId = await createProduct(request, auth, {
+    name: sodaName, type: 'final', unit: 'und', unit_cost: 1000, sale_price: 2500, tracks_stock: false,
+  })
+  await chargedSale(request, auth, sodaId, 2)
+
+  // Open since two days ago: a restaurant would get "pedido pendiente de cobro" on top.
+  const open = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { order_type: 'takeaway', items: [{ product_id: sodaId, quantity: 1 }] },
+  })
+  expect(open.ok(), await open.text()).toBeTruthy()
+  e2eSql(`UPDATE orders SET created_at = datetime('now', '-2 days') WHERE id = ${(await open.json()).data.id}`)
+
+  const [ana] = await issueDocuments(request, company.token, [
+    { name: 'Ana Apto 101', document_number: '1001', monthly_fee: 250000 },
+    { name: 'Beto Apto 102', document_number: '1002', monthly_fee: 180000 },
+  ])
+  const abono = await request.post(`${API}/recurring-billing/invoices/${ana!.id}/payments`, {
+    headers: auth,
+    data: { amount: 50000, payment_method: 'cash' },
+  })
+  expect(abono.ok(), await abono.text()).toBeTruthy()
+  // Billed in January 2025 and never paid: overdue.
+  await issueDocuments(request, company.token, [{ name: 'Carla Apto 103', document_number: '1003', monthly_fee: 90000 }], {
+    issue_date: '2025-01-02',
+  })
+  const stats = (await (await request.get(`${API}/dashboard/stats`, { headers: auth })).json()).data
+  expect(stats.overdue_pending.count).toBe(1)
+
+  await freezeTime(page, ana!.issued_at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/dashboard')
+
+  // 2 sodas (5.000) + 250.000 + 180.000; the abono of 50.000 is cash, not a second sale.
+  await expect(metricCard(page, 'Ventas hoy')).toContainText('$435.000')
+  await expect(metricCard(page, 'Ventas hoy')).toContainText('$435.000 este mes')
+  await expect(metricCard(page, 'Ventas hoy')).toContainText('Pedidos y facturación')
+  await expect(metricCard(page, 'Saldo por cobrar')).toContainText('$470.000')
+  await expect(metricCard(page, 'Saldo por cobrar')).toContainText('3 clientes con saldo')
+  await expect(metricCard(page, 'Vencido')).toContainText('$90.000')
+  await expect(metricCard(page, 'Vencido')).toContainText('1 documento vencido')
+  await expect(metricCard(page, 'Vencido')).toContainText('Requiere cobro')
+  // It has inventory: the stock card and list stay.
+  await expect(page.getByText('Stock bajo', { exact: true })).toHaveCount(2)
+  await expect(page.getByText('Pedidos hoy', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Productos activos', { exact: true })).toHaveCount(0)
+  await expect(page.getByText(/pendientes? de cobro/)).toHaveCount(0)
+
+  const chart = page.locator('.v-card').filter({ has: page.getByRole('button', { name: 'Semana' }) })
+  await expect(chart).toContainText('Este mes: $435.000 en 1 pedido y 2 documentos')
+  await expect(chart.locator('canvas')).toBeVisible()
+  // The shop's products stay the best sellers; their share is of what the orders sold.
+  const top = page.locator('.v-card', { hasText: 'Más vendidos' })
+  await expect(top.locator('.v-list-item', { hasText: sodaName })).toContainText('2 vendidos · 1 pedido')
+  await expect(top).toContainText('100 % de los pedidos')
+
+  await expect(page.locator('.v-progress-circular')).toHaveCount(0)
+  await page.screenshot({ path: '../screenshots/ventas-facturacion-dashboard-1440.png', fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(metricCard(page, 'Vencido')).toBeVisible()
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/ventas-facturacion-dashboard-390.png', fullPage: true })
+})
+
+test('un conjunto sin pedidos ve lo facturado, su cartera y los conceptos más facturados', async ({ page, request }) => {
+  const company = await createCompany(request, 'conjunto-inicio', { business_type: 'recurring' })
+  const [first] = await issueDocuments(request, company.token, [
+    { name: 'Ana Apto 101', document_number: '1001', monthly_fee: 250000 },
+    { name: 'Beto Apto 102', document_number: '1002', monthly_fee: 250000 },
+    { name: 'Carla Parqueadero 7', document_number: '1003', monthly_fee: 80000, billing_concept: 'Cuota parqueadero' },
+  ])
+
+  await freezeTime(page, first!.issued_at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/dashboard')
+
+  await expect(metricCard(page, 'Ventas hoy')).toContainText('$580.000')
+  await expect(metricCard(page, 'Ventas hoy')).toContainText('Facturación automática')
+  await expect(metricCard(page, 'Saldo por cobrar')).toContainText('$580.000')
+  await expect(metricCard(page, 'Vencido')).toContainText('$0')
+  await expect(metricCard(page, 'Vencido')).toContainText('Ningún documento vencido')
+  await expect(metricCard(page, 'Vencido')).toContainText('Al día')
+  // No inventory module: neither the stock card nor the stock list.
+  await expect(page.getByText('Stock bajo', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Todo el stock está bien')).toHaveCount(0)
+
+  const chart = page.locator('.v-card').filter({ has: page.getByRole('button', { name: 'Semana' }) })
+  await expect(chart).toContainText('Este mes: $580.000 en 3 documentos')
+  const top = page.locator('.v-card', { hasText: 'Más facturados' })
+  const fee = top.locator('.v-list-item', { hasText: 'Cuota de administración' })
+  await expect(fee).toContainText('2 documentos')
+  await expect(fee).toContainText('$500.000')
+  await expect(fee).toContainText('86,2 % de lo facturado')
+  await expect(top.locator('.v-list-item', { hasText: 'Cuota parqueadero' })).toContainText('1 documento')
+  await expect(page.getByText('Más vendidos')).toHaveCount(0)
+
+  await expect(page.getByTestId('setup-guide')).toBeVisible()
+  await expect(page.locator('.v-progress-circular')).toHaveCount(0)
+  await page.screenshot({ path: '../screenshots/ventas-facturacion-dashboard-conjunto-1440.png', fullPage: true })
 })
 
 test('si el resumen no carga lo dice y deja reintentar, en vez de quedar en blanco', async ({ page }) => {

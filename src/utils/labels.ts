@@ -61,6 +61,12 @@ export const documentKindLabels: Record<string, string> = {
   collection: 'Cuenta de cobro',
 }
 
+/** Where a sale in Ventas comes from: an order charged or a document issued. */
+export const saleOriginLabels: Record<string, string> = {
+  order: 'Pedido',
+  recurring: 'Facturación automática',
+}
+
 /** Qué pasa con cada fila del Excel de clientes. */
 export const customerImportStatusLabels: Record<string, string> = {
   valid: 'Se crea',

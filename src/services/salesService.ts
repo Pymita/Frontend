@@ -4,15 +4,25 @@ import { orderPaymentMethodLabels } from '../utils/labels'
 
 export type PaymentMethod = 'cash' | 'credit_card' | 'debit_card' | 'transfer' | 'nequi' | 'daviplata' | 'other'
 
+/** An order charged at the POS, or an automatic-billing document issued. */
+export type SaleOrigin = 'order' | 'recurring'
+
 export interface Sale {
-  /** Id interno del pedido: nunca se muestra. */
-  id: number
-  /** Número del pedido en la empresa (una venta siempre lo tiene). */
+  /** Id interno del pedido, null para un documento: nunca se muestra. */
+  id: number | null
+  /** Número del pedido en la empresa (la venta de un pedido siempre lo tiene; un documento no). */
   number: number | null
-  /** #<número del pedido>-<n>: la venta dentro de su pedido */
+  /** #<número del pedido>-<n>: la venta dentro de su pedido; el número DIAN o CC-n de un documento. */
   reference: string | null
+  origin: SaleOrigin
+  /** Documents only. */
+  recurring_invoice_id?: number
+  document_kind?: 'invoice' | 'collection'
+  document_status?: 'pending' | 'partial' | 'paid'
+  /** The DIAN number, or CC-n for a cuenta de cobro. */
   invoice_number: string | null
   invoicing_resolution: string | null
+  /** When the sale counts: the charge of an order, the issue of a document. */
   paid_at: string | null
   dining_table: string | null
   customer_name: string | null
@@ -28,7 +38,9 @@ export interface SalesSummary {
   sales_count: number
   total: number
   tips: number
+  /** POS sales only: documents have no payment method. */
   by_payment_method: Partial<Record<PaymentMethod, number>>
+  by_origin: Record<SaleOrigin, { count: number; total: number }>
 }
 
 export interface SalesFilters {
@@ -37,6 +49,7 @@ export interface SalesFilters {
   payment_method?: PaymentMethod | ''
   user_id?: number | null
   q?: string
+  origin?: SaleOrigin | ''
 }
 
 export interface SalesReport {
@@ -45,9 +58,13 @@ export interface SalesReport {
   truncated: boolean
 }
 
-/** Qué se vendió, producto por producto (neto = después de descuentos generales). */
+/**
+ * Qué se vendió, producto por producto (neto = después de descuentos
+ * generales). Each concept of the documents is a row too, with no cost.
+ */
 export interface ProductSalesRow {
   name: string
+  origin: SaleOrigin
   category: string | null
   quantity: number
   gross: number
@@ -91,6 +108,7 @@ const cleanFilters = (filters: SalesFilters): Record<string, string | number> =>
   if (filters.payment_method) params.payment_method = filters.payment_method
   if (filters.user_id) params.user_id = filters.user_id
   if (filters.q?.trim()) params.q = filters.q.trim()
+  if (filters.origin) params.origin = filters.origin
   return params
 }
 

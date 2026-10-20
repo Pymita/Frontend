@@ -1,4 +1,5 @@
 import api from './api'
+import type { SaleOrigin } from './salesService'
 
 export interface DocumentType {
   id: number
@@ -113,7 +114,9 @@ export interface MovementPayload {
 export interface IncomeStatement {
   from: string
   to: string
+  /** Orders charged plus automatic-billing documents issued (abonos never). */
   sales: number
+  sales_by_origin: Record<SaleOrigin, number>
   cost_of_sales: number
   gross_profit: number
   gross_margin: number
