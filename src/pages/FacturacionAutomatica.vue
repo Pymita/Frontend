@@ -1282,10 +1282,12 @@ const pendingTotal = computed(() => pendingRows.value.reduce((sum, row) => sum +
 
 const billedRows = computed(() => (preview.value?.rows ?? []).filter(r => r.billed))
 
+const cutsOnIssueDate = (row: RecurringPreviewRow) => (row.cutoff_date ?? row.due_date) === issueDate.value
 // Los que tienen el corte el día a facturar van marcados de entrada: es a
-// quienes les toca hoy. Se recalcula solo al cambiar el día o el mes, para
-// no deshacer lo que el usuario marcó a mano.
-const dueOnIssueDate = computed(() => pendingRows.value.filter(r => (r.cutoff_date ?? r.due_date) === issueDate.value))
+// quienes les toca hoy.
+const dueOnIssueDate = computed(() => pendingRows.value.filter(cutsOnIssueDate))
+// Cortan ese día pero ya tienen su documento del mes: no se facturan dos veces.
+const billedOnIssueDate = computed(() => billedRows.value.filter(cutsOnIssueDate))
 // "Seleccionar los del día" vuelve a esta selección después de marcar todos
 // o a mano, en todas las páginas de la lista.
 const selectDueOnIssueDate = () => {
@@ -1295,26 +1297,47 @@ const selectionIsDue = computed(() =>
   selected.value.length === dueOnIssueDate.value.length &&
   dueOnIssueDate.value.every(r => selected.value.includes(r.customer_id)),
 )
-let autoSelectedFor = ''
-const autoSelect = () => {
+// Al cambiar el día o el mes se marcan de nuevo los del día. Si la lista se
+// recarga porque se editó o importó un cliente, solo quien entró o salió de
+// ese día cambia: lo que el usuario marcó a mano se queda como estaba.
+let dueFor = ''
+let dueIds = new Set<number>()
+const syncDueSelection = () => {
   const key = `${period.value}|${issueDate.value}`
-  if (key === autoSelectedFor || !preview.value) return
-  autoSelectedFor = key
-  selectDueOnIssueDate()
+  const due = dueOnIssueDate.value.map(r => r.customer_id)
+  if (key !== dueFor) {
+    selected.value = due
+  } else {
+    const kept = selected.value.filter(id => !dueIds.has(id) || due.includes(id))
+    selected.value = [...kept, ...due.filter(id => !dueIds.has(id) && !kept.includes(id))]
+  }
+  dueFor = key
+  dueIds = new Set(due)
 }
 
 const cutoffHint = computed(() => {
   const count = dueOnIssueDate.value.length
   const day = formatDay(issueDate.value)
+  const month = periodLabel.value
+  const billed = billedOnIssueDate.value
+  const [firstBilled] = billed
   if (count === 0) {
-    return `Nadie tiene su corte el ${day}: marca a mano a quién facturar o usa "Facturar a todos".`
+    if (!firstBilled) {
+      return `Nadie tiene su corte el ${day}: marca a mano a quién facturar o usa "Facturar a todos".`
+    }
+    return billed.length === 1
+      ? `${firstBilled.customer_name} tiene su corte el ${day}, pero ya tiene su documento de ${month} (${firstBilled.billed!.document_number}): cada cliente se factura una vez por mes.`
+      : `Los ${billed.length} clientes con corte el ${day} ya tienen su documento de ${month}: cada cliente se factura una vez por mes.`
   }
-  if (!selectionIsDue.value) {
-    return count === 1 ? `1 cliente tiene su corte el ${day}.` : `${count} clientes tienen su corte el ${day}.`
-  }
-  return count === 1
-    ? `Quedó marcado 1 cliente con corte el ${day}. Puedes marcar o desmarcar otros.`
-    : `Quedaron marcados ${count} clientes con corte el ${day}. Puedes marcar o desmarcar otros.`
+  const dueText = !selectionIsDue.value
+    ? count === 1 ? `1 cliente tiene su corte el ${day}.` : `${count} clientes tienen su corte el ${day}.`
+    : count === 1
+      ? `Quedó marcado 1 cliente con corte el ${day}. Puedes marcar o desmarcar otros.`
+      : `Quedaron marcados ${count} clientes con corte el ${day}. Puedes marcar o desmarcar otros.`
+  if (!firstBilled) return dueText
+  return billed.length === 1
+    ? `${dueText} ${firstBilled.customer_name} también tiene su corte ese día, pero ya tiene su documento de ${month}.`
+    : `${dueText} Hay ${billed.length} más con ese corte que ya tienen su documento de ${month}.`
 })
 
 const loadPreview = async () => {
@@ -1326,7 +1349,7 @@ const loadPreview = async () => {
     // La selección y las ediciones son de un mes: al cambiar de mes se limpian.
     const billable = new Set(pendingRows.value.map(r => r.customer_id))
     selected.value = selected.value.filter(id => billable.has(id))
-    autoSelect()
+    syncDueSelection()
   } catch (error) {
     notify(errorMessage(error, 'No fue posible cargar los clientes para facturar. Inténtalo de nuevo.'), 'error')
   } finally {

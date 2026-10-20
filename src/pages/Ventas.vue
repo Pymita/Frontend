@@ -116,6 +116,7 @@
         <v-text-field
           v-model="filters.q"
           label="Buscar factura o cliente"
+          placeholder="FE120, #12 o Ana"
           density="compact"
           hide-details
           clearable
@@ -408,7 +409,7 @@
                 :color="item.invoice_number ? 'primary' : 'secondary'"
                 :title="item.invoice_number ? 'Factura con consecutivo DIAN' : 'Sin resolución DIAN: se identifica con el número del pedido'"
               >
-                {{ item.invoice_number || `Pedido #${item.id}` }}
+                {{ item.invoice_number || `Pedido #${item.number}` }}
               </v-chip>
             </template>
             <!-- A document is a sale the day it is issued, paid or not: its state says whether it is still owed. -->

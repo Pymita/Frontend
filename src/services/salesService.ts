@@ -8,8 +8,12 @@ export type PaymentMethod = 'cash' | 'credit_card' | 'debit_card' | 'transfer' |
 export type SaleOrigin = 'order' | 'recurring'
 
 export interface Sale {
-  /** The order; null for a document. */
+  /** Id interno del pedido, null para un documento: nunca se muestra. */
   id: number | null
+  /** Número del pedido en la empresa (la venta de un pedido siempre lo tiene; un documento no). */
+  number: number | null
+  /** #<número del pedido>-<n>: la venta dentro de su pedido; el número DIAN o CC-n de un documento. */
+  reference: string | null
   origin: SaleOrigin
   /** Documents only. */
   recurring_invoice_id?: number

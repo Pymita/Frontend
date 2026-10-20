@@ -13,6 +13,8 @@ export interface CompanyUser {
   active: boolean
   permissions: Feature[] | null
   features: Feature[]
+  /** "Cobrar pedidos": a permission inside Pedidos, granted apart from the features */
+  can_charge_orders: boolean
   last_login_at: string | null
 }
 
@@ -24,6 +26,7 @@ export interface CreateUserPayload {
   role: 'admin' | 'employee'
   phone?: string
   permissions?: Feature[]
+  can_charge_orders?: boolean
 }
 
 export interface UpdateUserPayload {
@@ -35,6 +38,7 @@ export interface UpdateUserPayload {
   phone?: string
   active?: boolean
   permissions?: Feature[] | null
+  can_charge_orders?: boolean
 }
 
 interface ApiEnvelope<T> {
