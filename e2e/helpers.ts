@@ -368,6 +368,15 @@ export function pdfPageSize(pdf: Buffer): number[] {
   return box ? [Math.round(Number(box[1])), Math.round(Number(box[2]))] : []
 }
 
+/**
+ * The strings a PDF made by jsPDF draws, one per line and in order: jsPDF
+ * writes uncompressed, and the standard fonts in WinAnsi (Windows-1252).
+ */
+export function pdfText(pdf: Buffer): string {
+  const source = new TextDecoder('windows-1252').decode(pdf)
+  return [...source.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g)].map(([, text]) => text!.replace(/\\(.)/g, '$1')).join('\n')
+}
+
 /** Las filas de una hoja de un .xlsx que escribió el backend (textos en línea y números). */
 export function xlsxRows(file: Buffer, sheet = 1): string[][] {
   const name = `xl/worksheets/sheet${sheet}.xml`
