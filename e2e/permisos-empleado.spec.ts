@@ -57,7 +57,7 @@ test('empleado con acceso limitado solo ve sus secciones', async ({ page, reques
   await expect(sidebarItem(page, 'Inicio')).toBeVisible()
 
   // No ve lo que no le habilitaron:
-  for (const hidden of ['Categorías', 'Productos', 'Recetas', 'Kardex', 'Clientes', 'Gastos', 'Finanzas', 'Empleados', 'Configuración']) {
+  for (const hidden of ['Categorías', 'Productos', 'Recetas', 'Kardex', 'Clientes', 'Cartera', 'Gastos', 'Finanzas', 'Empleados', 'Configuración']) {
     await expect(sidebarItem(page, hidden)).toHaveCount(0)
   }
 
@@ -67,6 +67,9 @@ test('empleado con acceso limitado solo ve sus secciones', async ({ page, reques
   // Y aunque escriba la URL a mano, lo devuelve a una página permitida:
   await page.goto('/gastos')
   await expect(page).not.toHaveURL(/\/gastos/)
+  // The cartera needs Clientes or Facturación automática, not orders.
+  await page.goto('/cartera')
+  await expect(page).not.toHaveURL(/\/cartera/)
 })
 
 /**
@@ -169,7 +172,7 @@ test('pedidos y kardex quedan fijos en el menú: solo Administración se pliega'
   // Administración arranca plegada y así lo fijo cabe sin scroll.
   await expect(admin).toHaveAttribute('aria-expanded', 'false')
   await expect(sidebarItem(page, 'Empleados')).toBeHidden()
-  for (const item of ['Pedidos', 'Kardex', 'Variantes', 'Cerrar sesión']) {
+  for (const item of ['Pedidos', 'Cartera', 'Kardex', 'Variantes', 'Cerrar sesión']) {
     await expect(sidebarItem(page, item)).toBeInViewport()
   }
   await expect(admin).toBeInViewport({ ratio: 1 })

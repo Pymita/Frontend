@@ -8,8 +8,8 @@ export interface MenuItem {
   route: string
   requiresAdmin?: boolean
   superAdminOnly?: boolean
-  /** Función requerida para verla (empleados; los admins tienen todas) */
-  feature?: string
+  /** Función requerida para verla (empleados; los admins tienen todas); con varias, basta una */
+  feature?: string | string[]
   disabled?: boolean
   /** Section heading it is listed under in the side menu */
   group?: string

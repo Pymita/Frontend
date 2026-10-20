@@ -1,5 +1,5 @@
 import type { RouteRecordRaw, Router } from 'vue-router'
-import { effectiveFeatures } from '../types/auth'
+import { effectiveFeatures, type Feature } from '../types/auth'
 const Dashboard = () => import('../pages/Dashboard.vue')
 const Login = () => import('../pages/Login.vue')
 const Categorias = () => import('../pages/Categorias.vue')
@@ -14,6 +14,7 @@ const PlanoSalon = () => import('../pages/PlanoSalon.vue')
 const Clientes = () => import('../pages/Clientes.vue')
 const Gastos = () => import('../pages/Gastos.vue')
 const FacturacionAutomatica = () => import('../pages/FacturacionAutomatica.vue')
+const Cartera = () => import('../pages/Cartera.vue')
 const Plataforma = () => import('../pages/Plataforma.vue')
 const Empleados = () => import('../pages/Empleados.vue')
 const Kardex = () => import('../pages/Kardex.vue')
@@ -130,6 +131,13 @@ export const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, feature: 'recurring_billing' }
   },
   {
+    // Either feature opens it, as the API's cartera endpoints (feature:customers,recurring_billing).
+    path: '/cartera',
+    name: 'Cartera',
+    component: Cartera,
+    meta: { requiresAuth: true, feature: ['customers', 'recurring_billing'] }
+  },
+  {
     path: '/gastos',
     name: 'Gastos',
     component: Gastos,
@@ -192,7 +200,8 @@ export const setupRouterGuards = (router: any) => {
     const requiresAuth = to.meta.requiresAuth
     const requiresAdmin = to.meta.requiresAdmin
     const requiresSuperAdmin = to.meta.requiresSuperAdmin
-    const feature = to.meta.feature as string | undefined
+    // A list of features means any of them, like `feature:a,b` in the API.
+    const anyOf = [to.meta.feature ?? []].flat() as string[]
 
     const token = localStorage.getItem('auth_token')
     const userStr = localStorage.getItem('user_data')
@@ -225,7 +234,7 @@ export const setupRouterGuards = (router: any) => {
     } else if (isSuperAdmin && requiresAuth && !requiresSuperAdmin) {
       // Platform staff has no company: tenant pages make no sense for them.
       next('/plataforma')
-    } else if (feature && !features.includes(feature)) {
+    } else if (anyOf.length && !anyOf.some(feature => features.includes(feature as Feature))) {
       // Aplica también al admin: sus funciones ya están limitadas a los
       // módulos de su empresa.
       // Employee without this feature: send them to their first allowed page.

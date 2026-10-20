@@ -27,6 +27,7 @@
         density="compact"
         base-color="chrome-text"
         color="on-chrome-active"
+        class="pb-0"
       >
         <template v-for="group in menuGroups" :key="group.title">
           <v-list-group v-if="isCollapsible(group.title)" :value="group.title" fluid>
@@ -43,7 +44,7 @@
               :prepend-icon="item.icon"
               :title="item.title"
               active-class="bg-chrome-active"
-              min-height="34"
+              min-height="32"
             />
           </v-list-group>
 
@@ -59,7 +60,7 @@
               :prepend-icon="item.icon"
               :title="item.title"
               active-class="bg-chrome-active"
-              min-height="34"
+              min-height="32"
             />
           </template>
         </template>
@@ -195,7 +196,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useDisplay } from 'vuetify'
 import invoicingService from './services/invoicingService'
 import { useAuthStore } from './stores/auth'
-import { effectiveFeatures } from './types/auth'
+import { effectiveFeatures, type Feature } from './types/auth'
 import { APP_ICON, APP_NAME } from './utils/branding'
 import { errorMessage } from './utils/errors'
 import { SUBSCRIPTION_BLOCKED_EVENT, TWO_FACTOR_REQUIRED_EVENT } from './services/api'
@@ -283,6 +284,7 @@ const allMenuItems: MenuItem[] = [
   { title: 'Kardex', icon: 'mdi-clipboard-text-clock', route: '/kardex', feature: 'inventory', group: 'Catálogo' },
   { title: 'Variantes', icon: 'mdi-tag-multiple', route: '/tipos-producto', requiresAdmin: true, feature: 'menu', group: 'Catálogo' },
   { title: 'Facturación automática', icon: 'mdi-calendar-sync', route: '/facturacion-automatica', feature: 'recurring_billing', group: 'Operación' },
+  { title: 'Cartera', icon: 'mdi-wallet', route: '/cartera', feature: ['customers', 'recurring_billing'], group: 'Operación' },
   { title: 'Clientes', icon: 'mdi-account-multiple', route: '/clientes', feature: 'customers', group: 'Administración' },
   { title: 'Gastos', icon: 'mdi-cash-multiple', route: '/gastos', feature: 'expenses', group: 'Administración' },
   { title: 'Finanzas', icon: 'mdi-finance', route: '/finanzas', requiresAdmin: true, group: 'Administración' },
@@ -312,7 +314,7 @@ const availableMenuItems = computed((): MenuItem[] => {
     // La verificación aplica también al admin: sus funciones ya vienen
     // limitadas a los módulos que su empresa tiene contratados.
     if (item.feature) {
-      return features.includes(item.feature as any)
+      return [item.feature].flat().some(feature => features.includes(feature as Feature))
     }
     return true
   })

@@ -71,12 +71,15 @@ test('la facturación automática es del cobro mensual: un restaurante no la ve'
   await expect(sidebarItem(page, 'Facturación automática')).toHaveCount(0)
   await page.goto('/facturacion-automatica')
   await expect(page).not.toHaveURL(/facturacion-automatica/)
+  // Cartera opens with Clientes too, so the restaurant has it.
+  await expect(sidebarItem(page, 'Cartera')).toBeVisible()
 
   await page.evaluate(() => localStorage.clear())
   const condo = await createCompany(request, 'recurring', 'conjunto')
   await loginUI(page, condo.email, condo.password)
 
   await expect(sidebarItem(page, 'Facturación automática')).toBeVisible()
+  await expect(sidebarItem(page, 'Cartera')).toBeVisible()
   await expect(sidebarItem(page, 'Pedidos')).toHaveCount(0)
   await expect(sidebarItem(page, 'Productos')).toHaveCount(0)
   // Variantes es del menú: sin ese módulo no aparece ni para el admin.
@@ -109,7 +112,7 @@ test('la plataforma puede personalizar los módulos de una empresa', async ({ pa
 })
 
 test('con todos los módulos lo fijo del menú cabe a 700 px y todo el menú a 900 px', async ({ page, request }) => {
-  // El menú más largo: Operación suma Facturación automática.
+  // El menú más largo: Operación suma Facturación automática y Cartera.
   const admin = await createCompany(request, 'other', 'todo')
   await page.setViewportSize({ width: 1366, height: 700 })
   await loginUI(page, admin.email, admin.password)
@@ -118,6 +121,7 @@ test('con todos los módulos lo fijo del menú cabe a 700 px y todo el menú a 9
   const fits = async () => content.evaluate(el => el.scrollHeight <= el.clientHeight)
 
   await expect(sidebarItem(page, 'Facturación automática')).toBeInViewport()
+  await expect(sidebarItem(page, 'Cartera')).toBeInViewport()
   await expect(sidebarGroup(page, 'Administración')).toHaveAttribute('aria-expanded', 'false')
   await expect(sidebarGroup(page, 'Administración')).toBeInViewport({ ratio: 1 })
   await expect.poll(fits).toBe(true)

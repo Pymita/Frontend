@@ -1,7 +1,7 @@
 import api from './api';
 import type { SaleOrigin } from './salesService';
 
-/** The cartera as Facturación automática › Cartera adds it up. */
+/** The cartera as the Cartera page adds it up. */
 export interface Receivables {
   balance: number;
   overdue_balance: number;
