@@ -11,24 +11,36 @@
                 : 'Pedidos pagados: cuánto se ha vendido, con qué método y por quién' }}
             </p>
           </div>
-          <!-- El tooltip va sobre un span: un botón deshabilitado no emite
-               eventos de mouse y el usuario no sabría por qué está apagado. -->
-          <v-tooltip location="bottom" max-width="300" :text="exportHint">
-            <template #activator="{ props: tooltip }">
-              <span v-bind="tooltip" class="d-inline-flex">
-                <v-btn
-                  color="primary"
-                  variant="outlined"
-                  prepend-icon="mdi-microsoft-excel"
-                  :loading="exporting"
-                  :disabled="!canExport"
-                  @click="exportExcel"
-                >
-                  Descargar Excel
-                </v-btn>
-              </span>
-            </template>
-          </v-tooltip>
+          <div class="d-flex flex-wrap ga-2">
+            <!-- El tooltip va sobre un span: un botón deshabilitado no emite
+                 eventos de mouse y el usuario no sabría por qué está apagado. -->
+            <v-tooltip location="bottom" max-width="300" :text="exportHint">
+              <template #activator="{ props: tooltip }">
+                <span v-bind="tooltip" class="d-inline-flex">
+                  <v-btn
+                    color="primary"
+                    variant="outlined"
+                    prepend-icon="mdi-microsoft-excel"
+                    :loading="exporting"
+                    :disabled="!canExport"
+                    @click="exportExcel"
+                  >
+                    Descargar Excel
+                  </v-btn>
+                </span>
+              </template>
+            </v-tooltip>
+            <v-btn
+              v-if="view === 'cash'"
+              color="primary"
+              variant="outlined"
+              prepend-icon="mdi-file-pdf-box"
+              :loading="exportingPdf"
+              @click="exportCashPdf"
+            >
+              Descargar PDF
+            </v-btn>
+          </div>
         </div>
       </v-col>
     </v-row>
@@ -162,6 +174,10 @@
     <v-row v-if="view === 'cash'">
       <v-col cols="12">
         <v-card>
+          <v-card-text class="text-body-2 text-medium-emphasis pb-0">
+            El Excel y el PDF traen los turnos cerrados de estas fechas con los totales del período. El turno abierto
+            no sale: sus cifras todavía cambian.
+          </v-card-text>
           <v-data-table
             :headers="cashHeaders"
             :items="cashSessions"
@@ -608,6 +624,7 @@ import salesService, {
   type CashSession,
 } from '../services/salesService'
 import { billingService } from '../services/billingService'
+import { downloadCashClosesPdf } from '@/utils/abonosPdf'
 import { errorMessage } from '@/utils/errors'
 import { useAuthStore } from '@/stores/auth'
 import { useReadOnly } from '@/composables/useReadOnly'
@@ -646,10 +663,10 @@ const filters = ref<SalesFilters>({
 const report = ref<SalesReport | null>(null)
 const productReport = ref<ProductSalesReport | null>(null)
 const tableReport = ref<TableSalesReport | null>(null)
-// "Cierres de caja" es otra lectura del mismo rango, sin Excel propio.
-type VentasView = SalesView | 'cash'
-const view = ref<VentasView>('sales')
+const view = ref<SalesView>('sales')
 const cashSessions = ref<CashSession[]>([])
+// The closes only read the dates: the other filters are about sales.
+const cashPeriod = () => ({ from: filters.value.from || undefined, to: filters.value.to || undefined })
 const loading = ref(false)
 
 
@@ -888,8 +905,9 @@ const printSale = async (sale: Sale) => {
   }
 }
 
+// A period without closes downloads too: the file says there are none.
 const canExport = computed(() => {
-  if (view.value === 'cash') return false
+  if (view.value === 'cash') return true
   if (view.value === 'products') return (productReport.value?.products.length ?? 0) > 0
   if (view.value === 'tables') return (tableReport.value?.tables.length ?? 0) > 0
   return (report.value?.sales.length ?? 0) > 0
@@ -898,12 +916,13 @@ const EXPORT_HINTS: Record<SalesView, string> = {
   sales: 'Descarga el listado de ventas con los filtros de arriba',
   products: 'Descarga el resumen por producto con los filtros de arriba',
   tables: 'Descarga el resumen por mesa con los filtros de arriba',
+  cash: 'Descarga los cierres de caja de estas fechas con los totales del período',
 }
-const exportHint = computed(() => {
-  if (view.value === 'cash') return 'Cada cierre de caja se imprime desde su fila; el Excel es de las ventas'
-  return canExport.value ? EXPORT_HINTS[view.value] : 'No hay ventas con estos filtros para descargar'
-})
+const exportHint = computed(() =>
+  canExport.value ? EXPORT_HINTS[view.value] : 'No hay ventas con estos filtros para descargar',
+)
 const exporting = ref(false)
+const exportingPdf = ref(false)
 const snackbar = ref({ show: false, text: '', color: 'error' })
 const notify = (text: string, color = 'error') => {
   snackbar.value = { show: true, text, color }
@@ -971,7 +990,7 @@ const load = async (refreshTotals = false) => {
     } else if (view.value === 'tables') {
       tableReport.value = await salesService.byTable(filters.value)
     } else if (view.value === 'cash') {
-      cashSessions.value = await salesService.cashSessions({ from: filters.value.from || undefined, to: filters.value.to || undefined })
+      cashSessions.value = (await salesService.cashSessions(cashPeriod())).sessions
     }
     if (view.value === 'sales' || refreshTotals || !report.value) {
       report.value = await salesService.report(filters.value)
@@ -988,11 +1007,27 @@ watch(view, () => load())
 const exportExcel = async () => {
   exporting.value = true
   try {
-    if (view.value !== 'cash') await salesService.export(filters.value, view.value)
+    await salesService.export(view.value === 'cash' ? cashPeriod() : filters.value, view.value)
   } catch (error) {
     notify(errorMessage(error, 'No fue posible descargar el Excel. Inténtalo de nuevo.'))
   } finally {
     exporting.value = false
+  }
+}
+
+const exportCashPdf = async () => {
+  exportingPdf.value = true
+  try {
+    const period = cashPeriod()
+    const [{ sessions, totals }, business] = await Promise.all([
+      salesService.cashSessions({ ...period, closed: true }),
+      billingService.getBusiness(),
+    ])
+    await downloadCashClosesPdf(business, sessions, totals, period)
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible descargar el PDF. Inténtalo de nuevo.'))
+  } finally {
+    exportingPdf.value = false
   }
 }
 

@@ -36,7 +36,18 @@ export const TWO_FACTOR_REQUIRED_EVENT = 'two-factor-required'
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    // A download (responseType 'blob') gets its error as a Blob too: read it
+    // back so errorMessage() shows the API's message.
+    const data = error.response?.data
+    if (data instanceof Blob && data.type.includes('json')) {
+      try {
+        error.response.data = JSON.parse(await data.text())
+      } catch {
+        // Not JSON after all: the caller's fallback message applies.
+      }
+    }
+
     // 402: suscripción suspendida, la cuenta quedó en solo lectura.
     if (error.response?.status === 402) {
       window.dispatchEvent(

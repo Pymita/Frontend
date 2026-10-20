@@ -1,5 +1,21 @@
+import { readFileSync } from 'node:fs'
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { ADMIN, API, PLATFORM, apiLogin, displayDate, field, loginUI, pageRule, pdfPageSize, pdfPages, watchPrinting } from './helpers'
+import {
+  ADMIN,
+  API,
+  PLATFORM,
+  apiLogin,
+  displayDate,
+  e2eSql,
+  field,
+  loginUI,
+  pageRule,
+  pdfPageSize,
+  pdfPages,
+  pdfText,
+  watchPrinting,
+  xlsxRows,
+} from './helpers'
 
 /**
  * Cobro desde la web: el botón "Cobrar" está en la fila, el diálogo ofrece
@@ -407,8 +423,8 @@ async function currentShift(request: APIRequestContext, auth: Auth) {
   return (await (await request.get(`${API}/cash-register/current`, { headers: auth })).json()).data
 }
 
-async function closeShift(request: APIRequestContext, auth: Auth, id: number) {
-  const response = await request.post(`${API}/cash-register/${id}/close`, { headers: auth, data: {} })
+async function closeShift(request: APIRequestContext, auth: Auth, id: number, data: { counted_cash?: number; notes?: string } = {}) {
+  const response = await request.post(`${API}/cash-register/${id}/close`, { headers: auth, data })
   expect(response.ok()).toBeTruthy()
   return response.json()
 }
@@ -653,6 +669,147 @@ test('quien ve Ventas sin ser admin imprime los cierres pero no los corrige', as
     data: { opened_at: `${isoDay(-1)} 08:00`, reason: 'Sin permiso' },
   })
   expect(refused.status()).toBe(403)
+})
+
+/**
+ * Ventas › Cierres de caja downloads the closes of the dates on screen, one
+ * by one and then the period's totals: the Excel from the API, the PDF from
+ * the same figures. The open shift is never in them; an empty period says so.
+ */
+test('los cierres del día o de un período se descargan en Excel y en PDF con sus totales', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `caja-exportar-${Date.now()}`)
+  const today = isoDay()
+  const productId = await seedSimpleProduct(request, auth, 'Tamal Cierre E2E', 15000)
+  // Shift 1: cash and Nequi, counted exact, with a note. Shift 2: two in cash
+  // and a cash expense, not counted. Shift 3 stays open with a sale of its own.
+  await chargeOrder(request, auth, productId, 'cash')
+  await chargeOrder(request, auth, productId, 'nequi')
+  const first = await currentShift(request, auth)
+  await nextSecond()
+  await closeShift(request, auth, first.id, { counted_cash: 15000, notes: 'Cuadró al peso' })
+  await chargeOrder(request, auth, productId, 'cash', 2)
+  const category = await request.post(`${API}/expense-categories`, { headers: auth, data: { name: 'Insumos caja', type: 'fixed_expense' } })
+  const expense = await request.post(`${API}/expenses`, {
+    headers: auth,
+    data: { expense_category_id: (await category.json()).data.id, concept: 'Hielo', amount: 5000, expense_date: today, payment_method: 'cash' },
+  })
+  expect(expense.status()).toBe(201)
+  const second = await currentShift(request, auth)
+  await nextSecond()
+  await closeShift(request, auth, second.id)
+  await chargeOrder(request, auth, productId, 'cash')
+
+  await loginUI(page, credentials.email, credentials.password)
+  await openCashCloses(page)
+  await expect(shiftRow(page, 3)).toContainText('Abierta')
+  await expect(page.getByText('El Excel y el PDF traen los turnos cerrados de estas fechas con los totales del período.')).toBeVisible()
+  for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+    await page.setViewportSize({ width, height })
+    await expect(page.getByRole('button', { name: 'Descargar PDF' })).toBeVisible()
+    await page.getByRole('button', { name: 'Cierres de caja' }).scrollIntoViewIfNeeded()
+    await page.screenshot({ path: `../screenshots/cierres-de-caja-exportar-${width}.png`, fullPage: true, animations: 'disabled' })
+  }
+  await page.setViewportSize({ width: 1280, height: 720 })
+
+  const download = async (name: string) => {
+    const [file] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name }).click()])
+    return { name: file.suggestedFilename(), bytes: readFileSync((await file.path())!) }
+  }
+
+  const excel = await download('Descargar Excel')
+  expect(excel.name).toBe(`cierres-de-caja-${today}.xlsx`)
+  const [header, ...rows] = xlsxRows(excel.bytes)
+  const cell = (row: string[] | undefined, title: string) => row?.[header!.indexOf(title)] ?? ''
+  expect(rows.map(row => row[0] ?? '')).toEqual(['1', '2', '', 'Total del período (2 cierres)'])
+  expect(cell(rows[0], 'Abrió')).toBe('Automática')
+  expect(cell(rows[0], 'Cerró')).toBe('Dueña Caja')
+  expect(cell(rows[0], 'Cobros · Nequi')).toBe('15000')
+  expect(cell(rows[0], 'Diferencia')).toBe('0')
+  expect(cell(rows[0], 'Nota')).toBe('Cuadró al peso')
+  expect(cell(rows[1], 'Gastos en efectivo')).toBe('5000')
+  expect(cell(rows[1], 'Efectivo del turno')).toBe('25000')
+  expect(cell(rows[1], 'Efectivo contado')).toBe('')
+  expect(cell(rows[3], 'Ventas (sin propina)')).toBe('60000')
+  expect(cell(rows[3], 'Cobros · Efectivo')).toBe('45000')
+  expect(cell(rows[3], 'Total recibido')).toBe('60000')
+
+  const pdf = await download('Descargar PDF')
+  expect(pdf.name).toBe(`cierres-de-caja-${today}.pdf`)
+  expect(pdfPageSize(pdf.bytes)).toEqual([612, 792])
+  const text = pdfText(pdf.bytes)
+  expect(text).toContain('Cierres de caja')
+  expect(text).toContain(`Día: ${displayDate(today)} · Solo los turnos cerrados`)
+  expect(text).not.toContain('Cierre N.º 3')
+  const [, one, two, period] = text.split(/(?=Cierre N\.º \d+\n|Total del período)/)
+  expect(one).toMatch(/^Cierre N\.º 1\n/)
+  expect(one).toMatch(/Apertura: .* · Automática/)
+  expect(one).toMatch(/Cierre: .* · Dueña Caja/)
+  expect(one).toContain('Cobros · Nequi\n$15.000')
+  expect(one).toContain('Efectivo contado\n$15.000')
+  expect(one).toContain('Diferencia\nCuadra')
+  expect(one).toContain('Nota: Cuadró al peso')
+  expect(two).toMatch(/^Cierre N\.º 2\n/)
+  expect(two).not.toContain('Nequi')
+  expect(two).toContain('Gastos en efectivo\n$5.000')
+  expect(two).toContain('Efectivo del turno\n$25.000')
+  expect(two).toContain('Efectivo contado\n—')
+  expect(two).toContain('Diferencia\n—')
+  expect(period).toMatch(/^Total del período \(2 cierres\)\n/)
+  expect(period).toContain('Ventas (sin propina)\n$60.000')
+  expect(period).toContain('N.º de ventas\n3')
+  expect(period).toContain('Cobros · Efectivo\n$45.000')
+  expect(period).toContain('Efectivo del turno\n$40.000')
+  expect(period).toContain('Efectivo contado (1 de 2 cierres)\n$15.000')
+  expect(period).toContain('Total recibido\n$60.000')
+
+  // A period: both dates go into the names and the PDF says which.
+  const yesterday = isoDay(-1)
+  await field(page, 'Desde').locator('input').fill(displayDate(yesterday))
+  await field(page, 'Desde').locator('input').press('Enter')
+  expect((await download('Descargar Excel')).name).toBe(`cierres-de-caja-${yesterday}_${today}.xlsx`)
+  const periodPdf = await download('Descargar PDF')
+  expect(periodPdf.name).toBe(`cierres-de-caja-${yesterday}_${today}.pdf`)
+  expect(pdfText(periodPdf.bytes)).toContain(`Período: ${displayDate(yesterday)} – ${displayDate(today)}`)
+
+  const before = isoDay(-3)
+  for (const label of ['Desde', 'Hasta']) {
+    await field(page, label).locator('input').fill(displayDate(before))
+    await field(page, label).locator('input').press('Enter')
+  }
+  await expect(page.getByText('No hay cierres de caja en el rango seleccionado')).toBeVisible()
+  const emptyPdf = await download('Descargar PDF')
+  expect(emptyPdf.name).toBe(`cierres-de-caja-${before}.pdf`)
+  const empty = pdfText(emptyPdf.bytes)
+  expect(empty).toContain('No hay cierres de caja en estas fechas.')
+  expect(empty).not.toContain('Total del período')
+})
+
+/** One file carries at most 2,000 closes: a longer period is narrowed first, and both downloads say so. */
+test('con más de 2.000 cierres en las fechas, el Excel y el PDF piden acotar el período', async ({ page, request }) => {
+  test.setTimeout(60_000)
+  const { credentials, auth } = await createRestaurant(request, `caja-limite-${Date.now()}`)
+  await currentShift(request, auth)
+  // 2,001 closes through the API would take 2,001 seconds: they go straight to the e2e database.
+  const day = isoDay(-10)
+  const summary = JSON.stringify({
+    by_method: {}, recurring_by_method: {}, cash_sales: 0, cash_recurring: 0, cash_expenses: 0, expected_cash: 0, total_collected: 0,
+  })
+  e2eSql(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 2001)
+    INSERT INTO cash_sessions (company_id, number, opened_at, closed_at, opening_amount, expected_cash, summary, created_at, updated_at)
+    SELECT (SELECT company_id FROM users WHERE email = '${credentials.email}'), 100 + i,
+      datetime('${day} 00:00:00', '+' || (i * 30) || ' seconds'), datetime('${day} 00:00:00', '+' || (i * 30 + 20) || ' seconds'),
+      0, 0, '${summary}', datetime('now'), datetime('now')
+    FROM n`)
+
+  await loginUI(page, credentials.email, credentials.password)
+  await openCashCloses(page, day)
+  const snackbar = page.locator('.v-snackbar')
+  for (const name of ['Descargar Excel', 'Descargar PDF']) {
+    await page.getByRole('button', { name }).click()
+    await expect(snackbar).toContainText('Hay más de 2.000 cierres de caja en esas fechas. Acota el período para descargarlos.')
+    // The message stays 6 seconds: the next download must show its own.
+    await expect(snackbar).toBeHidden({ timeout: 10_000 })
+  }
 })
 
 /**

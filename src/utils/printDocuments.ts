@@ -408,7 +408,7 @@ const amountRows = (rows: [string, number | null | undefined, boolean?][]): stri
       `<tr${strong ? ' class="grand-total"' : ''}><td class="left">${escape(label)}</td><td class="right">${value === null || value === undefined ? '—' : money(value)}</td></tr>`)
     .join('')
 
-const differenceText = (difference: number): string =>
+export const differenceText = (difference: number): string =>
   Math.abs(difference) < 0.01 ? 'Cuadra' : difference > 0 ? `Sobran ${money(difference)}` : `Faltan ${money(Math.abs(difference))}`
 
 const productsTable = (products: { name: string; quantity: number }[]): string => `

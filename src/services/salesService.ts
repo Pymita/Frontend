@@ -103,7 +103,7 @@ export interface TableSalesReport {
   summary: { sales_count: number; time_total: number; total: number }
 }
 
-export type SalesView = 'sales' | 'products' | 'tables'
+export type SalesView = 'sales' | 'products' | 'tables' | 'cash'
 
 export const PAYMENT_METHOD_LABELS = orderPaymentMethodLabels as Record<PaymentMethod, string>
 
@@ -122,6 +122,7 @@ const EXPORT_PATHS: Record<SalesView, { path: string; params?: Record<string, st
   sales: { path: '/sales/export', fallback: 'ventas.xlsx' },
   products: { path: '/sales/by-product', params: { format: 'xlsx' }, fallback: 'ventas_por_producto.xlsx' },
   tables: { path: '/sales/by-table', params: { format: 'xlsx' }, fallback: 'ventas_por_mesa.xlsx' },
+  cash: { path: '/cash-register/sessions', params: { format: 'xlsx' }, fallback: 'cierres-de-caja.xlsx' },
 }
 
 export interface CashShiftTotals {
@@ -185,6 +186,30 @@ export interface CashSession {
   }
 }
 
+/**
+ * What the closes of a period add up to: the figures each one froze, summed.
+ * A sales figure is null only when no close has it (all frozen before
+ * 2026-10); the count and the difference sum the `counted_closes` only.
+ */
+export interface CashPeriodTotals {
+  closes: number
+  sales_total: number | null
+  sales_count: number | null
+  tips_total: number | null
+  order_abonos: number | null
+  by_method: Record<string, { count: number; amount: number; tips: number }>
+  recurring_by_method: Partial<Record<PaymentMethod, number>>
+  cash_sales: number
+  cash_recurring: number
+  cash_expenses: number
+  opening_amount: number
+  expected_cash: number
+  counted_closes: number
+  counted_cash: number | null
+  difference: number | null
+  total_collected: number
+}
+
 export interface CloseCashPayload {
   counted_cash?: number | null
   notes?: string
@@ -217,9 +242,16 @@ class SalesService {
     return { session: response.data.data, previous: response.data.previous, message: response.data.message }
   }
 
-  async cashSessions(filters: { from?: string; to?: string } = {}): Promise<CashSession[]> {
-    const response = await api.get('/cash-register/sessions', { params: filters })
-    return response.data.data
+  /**
+   * Newest first. `closed`: only the closes, every one of the period instead
+   * of the screen's 200, the same ones the Excel lists.
+   */
+  async cashSessions(
+    filters: { from?: string; to?: string; closed?: boolean } = {},
+  ): Promise<{ sessions: CashSession[]; totals: CashPeriodTotals }> {
+    const { closed, ...dates } = filters
+    const response = await api.get('/cash-register/sessions', { params: { ...dates, ...(closed ? { closed: 1 } : {}) } })
+    return { sessions: response.data.data, totals: response.data.totals }
   }
 
   async report(filters: SalesFilters): Promise<SalesReport> {
