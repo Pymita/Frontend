@@ -226,7 +226,7 @@ test('registrar una resolución nueva no cambia lo que ya se imprimió con la an
   const printTicket = async (total: string): Promise<{ popup: Page; text: string }> => {
     const [popup] = await Promise.all([
       page.waitForEvent('popup'),
-      page.locator('tbody tr', { hasText: total }).getByRole('button', { name: 'Factura' }).click(),
+      page.locator('tbody tr', { hasText: total }).getByRole('button', { name: 'Tirilla' }).click(),
     ])
     await expect(popup.locator('body')).toContainText('FACTURA DE VENTA No.')
     return { popup, text: await popup.locator('body').innerText() }
@@ -342,7 +342,7 @@ test('un cobro revertido y vuelto a cobrar imprime el número de la venta nueva'
   const printTicket = async (): Promise<{ popup: Page; text: string }> => {
     const [popup] = await Promise.all([
       page.waitForEvent('popup'),
-      page.locator('tbody tr', { hasText: '$4.321' }).getByRole('button', { name: 'Factura' }).click(),
+      page.locator('tbody tr', { hasText: '$4.321' }).getByRole('button', { name: 'Tirilla' }).click(),
     ])
     await expect(popup.locator('body')).toContainText('FACTURA DE VENTA No.')
     await popup.setViewportSize({ width: 420, height: 650 })
