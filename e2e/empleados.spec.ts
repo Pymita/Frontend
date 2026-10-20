@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, COMPANY_SLUG, apiLogin, loginUI, raisePlanLimits } from './helpers'
+import { ADMIN, API, COMPANY_SLUG, apiLogin, field, loginUI, raisePlanLimits } from './helpers'
 
 /**
  * Empleados: el admin crea la cuenta de alguien de su equipo con usuario
@@ -16,12 +16,44 @@ test('el admin crea un empleado con sus funciones y, al desactivarlo, ya no entr
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Nombre', { exact: true }).fill('Cajera E2E')
   await dialog.getByLabel('Usuario de acceso').fill(username)
-  await dialog.getByLabel('Contraseña', { exact: true }).fill('clave123')
+
+  // The password is asked twice and each field shows what was typed on demand.
+  const password = dialog.getByLabel('Contraseña', { exact: true })
+  const confirmation = dialog.getByLabel('Confirmar contraseña')
+  await password.fill('clave123')
+  await confirmation.fill('clave132')
+  await expect(password).toHaveAttribute('type', 'password')
+  await field(page, 'Contraseña').getByRole('button', { name: 'Mostrar contraseña' }).click()
+  await expect(password).toHaveAttribute('type', 'text')
+  await expect(password).toHaveValue('clave123')
+  await expect(confirmation).toHaveAttribute('type', 'password')
+  await field(page, 'Confirmar contraseña').getByRole('button', { name: 'Mostrar contraseña' }).click()
+  await expect(confirmation).toHaveValue('clave132')
+  await expect(field(page, 'Confirmar contraseña').getByRole('button', { name: 'Ocultar contraseña' })).toBeVisible()
 
   // Gastos viene apagado: mover plata es una decisión del admin.
   const expenses = dialog.getByLabel('Gastos')
   await expect(expenses).not.toBeChecked()
   await expenses.check()
+
+  // A typo in the confirmation blocks creating the account.
+  await dialog.getByRole('button', { name: 'Crear empleado' }).click()
+  await expect(dialog.getByText('Las contraseñas no coinciden.')).toBeVisible()
+  await expect(page.getByText('Empleado creado exitosamente')).toHaveCount(0)
+  const adminToken = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const users = await (await request.get(`${API}/users`, { headers: { Authorization: `Bearer ${adminToken}` } })).json()
+  expect(JSON.stringify(users)).not.toContain(username)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await confirmation.scrollIntoViewIfNeeded()
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/confirmar-contrasena-empleado-1440.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await confirmation.scrollIntoViewIfNeeded()
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/confirmar-contrasena-empleado-390.png' })
+  await page.setViewportSize({ width: 1280, height: 720 })
+
+  await confirmation.fill('clave123')
   await dialog.getByRole('button', { name: 'Crear empleado' }).click()
   await expect(page.getByText('Empleado creado exitosamente')).toBeVisible()
 
@@ -67,6 +99,7 @@ test('el admin le da a un mesero el permiso de cobrar y lo que cobra desde la ap
   await dialog.getByLabel('Nombre', { exact: true }).fill(name)
   await dialog.getByLabel('Usuario de acceso').fill(username)
   await dialog.getByLabel('Contraseña', { exact: true }).fill('clave123')
+  await dialog.getByLabel('Confirmar contraseña').fill('clave123')
 
   // A waiter: only orders, nothing to manage on the web.
   for (const label of ['Menú y categorías', 'Productos e inventario', 'Recetas y costeo', 'Cobro por tiempo (billar)', 'Clientes', 'Inicio, ventas y reportes', 'Facturación automática y cartera']) {
