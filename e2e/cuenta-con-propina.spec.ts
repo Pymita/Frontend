@@ -46,16 +46,18 @@ test('la cuenta impresa muestra el total con y sin propina', async ({ page, requ
   expect(billText).not.toContain('FACTURA DE VENTA')
   await bill.close()
 
-  // Al cobrar con propina, la factura desglosa los dos totales.
-  await expect(dialog.getByLabel('Imprimir la factura al cobrar')).toBeChecked()
+  // Cobrar no abre nada; la tirilla que se pide después desglosa los dos totales.
+  let popups = 0
+  page.on('popup', () => { popups++ })
+  await dialog.getByRole('button', { name: 'Cobrar con propina' }).click()
+  await expect(page.getByText('Pedido cobrado con propina')).toBeVisible()
+  expect(popups).toBe(0)
   const [invoice] = await Promise.all([
     page.waitForEvent('popup'),
-    dialog.getByRole('button', { name: 'Cobrar con propina' }).click(),
+    page.getByRole('button', { name: 'Imprimir tirilla' }).click(),
   ])
-  await expect(page.getByText('Pedido cobrado con propina')).toBeVisible()
   await expect(invoice.locator('body')).toContainText('TOTAL PAGADO')
   const invoiceText = await invoice.locator('body').innerText()
-  console.log(invoiceText)
   expect(invoiceText).toContain('TOTAL SIN PROPINA')
   expect(invoiceText).toContain('$30.000')
   expect(invoiceText).toContain('PROPINA VOLUNTARIA')

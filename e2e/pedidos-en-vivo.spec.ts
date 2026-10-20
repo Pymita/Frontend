@@ -31,7 +31,9 @@ test('un pedido creado desde afuera aparece solo en la web', async ({ page, requ
 
   // Sin tocar nada, la web lo muestra y avisa.
   await expect(page.locator('tr', { hasText: '$1.700' }).first()).toBeVisible({ timeout: 10_000 })
-  await expect(page.getByText(`Nuevo pedido #${orderId}`)).toBeVisible()
+  // Sin número: un pedido lo toma al cobrarse, y el id interno nunca se muestra.
+  await expect(page.getByText('Llegó un pedido nuevo')).toBeVisible()
+  await expect(page.locator('tr', { hasText: '$1.700' }).first()).not.toContainText(`#${orderId}`)
 
   // Cobrarlo desde otro lado también se refleja: la fila deja de ser cobrable.
   await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: { payment_method: 'cash' } })

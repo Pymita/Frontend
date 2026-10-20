@@ -59,7 +59,7 @@ test('la imagen subida se guarda en la carpeta de la empresa', async ({ page, re
   expect(url).toMatch(/^\/storage\/companies\/\d+\/products\//)
 
   // El archivo queda accesible por HTTP (storage:link).
-  const image = await request.get(url.replace('/storage', 'http://127.0.0.1:8010/storage'))
+  const image = await request.get(url.replace('/storage', `${API.replace(/\/api$/, '')}/storage`))
   expect(image.ok()).toBeTruthy()
 
   // Y una categoría puede guardarlo y mostrarlo.

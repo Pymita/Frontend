@@ -188,7 +188,7 @@ test('con facturación automática los documentos son ventas con su número, cli
   await page.getByRole('button', { name: 'Por producto' }).click()
   await expect(page.getByRole('columnheader', { name: 'Producto o concepto' })).toBeVisible()
   const concept = page.locator('tbody tr', { hasText: 'Cuota de administración' })
-  await expect(concept).toContainText('Facturación automática')
+  await expect(concept).toContainText('Servicios')
   await expect(concept).toContainText('$250.000')
   await expect(page.locator('tbody tr', { hasText: 'Gaseosa Tienda' })).toContainText('$5.000')
   await expect(page.getByText('Cada concepto facturado es una fila, sin costo: no pasa por el kardex.')).toBeVisible()

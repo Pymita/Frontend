@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, loginUI } from './helpers'
+import { ADMIN, API, apiLogin, loginUI, watchPrinting } from './helpers'
 
 /**
  * Cuentas separadas: varias personas en la misma mesa, cada una con lo
@@ -108,11 +108,11 @@ test('cobrar por persona hasta cerrar la mesa', async ({ page, request }) => {
   const orderId = (await order.json()).data.id
 
   await loginUI(page, ADMIN.email, ADMIN.password)
+  const printing = await watchPrinting(page)
   await page.goto('/pedidos')
   await page.locator('tr', { hasText: '$24.000' }).first().getByRole('button', { name: 'Cobrar' }).click()
 
   const dialog = page.getByRole('dialog')
-  await dialog.getByLabel('Imprimir la factura al cobrar').uncheck()
 
   // La mesa separó la cuenta: el diálogo abre por persona.
   const persona1 = dialog.locator('.v-list-item', { hasText: 'Persona 1' })
@@ -132,6 +132,8 @@ test('cobrar por persona hasta cerrar la mesa', async ({ page, request }) => {
 
   await persona1.getByRole('button', { name: 'Cobrar con propina' }).click()
   await expect(page.getByText('Persona 1 pagó $9.000')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Imprimir tirilla' })).toBeVisible()
+  expect(await printing()).toEqual({ opened: 0, printed: 0 })
   await expect(persona1).toContainText('Pagado')
   await expect(dialog.getByText('Pendiente de la mesa:')).toBeVisible()
 
@@ -160,9 +162,11 @@ test('cobrar por persona hasta cerrar la mesa', async ({ page, request }) => {
   expect(billText).toContain('POR PAGAR')
   expect(billText).toContain('$16.000')
   await bill.close()
+  expect(await printing()).toEqual({ opened: 1, printed: 1 })
 
   await dialog.getByRole('button', { name: 'Cobrar sin propina' }).click()
   await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
+  expect(await printing()).toEqual({ opened: 1, printed: 1 })
 
   current = (await (await request.get(`${API}/orders/${orderId}`, { headers: auth })).json()).data
   expect(current.payment_status).toBe('paid')
@@ -193,7 +197,6 @@ test('con la sugerencia encendida, cobrar sin escribir propina no cobra propina'
   await page.locator('tr', { hasText: '$8.000' }).first().getByRole('button', { name: 'Cobrar' }).click()
 
   const dialog = page.getByRole('dialog')
-  await dialog.getByLabel('Imprimir la factura al cobrar').uncheck()
   // Aunque la sugerencia esté encendida, si el cajero no escribe propina el
   // botón es "Cobrar" (no "con propina") y no se cobra ninguna.
   await dialog.getByLabel('Sugerir propina voluntaria').check()
@@ -244,7 +247,6 @@ test('la mesa que separó la cuenta también puede pagar todo junto', async ({ p
   await page.locator('tr', { hasText: '$6.000' }).first().getByRole('button', { name: 'Cobrar' }).click()
 
   const dialog = page.getByRole('dialog')
-  await dialog.getByLabel('Imprimir la factura al cobrar').uncheck()
   await dialog.getByRole('button', { name: 'Todos juntos' }).click()
   await expect(dialog.getByText('Total sin propina:')).toBeVisible()
   await dialog.getByRole('button', { name: 'Confirmar cobro' }).click()

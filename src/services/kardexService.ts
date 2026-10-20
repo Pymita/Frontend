@@ -173,15 +173,15 @@ class KardexService {
   }
 
   /**
-   * Movimiento manual del kardex (devolución de ventas, compra suelta...).
-   * Los documentos automáticos (SI, FV, NC) no se aceptan.
+   * Movimiento manual del kardex (devolución de ventas, compra de varios
+   * productos...): un encabezado y una fila del kardex por producto, todas
+   * o ninguna. Los documentos automáticos (SI, FV, NC) no se aceptan.
    */
   async createKardexMovement(payload: {
-    product_id: number
     document_type_id: number
     movement_type: 'in' | 'out'
-    quantity: number
-    unit_cost?: number | null
+    /** Without a cost the line enters at the product's current average cost */
+    items: { product_id: number; quantity: number; unit_cost?: number }[]
     /** Fecha real del documento (retro-fechable, nunca futura) */
     moved_at?: string
     /** Proveedor (FC) o cliente (DV) del movimiento */
@@ -189,9 +189,9 @@ class KardexService {
     reference?: string | null
     /** Observaciones opcionales del movimiento */
     notes?: string
-  }): Promise<KardexMovement> {
-    const response = await api.post<ApiEnvelope<KardexMovement>>('/kardex/movements', payload)
-    return response.data.data
+  }): Promise<{ movements: KardexMovement[]; message: string }> {
+    const response = await api.post<ApiEnvelope<KardexMovement[]>>('/kardex/movements', payload)
+    return { movements: response.data.data, message: response.data.message ?? '' }
   }
 
   async createDocumentType(payload: Pick<DocumentType, 'code' | 'name' | 'direction'>): Promise<DocumentType> {

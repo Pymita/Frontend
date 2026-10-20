@@ -188,7 +188,6 @@ test('una empresa nueva sigue los primeros pasos y hace su primera venta', async
   const row = page.locator('tr', { hasText: '$18.000' }).first()
   await row.getByRole('button', { name: 'Cobrar' }).click()
   const charge = page.getByRole('dialog')
-  await charge.getByLabel('Imprimir la factura al cobrar').uncheck()
   await charge.getByRole('button', { name: 'Confirmar cobro' }).click()
   await expect(charge).toHaveCount(0)
 
