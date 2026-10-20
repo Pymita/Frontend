@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { API, PLATFORM, apiLogin, loginUI, sidebarItem } from './helpers'
+import { API, PLATFORM, apiLogin, field, loginUI, sidebarItem } from './helpers'
 
 /**
  * Capa comercial de la plataforma: vendedores, precio acordado en la
@@ -96,7 +96,7 @@ test('nueva empresa marca los campos obligatorios desde que se abre', async ({ p
   await page.getByRole('button', { name: /Nueva empresa/ }).click()
 
   const dialog = page.getByRole('dialog').filter({ hasText: 'Nueva empresa' })
-  for (const label of ['Nombre de la empresa *', 'Nombre del administrador *', 'Correo de acceso *', 'Contraseña inicial *']) {
+  for (const label of ['Nombre de la empresa *', 'Nombre del administrador *', 'Correo de acceso *', 'Contraseña inicial *', 'Confirmar contraseña *']) {
     await expect(dialog.getByLabel(label)).toBeVisible()
   }
   // Los opcionales siguen diciendo que lo son, y aún no hay errores en rojo.
@@ -111,14 +111,51 @@ test('nueva empresa marca los campos obligatorios desde que se abre', async ({ p
   await dialog.getByLabel('Nombre de la empresa *').fill(`Cuota E2E ${stamp}`)
   await dialog.getByLabel('Nombre del administrador *').fill('Dueña Cuota')
   await dialog.getByLabel('Correo de acceso *').fill(`cuota.${stamp}@e2e.test`)
-  await dialog.getByLabel('Contraseña inicial *').fill('clave1234')
   const fee = dialog.getByLabel('Valor mensual (COP)')
   await expect(fee).not.toHaveAttribute('type', 'number')
   await fee.fill('1.250.000')
+
+  // The password is asked twice and each field shows what was typed on demand.
+  const password = dialog.getByLabel('Contraseña inicial *')
+  const confirmation = dialog.getByLabel('Confirmar contraseña *')
+  await password.fill('clave1234')
+  await confirmation.fill('clave1243')
+  await expect(password).toHaveAttribute('type', 'password')
+  await field(page, 'Contraseña inicial *').getByRole('button', { name: 'Mostrar contraseña' }).click()
+  await expect(password).toHaveAttribute('type', 'text')
+  await expect(password).toHaveValue('clave1234')
+  await expect(field(page, 'Contraseña inicial *').getByRole('button', { name: 'Ocultar contraseña' })).toBeVisible()
+  await expect(confirmation).toHaveAttribute('type', 'password')
+  await field(page, 'Confirmar contraseña *').getByRole('button', { name: 'Mostrar contraseña' }).click()
+  await expect(confirmation).toHaveAttribute('type', 'text')
+  await expect(confirmation).toHaveValue('clave1243')
+
+  // A typo in the confirmation blocks creating the company.
+  await dialog.getByRole('button', { name: 'Crear empresa' }).click()
+  await expect(dialog.getByText('Las contraseñas no coinciden.')).toBeVisible()
+  await expect(dialog).toBeVisible()
+  await confirmation.scrollIntoViewIfNeeded()
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/confirmar-contrasena-nueva-empresa-1440.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await confirmation.scrollIntoViewIfNeeded()
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/confirmar-contrasena-nueva-empresa-390.png' })
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const token = await apiLogin(page.request, PLATFORM.email, PLATFORM.password)
+  const companies = await (await page.request.get(`${API}/platform/companies`, { headers: { Authorization: `Bearer ${token}` } })).json()
+  expect(companies.data.some((c: { name: string }) => c.name === `Cuota E2E ${stamp}`)).toBe(false)
+
+  await confirmation.fill('clave1234')
+  await expect(dialog.getByText('Las contraseñas no coinciden.')).toHaveCount(0)
   await dialog.getByRole('button', { name: 'Crear empresa' }).click()
   await expect(page.getByText('Empresa creada exitosamente')).toBeVisible()
   await expect(dialog).toHaveCount(0)
+  await apiLogin(page.request, `cuota.${stamp}@e2e.test`, 'clave1234')
 
   await page.locator('tr', { hasText: `Cuota E2E ${stamp}` }).locator('.mdi-credit-card-outline').click()
   await expect(page.getByLabel('Valor mensual (COP)')).toHaveValue('1.250.000')
+  // The admin signs in with the password that was confirmed.
+  await apiLogin(page.request, `cuota.${stamp}@e2e.test`, 'clave1234')
 })

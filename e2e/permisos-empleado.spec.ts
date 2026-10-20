@@ -1,6 +1,6 @@
 import { expect, test, type Locator } from '@playwright/test'
 import { encode } from 'uqr'
-import { ADMIN, API, COMPANY_SLUG, PLATFORM, apiLogin, lastResetLink, loginUI, openSidebarGroup, sidebarGroup, sidebarItem, totp } from './helpers'
+import { ADMIN, API, COMPANY_SLUG, PLATFORM, apiLogin, field, lastResetLink, loginUI, openSidebarGroup, sidebarGroup, sidebarItem, totp } from './helpers'
 
 /**
  * Acceso por permisos: quien solo toma pedidos usa la app y no entra a la
@@ -440,12 +440,24 @@ test('un admin recupera su contraseña con el enlace del correo', async ({ page,
   await page.goto(lastResetLink(email))
   await expect(page.getByText('Elige tu contraseña nueva')).toBeVisible()
   await page.getByLabel('Contraseña nueva').fill('corta')
-  await page.getByLabel('Repite la contraseña').fill('corta')
+  await page.getByLabel('Confirmar contraseña').fill('corta')
   await page.getByRole('button', { name: 'Guardar contraseña' }).click()
   await expect(page.getByText('Debe tener al menos 8 caracteres')).toBeVisible()
 
   await page.getByLabel('Contraseña nueva').fill('NuevaClave2026')
-  await page.getByLabel('Repite la contraseña').fill('NuevaClave2026')
+  await page.getByLabel('Confirmar contraseña').fill('NuevaClave2062')
+  await page.getByRole('button', { name: 'Guardar contraseña' }).click()
+  await expect(page.getByText('Las contraseñas no coinciden.')).toBeVisible()
+  // Each field has its own eye: the confirmation shows the typo.
+  await field(page, 'Confirmar contraseña').getByRole('button', { name: 'Mostrar contraseña' }).click()
+  await expect(page.getByLabel('Confirmar contraseña')).toHaveAttribute('type', 'text')
+  await expect(page.getByLabel('Contraseña nueva')).toHaveAttribute('type', 'password')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.screenshot({ path: '../screenshots/confirmar-contrasena-restablecer-1440.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: '../screenshots/confirmar-contrasena-restablecer-390.png' })
+
+  await page.getByLabel('Confirmar contraseña').fill('NuevaClave2026')
   await page.getByRole('button', { name: 'Guardar contraseña' }).click()
   await expect(page.getByText('Tu contraseña quedó cambiada. Ya puedes iniciar sesión.')).toBeVisible()
   await expect(page).toHaveURL(/\/login/)

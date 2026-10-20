@@ -152,7 +152,8 @@ test('una empresa nueva sigue los primeros pasos y hace su primera venta', async
   const employee = page.getByRole('dialog')
   await employee.getByLabel('Nombre', { exact: true }).fill('Mesero Uno')
   await employee.getByLabel('Usuario de acceso').fill(`mesero${stamp}`)
-  await employee.getByLabel('Contraseña').fill('mesero2026')
+  await employee.getByLabel('Contraseña', { exact: true }).fill('mesero2026')
+  await employee.getByLabel('Confirmar contraseña').fill('mesero2026')
   await employee.getByRole('button', { name: 'Crear empleado' }).click()
   await expect(page.locator('tr', { hasText: 'Mesero Uno' })).toBeVisible()
 
