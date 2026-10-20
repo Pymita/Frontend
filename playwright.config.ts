@@ -6,10 +6,17 @@ import { defineConfig } from '@playwright/test'
 // specs (Node) and the browser must share the API's clock.
 process.env.TZ = 'America/Bogota'
 
+// Two checkouts (worktrees) can run their suites at the same time on other
+// ports; each one already has its own ../backend and e2e.sqlite. The specs read
+// the API port from the environment the workers inherit (helpers.ts).
+const API_PORT = process.env.E2E_API_PORT ?? '8010'
+const WEB_PORT = process.env.E2E_WEB_PORT ?? '5199'
+process.env.E2E_API_PORT = API_PORT
+
 /**
- * E2E: levanta backend (Laravel, puerto 8010) con una base de datos
+ * E2E: levanta backend (Laravel, puerto 8010 por defecto) con una base de datos
  * SQLite propia (database/e2e.sqlite, recreada y sembrada en cada
- * arranque) y el frontend (Vite, puerto 5199) apuntando a ese backend.
+ * arranque) y el frontend (Vite, puerto 5199 por defecto) apuntando a ese backend.
  * La base de desarrollo nunca se toca.
  */
 export default defineConfig({
@@ -21,7 +28,7 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://127.0.0.1:5199',
+    baseURL: `http://127.0.0.1:${WEB_PORT}`,
     timezoneId: 'America/Bogota',
     // Colombian users run Spanish browsers; the app must read the same.
     locale: 'es-CO',
@@ -36,14 +43,14 @@ export default defineConfig({
         // La cuenta de plataforma de los seeders no tiene segundo factor, y los
         // correos van al log para leer el enlace de restablecer contraseña.
         'SUPER_ADMIN_2FA_REQUIRED=false MAIL_MAILER=log ' +
-        'DB_DATABASE="$PWD/database/e2e.sqlite" CORS_ALLOWED_ORIGINS="*" php artisan serve --host=127.0.0.1 --port=8010\'',
-      url: 'http://127.0.0.1:8010/up',
+        `DB_DATABASE="$PWD/database/e2e.sqlite" CORS_ALLOWED_ORIGINS="*" php artisan serve --host=127.0.0.1 --port=${API_PORT}'`,
+      url: `http://127.0.0.1:${API_PORT}/up`,
       reuseExistingServer: false,
       timeout: 60_000,
     },
     {
-      command: 'VITE_API_BASE_URL=http://127.0.0.1:8010/api npm run dev -- --host 127.0.0.1 --port 5199 --strictPort',
-      url: 'http://127.0.0.1:5199',
+      command: `VITE_API_BASE_URL=http://127.0.0.1:${API_PORT}/api npm run dev -- --host 127.0.0.1 --port ${WEB_PORT} --strictPort`,
+      url: `http://127.0.0.1:${WEB_PORT}`,
       reuseExistingServer: false,
       timeout: 60_000,
     },

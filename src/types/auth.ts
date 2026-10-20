@@ -80,6 +80,8 @@ export interface User {
   updated_at?: string
   company?: CompanySummary | null
   features?: Feature[]
+  /** "Cobrar pedidos" (missing in sessions stored before the field: the API decides). */
+  can_charge_orders?: boolean
   /** Verificación en dos pasos (solo la cuenta de plataforma la usa). */
   two_factor?: { enabled: boolean; setup_required: boolean }
   /** Privacy policy in force and whether this user accepted it (missing in sessions older than the field). */
