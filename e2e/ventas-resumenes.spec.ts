@@ -32,15 +32,18 @@ test('resumen por producto y por mesa con descarga a Excel', async ({ page, requ
   const tableId = freeTable.id
   const tableName: string = freeTable.display_name
 
+  let paidAt = ''
   for (const quantity of [3, 1]) {
     const order = await request.post(`${API}/orders`, {
       headers: auth,
       data: { dining_table_id: tableId, items: [{ product_id: productId, quantity }] },
     })
     const orderId = (await order.json()).data.id
-    await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+    const paid = await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+    paidAt = (await paid.json()).data.paid_at
   }
 
+  await freezeTime(page, paidAt)
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/ventas')
 
@@ -192,15 +195,18 @@ test('por producto carga cuando se vendieron varios ítems del menú', async ({ 
   const burger = await menuItem('Hamburguesa Menú E2E', 18000, 7000)
   const juice = await menuItem('Jugo Menú E2E', 6000, 2000)
 
+  let paidAt = ''
   for (const [menuItemId, quantity] of [[burger, 2], [juice, 1]]) {
     const order = await request.post(`${API}/orders`, {
       headers: auth,
       data: { items: [{ menu_item_id: menuItemId, quantity }] },
     })
     const orderId = (await order.json()).data.id
-    await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+    const paid = await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+    paidAt = (await paid.json()).data.paid_at
   }
 
+  await freezeTime(page, paidAt)
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/ventas')
   await page.getByRole('button', { name: 'Por producto' }).click()
@@ -257,15 +263,18 @@ test('el sorting de por producto ordena por la columna elegida', async ({ page, 
   // Barato (neto bajo) y caro (neto alto), cada uno en su venta.
   const cheap = await make('ZZZ Barato Sort', 1000)
   const pricey = await make('AAA Caro Sort', 9000)
+  let paidAt = ''
   for (const productId of [cheap, pricey]) {
     const order = await request.post(`${API}/orders`, {
       headers: auth,
       data: { items: [{ product_id: productId, quantity: 1 }] },
     })
     const orderId = (await order.json()).data.id
-    await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+    const paid = await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+    paidAt = (await paid.json()).data.paid_at
   }
 
+  await freezeTime(page, paidAt)
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/ventas')
   await page.getByRole('button', { name: 'Por producto' }).click()
