@@ -254,7 +254,6 @@
               />
               <v-list
                 v-if="visibleSteps.length"
-                ref="stepsList"
                 class="overflow-y-auto"
                 max-height="280"
                 density="compact"
@@ -266,9 +265,12 @@
                   :data-testid="`setup-step-${step.key}`"
                 >
                   <template #prepend>
+                    <!-- VIcon hides itself from screen readers; the state is the icon's whole meaning. -->
                     <v-icon
                       :icon="stepIcon(step)"
                       :color="stepColor(step)"
+                      role="img"
+                      aria-hidden="false"
                       :aria-label="stepAria(step)"
                     />
                   </template>
@@ -283,7 +285,7 @@
                 </v-list-item>
               </v-list>
               <v-btn
-                v-if="detailSteps.length"
+                v-if="!hasPending && orderedSteps.length"
                 variant="text"
                 color="primary"
                 class="mt-1 px-1"
@@ -306,7 +308,7 @@
 <script setup lang="ts">
 import { money, percent } from '@/utils/money'
 import { formatDay } from '@/utils/dates'
-import { ref, reactive, onMounted, computed, watch, nextTick, type ComponentPublicInstance } from 'vue'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
 import DateField from '../components/DateField.vue'
 import {
   dashboardService,
@@ -642,22 +644,30 @@ const chartOptions = computed(() => ({
 const setup = ref<SetupChecklist | null>(null)
 const loadError = ref('')
 const showCompleted = ref(false)
-const stepsList = ref<ComponentPublicInstance | null>(null)
 
 // Required steps still open. Optional ones (recipes, the DIAN resolution)
 // never count as pending: a company can finish without them.
 const pendingSteps = computed(() =>
   (setup.value?.steps ?? []).filter(step => !step.done && !step.optional),
 )
-const detailSteps = computed(() =>
-  (setup.value?.steps ?? []).filter(step => step.done || step.optional),
-)
 const hasPending = computed(() => pendingSteps.value.length > 0)
-const visibleSteps = computed(() => (showCompleted.value ? (setup.value?.steps ?? []) : pendingSteps.value))
+// What is missing first, then what is done, then the optional steps still open.
+const orderedSteps = computed(() => {
+  const steps = setup.value?.steps ?? []
+  return [
+    ...pendingSteps.value,
+    ...steps.filter(step => step.done),
+    ...steps.filter(step => !step.done && step.optional),
+  ]
+})
+// With every required step done the card folds to one line and lists them on demand.
+const visibleSteps = computed(() => (hasPending.value || showCompleted.value ? orderedSteps.value : []))
 const showGuide = computed(() => authStore.isAdmin && (loading.value || setup.value !== null))
 
-const stepIcon = (step: SetupStep): string =>
-  step.done || !step.optional ? 'mdi-check-circle' : 'mdi-circle-outline'
+const stepIcon = (step: SetupStep): string => {
+  if (step.done) return 'mdi-check-circle'
+  return step.optional ? 'mdi-circle-outline' : 'mdi-close-circle'
+}
 
 const stepColor = (step: SetupStep): string | undefined => {
   if (step.done) return 'success'
@@ -670,24 +680,6 @@ const stepAria = (step: SetupStep): string => {
   if (!step.optional) return 'Pendiente'
   return 'Opcional'
 }
-
-// The card only shows a few rows. Opening the details scrolls the first
-// hidden step into that window; closing it returns to the pending ones.
-watch(showCompleted, async (open) => {
-  await nextTick()
-  const root = stepsList.value?.$el as HTMLElement | undefined
-  if (!root) return
-  if (!open) {
-    root.scrollTop = 0
-    return
-  }
-  const first = detailSteps.value[0]
-  const item = first
-    ? root.querySelector<HTMLElement>(`[data-testid="setup-step-${first.key}"]`)
-    : null
-  if (!item) return
-  root.scrollTop += item.getBoundingClientRect().top - root.getBoundingClientRect().top
-})
 
 // Solo el admin configura el negocio; un fallo aquí no tapa el resto.
 const loadSetup = async () => {

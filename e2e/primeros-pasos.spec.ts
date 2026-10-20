@@ -4,10 +4,10 @@ import { API, PLATFORM, apiLogin, field, loginUI, sidebarItem } from './helpers'
 /**
  * Una empresa recién creada, sin plantilla: la guía "Primeros pasos" dice
  * qué falta, y siguiéndola desde la interfaz el negocio queda listo para
- * vender con costo real. Cada paso se marca solo. Por defecto solo se ven
- * los obligatorios pendientes; al terminar, la tarjeta queda en una línea
- * aunque falte la resolución. La venta aparece en Ventas y sale del kardex
- * con su costo.
+ * vender con costo real. Cada paso se marca solo: lo que falta va primero con
+ * una X roja, lo hecho después con un chulo verde y al final los opcionales;
+ * al terminar, la tarjeta queda en una línea aunque falte la resolución. La
+ * venta aparece en Ventas y sale del kardex con su costo.
  *
  * Es un recorrido por varios módulos (configuración, mesas, catálogo,
  * inventario, empleados, caja, pedidos, ventas), por eso vive en su propio
@@ -20,6 +20,34 @@ const step = (page: Page, key: string) => page.getByTestId(`setup-step-${key}`)
 const shot = (name: string) => `../../../screenshots/feat-dashboard-primeros-pasos-${name}.png`
 
 const REQUIRED = ['business', 'tables', 'products', 'stock', 'taxes', 'menu', 'team', 'first_sale']
+const OPTIONAL = ['recipes', 'invoicing']
+
+/** The keys of the steps the card lists, top to bottom. */
+const listedSteps = (page: Page) =>
+  guide(page).locator('[data-testid^="setup-step-"]').evaluateAll(rows =>
+    rows.map(row => row.getAttribute('data-testid')!.replace('setup-step-', '')))
+
+/** What the user sees beside each step: a red X while it is missing, a green check once done. */
+async function expectPending(page: Page, key: string) {
+  const icon = step(page, key).getByRole('img', { name: 'Pendiente' })
+  await expect(icon).toHaveClass(/mdi-close-circle/)
+  await expect(icon).toHaveClass(/text-error/)
+  await expect(step(page, key).getByRole('link', { name: /^Ir a/ })).toBeVisible()
+}
+
+async function expectDone(page: Page, key: string) {
+  const icon = step(page, key).getByRole('img', { name: 'Listo' })
+  await expect(icon).toHaveClass(/mdi-check-circle/)
+  await expect(icon).toHaveClass(/text-success/)
+  await expect(step(page, key).getByRole('img', { name: 'Pendiente' })).toHaveCount(0)
+  await expect(step(page, key).getByRole('link')).toHaveCount(0)
+}
+
+async function expectOptional(page: Page, key: string) {
+  await expect(step(page, key)).toContainText('Opcional')
+  await expect(step(page, key).getByRole('img', { name: 'Opcional' })).toBeAttached()
+  await expect(step(page, key).getByRole('img', { name: 'Pendiente' })).toHaveCount(0)
+}
 
 async function expectMetricsAboveGuide(page: Page) {
   const metric = page.getByText('Pedidos hoy', { exact: true })
@@ -61,28 +89,13 @@ test('una empresa nueva sigue los primeros pasos y hace su primera venta', async
   await expect(page.getByRole('button', { name: 'Mes', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByText('Ventas del mes')).toBeVisible()
 
-  for (const key of REQUIRED) {
-    const row = step(page, key)
-    await expect(row.getByLabel('Pendiente')).toBeVisible()
-    await expect(row.locator('.text-error')).toBeVisible()
-  }
-  await expect(step(page, 'recipes')).toHaveCount(0)
-  await expect(step(page, 'invoicing')).toHaveCount(0)
+  for (const key of REQUIRED) await expectPending(page, key)
+  for (const key of OPTIONAL) await expectOptional(page, key)
+  expect(await listedSteps(page)).toEqual([...REQUIRED, ...OPTIONAL])
+  // Nothing is done yet, and while something is missing the list is already whole.
+  await expect(guide(page).getByRole('img', { name: 'Listo' })).toHaveCount(0)
+  await expect(guide(page).getByRole('button', { name: 'Ver los que ya están listos' })).toHaveCount(0)
   await page.screenshot({ path: shot('inicio-pendientes-1440'), fullPage: true })
-
-  await guide(page).getByRole('button', { name: 'Ver los que ya están listos' }).click()
-  await expect(step(page, 'recipes')).toContainText('Opcional')
-  await expect(step(page, 'invoicing')).toContainText('Opcional')
-  await expect(step(page, 'recipes').getByLabel('Pendiente')).toHaveCount(0)
-  await expect(step(page, 'invoicing').getByLabel('Pendiente')).toHaveCount(0)
-  await expect(step(page, 'recipes')).toBeInViewport()
-  await page.evaluate(() => {
-    window.scrollTo(0, 0)
-    ;(document.activeElement as HTMLElement | null)?.blur()
-  })
-  await page.screenshot({ path: shot('inicio-detalles-1440'), fullPage: true })
-  await guide(page).getByRole('button', { name: 'Ocultar los que ya están listos' }).click()
-  await expect(step(page, 'recipes')).toHaveCount(0)
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.reload()
@@ -90,14 +103,6 @@ test('una empresa nueva sigue los primeros pasos y hace su primera venta', async
   await hideDrawer(page)
   await expectMetricsAboveGuide(page)
   await page.screenshot({ path: shot('inicio-pendientes-390'), fullPage: true })
-  await guide(page).getByRole('button', { name: 'Ver los que ya están listos' }).click()
-  await expect(step(page, 'invoicing')).toContainText('Opcional')
-  await expect(step(page, 'recipes')).toBeInViewport()
-  await page.evaluate(() => {
-    window.scrollTo(0, 0)
-    ;(document.activeElement as HTMLElement | null)?.blur()
-  })
-  await page.screenshot({ path: shot('inicio-detalles-390'), fullPage: true })
 
   await page.setViewportSize({ width: 1280, height: 720 })
   await page.reload()
@@ -157,21 +162,28 @@ test('una empresa nueva sigue los primeros pasos y hace su primera venta', async
   await employee.getByRole('button', { name: 'Crear empleado' }).click()
   await expect(page.locator('tr', { hasText: 'Mesero Uno' })).toBeVisible()
 
-  // La guía ya marcó todo lo configurado; falta vender. Lo hecho no se lista
-  // hasta pedir el detalle, y la resolución sigue fuera de lo pendiente.
+  // La guía ya marcó todo lo configurado; falta vender. Lo que falta va arriba
+  // con su X roja, lo hecho debajo con su chulo verde, y la resolución sigue
+  // fuera de lo pendiente.
+  const configured = ['business', 'tables', 'products', 'stock', 'taxes', 'menu', 'team']
   await sidebarItem(page, 'Inicio').click()
   await expect(guide(page)).toContainText('7 de 8 listos')
-  await expect(step(page, 'first_sale').getByLabel('Pendiente')).toBeVisible()
-  await expect(step(page, 'invoicing')).toHaveCount(0)
-  for (const key of ['business', 'tables', 'products', 'stock', 'taxes', 'menu', 'team']) {
-    await expect(step(page, key)).toHaveCount(0)
-  }
-  await guide(page).getByRole('button', { name: 'Ver los que ya están listos' }).click()
-  for (const key of ['business', 'tables', 'products', 'stock', 'taxes', 'menu', 'team']) {
-    await expect(step(page, key).getByLabel('Listo')).toBeVisible()
-  }
-  await expect(step(page, 'invoicing')).toContainText('Opcional')
-  await guide(page).getByRole('button', { name: 'Ocultar los que ya están listos' }).click()
+  await expectPending(page, 'first_sale')
+  for (const key of configured) await expectDone(page, key)
+  for (const key of OPTIONAL) await expectOptional(page, key)
+  expect(await listedSteps(page)).toEqual(['first_sale', ...configured, ...OPTIONAL])
+  await expect(guide(page).getByRole('button', { name: 'Ver los que ya están listos' })).toHaveCount(0)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(page.getByText('Pedidos hoy', { exact: true })).toBeVisible()
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/primeros-pasos-iconos-inicio-1440.png', fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await guide(page).scrollIntoViewIfNeeded()
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: '../screenshots/primeros-pasos-iconos-inicio-390.png' })
+  await page.setViewportSize({ width: 1280, height: 720 })
 
   // 5. Primera venta: la caja ya está abierta sola; pedido desde la web y cobro.
   await step(page, 'first_sale').getByRole('link', { name: /Ir a/ }).click()
@@ -196,12 +208,15 @@ test('una empresa nueva sigue los primeros pasos y hace su primera venta', async
   await sidebarItem(page, 'Inicio').click()
   await expect(page.getByText('Pedidos hoy', { exact: true })).toBeVisible()
   await expect(guide(page)).toContainText('Primeros pasos listos')
+  await expect(guide(page)).not.toContainText('de 8 listos')
+  await expect(guide(page).getByRole('progressbar')).toHaveCount(0)
   await expect(step(page, 'first_sale')).toHaveCount(0)
   await expect(step(page, 'invoicing')).toHaveCount(0)
   await guide(page).getByRole('button', { name: 'Ver los que ya están listos' }).click()
-  await expect(step(page, 'first_sale').getByLabel('Listo')).toBeVisible()
-  await expect(step(page, 'invoicing')).toContainText('Opcional')
-  await expect(step(page, 'invoicing').getByLabel('Pendiente')).toHaveCount(0)
+  for (const key of REQUIRED) await expectDone(page, key)
+  for (const key of OPTIONAL) await expectOptional(page, key)
+  await guide(page).getByRole('button', { name: 'Ocultar los que ya están listos' }).click()
+  await expect(step(page, 'first_sale')).toHaveCount(0)
 
   // La venta cuenta en Ventas y salió del kardex con su costo.
   await page.goto('/ventas')
