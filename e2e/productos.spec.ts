@@ -385,7 +385,7 @@ test('ordenar por nombre y filtrar por categoría se resuelven en el servidor', 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/productos-base')
   await field(page, 'Categoría').click()
-  await page.getByRole('option', { name: categoryName }).click()
+  await pickOption(page, categoryName)
 
   const names = page.locator('tbody tr td:nth-child(4)')
   await expect(names).toHaveText(['Arepa Orden', 'Bocadillo Orden', 'Cuajada Orden'])
