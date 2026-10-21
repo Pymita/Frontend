@@ -13,6 +13,8 @@ export interface Product {
   type: ProductType;
   unit: string;
   tracks_stock?: boolean;
+  /** "Permite ventas en rojo": may sell past the kardex balance (only with tracks_stock) */
+  allows_negative_stock?: boolean;
   unit_cost?: number | null;
   sale_price?: number | null;
   /** Configured tax this product uses; tax_rate is its snapshot */

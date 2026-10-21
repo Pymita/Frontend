@@ -111,7 +111,7 @@
             </template>
             <template #item.current_stock="{ item }">
               <span v-if="item.tracks_stock === false" class="text-medium-emphasis">No aplica</span>
-              <div v-else-if="item.current_stock !== null && item.current_stock !== undefined">
+              <div v-else-if="item.current_stock !== null && item.current_stock !== undefined" class="d-flex align-center ga-1">
                 <v-chip 
                   :color="getStockColor(item)" 
                   size="small"
@@ -120,6 +120,20 @@
                 >
                   {{ item.current_stock }} {{ item.unit }}
                 </v-chip>
+                <v-tooltip v-if="item.allows_negative_stock === false" text="Sin ventas en rojo">
+                  <template #activator="{ props }">
+                    <v-icon
+                      v-bind="props"
+                      size="small"
+                      class="text-medium-emphasis"
+                      role="img"
+                      aria-hidden="false"
+                      aria-label="Sin ventas en rojo"
+                    >
+                      mdi-lock-outline
+                    </v-icon>
+                  </template>
+                </v-tooltip>
               </div>
               <v-btn 
                 v-else
@@ -378,16 +392,33 @@
             <v-divider class="my-4" />
             <h4 class="mb-3">Control de inventario</h4>
 
-            <v-switch
-              v-model="formData.tracks_stock"
-              color="primary"
-              inset
-              label="Este producto maneja stock e inventario"
-              hint="Desactívalo para productos de receta bajo demanda (ej: pizza) que no quieres en reportes de stock"
-              persistent-hint
-              class="mb-2"
-            />
-            
+            <v-row dense>
+              <v-col cols="12" :md="formData.tracks_stock ? 6 : 12">
+                <v-switch
+                  v-model="formData.tracks_stock"
+                  color="primary"
+                  inset
+                  label="Este producto maneja stock e inventario"
+                  hint="Desactívalo para productos de receta bajo demanda (ej: pizza) que no quieres en reportes de stock"
+                  persistent-hint
+                  class="mb-2"
+                />
+              </v-col>
+              <v-col v-if="formData.tracks_stock" cols="12" md="6">
+                <v-switch
+                  v-model="formData.allows_negative_stock"
+                  color="primary"
+                  inset
+                  label="Permite ventas en rojo"
+                  :hint="formData.allows_negative_stock
+                    ? 'Puedes venderlo aunque el kardex no tenga existencias; el saldo queda en negativo hasta que registres la compra'
+                    : 'No podrás vender ni sacar más de lo que hay en el kardex'"
+                  persistent-hint
+                  class="mb-2"
+                />
+              </v-col>
+            </v-row>
+
             <v-row v-if="formData.tracks_stock">
               <!-- Creación: el saldo inicial entra al kardex (SI) con su
                    fecha real, que puede ser anterior a hoy. -->
@@ -675,6 +706,7 @@ const formData = ref({
   type: 'final' as 'raw_material' | 'intermediate' | 'final',
   unit: 'unidad',
   tracks_stock: true,
+  allows_negative_stock: true,
   unit_cost: 0,
   sale_price: null as number | null,
   tax_id: null as number | null,
@@ -937,6 +969,7 @@ const openDialog = (product?: Product, forceMenu = false) => {
         type: product.type,
         unit: product.unit,
         tracks_stock: product.tracks_stock ?? true,
+        allows_negative_stock: product.allows_negative_stock ?? true,
         unit_cost: product.unit_cost || 0,
         sale_price: product.sale_price || null,
         tax_id: product.tax_id ?? null,
@@ -955,6 +988,7 @@ const openDialog = (product?: Product, forceMenu = false) => {
         type: 'final',
         unit: 'unidad',
         tracks_stock: true,
+        allows_negative_stock: true,
         unit_cost: 0,
         sale_price: null,
         tax_id: null,
