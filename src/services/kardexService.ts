@@ -45,21 +45,36 @@ export interface KardexMovement {
   editable: boolean
   edited_at: string | null
   edited_by: string | null
+  /** Shared by the rows registered together as one document; null for a document of one row */
+  batch: string | null
 }
 
-export interface KardexMovementUpdate {
-  product_id?: number
-  /** Only an adjustment (AJ) may change direction */
-  movement_type?: 'in' | 'out'
-  quantity?: number
-  unit_cost?: number
+/**
+ * One product of a manual document. Without a cost the line enters at the
+ * product's current average cost; the cost is before tax and `tax_id` only
+ * goes on entries.
+ */
+export interface KardexLine {
+  product_id: number
+  quantity: number
+  unit_cost?: number | null
   tax_id?: number | null
+}
+
+export interface KardexDocumentUpdate {
   /** YYYY-MM-DD, never future */
   moved_at?: string
-  reference?: string | null
   /** Required for a purchase (FC) */
   counterparty?: string | null
+  reference?: string | null
   notes?: string | null
+  /** Only an adjustment (AJ) may change direction */
+  movement_type?: 'in' | 'out'
+  /**
+   * Every line after editing: one with `id` is updated, one without is added
+   * and a line of the document left out is deleted from the kardex.
+   */
+  items: (KardexLine & { id?: number })[]
 }
 
 export interface KardexFilters {
@@ -68,6 +83,8 @@ export interface KardexFilters {
   movement_type?: 'in' | 'out'
   from?: string
   to?: string
+  /** Every row of one document, whatever the date */
+  batch?: string
 }
 
 export interface KardexReport {
@@ -214,11 +231,7 @@ class KardexService {
   async createKardexMovement(payload: {
     document_type_id: number
     movement_type: 'in' | 'out'
-    /**
-     * Without a cost the line enters at the product's current average cost.
-     * The cost is before tax; `tax_id` only on entries.
-     */
-    items: { product_id: number; quantity: number; unit_cost?: number; tax_id?: number | null }[]
+    items: KardexLine[]
     /** Fecha real del documento (retro-fechable, nunca futura) */
     moved_at?: string
     /** Proveedor (FC) o cliente (DV) del movimiento */
@@ -232,12 +245,13 @@ class KardexService {
   }
 
   /**
-   * Corrects a manual purchase (FC) or adjustment (AJ). The API replays the
-   * product's kardex by date, so the balances of later rows change too.
+   * Corrects a whole manual purchase (FC) or adjustment (AJ), `id` being any
+   * of its rows. The API replays the kardex of every product it touches by
+   * date, so the balances of later rows change too.
    */
-  async updateKardexMovement(id: number, payload: KardexMovementUpdate): Promise<{ movement: KardexMovement; message: string }> {
-    const response = await api.put<ApiEnvelope<KardexMovement>>(`/kardex/movements/${id}`, payload)
-    return { movement: response.data.data, message: response.data.message ?? '' }
+  async updateKardexDocument(id: number, payload: KardexDocumentUpdate): Promise<{ movements: KardexMovement[]; message: string }> {
+    const response = await api.put<ApiEnvelope<KardexMovement[]>>(`/kardex/movements/${id}`, payload)
+    return { movements: response.data.data, message: response.data.message ?? '' }
   }
 
   async createDocumentType(payload: Pick<DocumentType, 'code' | 'name' | 'direction'>): Promise<DocumentType> {

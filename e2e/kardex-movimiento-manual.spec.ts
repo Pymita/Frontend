@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { ADMIN, API, COMPANY_SLUG, apiLogin, displayDate, field, loginUI, pickOption, raisePlanLimits } from './helpers'
 
 type Auth = { Authorization: string }
@@ -26,9 +26,18 @@ const daysAgo = (days: number) => {
   return date.toLocaleDateString('en-CA')
 }
 
-async function pickLineProduct(page: Page, n: number, name: string): Promise<void> {
-  await lineField(page, n, 'Producto *').locator('input').fill(name)
+/**
+ * Focused, an autocomplete that already has a product writes its name in the
+ * input: typing before that settles ends up appended to it.
+ */
+async function typeProduct(page: Page, input: Locator, name: string): Promise<void> {
+  await input.click()
+  await input.fill(name)
   await page.getByRole('option', { name }).click()
+}
+
+async function pickLineProduct(page: Page, n: number, name: string): Promise<void> {
+  await typeProduct(page, lineField(page, n, 'Producto *').locator('input'), name)
 }
 
 async function adminAuth(request: APIRequestContext): Promise<Auth> {
@@ -92,8 +101,7 @@ async function sell(request: APIRequestContext, auth: Auth, productId: number, q
 }
 
 async function filterByProduct(page: Page, name: string): Promise<void> {
-  await field(page, 'Producto').locator('input').fill(name)
-  await page.getByRole('option', { name }).click()
+  await typeProduct(page, field(page, 'Producto').locator('input'), name)
   await expect(page.locator('.v-card', { hasText: 'Existencia actual' })).toBeVisible()
 }
 
@@ -461,16 +469,16 @@ test('corregir en el kardex la fecha de una compra deja en positivo las ventas q
 
   await page.getByRole('button', { name: `Editar el movimiento FC ${invoice} de ${bottle}` }).click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog).toContainText(`Editar el movimiento FC ${invoice}`)
+  await expect(dialog.locator('.v-card-title')).toHaveText(`Editar FC ${invoice}`)
   await expect(field(page, 'Proveedor *').locator('input')).toHaveValue('Demo Servify E2E')
   await expect(summaryRow(page, 'Valor bruto')).toContainText('$18.000')
   await expect(summaryRow(page, 'Valor neto')).toContainText('$18.000')
-  await expect(dialog.getByRole('button', { name: 'Guardar cambios' })).toBeDisabled()
 
-  await field(page, 'Fecha *').locator('input').fill(displayDate(daysAgo(1)))
-  await field(page, 'Fecha *').locator('input').press('Tab')
+  await field(page, 'Fecha del movimiento *').locator('input').fill(displayDate(daysAgo(1)))
+  await field(page, 'Fecha del movimiento *').locator('input').press('Tab')
   await dialog.getByRole('button', { name: 'Guardar cambios' }).click()
   await expect(dialog).toBeHidden()
+  await expect(page.getByText(`Movimiento actualizado: se recalculó el kardex de ${bottle}.`)).toBeVisible()
 
   await expect(negativeBalances(page)).toHaveCount(0)
   await expect(rowsOf(page, 'FV')).toHaveCount(2)
@@ -481,6 +489,113 @@ test('corregir en el kardex la fecha de una compra deja en positivo las ventas q
   await expect(edited).toBeVisible()
   await edited.hover()
   await expect(page.getByText(/^Editado por Administrador el /)).toBeVisible()
+})
+
+/**
+ * The owner's request: the pencil corrects the whole invoice, not one row.
+ * Opened from one of its products, it brings every line; the supplier and
+ * the number reach all of them, a line changes product, another is added and
+ * another removed, and each product touched is replayed by date.
+ */
+test('el lápiz abre la factura completa y corrige el proveedor, el número y sus productos', async ({ page, request }) => {
+  const stamp = Date.now()
+  const flour = `Harina Documento ${stamp}`
+  const sugar = `Azúcar Documento ${stamp}`
+  const butter = `Mantequilla Documento ${stamp}`
+  const salt = `Sal Documento ${stamp}`
+  const before = `A-${stamp}`
+  const after = `B-${stamp}`
+  const auth = await adminAuth(request)
+  const [flourId, sugarId] = await createProducts(request, [
+    { name: flour, unit: 'kg', unit_cost: 2000, current_stock: 10 },
+    { name: sugar, unit: 'kg', unit_cost: 3000, current_stock: 4 },
+    { name: butter, unit: 'kg', unit_cost: 7000, current_stock: 1 },
+    { name: salt, unit: 'kg', unit_cost: 1000, current_stock: 2 },
+  ])
+  const purchase = await request.post(`${API}/kardex/movements`, {
+    headers: auth,
+    data: {
+      document_type_id: await documentTypeId(request, auth, 'FC'),
+      movement_type: 'in',
+      items: [
+        { product_id: flourId, quantity: 5, unit_cost: 2000 },
+        { product_id: sugarId, quantity: 3, unit_cost: 3000 },
+      ],
+      counterparty: 'Molinos Antes E2E',
+      reference: before,
+    },
+  })
+  expect(purchase.status(), await purchase.text()).toBe(201)
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/kardex')
+  const stock = page.locator('.v-card', { hasText: 'Existencia actual' })
+  await filterByProduct(page, sugar)
+  await expect(stock).toContainText('7 kg')
+
+  await page.getByRole('button', { name: `Editar el movimiento FC ${before} de ${sugar}` }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.locator('.v-card-title')).toHaveText(`Editar FC ${before}`)
+  await expect(field(page, 'Tipo de documento *')).toContainText('FC — Factura de compra')
+  await expect(field(page, 'Tipo de documento *')).toHaveClass(/v-input--disabled/)
+  await expect(field(page, 'Proveedor *').locator('input')).toHaveValue('Molinos Antes E2E')
+  await expect(page.getByLabel('Número de factura')).toHaveValue(before)
+  // The flour line comes too, although the table only shows sugar.
+  await expect(dialog.getByRole('group', { name: /^Línea \d+$/ })).toHaveCount(2)
+  await expect(lineField(page, 1, 'Producto *')).toContainText(flour)
+  await expect(lineField(page, 1, 'Cantidad *').locator('input')).toHaveValue('5')
+  await expect(lineField(page, 2, 'Producto *')).toContainText(sugar)
+  await expect(lineField(page, 2, 'Costo unitario').locator('input')).toHaveValue('3.000')
+  // 5 × $2.000 + 3 × $3.000.
+  await expect(summaryRow(page, 'Valor bruto')).toContainText('$19.000')
+  await expect(dialog).toContainText('Las líneas que quites se eliminan del kardex al guardar.')
+
+  await field(page, 'Proveedor *').locator('input').fill('Molinos Después E2E')
+  await page.getByLabel('Número de factura').fill(after)
+  // The flour line becomes butter, with butter's last cost suggested and then corrected.
+  await pickLineProduct(page, 1, butter)
+  await expect(lineField(page, 1, 'Costo unitario').locator('input')).toHaveValue('7.000')
+  await lineField(page, 1, 'Cantidad *').locator('input').fill('4')
+  await lineField(page, 1, 'Costo unitario').locator('input').fill('7.500')
+  await line(page, 2).getByRole('button', { name: `Quitar ${sugar} del movimiento` }).click()
+  await expect(line(page, 2)).toHaveCount(0)
+  await page.getByRole('button', { name: 'Agregar producto' }).click()
+  await pickLineProduct(page, 2, salt)
+  await lineField(page, 2, 'Cantidad *').locator('input').fill('6')
+  await lineField(page, 2, 'Costo unitario').locator('input').fill('1.200')
+  // 4 × $7.500 + 6 × $1.200.
+  await expect(summaryRow(page, 'Valor bruto')).toContainText('$37.200')
+  await dialog.getByRole('button', { name: 'Guardar cambios' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(
+    page.getByText(`Movimiento actualizado: se recalculó el kardex de ${sugar}, ${flour}, ${butter} y ${salt}.`),
+  ).toBeVisible()
+
+  // The removed sugar line is gone and sugar is back to its opening stock.
+  await expect(stock).toContainText('4 kg')
+  await expect(rowsOf(page, 'FC')).toHaveCount(0)
+
+  // The whole invoice: both lines carry the new supplier and number, the old number is gone.
+  await page.getByRole('button', { name: 'Borrar Producto' }).click()
+  await field(page, 'Tipo de documento').click()
+  await pickOption(page, 'FC — Factura de compra')
+  const invoice = page.locator('tbody tr', { hasText: after })
+  await expect(invoice).toHaveCount(2)
+  for (const name of [butter, salt]) await expect(invoice.filter({ hasText: name })).toContainText('Molinos Después E2E')
+  await expect(page.locator('tbody tr', { hasText: before })).toHaveCount(0)
+
+  // Each product is replayed: butter 1 + 4 at (1 × $7.000 + 4 × $7.500) / 5, salt 2 + 6, flour back to 10.
+  await filterByProduct(page, butter)
+  await expect(stock).toContainText('5 kg')
+  await expect(page.locator('.v-card', { hasText: 'Costo promedio' })).toContainText('$7.400')
+  await expect(rowsOf(page, 'FC')).toContainText(after)
+  await expect(rowsOf(page, 'FC').getByRole('img', { name: /^Editado por Administrador el / })).toBeVisible()
+  await filterByProduct(page, salt)
+  await expect(stock).toContainText('8 kg')
+  await expect(rowsOf(page, 'FC')).toContainText('Molinos Después E2E')
+  await filterByProduct(page, flour)
+  await expect(stock).toContainText('10 kg')
+  await expect(rowsOf(page, 'FC')).toHaveCount(0)
 })
 
 /**
