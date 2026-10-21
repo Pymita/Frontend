@@ -15,6 +15,8 @@ export interface CompanyUser {
   features: Feature[]
   /** "Cobrar pedidos": a permission inside Pedidos, granted apart from the features */
   can_charge_orders: boolean
+  /** "Editar movimientos del kardex": a permission inside Inventario, granted like can_charge_orders */
+  can_edit_kardex: boolean
   last_login_at: string | null
 }
 
@@ -27,6 +29,7 @@ export interface CreateUserPayload {
   phone?: string
   permissions?: Feature[]
   can_charge_orders?: boolean
+  can_edit_kardex?: boolean
 }
 
 export interface UpdateUserPayload {
@@ -39,6 +42,7 @@ export interface UpdateUserPayload {
   active?: boolean
   permissions?: Feature[] | null
   can_charge_orders?: boolean
+  can_edit_kardex?: boolean
 }
 
 interface ApiEnvelope<T> {

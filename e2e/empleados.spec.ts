@@ -222,3 +222,75 @@ test('el admin le da a un mesero el permiso de cobrar y lo que cobra desde la ap
   expect(refused.status()).toBe(403)
   expect((await refused.json()).message).toBe('Tu usuario no puede cobrar pedidos. Pídele al administrador el permiso Cobrar pedidos.')
 })
+
+/**
+ * "Editar movimientos del kardex" lives inside Inventario, like charging
+ * inside Pedidos: off for a new employee, granted and taken away by the admin.
+ */
+test('el admin le da y le quita a un empleado el permiso de editar movimientos del kardex', async ({ page, request }) => {
+  await raisePlanLimits(request, { max_users: 50 })
+  const stamp = Date.now() % 1_000_000
+  const name = `Bodeguero Kardex ${stamp}`
+  const username = `bodeguero.kardex.${stamp}`
+  const adminAuth = { Authorization: `Bearer ${await apiLogin(request, ADMIN.email, ADMIN.password)}` }
+  const created = await request.post(`${API}/users`, {
+    headers: adminAuth,
+    data: { name, username, password: 'clave123', role: 'employee', permissions: ['inventory', 'reports'] },
+  })
+  expect(created.status()).toBe(201)
+  expect((await created.json()).data.can_edit_kardex).toBe(false)
+  const storedUser = async () => {
+    const users = (await (await request.get(`${API}/users`, { headers: adminAuth })).json()).data
+    return users.find((user: { username: string }) => user.username === username)
+  }
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/empleados')
+  const dialog = page.getByRole('dialog')
+  const editKardex = dialog.getByLabel('Editar movimientos del kardex', { exact: true })
+  const inventory = dialog.getByLabel('Productos e inventario', { exact: true })
+
+  // A new employee starts without it.
+  await page.getByRole('button', { name: 'Nuevo empleado' }).click()
+  await expect(inventory).toBeChecked()
+  await expect(editKardex).toBeEnabled()
+  await expect(editKardex).not.toBeChecked()
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+
+  const row = page.locator('tbody tr', { hasText: name })
+  await expect(row).toContainText('Productos e inventario')
+  await expect(row).not.toContainText('Editar movimientos del kardex')
+  await row.getByRole('button', { name: `Editar a ${name}` }).click()
+  await expect(editKardex).not.toBeChecked()
+  await expect(dialog.getByText('Corrige compras (FC) y ajustes (AJ) registrados a mano')).toBeVisible()
+
+  // Without Inventario there is no kardex to edit.
+  await editKardex.check()
+  await inventory.uncheck()
+  await expect(editKardex).toBeDisabled()
+  await expect(editKardex).not.toBeChecked()
+  await inventory.check()
+  await expect(editKardex).toBeEnabled()
+  await expect(editKardex).toBeChecked()
+
+  await dialog.getByRole('button', { name: 'Guardar cambios' }).click()
+  await expect(page.getByText('Empleado actualizado exitosamente')).toBeVisible()
+  await expect(row).toContainText('Editar movimientos del kardex')
+  expect((await storedUser()).can_edit_kardex).toBe(true)
+  const login = await request.post(`${API}/auth/login`, {
+    headers: { Accept: 'application/json' },
+    data: { login: username, password: 'clave123', company: COMPANY_SLUG },
+  })
+  expect((await login.json()).user.can_edit_kardex).toBe(true)
+
+  // Taken away, the chip goes with it.
+  await row.getByRole('button', { name: `Editar a ${name}` }).click()
+  await expect(editKardex).toBeChecked()
+  await editKardex.uncheck()
+  await dialog.getByRole('button', { name: 'Guardar cambios' }).click()
+  await expect(page.getByText('Empleado actualizado exitosamente')).toBeVisible()
+  await expect(row).not.toContainText('Editar movimientos del kardex')
+  await expect(row).toContainText('Productos e inventario')
+  expect((await storedUser()).can_edit_kardex).toBe(false)
+})

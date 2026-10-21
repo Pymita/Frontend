@@ -55,6 +55,14 @@
                   >
                     Cobrar pedidos
                   </v-chip>
+                  <v-chip
+                    v-if="feature === 'inventory' && item.can_edit_kardex"
+                    size="x-small"
+                    class="mr-1 mb-1"
+                    variant="outlined"
+                  >
+                    Editar movimientos del kardex
+                  </v-chip>
                 </template>
               </template>
             </template>
@@ -155,7 +163,7 @@
                 El empleado solo verá y podrá usar las funciones marcadas
               </p>
               <v-row dense>
-                <template v-for="feature in allFeatures" :key="feature">
+                <template v-for="feature in dialogFeatures" :key="feature">
                   <v-col cols="6">
                     <v-checkbox
                       v-model="formData.permissions"
@@ -172,6 +180,16 @@
                       label="Cobrar pedidos"
                       :disabled="!formData.permissions.includes('orders')"
                       hint="Registra pagos y propinas, también desde la app"
+                      persistent-hint
+                      density="compact"
+                    />
+                  </v-col>
+                  <v-col v-if="feature === 'inventory'" cols="6">
+                    <v-checkbox
+                      v-model="editKardex"
+                      label="Editar movimientos del kardex"
+                      :disabled="!formData.permissions.includes('inventory')"
+                      hint="Corrige compras (FC) y ajustes (AJ) registrados a mano"
                       persistent-hint
                       density="compact"
                     />
@@ -225,6 +243,11 @@ const allFeatures = computed(() => {
   const companyModules = authStore.user?.company?.modules
   return companyModules?.length ? ALL_FEATURES.filter(f => companyModules.includes(f)) : ALL_FEATURES
 })
+// Pedidos and Inventario go first so the permission inside each one sits beside it in the two-column grid.
+const dialogFeatures = computed(() => [
+  ...allFeatures.value.filter(f => f === 'orders' || f === 'inventory'),
+  ...allFeatures.value.filter(f => f !== 'orders' && f !== 'inventory'),
+])
 
 const headers = [
   { title: 'Nombre', key: 'name' },
@@ -285,6 +308,7 @@ const formData = ref({
   active: true,
   permissions: [] as Feature[],
   canChargeOrders: true,
+  canEditKardex: false,
 })
 
 // Cobrar is part of Pedidos: without it the box reads unchecked and nothing is granted.
@@ -292,6 +316,14 @@ const chargeOrders = computed({
   get: () => formData.value.canChargeOrders && formData.value.permissions.includes('orders'),
   set: (value: boolean) => {
     formData.value.canChargeOrders = value
+  },
+})
+
+// Same for the kardex: editing its movements is part of Inventario.
+const editKardex = computed({
+  get: () => formData.value.canEditKardex && formData.value.permissions.includes('inventory'),
+  set: (value: boolean) => {
+    formData.value.canEditKardex = value
   },
 })
 
@@ -314,6 +346,7 @@ const openDialog = (user?: CompanyUser) => {
         active: user.active,
         permissions: [...user.features],
         canChargeOrders: user.can_charge_orders,
+        canEditKardex: user.can_edit_kardex,
       }
     : {
         name: '',
@@ -325,6 +358,7 @@ const openDialog = (user?: CompanyUser) => {
         active: true,
         permissions: allFeatures.value.filter(f => f !== 'expenses'),
         canChargeOrders: true,
+        canEditKardex: false,
       }
   dialog.value = true
 }
@@ -343,6 +377,7 @@ const save = async () => {
       role: formData.value.role,
       permissions: formData.value.role === 'employee' ? formData.value.permissions : undefined,
       can_charge_orders: formData.value.role === 'employee' ? chargeOrders.value : undefined,
+      can_edit_kardex: formData.value.role === 'employee' ? editKardex.value : undefined,
     }
 
     if (editing.value) {
