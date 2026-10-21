@@ -82,6 +82,8 @@ export interface User {
   features?: Feature[]
   /** "Cobrar pedidos" (missing in sessions stored before the field: the API decides). */
   can_charge_orders?: boolean
+  /** "Editar el kardex": corrects purchases (FC) and adjustments (AJ) registered by hand. */
+  can_edit_kardex?: boolean
   /** Verificación en dos pasos (solo la cuenta de plataforma la usa). */
   two_factor?: { enabled: boolean; setup_required: boolean }
   /** Privacy policy in force and whether this user accepted it (missing in sessions older than the field). */
