@@ -304,6 +304,69 @@ test('el costo, el precio de venta y el del menú se escriben en pesos', async (
   await expect(menu).toHaveValue('19.000')
 })
 
+/**
+ * "Permite ventas en rojo" only exists while the product keeps stock. Off,
+ * the product can't be sold past its kardex balance, and the table flags it.
+ */
+test('un producto sin ventas en rojo lo guarda así, la tabla lo marca y se puede volver a permitir', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const name = `Cerveza Sin Rojo ${stamp}`
+  await request.post(`${API}/categories`, { headers: auth, data: { name: `Sin Rojo ${stamp}` } })
+  await request.post(`${API}/taxes`, { headers: auth, data: { name: `IVA Sin Rojo ${stamp}`, rate: 19 } })
+  const storedProduct = async () => {
+    const response = await request.get(`${API}/products`, { headers: auth, params: { q: name, per_page: 10 } })
+    return (await response.json()).data.find((p: { name: string }) => p.name === name)
+  }
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/productos-base')
+  await page.getByRole('button', { name: 'Nuevo producto' }).click()
+  const dialog = page.getByRole('dialog')
+  await field(page, 'Nombre del producto *').locator('input').fill(name)
+  await field(page, 'Categoría *').click()
+  await pickOption(page, `Sin Rojo ${stamp}`)
+  await field(page, 'Precio de venta *').locator('input').fill('4.000')
+  await field(page, 'Impuesto *').locator('.v-field').click()
+  await page.getByRole('option', { name: new RegExp(`IVA Sin Rojo ${stamp}`) }).click()
+
+  // New products allow red sales, and the switch sits with the stock one.
+  const tracksStock = dialog.getByLabel('Este producto maneja stock e inventario')
+  const redSales = dialog.getByLabel('Permite ventas en rojo')
+  await expect(redSales).toBeChecked()
+  await expect(dialog.getByText('Puedes venderlo aunque el kardex no tenga existencias; el saldo queda en negativo hasta que registres la compra')).toBeVisible()
+
+  // Without stock there is nothing to go red: the switch goes away.
+  await tracksStock.uncheck()
+  await expect(redSales).toHaveCount(0)
+  await tracksStock.check()
+  await expect(redSales).toBeChecked()
+
+  await redSales.uncheck()
+  await expect(dialog.getByText('No podrás vender ni sacar más de lo que hay en el kardex')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Producto creado')).toBeVisible()
+  expect((await storedProduct()).allows_negative_stock).toBe(false)
+
+  await page.getByRole('textbox', { name: 'Buscar' }).fill(name)
+  const row = page.locator('tr', { hasText: name })
+  const flag = row.getByRole('img', { name: 'Sin ventas en rojo' })
+  await expect(flag).toBeVisible()
+  await flag.hover()
+  await expect(page.getByRole('tooltip', { name: 'Sin ventas en rojo' })).toBeVisible()
+
+  // Reopened it reads off; turned back on, it saves and the flag goes away.
+  await row.getByRole('button', { name: `Editar ${name}` }).click()
+  await expect(redSales).not.toBeChecked()
+  await redSales.check()
+  await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Producto actualizado')).toBeVisible()
+  expect((await storedProduct()).allows_negative_stock).toBe(true)
+  await expect(row).toBeVisible()
+  await expect(flag).toHaveCount(0)
+})
+
 /** Con la tabla paginada en el servidor, ordenar una columna lo resuelve el backend. */
 test('ordenar por nombre y filtrar por categoría se resuelven en el servidor', async ({ page, request }) => {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
@@ -322,7 +385,7 @@ test('ordenar por nombre y filtrar por categoría se resuelven en el servidor', 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/productos-base')
   await field(page, 'Categoría').click()
-  await page.getByRole('option', { name: categoryName }).click()
+  await pickOption(page, categoryName)
 
   const names = page.locator('tbody tr td:nth-child(4)')
   await expect(names).toHaveText(['Arepa Orden', 'Bocadillo Orden', 'Cuajada Orden'])

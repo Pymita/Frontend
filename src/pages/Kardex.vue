@@ -2,14 +2,14 @@
   <v-container fluid>
     <v-row>
       <v-col cols="12">
-        <div class="d-flex justify-space-between align-center mb-4">
+        <div class="d-flex flex-wrap justify-space-between align-center ga-4 mb-4">
           <div>
             <h1 class="text-h4">Kardex</h1>
             <p class="text-body-1 text-medium-emphasis">
               Movimientos de inventario con costos y saldos (promedio ponderado)
             </p>
           </div>
-          <div class="d-flex ga-2">
+          <div class="d-flex flex-wrap ga-2">
             <LockableButton icon="mdi-plus" color="primary" size="large" @click="openMovementDialog">
               Registrar movimiento
             </LockableButton>
@@ -31,10 +31,14 @@
 
     <!-- Movimiento manual: devolución de ventas, compra de varios productos,
          etc. Los documentos automáticos (SI, FV, NC) no aparecen: esos los
-         genera el sistema con las ventas y los saldos iniciales. -->
-    <v-dialog v-model="movementDialog" max-width="820" persistent scrollable>
+         genera el sistema con las ventas y los saldos iniciales.
+         The pencil reopens a purchase (FC) or adjustment (AJ) here with all
+         its lines; who may do it is decided by the API (can_edit_kardex). -->
+    <v-dialog v-model="movementDialog" max-width="960" persistent scrollable>
       <v-card>
-        <v-card-title>Registrar movimiento de inventario</v-card-title>
+        <v-card-title class="text-wrap">
+          {{ editedMovement ? `Editar ${movementLabel(editedMovement)}` : 'Registrar movimiento de inventario' }}
+        </v-card-title>
         <v-card-text>
           <v-form ref="movementFormRef">
             <v-row dense>
@@ -44,6 +48,7 @@
                   :items="manualDocumentTypes"
                   :item-title="(t: any) => `${t.code} — ${t.name}`"
                   item-value="id"
+                  :disabled="!!editedMovement"
                 >
                   <template #label>
                     Tipo de documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
@@ -97,8 +102,11 @@
                  counterparty, reference and notes above and below. -->
             <div class="text-subtitle-1 mt-2">Productos</div>
             <p class="text-caption text-medium-emphasis mb-2">
-              <template v-if="isEntry">
-                El costo unitario trae el último costo del producto; si lo dejas vacío, entra al costo promedio.
+              <template v-if="isEntry && editedMovement">
+                El costo unitario va antes de IVA; si lo dejas vacío, una línea guardada conserva su costo y una nueva entra al costo promedio.
+              </template>
+              <template v-else-if="isEntry">
+                El costo unitario va antes de IVA y trae el último costo del producto; si lo dejas vacío, entra al costo promedio.
               </template>
               Un producto repetido queda como otro movimiento. Las líneas vacías no se registran.
             </p>
@@ -110,11 +118,11 @@
               class="mb-2"
             >
               <v-row dense align="center">
-                <!-- On a phone the delete button sits beside the product, so quantity and cost get half the row each -->
-                <v-col cols="10" :sm="isEntry ? 6 : 8">
+                <!-- On a phone the delete button sits beside the product, quantity and cost get half the row each and IVA its own -->
+                <v-col cols="10" :sm="isEntry ? 4 : 8">
                   <v-autocomplete
                     v-model="line.product_id"
-                    :items="products"
+                    :items="lineProducts(line)"
                     item-title="name"
                     item-value="id"
                     :error="line.error?.field === 'product'"
@@ -143,11 +151,26 @@
                     </template>
                   </v-text-field>
                 </v-col>
-                <v-col v-if="isEntry" cols="6" sm="3" order="3" order-sm="0">
+                <v-col v-if="isEntry" cols="6" sm="2" order="3" order-sm="0">
                   <MoneyField
                     v-model="line.unit_cost"
                     label="Costo unitario"
                     :error="line.error?.field === 'unit_cost'"
+                    hide-details="auto"
+                    @update:model-value="line.error = null"
+                  />
+                </v-col>
+                <v-col v-if="isEntry" cols="12" sm="3" order="3" order-sm="0">
+                  <v-select
+                    v-model="line.tax_id"
+                    :items="lineTaxes(line)"
+                    item-title="name"
+                    item-value="id"
+                    label="IVA"
+                    placeholder="Sin IVA"
+                    persistent-placeholder
+                    clearable
+                    :error="line.error?.field === 'tax'"
                     hide-details="auto"
                     @update:model-value="line.error = null"
                   />
@@ -165,12 +188,23 @@
               </v-row>
               <div v-if="line.error" class="text-caption text-error px-2">{{ line.error.text }}</div>
             </div>
-            <div class="d-flex flex-wrap align-center justify-space-between ga-2 mb-4">
+            <p v-if="editedMovement" class="text-body-2 text-medium-emphasis mb-2">
+              Las líneas que quites se eliminan del kardex al guardar. Al guardar, el kardex de cada producto se recalcula por fecha.
+            </p>
+            <div class="d-flex flex-wrap align-start justify-space-between ga-2 mb-4">
               <v-btn variant="tonal" color="primary" prepend-icon="mdi-plus" @click="addMovementLine()">
                 Agregar producto
               </v-btn>
-              <div v-if="isEntry" class="text-body-1">
-                Costo total: <strong>{{ money(linesCost) }}</strong>
+              <div v-if="isEntry" role="group" aria-label="Totales del movimiento" class="text-body-1 tabular-nums ml-auto">
+                <div
+                  v-for="row in summaryRows"
+                  :key="row.label"
+                  class="d-flex justify-space-between ga-8"
+                  :class="{ 'font-weight-bold': row.total }"
+                >
+                  <span>{{ row.label }}</span>
+                  <span>{{ row.value }}</span>
+                </div>
               </div>
             </div>
             <v-textarea
@@ -190,7 +224,7 @@
           <v-spacer />
           <v-btn @click="movementDialog = false">Cancelar</v-btn>
           <v-btn color="primary" :loading="savingMovement" @click="saveMovement">
-            Registrar
+            {{ editedMovement ? 'Guardar cambios' : 'Registrar' }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -204,7 +238,7 @@
             <v-col cols="12" md="3">
               <v-autocomplete
                 v-model="filters.product_id"
-                :items="products"
+                :items="stockProducts"
                 item-title="name"
                 item-value="id"
                 label="Producto"
@@ -290,35 +324,39 @@
           <v-table density="compact">
             <thead>
               <tr>
-                <th>Fecha</th>
-                <th>Doc.</th>
-                <th>Referencia</th>
-                <th v-if="showProductColumn">Producto</th>
-                <th class="text-right">Entrada</th>
-                <th class="text-right">Salida</th>
-                <th class="text-right">Costo unit.</th>
-                <th class="text-right">Costo total</th>
-                <th class="text-right">Saldo cant.</th>
-                <th class="text-right">Saldo costo</th>
-                <th class="text-right">Saldo total</th>
-                <th>Usuario</th>
+                <th class="px-2">Fecha</th>
+                <th class="px-2">Doc.</th>
+                <th class="px-2">Referencia</th>
+                <th v-if="showProductColumn" class="px-2">Producto</th>
+                <th class="text-right px-2">Entrada</th>
+                <th class="text-right px-2">Salida</th>
+                <th class="text-right px-2">Costo unit.</th>
+                <th class="text-right px-2">Valor bruto</th>
+                <th class="text-right px-2">IVA</th>
+                <th class="text-right px-2">Valor neto</th>
+                <th class="text-right px-2">Saldo cant.</th>
+                <th class="text-right px-2">Saldo costo</th>
+                <th class="text-right px-2">Saldo total</th>
+                <th class="px-2">Usuario</th>
+                <th v-if="canEditKardex" class="px-2"><span class="d-sr-only">Acciones</span></th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="report?.opening_balance" class="bg-surface-light font-weight-medium">
-                <td>{{ loadedFilters.from }}</td>
-                <td>—</td>
-                <td>SALDO ANTERIOR</td>
+                <td class="px-2">{{ formatDay(loadedFilters.from) }}</td>
+                <td class="px-2">—</td>
+                <td class="px-2">SALDO ANTERIOR</td>
                 <td v-if="showProductColumn"></td>
-                <td colspan="4"></td>
-                <td class="text-right">{{ report.opening_balance.quantity }}</td>
-                <td class="text-right">{{ preciseMoney(report.opening_balance.unit_cost) }}</td>
-                <td class="text-right">{{ preciseMoney(report.opening_balance.total_cost) }}</td>
+                <td colspan="6"></td>
+                <td class="text-right px-2">{{ report.opening_balance.quantity }}</td>
+                <td class="text-right px-2">{{ preciseMoney(report.opening_balance.unit_cost) }}</td>
+                <td class="text-right px-2">{{ preciseMoney(report.opening_balance.total_cost) }}</td>
                 <td></td>
+                <td v-if="canEditKardex"></td>
               </tr>
               <tr v-for="m in report?.movements ?? []" :key="m.id">
-                <td>{{ formatDateTime(m.moved_at) }}</td>
-                <td>
+                <td class="px-2">{{ formatDateTime(m.moved_at) }}</td>
+                <td class="text-no-wrap px-2">
                   <v-tooltip :text="m.document_name">
                     <template #activator="{ props }">
                       <v-chip
@@ -331,41 +369,86 @@
                       </v-chip>
                     </template>
                   </v-tooltip>
+                  <v-tooltip v-if="m.edited_at" :text="editedText(m)">
+                    <template #activator="{ props }">
+                      <v-icon
+                        v-bind="props"
+                        icon="mdi-history"
+                        size="x-small"
+                        class="ml-1 text-medium-emphasis"
+                        role="img"
+                        tabindex="0"
+                        aria-hidden="false"
+                        :aria-label="editedText(m)"
+                      />
+                    </template>
+                  </v-tooltip>
                 </td>
-                <td>
+                <td class="px-2">
                   {{ m.reference || '—' }}
                   <div v-if="m.counterparty" class="text-caption text-medium-emphasis">{{ m.counterparty }}</div>
                 </td>
-                <td v-if="showProductColumn">{{ m.product.name }}</td>
-                <td class="text-right text-success">
+                <td v-if="showProductColumn" class="px-2">{{ m.product.name }}</td>
+                <td class="text-right text-success px-2">
                   {{ m.movement_type === 'in' ? m.quantity : '' }}
                 </td>
-                <td class="text-right text-error">
+                <td class="text-right text-error px-2">
                   {{ m.movement_type === 'out' ? m.quantity : '' }}
                 </td>
-                <td class="text-right">{{ preciseMoney(m.unit_cost) }}</td>
-                <td class="text-right">{{ preciseMoney(m.total_cost) }}</td>
-                <td class="text-right" :class="{ 'text-error font-weight-bold': m.balance_quantity < 0 }">{{ m.balance_quantity }}</td>
-                <td class="text-right">{{ preciseMoney(m.balance_unit_cost) }}</td>
-                <td class="text-right" :class="{ 'text-error font-weight-bold': m.balance_total_cost < 0 }">{{ preciseMoney(m.balance_total_cost) }}</td>
-                <td class="text-caption">{{ m.user || '—' }}</td>
+                <td class="text-right px-2">{{ preciseMoney(m.unit_cost) }}</td>
+                <td class="text-right px-2">{{ preciseMoney(m.total_cost) }}</td>
+                <td class="text-right text-no-wrap px-2">
+                  <template v-if="Number(m.tax_amount) !== 0">
+                    {{ preciseMoney(m.tax_amount) }}
+                    <div class="text-caption text-medium-emphasis">{{ percent(m.tax_rate) }}</div>
+                  </template>
+                  <template v-else>—</template>
+                </td>
+                <td class="text-right px-2">{{ preciseMoney(m.net_total) }}</td>
+                <td class="text-right px-2" :class="{ 'text-error font-weight-bold': m.balance_quantity < 0 }">{{ m.balance_quantity }}</td>
+                <td class="text-right px-2">{{ preciseMoney(m.balance_unit_cost) }}</td>
+                <td class="text-right px-2" :class="{ 'text-error font-weight-bold': m.balance_total_cost < 0 }">{{ preciseMoney(m.balance_total_cost) }}</td>
+                <td class="text-caption px-2">{{ m.user || '—' }}</td>
+                <td v-if="canEditKardex" class="text-right px-2">
+                  <v-btn
+                    v-if="m.editable"
+                    icon
+                    size="x-small"
+                    variant="text"
+                    :disabled="authStore.isReadOnly"
+                    :loading="loadingDocument === m.id"
+                    :aria-label="`Editar el movimiento ${movementLabel(m)} de ${m.product.name}`"
+                    @click="editDocument(m)"
+                  >
+                    <v-icon size="small">mdi-pencil</v-icon>
+                  </v-btn>
+                </td>
               </tr>
               <tr v-if="report && report.movements.length === 0">
-                <td colspan="12" class="text-center text-medium-emphasis py-6">
+                <td :colspan="leadingColumns + 6 + trailingColumns" class="text-center text-medium-emphasis py-6">
                   No hay movimientos con los filtros seleccionados
                 </td>
               </tr>
             </tbody>
             <tfoot v-if="report && report.movements.length > 0">
               <tr class="font-weight-bold bg-surface-light">
-                <td :colspan="showProductColumn ? 4 : 3">Totales del periodo</td>
-                <td class="text-right text-success">{{ report.totals.in_quantity }}</td>
-                <td class="text-right text-error">{{ report.totals.out_quantity }}</td>
+                <td :colspan="leadingColumns">Entradas del periodo</td>
+                <td class="text-right text-success px-2">{{ report.totals.in_quantity }}</td>
                 <td></td>
-                <td class="text-right">
-                  {{ preciseMoney(report.totals.in_cost - report.totals.out_cost) }}
-                </td>
-                <td colspan="4"></td>
+                <td></td>
+                <td class="text-right px-2">{{ preciseMoney(report.totals.in_cost) }}</td>
+                <td class="text-right px-2">{{ preciseMoney(report.totals.in_tax) }}</td>
+                <td class="text-right px-2">{{ preciseMoney(report.totals.in_net) }}</td>
+                <td :colspan="trailingColumns"></td>
+              </tr>
+              <tr class="font-weight-bold bg-surface-light">
+                <td :colspan="leadingColumns">Salidas del periodo</td>
+                <td></td>
+                <td class="text-right text-error px-2">{{ report.totals.out_quantity }}</td>
+                <td></td>
+                <td class="text-right px-2">{{ preciseMoney(report.totals.out_cost) }}</td>
+                <td colspan="2"></td>
+                <td :colspan="trailingColumns"></td>
               </tr>
             </tfoot>
           </v-table>
@@ -380,19 +463,33 @@
 </template>
 
 <script setup lang="ts">
-import { money, preciseMoney } from '@/utils/money'
-import { formatDateTime } from '@/utils/dates'
+import { money, percent, preciseMoney } from '@/utils/money'
+import { formatDateTime, formatDay, toIsoDate } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref, watch } from 'vue'
-import kardexService, { type DocumentType, type KardexFilters, type KardexReport } from '../services/kardexService'
+import kardexService, {
+  type DocumentType,
+  type KardexFilters,
+  type KardexMovement,
+  type KardexReport,
+  type Tax,
+} from '../services/kardexService'
 import { productsService } from '../services/productsService'
 import { billingService, type Customer, type Supplier } from '../services/billingService'
+import { useAuthStore } from '../stores/auth'
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'
 
 // Documentos que el sistema genera solo: no se pueden registrar a mano.
 const AUTOMATIC_CODES = ['SI', 'FV', 'NC']
+
+const DIRECTIONS: { value: 'in' | 'out'; title: string }[] = [
+  { value: 'in', title: 'Entrada' },
+  { value: 'out', title: 'Salida' },
+]
+
+const authStore = useAuthStore()
 
 const movementDialog = ref(false)
 const savingMovement = ref(false)
@@ -408,14 +505,20 @@ const movementForm = ref({
   reference: '',
   notes: '',
 })
+/** The row whose pencil opened the dialog; null while registering a new movement */
+const editedMovement = ref<KardexMovement | null>(null)
+const loadingDocument = ref<number | null>(null)
 
 interface MovementLine {
   key: number
+  /** The kardex row a line of the edited document was loaded from */
+  saved?: KardexMovement
   product_id: number | null
   /** An emptied number field gives '' */
   quantity: number | '' | null
   unit_cost: number | null
-  error: { field: 'product' | 'quantity' | 'unit_cost'; text: string } | null
+  tax_id: number | null
+  error: { field: 'product' | 'quantity' | 'unit_cost' | 'tax'; text: string } | null
 }
 let lineKeys = 0
 const movementLines = ref<MovementLine[]>([])
@@ -423,8 +526,20 @@ const movementLines = ref<MovementLine[]>([])
 const loading = ref(false)
 const exporting = ref(false)
 const report = ref<KardexReport | null>(null)
-const products = ref<{ id: number; name: string; unit?: string | null; unit_cost?: number | null }[]>([])
+const products = ref<{
+  id: number
+  name: string
+  unit?: string | null
+  unit_cost?: number | null
+  tracks_stock?: boolean
+  tax_id?: number | null
+}[]>([])
+// Products without inventory have no kardex: listing them only made every picker huge.
+const stockProducts = computed(() => products.value.filter(p => p.tracks_stock !== false))
 const documentTypes = ref<DocumentType[]>([])
+const taxes = ref<Tax[]>([])
+const activeTaxes = computed(() => taxes.value.filter(t => t.active))
+const taxRate = (id: number | null) => Number(taxes.value.find(t => t.id === id)?.rate ?? 0)
 
 // Terceros para el selector Cliente/Proveedor del movimiento.
 const suppliers = ref<Supplier[]>([])
@@ -450,24 +565,23 @@ const loadedFilters = ref<KardexFilters>({})
 const showProductColumn = computed(() => !loadedFilters.value.product_id)
 
 const snackbar = ref({ show: false, text: '', color: 'error' })
+// The edited document keeps naming its type even if that type was deactivated since.
 const manualDocumentTypes = computed(() =>
-  documentTypes.value.filter(t => t.active && !AUTOMATIC_CODES.includes(t.code)),
+  documentTypes.value.filter(
+    t => t.id === movementForm.value.document_type_id || (t.active && !AUTOMATIC_CODES.includes(t.code)),
+  ),
 )
 
 // La dirección se acota a lo que el documento elegido permite.
 const movementTypeOptions = computed(() => {
   const doc = documentTypes.value.find(t => t.id === movementForm.value.document_type_id)
-  const options = [
-    { value: 'in', title: 'Entrada' },
-    { value: 'out', title: 'Salida' },
-  ]
-  if (!doc || doc.direction === 'both') return options
-  return options.filter(o => o.value === doc.direction)
+  if (!doc || doc.direction === 'both') return DIRECTIONS
+  return DIRECTIONS.filter(o => o.value === doc.direction)
 })
 
 watch(movementTypeOptions, options => {
   const only = options.length === 1 ? options[0] : null
-  if (only) movementForm.value.movement_type = only.value as 'in' | 'out'
+  if (only) movementForm.value.movement_type = only.value
 })
 
 // Compras (FC) y devoluciones (DV) llevan un tercero obligatorio.
@@ -486,29 +600,63 @@ const isEntry = computed(() => movementForm.value.movement_type === 'in')
 const productOf = (id: number | null) => products.value.find(p => p.id === id)
 const productName = (id: number | null) => productOf(id)?.name ?? 'el producto'
 const unitOf = (id: number | null) => productOf(id)?.unit || undefined
+// A purchase invoice (FC) charges the product's own tax; an inactive one is not offered.
+const productTax = (id: number | null) => {
+  const taxId = productOf(id)?.tax_id
+  return activeTaxes.value.some(t => t.id === taxId) ? (taxId as number) : null
+}
+
+// A saved line keeps its product and its tax in the lists even if the product
+// stopped managing stock or the tax was deactivated since.
+const lineProducts = (line: MovementLine) => {
+  const own = line.saved?.product
+  return !own || stockProducts.value.some(p => p.id === own.id) ? stockProducts.value : [own, ...stockProducts.value]
+}
+const lineTaxes = (line: MovementLine) =>
+  line.tax_id === null || activeTaxes.value.some(t => t.id === line.tax_id)
+    ? activeTaxes.value
+    : taxes.value.filter(t => t.active || t.id === line.tax_id)
 
 const newLine = (productId: number | null = null): MovementLine => {
   const cost = productOf(productId)?.unit_cost
-  return { key: ++lineKeys, product_id: productId, quantity: null, unit_cost: cost != null ? Number(cost) : null, error: null }
+  return {
+    key: ++lineKeys,
+    product_id: productId,
+    quantity: null,
+    unit_cost: cost != null ? Number(cost) : null,
+    tax_id: selectedDocCode.value === 'FC' ? productTax(productId) : null,
+    error: null,
+  }
 }
 
 const addMovementLine = () => movementLines.value.push(newLine())
 
-// Al elegir producto se sugiere su último costo (editable).
+// Al elegir producto se sugiere su último costo (editable) y, en una compra, su IVA.
 const onLineProduct = (line: MovementLine) => {
   line.error = null
   if (!line.product_id) {
     line.unit_cost = null
+    if (selectedDocCode.value === 'FC') line.tax_id = null
     return
   }
   const cost = productOf(line.product_id)?.unit_cost
   if (cost != null) line.unit_cost = Number(cost)
+  if (selectedDocCode.value === 'FC') line.tax_id = productTax(line.product_id)
 }
 
+// Products picked before choosing FC still get their tax; a saved line without tax stays without.
+watch(selectedDocCode, code => {
+  if (code !== 'FC') return
+  movementLines.value.forEach(line => {
+    if (line.product_id && line.tax_id === null && !line.saved) line.tax_id = productTax(line.product_id)
+  })
+})
+
 const hasQuantity = (line: MovementLine) => line.quantity !== null && line.quantity !== ''
-// A line with no product, quantity or cost is a leftover row: it is not sent.
+// A new line with no product, quantity or cost is a leftover row: it is not
+// sent. A saved line is only removed with its delete button.
 const isBlankLine = (line: MovementLine) =>
-  !line.product_id && !hasQuantity(line) && (!isEntry.value || line.unit_cost === null)
+  !line.saved && !line.product_id && !hasQuantity(line) && (!isEntry.value || line.unit_cost === null)
 
 // Lines repeating the product of an earlier one: each is its own movement.
 const repeatedLines = computed(() => {
@@ -522,13 +670,21 @@ const repeatedLines = computed(() => {
   return repeated
 })
 
-// A line without a cost enters at the average cost, the one suggested.
-const linesCost = computed(() =>
-  movementLines.value.reduce((total, line) => {
-    const cost = line.unit_cost ?? productOf(line.product_id)?.unit_cost ?? 0
-    return total + (Number(line.quantity) > 0 ? Number(line.quantity) * Number(cost) : 0)
-  }, 0),
+// Without a cost a saved line keeps its own and a new one enters at the average cost, the one suggested.
+const lineGross = (line: MovementLine) => {
+  const cost = line.unit_cost ?? line.saved?.unit_cost ?? productOf(line.product_id)?.unit_cost ?? 0
+  return Number(line.quantity) > 0 ? Number(line.quantity) * Number(cost) : 0
+}
+const linesGross = computed(() => movementLines.value.reduce((total, line) => total + lineGross(line), 0))
+const linesTax = computed(() =>
+  movementLines.value.reduce((total, line) => total + (lineGross(line) * taxRate(line.tax_id)) / 100, 0),
 )
+
+const summaryRows = computed(() => [
+  { label: 'Valor bruto', value: money(linesGross.value), total: false },
+  { label: 'IVA', value: money(linesTax.value), total: false },
+  { label: 'Valor neto', value: money(linesGross.value + linesTax.value), total: true },
+])
 
 const lineProblem = (line: MovementLine): MovementLine['error'] => {
   if (!line.product_id) {
@@ -545,9 +701,11 @@ const LINE_FIELDS: Record<string, NonNullable<MovementLine['error']>['field']> =
   product_id: 'product',
   quantity: 'quantity',
   unit_cost: 'unit_cost',
+  tax_id: 'tax',
 }
 
 const openMovementDialog = () => {
+  editedMovement.value = null
   movementForm.value = {
     document_type_id: null,
     movement_type: 'in',
@@ -596,23 +754,37 @@ const saveMovement = async () => {
   }
   // Solo para que TypeScript sepa que ya no es null (la guarda de arriba cubre).
   if (!form.document_type_id) return
+  // An empty cost is not sent: a new line enters at the average cost and a
+  // saved one keeps its own. No tax is sent as null, so a saved line loses it.
+  const items = lines.map(line => ({
+    ...(line.saved ? { id: line.saved.id } : {}),
+    product_id: line.product_id as number,
+    quantity: Number(line.quantity),
+    ...(isEntry.value && line.unit_cost !== null ? { unit_cost: line.unit_cost } : {}),
+    ...(isEntry.value ? { tax_id: line.tax_id } : {}),
+  }))
+  const edited = editedMovement.value
   savingMovement.value = true
   try {
-    const result = await kardexService.createKardexMovement({
-      document_type_id: form.document_type_id,
-      movement_type: form.movement_type,
-      // Empty optional columns are not sent.
-      items: lines.map(line => ({
-        product_id: line.product_id as number,
-        quantity: Number(line.quantity),
-        ...(isEntry.value && line.unit_cost !== null ? { unit_cost: line.unit_cost } : {}),
-      })),
-      moved_at: form.moved_at,
-      counterparty: (form.counterparty || '').trim() || undefined,
-      reference: form.reference.trim() || undefined,
-      notes: form.notes.trim() || undefined,
-    })
-    notify(result.message || 'Movimiento registrado en el kardex', 'success')
+    const result = edited
+      ? await kardexService.updateKardexDocument(edited.id, {
+          moved_at: form.moved_at,
+          counterparty: (form.counterparty || '').trim() || null,
+          reference: form.reference.trim() || null,
+          notes: form.notes.trim() || null,
+          movement_type: form.movement_type,
+          items,
+        })
+      : await kardexService.createKardexMovement({
+          document_type_id: form.document_type_id,
+          movement_type: form.movement_type,
+          items,
+          moved_at: form.moved_at,
+          counterparty: (form.counterparty || '').trim() || undefined,
+          reference: form.reference.trim() || undefined,
+          notes: form.notes.trim() || undefined,
+        })
+    notify(result.message || (edited ? 'Movimiento actualizado en el kardex' : 'Movimiento registrado en el kardex'), 'success')
     movementDialog.value = false
     load()
   } catch (error: any) {
@@ -623,7 +795,12 @@ const saveMovement = async () => {
       const line = index !== undefined ? lines[Number(index)] : undefined
       if (line && field) line.error = { field: LINE_FIELDS[field] ?? 'product', text: messages[0] ?? '' }
     }
-    movementError.value = errorMessage(error, 'No fue posible registrar el movimiento. Inténtalo de nuevo.')
+    movementError.value = errorMessage(
+      error,
+      edited
+        ? 'No fue posible guardar los cambios del movimiento. Inténtalo de nuevo.'
+        : 'No fue posible registrar el movimiento. Inténtalo de nuevo.',
+    )
   } finally {
     savingMovement.value = false
   }
@@ -633,7 +810,51 @@ const notify = (text: string, color = 'error') => {
   snackbar.value = { show: true, text, color }
 }
 
+const canEditKardex = computed(() => !!authStore.user?.can_edit_kardex)
+// Fecha, Doc., Referencia (+ Producto) before the amounts; the balances, Usuario (+ edit) after.
+const leadingColumns = computed(() => (showProductColumn.value ? 4 : 3))
+const trailingColumns = computed(() => (canEditKardex.value ? 5 : 4))
 
+const movementLabel = (m: KardexMovement) => [m.document_code, m.reference].filter(Boolean).join(' ')
+const editedText = (m: KardexMovement) =>
+  `Editado${m.edited_by ? ` por ${m.edited_by}` : ''} el ${formatDateTime(m.edited_at)}`
+const movementDay = (m: KardexMovement) => toIsoDate(new Date(m.moved_at))
+
+// Rows typed together share a batch, so the pencil reopens every line of the
+// document, even the ones the product filter hides.
+const editDocument = async (m: KardexMovement) => {
+  if (loadingDocument.value !== null) return
+  loadingDocument.value = m.id
+  try {
+    const found = m.batch ? (await kardexService.report({ batch: m.batch })).movements : []
+    const rows = found.length > 0 ? found : [m]
+    const header = rows.find(row => row.id === m.id) ?? rows[0]!
+    editedMovement.value = header
+    movementForm.value = {
+      document_type_id: documentTypes.value.find(t => t.code === header.document_code)?.id ?? null,
+      movement_type: header.movement_type,
+      moved_at: movementDay(header),
+      counterparty: header.counterparty ?? '',
+      reference: header.reference ?? '',
+      notes: header.notes ?? '',
+    }
+    movementLines.value = rows.map(row => ({
+      key: ++lineKeys,
+      saved: row,
+      product_id: row.product.id,
+      quantity: Number(row.quantity),
+      unit_cost: Number(row.unit_cost),
+      tax_id: row.tax_id ?? null,
+      error: null,
+    }))
+    movementError.value = ''
+    movementDialog.value = true
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar el movimiento. Inténtalo de nuevo.'))
+  } finally {
+    loadingDocument.value = null
+  }
+}
 
 // Cada consulta lleva su número: si una anterior responde tarde (staging es
 // lento), no pisa la tabla del filtro que el usuario eligió después.
@@ -690,6 +911,11 @@ onMounted(async () => {
     documentTypes.value = docTypes
   } catch (error) {
     notify(errorMessage(error, 'No fue posible cargar los filtros. Inténtalo de nuevo.'))
+  }
+  try {
+    taxes.value = await kardexService.taxes()
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar los impuestos. Inténtalo de nuevo.'))
   }
   // Terceros para el selector; si fallan, el combobox queda como texto libre.
   try {

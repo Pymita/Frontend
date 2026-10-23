@@ -8,14 +8,20 @@ import { ADMIN, API, apiLogin, displayDate, freezeTime, loginUI, raisePlanLimits
  */
 
 /** Deja un producto publicado en el menú y devuelve su nombre y precio. */
-async function seedMenuItem(request: any, auth: Record<string, string>, name: string, price: number) {
+async function seedMenuItem(
+  request: any,
+  auth: Record<string, string>,
+  name: string,
+  price: number,
+  product: Record<string, unknown> = {},
+) {
   const category = await request.post(`${API}/categories`, {
     headers: auth,
     data: { name: `Categoría ${name}` },
   })
   const categoryId = (await category.json()).data.id
 
-  const product = await request.post(`${API}/products`, {
+  const created = await request.post(`${API}/products`, {
     headers: auth,
     data: {
       name,
@@ -24,9 +30,10 @@ async function seedMenuItem(request: any, auth: Record<string, string>, name: st
       sale_price: price,
       tracks_stock: false,
       category_id: categoryId,
+      ...product,
     },
   })
-  const productId = (await product.json()).data.id
+  const productId = (await created.json()).data.id
 
   await request.post(`${API}/menu-items`, {
     headers: auth,
@@ -65,6 +72,38 @@ test('crear un pedido con productos desde la web', async ({ page, request }) => 
   expect(created).toBeTruthy()
   expect(created.items).toHaveLength(1)
   expect(Number(created.total)).toBe(7300)
+})
+
+/**
+ * A product without red sales can't be ordered past its kardex balance: the
+ * order is not created and the person taking it reads why and what to do.
+ */
+test('pedir más de lo que hay de un producto sin ventas en rojo muestra que no hay stock suficiente', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const name = `Cerveza Club Stock ${Date.now()}`
+  await seedMenuItem(request, auth, name, 6200, {
+    tracks_stock: true,
+    current_stock: 1,
+    allows_negative_stock: false,
+  })
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill(name)
+  await dialog.getByText(name).first().click()
+  await dialog.getByRole('button', { name: `Agregar una unidad de ${name}` }).click()
+  await expect(dialog.getByText('Total: $12.400')).toBeVisible()
+
+  await dialog.getByRole('button', { name: 'Crear pedido' }).click()
+  await expect(page.getByText(new RegExp(`No hay stock suficiente de ${name}`))).toBeVisible()
+  await expect(page.getByText('Pedido creado')).toHaveCount(0)
+  await expect(dialog.getByText('Total: $12.400')).toBeVisible()
+
+  const orders = (await (await request.get(`${API}/orders`, { headers: auth })).json()).data
+  expect(orders.some((order: any) => order.items?.some((item: any) => item.product_name === name))).toBe(false)
 })
 
 test('agregar productos a un pedido que ya está abierto', async ({ page, request }) => {

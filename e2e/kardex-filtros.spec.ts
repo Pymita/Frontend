@@ -171,6 +171,38 @@ test('los filtros de movimiento, documento y fechas se aplican solos', async ({ 
   await expect(rows.filter({ hasText: 'SI' })).toHaveCount(1)
 })
 
+/**
+ * A product without inventory (a delivery fee, a service) never has kardex
+ * movements: offering it only made the product lists huge.
+ */
+test('los productos sin inventario no aparecen para filtrar ni para registrar movimientos', async ({ page, request }) => {
+  const stamp = Date.now()
+  const withStock = `Harina Inventario ${stamp}`
+  const withoutStock = `Domicilio Sin Inventario ${stamp}`
+  const auth = { Authorization: `Bearer ${await apiLogin(request, ADMIN.email, ADMIN.password)}` }
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `Inventario ${stamp}` } })
+  const categoryId = (await category.json()).data.id
+  for (const data of [
+    { name: withStock, type: 'raw_material', unit: 'kg', unit_cost: 1000, current_stock: 2, tracks_stock: true },
+    { name: withoutStock, type: 'final', unit: 'unidad', sale_price: 3000, tracks_stock: false },
+  ]) {
+    const response = await request.post(`${API}/products`, { headers: auth, data: { ...data, category_id: categoryId } })
+    expect(response.status(), await response.text()).toBe(201)
+  }
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/kardex')
+  await page.getByRole('combobox', { name: 'Producto' }).fill(String(stamp))
+  await expect(page.getByRole('option', { name: withStock })).toBeVisible()
+  await expect(page.getByRole('option', { name: withoutStock })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  await page.getByRole('button', { name: /Registrar movimiento/ }).click()
+  await page.getByRole('dialog').getByRole('combobox', { name: 'Producto *' }).fill(String(stamp))
+  await expect(page.getByRole('option', { name: withStock })).toBeVisible()
+  await expect(page.getByRole('option', { name: withoutStock })).toHaveCount(0)
+})
+
 test('el Excel se descarga con los mismos filtros de la pantalla', async ({ page, request }) => {
   const { names } = await createProductWithMovements(request, 'C')
   const [azucar] = names
