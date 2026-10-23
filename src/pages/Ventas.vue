@@ -118,7 +118,7 @@
         <v-select
           v-model="filters.user_id"
           :items="waiterOptions"
-          label="Mesero"
+          label="Vendedor"
           density="compact"
           hide-details
           clearable
@@ -960,7 +960,7 @@ const headers = computed(() => [
   ...(recurringBilling.value ? [{ title: 'Origen', key: 'origin', sortable: false }] : []),
   { title: 'Cliente', key: 'customer_name', sortable: false },
   { title: recurringBilling.value ? 'Fecha' : 'Fecha de pago', key: 'paid_at' },
-  { title: 'Mesero', key: 'waiter' },
+  { title: 'Vendedor', key: 'waiter' },
   { title: 'Método', key: 'payment_methods', sortable: false },
   { title: 'Propina', key: 'tip', align: 'end' as const },
   { title: 'Total', key: 'total', align: 'end' as const },
@@ -969,7 +969,7 @@ const headers = computed(() => [
 
 const methodOptions = Object.entries(SALE_METHOD_LABELS).map(([value, title]) => ({ value, title }))
 
-// Los meseros del filtro salen de las ventas cargadas: sin llamados extra
+// Los vendedores del filtro salen de las ventas cargadas: sin llamados extra
 // y sin exigir permisos de administración de empleados.
 const waiterOptions = computed(() => {
   const seen = new Map<number, string>()
