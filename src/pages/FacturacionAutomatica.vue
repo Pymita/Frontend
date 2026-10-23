@@ -143,6 +143,7 @@
             <v-spacer />
             <span class="text-caption text-medium-emphasis">
               Usa el lápiz para cambiar el nombre, el valor o el concepto de una persona antes de facturar.
+              Quien tiene «Concepto propio» no toma el concepto general.
             </span>
           </v-card-text>
           <v-alert
@@ -176,22 +177,47 @@
             show-select
             class="elevation-0"
             no-data-text="No hay clientes para facturar">
+            <!-- Una fila facturada muestra lo que dice su documento, no lo que se facturaría hoy. -->
             <template #item.customer_name="{ item }">
-              <div class="font-weight-medium">{{ rowValue(item).customer_name }}</div>
-              <div class="text-caption text-medium-emphasis">{{ item.customer_document_type }} {{ rowValue(item).customer_document }}</div>
-              <v-chip v-if="edits[item.customer_id]" size="x-small" color="secondary" variant="tonal" class="mt-1">
-                Editado
-              </v-chip>
+              <template v-if="item.billed">
+                <div class="font-weight-medium">{{ item.billed.customer_name ?? item.customer_name }}</div>
+                <div class="text-caption text-medium-emphasis">
+                  {{ item.customer_document_type }} {{ item.billed.customer_document ?? item.customer_document }}
+                </div>
+              </template>
+              <template v-else>
+                <div class="font-weight-medium">{{ rowValue(item).customer_name }}</div>
+                <div class="text-caption text-medium-emphasis">{{ item.customer_document_type }} {{ rowValue(item).customer_document }}</div>
+                <v-chip v-if="edits[item.customer_id]" size="x-small" color="secondary" variant="tonal" class="mt-1">
+                  Editado
+                </v-chip>
+              </template>
             </template>
 
-            <template #item.concept="{ item }">{{ rowValue(item).concept }}</template>
+            <template #item.concept="{ item }">
+              <template v-if="item.billed">
+                <div>{{ item.billed.concept ?? rowValue(item).concept }}</div>
+                <div class="text-caption text-medium-emphasis">Facturado en {{ item.billed.document_number }}</div>
+              </template>
+              <template v-else>
+                <div>{{ rowValue(item).concept }}</div>
+                <v-chip v-if="usesOwnConcept(item)" size="x-small" color="secondary" variant="tonal" class="mt-1">
+                  Concepto propio
+                </v-chip>
+              </template>
+            </template>
 
-            <template #item.due_date="{ item }">{{ formatDay(rowValue(item).due_date) }}</template>
+            <template #item.due_date="{ item }">
+              {{ formatDay(item.billed ? item.billed.due_date ?? null : rowValue(item).due_date) }}
+            </template>
 
-            <template #item.tax_name="{ item }">{{ taxLabel(rowValue(item).tax_id) }}</template>
+            <template #item.tax_name="{ item }">
+              {{ item.billed ? item.billed.tax_name || 'Sin impuesto' : taxLabel(rowValue(item).tax_id) }}
+            </template>
 
             <template #item.unit_price="{ item }">
-              <span class="tabular-nums">{{ rowValue(item).unit_price === null ? 'Sin cuota' : money(rowTotal(item)) }}</span>
+              <span v-if="item.billed" class="tabular-nums">{{ money(item.billed.total) }}</span>
+              <span v-else class="tabular-nums">{{ rowValue(item).unit_price === null ? 'Sin cuota' : money(rowTotal(item)) }}</span>
             </template>
 
             <template #item.billed="{ item }">
@@ -275,6 +301,10 @@
               <span class="tabular-nums">{{ item.monthly_fee !== null && item.monthly_fee !== undefined ? money(item.monthly_fee) : '—' }}</span>
             </template>
             <template #item.billing_day="{ item }">{{ item.billing_day ? `Día ${item.billing_day}` : '—' }}</template>
+            <template #item.billing_concept="{ item }">
+              <span v-if="item.billing_concept?.trim()">{{ item.billing_concept }}</span>
+              <span v-else class="text-medium-emphasis">El general</span>
+            </template>
             <template #item.recurring_active="{ item }">
               <v-chip size="small" variant="tonal" :color="item.recurring_active ? 'success' : undefined">
                 {{ item.recurring_active ? 'Activo' : 'Pausado' }}
@@ -665,7 +695,7 @@
 <script setup lang="ts">
 import { money } from '@/utils/money'
 import { formatDay } from '@/utils/dates'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
@@ -724,8 +754,6 @@ const periodName = (value: string): string => {
   return new Date(y, m - 1, 1).toLocaleDateString('es-CO', { month: 'long', year: 'numeric' })
 }
 
-const today = localDate()
-
 // ===== Impuestos =====
 const taxes = ref<Tax[]>([])
 const taxOptions = computed(() => [
@@ -736,8 +764,28 @@ const taxLabel = (taxId: number | null | undefined): string =>
   taxes.value.find(t => t.id === taxId)?.name ?? 'Sin impuesto'
 
 // ===== Facturar =====
-const period = ref(today.slice(0, 7))
-const issueDate = ref(today)
+// The issue date the page set by itself (today when it opened).
+let autoIssueDate = localDate()
+const period = ref(autoIssueDate.slice(0, 7))
+const issueDate = ref(autoIssueDate)
+
+/**
+ * A tab left open overnight must not issue with yesterday's date: if the
+ * issue date is still the one the page set by itself, it moves to today (the
+ * selection follows, as when the date is changed by hand) and says so. A
+ * date picked by hand stays. True when it moved, so the caller stops.
+ */
+const followToday = (): boolean => {
+  const now = localDate()
+  if (now === autoIssueDate || issueDate.value !== autoIssueDate) return false
+  autoIssueDate = now
+  issueDate.value = now
+  notify(`Ya es otro día: la fecha de emisión pasó a hoy, ${formatDay(now)}. Revisa la selección antes de facturar.`, 'warning')
+  return true
+}
+const followTodayWhenVisible = () => {
+  if (document.visibilityState === 'visible') followToday()
+}
 const generalConcept = ref('')
 const preview = ref<RecurringPreview | null>(null)
 const loadingPreview = ref(false)
@@ -746,10 +794,13 @@ const generating = ref(false)
 
 const periodLabel = computed(() => (period.value ? periodName(period.value) : ''))
 
-/** Lo que se editó por fila antes de facturar (solo para ese documento). */
 type RowEdit = Required<Pick<GenerateItem, 'customer_name' | 'customer_document' | 'customer_address' | 'customer_city' | 'customer_phone' | 'customer_email' | 'concept' | 'quantity' | 'discount'>>
   & { unit_price: number | null; tax_id: number | null; due_date: string | null }
-const edits = ref<Record<number, RowEdit>>({})
+/**
+ * Lo que se editó por fila antes de facturar (solo para ese documento): solo
+ * los campos que cambiaron, para que lo demás siga al cliente y al concepto general.
+ */
+const edits = ref<Record<number, Partial<RowEdit>>>({})
 
 const previewHeaders = [
   { title: 'Cliente', key: 'customer_name' },
@@ -776,7 +827,21 @@ const defaultsFor = (row: RecurringPreviewRow): RowEdit => ({
   due_date: row.due_date,
 })
 
-const rowValue = (row: RecurringPreviewRow): RowEdit => edits.value[row.customer_id] ?? defaultsFor(row)
+const rowValue = (row: RecurringPreviewRow): RowEdit => ({ ...defaultsFor(row), ...edits.value[row.customer_id] })
+
+/** The customer's own concept wins over the general one (the server's precedence). */
+const usesOwnConcept = (row: RecurringPreviewRow): boolean =>
+  !!row.concept?.trim() && edits.value[row.customer_id]?.concept === undefined
+
+/** The fields of the dialog that differ from what the row bills without edits. */
+const changedFields = (row: RecurringPreviewRow, form: RowEdit): Partial<RowEdit> => {
+  const base = defaultsFor(row)
+  return Object.fromEntries(
+    (Object.keys(form) as (keyof RowEdit)[])
+      .filter(key => form[key] !== base[key])
+      .map(key => [key, form[key]]),
+  ) as Partial<RowEdit>
+}
 
 const totalOf = (value: RowEdit): number =>
   Math.max(0, (value.quantity || 1) * (value.unit_price ?? 0) - (value.discount || 0))
@@ -903,14 +968,8 @@ const printInvoices = async (ids: number[]) => {
   }
 }
 
-/** Solo se envía lo que cambió respecto a lo que el servidor ya sabe. */
-const itemFor = (row: RecurringPreviewRow): GenerateItem => {
-  const edit = edits.value[row.customer_id]
-  if (!edit) {
-    return { customer_id: row.customer_id }
-  }
-  return { customer_id: row.customer_id, ...edit }
-}
+/** Solo se envía lo que cambió: lo demás lo pone el servidor (cliente, concepto general). */
+const itemFor = (row: RecurringPreviewRow): GenerateItem => ({ customer_id: row.customer_id, ...edits.value[row.customer_id] })
 
 // --- Editar una fila ---
 const rowDialog = ref(false)
@@ -919,14 +978,21 @@ const rowTarget = ref<RecurringPreviewRow | null>(null)
 const formTotal = computed(() => (rowForm.value ? totalOf(rowForm.value) : 0))
 
 const openRowDialog = (row: RecurringPreviewRow) => {
+  if (followToday()) return
   rowTarget.value = row
   rowForm.value = { ...rowValue(row) }
   rowDialog.value = true
 }
 
+const storeRowEdits = (row: RecurringPreviewRow, form: RowEdit) => {
+  const { [row.customer_id]: _previous, ...rest } = edits.value
+  const changed = changedFields(row, form)
+  edits.value = Object.keys(changed).length ? { ...rest, [row.customer_id]: changed } : rest
+}
+
 const saveRowEdits = () => {
   if (!rowTarget.value || !rowForm.value) return
-  edits.value = { ...edits.value, [rowTarget.value.customer_id]: { ...rowForm.value } }
+  storeRowEdits(rowTarget.value, rowForm.value)
   if (!selected.value.includes(rowTarget.value.customer_id)) {
     selected.value = [...selected.value, rowTarget.value.customer_id]
   }
@@ -960,7 +1026,7 @@ const runGeneration = async (items: GenerateItem[]) => {
 
 const generateSingle = () => {
   if (!rowTarget.value || !rowForm.value) return
-  edits.value = { ...edits.value, [rowTarget.value.customer_id]: { ...rowForm.value } }
+  storeRowEdits(rowTarget.value, rowForm.value)
   runGeneration([itemFor(rowTarget.value)])
 }
 
@@ -976,6 +1042,7 @@ const confirmTotal = computed(() => confirmRows.value.reduce((sum, row) => sum +
 const confirmMissingFee = computed(() => confirmRows.value.filter(r => rowValue(r).unit_price === null))
 
 const openConfirm = (mode: 'selected' | 'all') => {
+  if (followToday()) return
   confirmMode.value = mode
   confirmDialog.value = true
 }
@@ -994,6 +1061,7 @@ const customerHeaders = [
   { title: 'Teléfono', key: 'phone', sortable: false },
   { title: 'Cuota', key: 'monthly_fee', align: 'end' as const },
   { title: 'Corte', key: 'billing_day' },
+  { title: 'Concepto', key: 'billing_concept', sortable: false },
   { title: 'Cobro automático', key: 'recurring_active' },
   { title: '', key: 'actions', sortable: false, align: 'end' as const },
 ]
@@ -1235,6 +1303,7 @@ const runImport = async (dryRun: boolean) => {
 }
 
 onMounted(async () => {
+  document.addEventListener('visibilitychange', followTodayWhenVisible)
   try {
     taxes.value = await kardexService.taxes()
   } catch {
@@ -1243,4 +1312,6 @@ onMounted(async () => {
   billingService.getBusiness().then(b => (business.value = b)).catch(() => {})
   await Promise.all([loadPreview(), loadCustomers()])
 })
+
+onBeforeUnmount(() => document.removeEventListener('visibilitychange', followTodayWhenVisible))
 </script>

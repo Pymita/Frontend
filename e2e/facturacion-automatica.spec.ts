@@ -114,7 +114,12 @@ test('factura a los seleccionados editando a una persona y después a todos', as
 
   await expect(page.getByText('Se generaron 2 documentos')).toBeVisible()
   await expect(row(page, 'Ana Apto 101')).toContainText('CC-1 · Por pagar')
-  await expect(row(page, 'Beto Apto 102')).toContainText('CC-2 · Por pagar')
+  // A billed row reads what its document says: Beto's edited name, concept and value.
+  const betoBilled = row(page, 'Beto Pérez (arrendatario)')
+  await expect(betoBilled).toContainText('CC-2 · Por pagar')
+  await expect(betoBilled).toContainText('Administración + parqueadero')
+  await expect(betoBilled).toContainText('Facturado en CC-2')
+  await expect(betoBilled).toContainText('$310.000')
 
   // "A todos" ya solo incluye a quien falta.
   await page.getByRole('button', { name: 'Facturar a todos (1)' }).click()
@@ -135,6 +140,130 @@ test('factura a los seleccionados editando a una persona y después a todos', as
   expect(beto.customer_name).toBe('Beto Pérez (arrendatario)')
   expect(beto.concept).toBe('Administración + parqueadero')
   expect(beto.total).toBe(310000)
+})
+
+/**
+ * "En la parte de concepto general no la está tomando en cuenta": the general
+ * concept reaches whoever has no own concept (an own one is marked), a row
+ * edited only in its value keeps following it, and after billing and
+ * reloading the field and the billed rows show the concept actually billed.
+ */
+test('el concepto general llega a quien no tiene uno propio y después de facturar y recargar se ve el facturado', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'concepto')
+  const auth = { Authorization: `Bearer ${company.token}` }
+
+  // The page's "today" is the API's: the day it created Ana.
+  const first = await request.post(`${API}/customers`, {
+    headers: auth,
+    data: { document_type: 'CC', document_number: '7001', name: 'Ana Concepto', city: 'Bogotá', recurring_active: true, monthly_fee: 250000, billing_day: 10 },
+  })
+  expect(first.status()).toBe(201)
+  const now = new Date((await first.json()).data.created_at)
+  const today = now.toLocaleDateString('en-CA')
+  await createResident(request, company.token, { name: 'Beto Concepto', document_number: '7002' })
+  await createResident(request, company.token, { name: 'Carla Parqueadero', document_number: '7003', monthly_fee: 180000, billing_concept: 'Cuota parqueadero' })
+
+  // Imported: the default concept written in the file is not an own concept.
+  const columns = await request.get(`${API}/recurring-billing/customers/import/columns`, { headers: auth })
+  const headers: string[] = (await columns.json()).data.columns.map((column: { label: string }) => column.label)
+  const fileRow = (cells: Record<string, string>) => headers.map(header => cells[header] ?? '')
+  const imported = await request.post(`${API}/recurring-billing/customers/import`, {
+    headers: { ...auth, Accept: 'application/json' },
+    multipart: {
+      file: {
+        name: 'clientes.xlsx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        buffer: buildXlsx([
+          headers,
+          fileRow({ nombre: 'Dora Importada', numero_documento: '7004', cuota_mensual: '250000', dia_corte: '10', concepto: 'Cuota de administración' }),
+          fileRow({ nombre: 'Elsa Importada', numero_documento: '7005', cuota_mensual: '120000', dia_corte: '10', concepto: 'Cuota local' }),
+        ]),
+      },
+      dry_run: '0',
+    },
+  })
+  expect(imported.status(), await imported.text()).toBe(200)
+  expect((await imported.json()).data.summary.created).toBe(2)
+
+  // The tab was opened yesterday and left open.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await freezeTime(page, new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString())
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Facturación automática').click()
+  const general = field(page, 'Concepto general').locator('input')
+  await expect(general).toHaveValue('Cuota de administración')
+  await expect(row(page, 'Ana Concepto')).toBeVisible()
+
+  // Morning: billing does not issue with yesterday's date.
+  const dialog = page.getByRole('dialog')
+  await page.clock.setFixedTime(now)
+  await page.getByRole('button', { name: 'Facturar a todos (5)' }).click()
+  await expect(page.getByText('Ya es otro día: la fecha de emisión pasó a hoy')).toBeVisible()
+  await expect(field(page, 'Día a facturar').locator('input')).toHaveValue(displayDate(today))
+  await expect(dialog).toBeHidden()
+
+  // Who has an own concept says so; the rest follow the general one.
+  await expect(row(page, 'Carla Parqueadero')).toContainText('Cuota parqueadero')
+  await expect(row(page, 'Carla Parqueadero')).toContainText('Concepto propio')
+  await expect(row(page, 'Elsa Importada')).toContainText('Cuota local')
+  await expect(row(page, 'Elsa Importada')).toContainText('Concepto propio')
+  for (const name of ['Ana Concepto', 'Beto Concepto', 'Dora Importada']) {
+    await expect(row(page, name)).toContainText('Cuota de administración')
+    await expect(row(page, name)).not.toContainText('Concepto propio')
+  }
+
+  // Clientes says it too.
+  await page.getByRole('tab', { name: /Clientes/ }).click()
+  await expect(row(page, 'Carla Parqueadero')).toContainText('Cuota parqueadero')
+  await expect(row(page, 'Elsa Importada')).toContainText('Cuota local')
+  await expect(row(page, 'Dora Importada')).toContainText('El general')
+  await expect(row(page, 'Ana Concepto')).toContainText('El general')
+  await page.getByRole('tab', { name: /Facturar/ }).click()
+
+  // Beto pays more this month: only his value is edited.
+  await page.getByRole('button', { name: 'Editar y facturar a Beto Concepto' }).click()
+  await field(page, 'Valor unitario').locator('input').fill('300000')
+  await dialog.getByRole('button', { name: 'Guardar cambios' }).click()
+  await expect(row(page, 'Beto Concepto')).toContainText('Editado')
+  await expect(row(page, 'Beto Concepto')).toContainText('$300.000')
+
+  await general.fill('Administración del mes')
+  for (const name of ['Ana Concepto', 'Beto Concepto', 'Dora Importada']) {
+    await expect(row(page, name)).toContainText('Administración del mes')
+  }
+  await expect(row(page, 'Carla Parqueadero')).toContainText('Cuota parqueadero')
+
+  await page.getByRole('button', { name: 'Facturar a todos (5)' }).click()
+  await expect(dialog).toContainText('Se van a generar 5 documentos por $1.100.000')
+  await dialog.getByRole('button', { name: 'Generar' }).click()
+  await expect(page.getByText('Se generaron 5 documentos')).toBeVisible()
+
+  // The billed rows keep what was billed, even when the field changes again.
+  await general.fill('Otra cosa')
+  for (const name of ['Ana Concepto', 'Beto Concepto', 'Dora Importada']) {
+    await expect(row(page, name)).toContainText('Administración del mes')
+    await expect(row(page, name)).toContainText('Facturado en CC-')
+  }
+  await expect(row(page, 'Beto Concepto')).toContainText('$300.000')
+  await expect(row(page, 'Carla Parqueadero')).toContainText('Cuota parqueadero')
+  await expect(row(page, 'Carla Parqueadero')).not.toContainText('Concepto propio')
+
+  // Reloaded, the field offers the concept it billed with.
+  await page.reload()
+  await expect(general).toHaveValue('Administración del mes')
+  await expect(row(page, 'Ana Concepto')).toContainText('Administración del mes')
+  await expect(row(page, 'Beto Concepto')).toContainText('$300.000')
+
+  const invoices = await (await request.get(`${API}/recurring-billing/invoices?period=${today.slice(0, 7)}`, { headers: auth })).json()
+  const concepts = Object.fromEntries(invoices.data.invoices.map((i: { customer_name: string; concept: string }) => [i.customer_name, i.concept]))
+  expect(concepts).toEqual({
+    'Ana Concepto': 'Administración del mes',
+    'Beto Concepto': 'Administración del mes',
+    'Carla Parqueadero': 'Cuota parqueadero',
+    'Dora Importada': 'Administración del mes',
+    'Elsa Importada': 'Cuota local',
+  })
+  expect(invoices.data.invoices.every((i: { issued_at: string }) => new Date(i.issued_at).toLocaleDateString('en-CA') === today)).toBe(true)
 })
 
 test('importa clientes desde Excel: plantilla, revisión fila por fila y los válidos quedan en la lista', async ({ page, request }) => {
@@ -1162,6 +1291,75 @@ test('un abono al cliente paga lo más viejo primero e imprime su recibo de caja
   expect(pdfPages(halfPdf)).toBe(1)
   expect(pdfPageSize(halfPdf)).toEqual([396, 612])
   await popup.screenshot({ path: '../screenshots/recibo-de-caja-media-carta.png', fullPage: true })
+})
+
+/**
+ * "Que salga RC2 otra vez no": a reverted abono's receipt was printed, so
+ * its number is never handed out again, and its print button goes away.
+ * The abono dialog dates today even if the page was opened yesterday.
+ */
+test('después de revertir un abono el siguiente recibo es RC-3, no el revertido, y su botón de imprimir desaparece', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'recibo-revertido')
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const customer = await request.post(`${API}/customers`, {
+    headers: auth,
+    data: { document_type: 'CC', document_number: '8001', name: 'Ana Revertido', city: 'Bogotá', recurring_active: true, monthly_fee: 250000, billing_day: 10 },
+  })
+  expect(customer.status()).toBe(201)
+  const { id: ana, created_at: createdAt } = (await customer.json()).data
+  // The page's "today" is the API's.
+  const now = new Date(createdAt)
+  const today = now.toLocaleDateString('en-CA')
+  const generated = await request.post(`${API}/recurring-billing/invoices/generate`, {
+    headers: auth,
+    data: { period: PERIOD, issue_date: ISSUED_IN_PERIOD, items: [{ customer_id: ana }] },
+  })
+  expect(generated.status()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await freezeTime(page, new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString())
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Cartera').click()
+  const panel = page.locator('.v-expansion-panel', { hasText: 'Ana Revertido' })
+  await panel.locator('.v-expansion-panel-title').click()
+
+  // Opened yesterday, the abono is recorded today.
+  await page.clock.setFixedTime(now)
+  await panel.locator('tbody tr', { hasText: 'CC-1' }).getByRole('button', { name: 'Abonar' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(field(page, 'Fecha').locator('input')).toHaveValue(displayDate(today))
+
+  const abonar = async (amount: string) => {
+    await field(page, 'Valor del abono').locator('input').fill(amount)
+    await dialog.getByRole('button', { name: 'Registrar abono' }).click()
+  }
+  await abonar('100000')
+  await expect(dialog.getByRole('button', { name: 'Imprimir recibo RC-1' })).toBeVisible()
+  await abonar('50000')
+  await expect(dialog.getByRole('button', { name: 'Imprimir recibo RC-2' })).toBeVisible()
+
+  page.once('dialog', confirm => confirm.accept())
+  await dialog.locator('tbody tr', { hasText: 'RC-2' }).getByRole('button', { name: 'Revertir' }).click()
+  await expect(page.getByText('Abono revertido exitosamente')).toBeVisible()
+  await expect(dialog.locator('tbody tr', { hasText: 'RC-2' })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: /Imprimir recibo/ })).toHaveCount(0)
+
+  await abonar('30000')
+  await expect(page.getByText('Abono registrado exitosamente')).toBeVisible()
+  await expect(dialog.locator('tbody tr', { hasText: 'RC-3' })).toContainText('$30.000')
+  const [popup] = await Promise.all([
+    page.waitForEvent('popup'),
+    dialog.getByRole('button', { name: 'Imprimir recibo RC-3' }).click(),
+  ])
+  await expect(popup.locator('.doc-number')).toContainText('RC-3')
+  await expect(popup.locator('body')).toContainText('TREINTA MIL PESOS')
+  await popup.close()
+  await dialog.getByRole('button', { name: 'Cerrar' }).click()
+
+  const history = page.getByTestId('historico-abonos')
+  await expect(history.locator('tbody tr', { hasText: 'RC-3' })).toContainText('$30.000')
+  await expect(history.locator('tbody tr', { hasText: 'RC-1' })).toContainText('$100.000')
+  await expect(history.locator('tbody tr', { hasText: 'RC-2' })).toHaveCount(0)
 })
 
 test('la cuenta de cobro sale con el encabezado del negocio y el valor en letras', async ({ page, request }) => {

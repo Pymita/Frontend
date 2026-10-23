@@ -592,7 +592,9 @@ const periodName = (value: string): string => {
   return new Date(y, m - 1, 1).toLocaleDateString('es-CO', { month: 'long', year: 'numeric' })
 }
 
-const today = localDate()
+// The default date of an abono and the latest one the picker allows. Set
+// when each dialog opens: a tab left open overnight would record yesterday.
+const today = ref(localDate())
 const methodOptions = Object.entries(PAYMENT_METHOD_LABELS).map(([value, title]) => ({ value, title }))
 const positiveAmount = (amount: number | null) => (amount ?? 0) > 0 || 'Escribe el valor del abono'
 
@@ -773,10 +775,10 @@ const paymentDialog = ref(false)
 const paymentInvoice = ref<RecurringInvoice | null>(null)
 const paymentFormRef = ref<any>(null)
 const savingPayment = ref(false)
-const paymentForm = ref({ amount: 0, payment_method: 'cash' as PaymentMethod, paid_at: today })
+const paymentForm = ref({ amount: 0, payment_method: 'cash' as PaymentMethod, paid_at: today.value })
 
 const resetPaymentForm = (invoice: RecurringInvoice) => {
-  paymentForm.value = { amount: invoice.balance, payment_method: 'cash', paid_at: today }
+  paymentForm.value = { amount: invoice.balance, payment_method: 'cash', paid_at: today.value }
 }
 
 // El recibo del abono recién registrado, para imprimirlo con un clic.
@@ -785,6 +787,7 @@ const lastReceiptNumber = ref<number | null>(null)
 const openPaymentDialog = async (invoiceId: number) => {
   try {
     paymentInvoice.value = await billingService.getRecurringInvoice(invoiceId)
+    today.value = localDate()
     resetPaymentForm(paymentInvoice.value)
     lastReceiptNumber.value = null
     paymentDialog.value = true
@@ -819,12 +822,13 @@ const customerPaymentTarget = ref<ReceivableCustomer | null>(null)
 const customerPaymentFormRef = ref<any>(null)
 const savingCustomerPayment = ref(false)
 const customerReceipt = ref<CashReceipt | null>(null)
-const customerPaymentForm = ref({ amount: 0, payment_method: 'cash' as PaymentMethod, paid_at: today, notes: '' })
+const customerPaymentForm = ref({ amount: 0, payment_method: 'cash' as PaymentMethod, paid_at: today.value, notes: '' })
 
 const openCustomerPayment = (customer: ReceivableCustomer) => {
   customerPaymentTarget.value = customer
   customerReceipt.value = null
-  customerPaymentForm.value = { amount: customer.balance, payment_method: 'cash', paid_at: today, notes: '' }
+  today.value = localDate()
+  customerPaymentForm.value = { amount: customer.balance, payment_method: 'cash', paid_at: today.value, notes: '' }
   customerPaymentDialog.value = true
 }
 
@@ -865,8 +869,13 @@ const saveCustomerPayment = async () => {
 const revertPayment = async (paymentId: number) => {
   if (!confirm('¿Revertir este abono? El saldo del documento vuelve a subir.')) return
   try {
-    paymentInvoice.value = await billingService.deleteRecurringPayment(paymentId)
-    resetPaymentForm(paymentInvoice.value)
+    const invoice = await billingService.deleteRecurringPayment(paymentId)
+    paymentInvoice.value = invoice
+    // A reverted receipt no longer exists: its print button would print nothing.
+    if (!invoice.payments.some(payment => payment.receipt_number === lastReceiptNumber.value)) {
+      lastReceiptNumber.value = null
+    }
+    resetPaymentForm(invoice)
     notify('Abono revertido exitosamente')
     await refreshCartera()
   } catch (error) {
