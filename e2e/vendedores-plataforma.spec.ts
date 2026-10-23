@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import { API, PLATFORM, apiLogin, field, loginUI, sidebarItem } from './helpers'
 
@@ -158,4 +159,105 @@ test('nueva empresa marca los campos obligatorios desde que se abre', async ({ p
   await expect(page.getByLabel('Valor mensual (COP)')).toHaveValue('1.250.000')
   // The admin signs in with the password that was confirmed.
   await apiLogin(page.request, `cuota.${stamp}@e2e.test`, 'clave1234')
+})
+
+/**
+ * "Eliminar empresa": una empresa que se fue se borra desde el panel con las
+ * reglas de tenant:delete. Desactivada, con su copia descargada y su código
+ * escrito; una activa tiene el botón apagado y dice por qué.
+ */
+test('eliminar una empresa desactivada después de descargar su copia', async ({ page, request }) => {
+  const token = await apiLogin(request, PLATFORM.email, PLATFORM.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+
+  const create = async (name: string, email: string) => {
+    const response = await request.post(`${API}/platform/companies`, {
+      headers: auth,
+      data: { name, admin: { name: 'Dueña E2E', email, password: 'clave1234' } },
+    })
+    expect(response.status()).toBe(201)
+    return (await response.json()).data as { id: number; name: string; slug: string }
+  }
+  // The list pages by 10 ordered by name: these sort before every other company.
+  const leavingEmail = `adios.${stamp}@e2e.test`
+  const leaving = await create(`Adiós E2E ${stamp}`, leavingEmail)
+  const staying = await create(`Abierta E2E ${stamp}`, `abierta.${stamp}@e2e.test`)
+
+  const ownerToken = await apiLogin(request, leavingEmail, 'clave1234')
+  const category = await request.post(`${API}/categories`, {
+    headers: { Authorization: `Bearer ${ownerToken}` },
+    data: { name: `Bebidas ${stamp}` },
+  })
+  expect(category.status()).toBe(201)
+  expect((await request.post(`${API}/platform/companies/${leaving.id}/toggle-active`, { headers: auth })).ok()).toBeTruthy()
+
+  await loginUI(page, PLATFORM.email, PLATFORM.password)
+
+  // Active: the button is there, off, and its tooltip says what to do.
+  const activeButton = page.getByRole('button', { name: `Eliminar la empresa ${staying.name}` })
+  await expect(activeButton).toBeDisabled()
+  const activator = activeButton.locator('xpath=..')
+  await activator.hover()
+  const tooltip = page.locator(`#${await activator.getAttribute('aria-describedby')}`)
+  await expect(tooltip).toBeVisible()
+  await expect(tooltip).toHaveText('Desactívala primero para poder eliminarla')
+
+  const row = page.locator('tr', { hasText: leaving.name })
+  await expect(row.getByText('Inactiva', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: `Eliminar la empresa ${leaving.name}` }).click()
+  const dialog = page.getByRole('dialog').filter({ hasText: `Eliminar ${leaving.name}` })
+  await expect(dialog.getByText('Lo que se borra')).toBeVisible()
+  const planCount = (label: string) =>
+    dialog.locator('tr').filter({ has: page.getByRole('cell', { name: label, exact: true }) }).getByRole('cell').nth(1)
+  await expect(planCount('Categorías')).toHaveText('1')
+  await expect(planCount('Usuarios')).toHaveText('1')
+  await expect(dialog.getByText('Aún no has descargado una copia.')).toBeVisible()
+
+  // Its trial ends in 15 days: only the business's request skips the 90 days.
+  const remove = dialog.getByRole('button', { name: 'Eliminar definitivamente' })
+  const confirm = dialog.getByLabel(`Escribe ${leaving.slug} para confirmar`)
+  await confirm.fill(leaving.slug)
+  await expect(remove).toBeDisabled()
+  await expect(dialog.getByText(/Sin esa solicitud, se puede eliminar desde el/)).toBeVisible()
+  await dialog.getByLabel('El negocio pidió la eliminación (no esperar 90 días)').check()
+  await expect(remove).toBeDisabled()
+  await expect(dialog.getByLabel('Eliminar sin copia')).toBeVisible()
+
+  // The copy is the tenant:export file of this company, and it counts as its copy.
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    dialog.getByRole('button', { name: 'Descargar copia' }).click(),
+  ])
+  expect(download.suggestedFilename()).toMatch(new RegExp(`^${leaving.slug}-\\d{8}-\\d{6}\\.json$`))
+  const bundle = JSON.parse(readFileSync(await download.path(), 'utf8'))
+  expect(bundle.format).toBe('servify-tenant')
+  expect(bundle.company.slug).toBe(leaving.slug)
+  expect(bundle.tables.categories.map((c: { name: string }) => c.name)).toEqual([`Bebidas ${stamp}`])
+  await expect(dialog.getByText(/^Última copia: /)).toBeVisible()
+  await expect(dialog.getByLabel('Eliminar sin copia')).toHaveCount(0)
+
+  // Only its exact code turns the button on.
+  await confirm.fill(`${leaving.slug}x`)
+  await expect(remove).toBeDisabled()
+  await confirm.fill(leaving.slug)
+  await expect(remove).toBeEnabled()
+  await remove.click()
+
+  await expect(
+    page.getByText(`Se eliminaron los datos de "${leaving.name}". Quedan la empresa desactivada, su suscripción y sus pagos.`),
+  ).toBeVisible()
+  await expect(dialog).toHaveCount(0)
+  await expect(row.getByText('Datos eliminados', { exact: true })).toBeVisible()
+  await expect(row.getByText('Inactiva', { exact: true })).toHaveCount(0)
+  await expect(row).toContainText('0 usuarios')
+  await expect(page.locator('tr', { hasText: staying.name }).getByText('Activa', { exact: true })).toBeVisible()
+
+  // Its admin no longer exists.
+  const login = await request.post(`${API}/auth/login`, {
+    headers: { Accept: 'application/json' },
+    data: { email: leavingEmail, password: 'clave1234' },
+  })
+  expect(login.status()).toBe(422)
+  expect((await login.json()).message).toBe('Correo, usuario o contraseña incorrectos.')
 })

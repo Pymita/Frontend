@@ -46,7 +46,12 @@
               </v-chip>
             </template>
             <template #item.active="{ item }">
-              <v-chip :color="item.active ? 'success' : 'error'" size="small">
+              <v-tooltip v-if="item.data_deleted_at" :text="`Sus datos se eliminaron el ${formatMomentDay(item.data_deleted_at)}`">
+                <template #activator="{ props }">
+                  <v-chip v-bind="props" color="error" variant="outlined" size="small">Datos eliminados</v-chip>
+                </template>
+              </v-tooltip>
+              <v-chip v-else :color="item.active ? 'success' : 'error'" size="small">
                 {{ item.active ? 'Activa' : 'Inactiva' }}
               </v-chip>
             </template>
@@ -99,6 +104,24 @@
                   >
                     <v-icon size="small">{{ item.active ? 'mdi-domain-off' : 'mdi-domain' }}</v-icon>
                   </v-btn>
+                </template>
+              </v-tooltip>
+              <v-tooltip v-if="!item.is_template" :text="item.active ? 'Desactívala primero para poder eliminarla' : 'Eliminar empresa'">
+                <template #activator="{ props }">
+                  <!-- On a span: a disabled button emits no mouse events, so the tooltip could not say why. -->
+                  <span v-bind="props" class="d-inline-flex">
+                    <v-btn
+                      icon
+                      size="small"
+                      variant="text"
+                      color="error"
+                      :disabled="item.active"
+                      :aria-label="`Eliminar la empresa ${item.name}`"
+                      @click="openDeleteDialog(item)"
+                    >
+                      <v-icon size="small">mdi-delete-forever</v-icon>
+                    </v-btn>
+                  </span>
                 </template>
               </v-tooltip>
             </template>
@@ -708,6 +731,109 @@
       </v-card>
     </v-dialog>
 
+    <!-- Dialog: eliminar empresa -->
+    <v-dialog v-model="deleteDialog" max-width="600" persistent scrollable>
+      <v-card v-if="deleteTarget">
+        <v-card-title class="text-wrap">Eliminar {{ deleteTarget.name }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-2">
+            Se borra toda su información: pedidos, cobros, productos, kardex, clientes, usuarios,
+            gastos, caja, facturación e imágenes. Sus usuarios ya no podrán entrar y no se puede deshacer.
+          </p>
+          <p class="text-body-2 text-medium-emphasis mb-4">
+            Por ley se conservan su suscripción y sus pagos durante 10 años; la empresa queda
+            desactivada, sin correo ni teléfono.
+          </p>
+
+          <v-progress-linear v-if="loadingPlan" indeterminate color="error" class="mb-4" />
+
+          <template v-else-if="deletionPlan">
+            <v-alert v-if="deletionPlan.refusal" type="warning" variant="tonal" density="compact">
+              {{ deletionPlan.refusal }}
+            </v-alert>
+            <v-alert v-else-if="deletionPlan.nothing_to_delete" type="info" variant="tonal" density="compact">
+              No le quedan datos por eliminar: solo la empresa desactivada, su suscripción y sus pagos.
+            </v-alert>
+
+            <template v-else>
+              <p class="text-subtitle-2 mb-1">Lo que se borra</p>
+              <v-table density="compact" class="mb-1">
+                <tbody>
+                  <tr v-for="row in planRows" :key="row.label">
+                    <td>{{ row.label }}</td>
+                    <td class="text-right">{{ row.count }}</td>
+                  </tr>
+                </tbody>
+              </v-table>
+              <p v-if="deletionPlan.shared_files > 0" class="text-caption text-medium-emphasis">
+                {{ deletionPlan.shared_files }} imágenes se conservan: otra empresa copió su catálogo y las usa.
+              </p>
+
+              <v-divider class="my-4" />
+              <div class="d-flex align-center flex-wrap ga-3">
+                <v-btn
+                  color="primary"
+                  variant="tonal"
+                  prepend-icon="mdi-download"
+                  :loading="downloadingExport"
+                  @click="downloadExport"
+                >
+                  Descargar copia
+                </v-btn>
+                <span class="text-body-2 text-medium-emphasis">{{ exportStatus }}</span>
+              </div>
+              <p class="text-caption text-medium-emphasis mt-2">
+                Trae sus datos personales y las contraseñas cifradas: entrégasela solo al negocio.
+              </p>
+
+              <v-checkbox
+                v-if="deletionPlan.needs_wait"
+                v-model="deleteForm.now"
+                label="El negocio pidió la eliminación (no esperar 90 días)"
+                :hint="waitHint"
+                persistent-hint
+                density="compact"
+                class="mt-3"
+              />
+              <v-checkbox
+                v-if="!deletionPlan.recent_export"
+                v-model="deleteForm.withoutExport"
+                label="Eliminar sin copia"
+                hint="Solo si el negocio ya tiene la suya."
+                persistent-hint
+                density="compact"
+                class="mt-3"
+              />
+
+              <!-- Above the field and not as its label: a floating label cuts a long code on a phone. -->
+              <label for="delete-company-confirm" class="d-block text-body-2 text-break mt-5 mb-2">
+                Escribe <strong>{{ deleteTarget.slug }}</strong> para confirmar
+              </label>
+              <v-text-field
+                id="delete-company-confirm"
+                v-model="deleteForm.confirm"
+                autocomplete="off"
+                spellcheck="false"
+                density="comfortable"
+                hide-details
+              />
+            </template>
+          </template>
+
+          <v-alert v-if="deleteError" type="error" variant="tonal" density="compact" class="mt-4">
+            {{ deleteError }}
+          </v-alert>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" :disabled="deleting" @click="deleteDialog = false">Cancelar</v-btn>
+          <v-btn color="error" variant="flat" :loading="deleting" :disabled="!canDelete" @click="confirmDelete">
+            Eliminar definitivamente
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <CopyCatalogDialog
       v-model="copyCatalogDialog"
       :company="copyCatalogTarget"
@@ -722,12 +848,18 @@
 
 <script setup lang="ts">
 import { money } from '@/utils/money'
-import { formatMomentDay } from '@/utils/dates'
+import { formatDateTime, formatDay, formatMomentDay } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import platformService from '../services/platformService'
-import type { PlatformCompany, PlatformCompanyDetail, PlatformSeller, SellerStats } from '../types/platform'
+import type {
+  CompanyDeletionPlan,
+  PlatformCompany,
+  PlatformCompanyDetail,
+  PlatformSeller,
+  SellerStats,
+} from '../types/platform'
 import { ALL_FEATURES, type BusinessType, type Feature, type SubscriptionStatus } from '../types/auth'
 import { PASSWORD_HINT, confirmPasswordRules, passwordRules } from '../utils/validation'
 import CopyCatalogDialog from '../components/CopyCatalogDialog.vue'
@@ -746,8 +878,8 @@ const headers = [
   { title: 'Usuarios', key: 'users_count', sortable: false },
   { title: 'Estado', key: 'active' },
   { title: 'Suscripción', key: 'subscription', sortable: false },
-  { title: 'Pagada hasta', key: 'period_end', sortable: false },
-  { title: 'Acciones', key: 'actions', sortable: false },
+  { title: 'Pagada hasta', key: 'period_end', sortable: false, nowrap: true },
+  { title: 'Acciones', key: 'actions', sortable: false, nowrap: true },
 ]
 
 const statusOptions = [
@@ -1083,6 +1215,144 @@ const confirmToggle = async (company: PlatformCompany) => {
     await loadCompanies()
   } catch (error: any) {
     notify(errorMessage(error, 'No fue posible cambiar el estado. Inténtalo de nuevo.'), 'error')
+  }
+}
+
+// --- Eliminar empresa (las mismas reglas de tenant:delete) ---
+const deleteDialog = ref(false)
+const deleteTarget = ref<PlatformCompany | null>(null)
+const deletionPlan = ref<CompanyDeletionPlan | null>(null)
+const loadingPlan = ref(false)
+const downloadingExport = ref(false)
+const deleting = ref(false)
+const deleteError = ref('')
+const deleteForm = ref({ now: false, withoutExport: false, confirm: '' })
+
+const tableLabels: Record<string, string> = {
+  company_settings: 'Configuración',
+  taxes: 'Impuestos',
+  document_types: 'Tipos de documento',
+  users: 'Usuarios',
+  privacy_acceptances: 'Aceptaciones de la política',
+  categories: 'Categorías',
+  variant_groups: 'Grupos de variantes',
+  variants: 'Variantes',
+  expense_categories: 'Categorías de gastos',
+  dining_tables: 'Mesas',
+  suppliers: 'Proveedores',
+  customers: 'Clientes',
+  products: 'Productos',
+  menu_items: 'Ítems del menú',
+  menu_item_modifiers: 'Modificadores del menú',
+  recipes: 'Recetas',
+  recipe_ingredients: 'Ingredientes de recetas',
+  orders: 'Pedidos',
+  order_items: 'Productos en pedidos',
+  order_payments: 'Cobros',
+  expenses: 'Gastos',
+  inventory_movements: 'Movimientos del kardex',
+  financial_movements: 'Movimientos de dinero',
+  cash_sessions: 'Cierres de caja',
+  recurring_invoices: 'Facturas y cuentas de cobro',
+  recurring_invoice_payments: 'Abonos',
+}
+
+const PLAN_ROWS_SHOWN = 6
+
+// The biggest tables by name and the rest in one line: 28 rows would bury what matters.
+const planRows = computed(() => {
+  const plan = deletionPlan.value
+  if (!plan) return []
+  const tables = Object.entries(plan.tables)
+    .filter(([table, count]) => count > 0 && !plan.kept.includes(table))
+    .sort(([, a], [, b]) => b - a)
+  const rest = tables.slice(PLAN_ROWS_SHOWN).reduce((sum, [, count]) => sum + count, 0)
+  return [
+    ...tables.slice(0, PLAN_ROWS_SHOWN).map(([table, count]) => ({ label: tableLabels[table] ?? table, count })),
+    ...(rest > 0 ? [{ label: 'Otros registros', count: rest }] : []),
+    ...(plan.files > 0 ? [{ label: 'Imágenes', count: plan.files }] : []),
+  ]
+})
+
+const exportStatus = computed(() => {
+  const plan = deletionPlan.value
+  if (plan?.last_exported_at && plan.recent_export) return `Última copia: ${formatDateTime(plan.last_exported_at)}`
+  if (plan?.last_exported_at) return `La última copia (${formatMomentDay(plan.last_exported_at)}) tiene más de 7 días.`
+  if (plan?.recent_export) return 'Hay una copia reciente de tenant:export en el servidor.'
+  return 'Aún no has descargado una copia.'
+})
+
+const waitHint = computed(() =>
+  deletionPlan.value?.needs_wait_until
+    ? `Sin esa solicitud, se puede eliminar desde el ${formatDay(deletionPlan.value.needs_wait_until)}.`
+    : 'Su suscripción no tiene fecha de fin para contar los 90 días.',
+)
+
+const canDelete = computed(() => {
+  const plan = deletionPlan.value
+  return (
+    !!plan &&
+    !plan.refusal &&
+    !plan.nothing_to_delete &&
+    deleteForm.value.confirm.trim() === deleteTarget.value?.slug &&
+    (plan.recent_export || deleteForm.value.withoutExport) &&
+    (!plan.needs_wait || deleteForm.value.now)
+  )
+})
+
+const loadDeletionPlan = async () => {
+  if (!deleteTarget.value) return
+  // Only the first load hides the plan; after a download it refreshes in place.
+  loadingPlan.value = deletionPlan.value === null
+  try {
+    deletionPlan.value = await platformService.getDeletionPlan(deleteTarget.value.id)
+  } catch (error) {
+    deleteError.value = errorMessage(error, 'No fue posible cargar lo que se eliminaría. Inténtalo de nuevo.')
+  } finally {
+    loadingPlan.value = false
+  }
+}
+
+const openDeleteDialog = (company: PlatformCompany) => {
+  deleteTarget.value = company
+  deletionPlan.value = null
+  deleteForm.value = { now: false, withoutExport: false, confirm: '' }
+  deleteError.value = ''
+  deleteDialog.value = true
+  loadDeletionPlan()
+}
+
+const downloadExport = async () => {
+  if (!deleteTarget.value) return
+  downloadingExport.value = true
+  deleteError.value = ''
+  try {
+    await platformService.downloadCompanyExport(deleteTarget.value)
+    await loadDeletionPlan()
+  } catch (error) {
+    deleteError.value = errorMessage(error, 'No fue posible descargar la copia. Inténtalo de nuevo.')
+  } finally {
+    downloadingExport.value = false
+  }
+}
+
+const confirmDelete = async () => {
+  if (!deleteTarget.value || !canDelete.value) return
+  deleting.value = true
+  deleteError.value = ''
+  try {
+    const { summary, message } = await platformService.deleteCompany(deleteTarget.value.id, {
+      confirm: deleteForm.value.confirm.trim(),
+      now: deleteForm.value.now,
+      without_export: deleteForm.value.withoutExport,
+    })
+    deleteDialog.value = false
+    notify(message, summary.files_failed ? 'error' : 'success')
+    await loadCompanies()
+  } catch (error) {
+    deleteError.value = errorMessage(error, 'No fue posible eliminar la empresa. Inténtalo de nuevo.')
+  } finally {
+    deleting.value = false
   }
 }
 
