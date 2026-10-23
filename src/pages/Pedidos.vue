@@ -1025,6 +1025,31 @@
         </v-btn>
       </template>
     </v-snackbar>
+
+    <!-- A new order must be noticed from across the counter, not read in
+         passing: its own larger alert at the top, apart from routine messages. -->
+    <v-snackbar
+      v-model="newOrderAlert"
+      color="info"
+      location="top"
+      :timeout="10000"
+      min-width="360"
+      max-width="560"
+      multi-line
+    >
+      <div class="d-flex align-center ga-4 py-2">
+        <v-icon icon="mdi-bell-ring" size="44" />
+        <div>
+          <div class="text-h6">
+            {{ newOrderCount === 1 ? 'Llegó un pedido nuevo' : `Llegaron ${newOrderCount} pedidos nuevos` }}
+          </div>
+          <div class="text-body-1">Ya está en la lista de pendientes</div>
+        </div>
+      </div>
+      <template #actions>
+        <v-btn variant="text" size="large" @click="newOrderAlert = false">Entendido</v-btn>
+      </template>
+    </v-snackbar>
   </v-container>
 </template>
 
@@ -1187,6 +1212,8 @@ const snackbarText = ref('');
 const snackbarColor = ref('success');
 interface MessageAction { text: string; run: () => void }
 const snackbarActions = ref<MessageAction[]>([]);
+const newOrderAlert = ref(false);
+const newOrderCount = ref(0);
 
 const headers = [
   { title: 'Mesa', key: 'dining_table', sortable: false },
@@ -2201,7 +2228,9 @@ useLiveRefresh(({ newOrders }) => {
   loadOrders(true);
   // Desde el plano solo importa la mesa abierta: sin avisos de otros pedidos.
   if (!props.embedded && newOrders > 0) {
-    showMessage(newOrders === 1 ? 'Llegó un pedido nuevo' : `Llegaron ${newOrders} pedidos nuevos`, 'info');
+    // Several polls in a row add up until the alert is dismissed.
+    newOrderCount.value = newOrderAlert.value ? newOrderCount.value + newOrders : newOrders;
+    newOrderAlert.value = true;
     playNewOrderChime();
   }
 });

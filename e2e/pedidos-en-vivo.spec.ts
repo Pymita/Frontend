@@ -32,7 +32,13 @@ test('un pedido creado desde afuera aparece solo en la web', async ({ page, requ
   // Sin tocar nada, la web lo muestra y avisa.
   await expect(page.locator('tr', { hasText: '$1.700' }).first()).toBeVisible({ timeout: 10_000 })
   // Sin número: un pedido lo toma al cobrarse, y el id interno nunca se muestra.
-  await expect(page.getByText('Llegó un pedido nuevo')).toBeVisible()
+  const alert = page.locator('.v-snackbar', { hasText: 'Llegó un pedido nuevo' })
+  await expect(alert).toBeVisible()
+  await expect(alert).toContainText('Ya está en la lista de pendientes')
+  // Arriba y grande: se ve desde la caja sin acercarse a la pantalla.
+  const box = (await alert.locator('.v-snackbar__wrapper').boundingBox())!
+  expect(box.y).toBeLessThan(200)
+  expect(box.width).toBeGreaterThanOrEqual(360)
   await expect(page.locator('tr', { hasText: '$1.700' }).first()).not.toContainText(`#${orderId}`)
 
   // Cobrarlo desde otro lado también se refleja: la fila deja de ser cobrable.
