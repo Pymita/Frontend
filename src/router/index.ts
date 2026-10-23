@@ -19,6 +19,7 @@ const Plataforma = () => import('../pages/Plataforma.vue')
 const Empleados = () => import('../pages/Empleados.vue')
 const Kardex = () => import('../pages/Kardex.vue')
 const Finanzas = () => import('../pages/Finanzas.vue')
+const Informes = () => import('../pages/Informes.vue')
 const Configuracion = () => import('../pages/Configuracion.vue')
 const Privacidad = () => import('../pages/Privacidad.vue')
 
@@ -148,6 +149,12 @@ export const routes: RouteRecordRaw[] = [
     name: 'Kardex',
     component: Kardex,
     meta: { requiresAuth: true, feature: 'inventory' }
+  },
+  {
+    path: '/informes',
+    name: 'Informes',
+    component: Informes,
+    meta: { requiresAuth: true, feature: 'reports' }
   },
   {
     path: '/finanzas',

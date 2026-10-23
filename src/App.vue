@@ -32,7 +32,7 @@
         <template v-for="group in menuGroups" :key="group.title">
           <v-list-group v-if="isCollapsible(group.title)" :value="group.title" fluid>
             <template #activator="{ props: activator, isOpen }">
-              <v-list-item v-bind="activator" :aria-expanded="isOpen" min-height="32">
+              <v-list-item v-bind="activator" :aria-expanded="isOpen" min-height="30" class="py-0">
                 <v-list-item-title class="text-overline text-chrome-overline">{{ group.title }}</v-list-item-title>
               </v-list-item>
             </template>
@@ -44,7 +44,8 @@
               :prepend-icon="item.icon"
               :title="item.title"
               active-class="bg-chrome-active"
-              min-height="32"
+              min-height="30"
+              class="py-0"
             />
           </v-list-group>
 
@@ -60,7 +61,8 @@
               :prepend-icon="item.icon"
               :title="item.title"
               active-class="bg-chrome-active"
-              min-height="32"
+              min-height="30"
+              class="py-0"
             />
           </template>
         </template>
@@ -287,6 +289,7 @@ const allMenuItems: MenuItem[] = [
   { title: 'Cartera', icon: 'mdi-wallet', route: '/cartera', feature: ['customers', 'recurring_billing'], group: 'Operación' },
   { title: 'Clientes', icon: 'mdi-account-multiple', route: '/clientes', feature: 'customers', group: 'Administración' },
   { title: 'Gastos', icon: 'mdi-cash-multiple', route: '/gastos', feature: 'expenses', group: 'Administración' },
+  { title: 'Informes', icon: 'mdi-file-chart-outline', route: '/informes', feature: 'reports', group: 'Administración' },
   { title: 'Finanzas', icon: 'mdi-finance', route: '/finanzas', requiresAdmin: true, group: 'Administración' },
   { title: 'Empleados', icon: 'mdi-account-cog', route: '/empleados', requiresAdmin: true, group: 'Administración' },
   { title: 'Configuración', icon: 'mdi-cog', route: '/configuracion', requiresAdmin: true, group: 'Administración' },

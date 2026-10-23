@@ -162,6 +162,69 @@ export const expensePaymentMethodLabels: Record<string, string> = {
   credit: 'Crédito',
 }
 
+// ===== Informes =====
+/** How a product's stock stands at the cut-off in "Productos con saldo". */
+export const stockStatusLabels: Record<string, string> = {
+  out_of_stock: 'Agotado',
+  low: 'Bajo mínimo',
+  uncosted: 'Sin costo',
+  inactive: 'Inactivo',
+}
+
+export const stockStatusColors: Record<string, string> = {
+  out_of_stock: 'error',
+  low: 'warning',
+  uncosted: 'info',
+  inactive: 'secondary',
+}
+
+/** "Ventas por producto" reads what was sold: the orders' products and the documents' services. */
+export const soldOriginLabels: Record<string, string> = {
+  order: 'Productos',
+  recurring: 'Servicios',
+}
+
+/** How old what a customer owes is, by its due date. */
+export const debtAgeLabels: Record<string, string> = {
+  not_due: 'Por vencer',
+  days_1_30: '1–30 días',
+  days_31_60: '31–60 días',
+  days_61_90: '61–90 días',
+  days_90_plus: 'Más de 90 días',
+}
+
+export const yesNoLabels: Record<string, string> = {
+  yes: 'Sí',
+  no: 'No',
+}
+
+/**
+ * The label map of each enum a report column names (`enum` in
+ * /reports/definitions, `Report::ENUMS` in the API, which labels the Excel
+ * with the same texts): the rows carry the keys.
+ */
+export const enumLabels: Record<string, Record<string, string>> = {
+  sale_method: saleMethodLabels,
+  sale_origin: saleOriginLabels,
+  sold_origin: soldOriginLabels,
+  product_type: productTypeLabels,
+  stock_status: stockStatusLabels,
+  yes_no: yesNoLabels,
+  document_kind: documentKindLabels,
+  document_status: recurringInvoiceStatusLabels,
+  debt_age: debtAgeLabels,
+  expense_type: expenseCategoryTypeLabels,
+  expense_payment_method: expensePaymentMethodLabels,
+  payment_status: paymentStatusLabels,
+}
+
+/** Enums that are states: their cells read as a chip of the state's role. */
+export const enumColors: Record<string, Record<string, string>> = {
+  stock_status: stockStatusColors,
+  document_status: recurringInvoiceStatusColors,
+  payment_status: paymentStatusColors,
+}
+
 /** Opciones de un v-select a partir de un mapa de etiquetas, en su orden. */
 export const options = (map: Record<string, string>): { value: string; title: string }[] =>
   Object.entries(map).map(([value, title]) => ({ value, title }))
