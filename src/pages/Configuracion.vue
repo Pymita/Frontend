@@ -67,6 +67,12 @@
               <v-col cols="12" md="6">
                 <v-text-field v-model="businessForm.email" label="Correo (opcional)" type="email" />
               </v-col>
+              <v-col cols="12" md="6">
+                <ImageUploader v-model="businessForm.logo_url" folder="companies" label="Logo (opcional)" contain keep-previous />
+                <p class="text-caption text-medium-emphasis mt-1">
+                  Sale en el encabezado de cada documento y arriba en la tirilla. Guarda los datos del negocio para usarlo.
+                </p>
+              </v-col>
               <v-col cols="12">
                 <v-textarea
                   v-model="businessForm.document_notes"
@@ -410,6 +416,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import kardexService, { type DocumentType, type Tax } from '../services/kardexService'
 import invoicingService, { type InvoicingResolution, type ResolutionStatus } from '../services/invoicingService'
 import LockableButton from '../components/LockableButton.vue'
+import ImageUploader from '../components/ImageUploader.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
@@ -463,6 +470,7 @@ const emptyBusiness = (): BusinessForm => ({
   phone: '',
   email: '',
   document_notes: '',
+  logo_url: null,
 })
 const businessForm = ref<BusinessForm>(emptyBusiness())
 const required = (v: string | null | undefined) => !!(v && String(v).trim()) || 'Este campo es obligatorio'

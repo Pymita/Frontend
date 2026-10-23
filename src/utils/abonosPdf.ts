@@ -5,11 +5,12 @@
  */
 import type { jsPDF } from 'jspdf'
 import type { CellDef, RowInput } from 'jspdf-autotable'
-import { formatFullDateTime, formatIsoDate, todayIso } from './dates'
+import { formatFullDateTime, formatIsoDate } from './dates'
+import { resolveImageUrl } from './images'
 import { money } from './money'
 import { PAYMENT_METHOD_LABELS, type CashPeriodTotals, type CashSession } from '../services/salesService'
 import type { CashReceipt } from '../services/billingService'
-import { differenceText, type DocumentBusiness } from './printDocuments'
+import { differenceText, printedAtText, type DocumentBusiness } from './printDocuments'
 
 export interface AbonosPdfFilters {
   from?: string
@@ -49,11 +50,57 @@ const loadPdf = async () => {
   return { jsPDF, autoTable: autoTableMod.default }
 }
 
-/** Business name, NIT · address · phone, the title and the lines under it; returns where the content starts. */
-const writeHeader = (doc: jsPDF, business: DocumentBusiness, title: string, lines: string[], margin: number): number => {
+// Chromium writes "08:00 a. m." with no-break spaces, and one character outside
+// the standard fonts' WinAnsi turns the whole string into unreadable glyphs.
+const plainSpaces = (text: string): string => text.replace(/[\u00a0\u2009\u202f]/g, ' ')
+
+/**
+ * The logo as a data URL for jsPDF, or null. Reading the bytes of an image
+ * on the API host or a bucket needs CORS there (showing it in a page does
+ * not), so without it the PDF keeps its text header instead of failing.
+ */
+const logoDataUrl = async (url: string | null | undefined): Promise<string | null> => {
+  const src = resolveImageUrl(url)
+  if (!src) return null
+  try {
+    const response = await fetch(src, { signal: AbortSignal.timeout(5000) })
+    if (!response.ok) return null
+    const blob = await response.blob()
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    return null
+  }
+}
+
+const LOGO_BOX = { width: 120, height: 44 }
+
+/** The logo at the left, if any; returns its width and bottom, or nothing when it cannot be drawn. */
+const writeLogo = (doc: jsPDF, logo: string | null, margin: number): { width: number; bottom: number } | null => {
+  if (!logo) return null
+  try {
+    const { width, height, fileType } = doc.getImageProperties(logo)
+    const scale = Math.min(LOGO_BOX.width / width, LOGO_BOX.height / height, 1)
+    const top = margin - 12
+    doc.addImage(logo, fileType, margin, top, width * scale, height * scale)
+    return { width: width * scale, bottom: top + height * scale }
+  } catch {
+    // A format jsPDF cannot read: the header stays text only.
+    return null
+  }
+}
+
+/** Logo, business name, NIT · address · phone, the title and the lines under it; returns where the content starts. */
+const writeHeader = (doc: jsPDF, business: DocumentBusiness, title: string, lines: string[], margin: number, logo: string | null): number => {
+  const drawn = writeLogo(doc, logo, margin)
+  const x = drawn ? margin + drawn.width + 12 : margin
   let y = margin
   doc.setFontSize(14)
-  doc.text(business.legal_name || 'Empresa', margin, y)
+  doc.text(business.legal_name || 'Empresa', x, y)
   y += 16
   doc.setFontSize(9)
   const headerBits = [
@@ -62,19 +109,33 @@ const writeHeader = (doc: jsPDF, business: DocumentBusiness, title: string, line
     business.phone || null,
   ].filter(Boolean)
   if (headerBits.length) {
-    doc.text(headerBits.join(' · '), margin, y)
+    doc.text(headerBits.join(' · '), x, y)
     y += 14
   }
 
   doc.setFontSize(13)
-  doc.text(title, margin, y)
+  doc.text(title, x, y)
   y += 16
   doc.setFontSize(9)
   for (const line of lines) {
-    doc.text(line, margin, y)
+    doc.text(line, x, y)
     y += 12
   }
-  return y + 6
+  return Math.max(y, (drawn?.bottom ?? 0) + 12) + 6
+}
+
+/** "Impreso el …" and "Página n de m" at the foot of every page. */
+const writeFooters = (doc: jsPDF, margin: number): void => {
+  const width = doc.internal.pageSize.getWidth()
+  const height = doc.internal.pageSize.getHeight()
+  const printed = plainSpaces(printedAtText())
+  const pages = doc.getNumberOfPages()
+  for (let page = 1; page <= pages; page++) {
+    doc.setPage(page)
+    doc.setFontSize(8)
+    doc.text(printed, margin, height - 20)
+    doc.text(`Página ${page} de ${pages}`, width - margin, height - 20, { align: 'right' })
+  }
 }
 
 const lastTableEnd = (doc: jsPDF, fallback: number): number =>
@@ -87,7 +148,7 @@ export async function downloadAbonosPdf(
   filters: AbonosPdfFilters,
   total: number,
 ): Promise<string> {
-  const { jsPDF, autoTable } = await loadPdf()
+  const [{ jsPDF, autoTable }, logo] = await Promise.all([loadPdf(), logoDataUrl(business.logo_url)])
 
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' })
   const margin = 40
@@ -98,7 +159,7 @@ export async function downloadAbonosPdf(
       : 'Período: todos',
     filters.customerName ? `Cliente: ${filters.customerName}` : null,
   ].filter(Boolean)
-  const y = writeHeader(doc, business, 'Histórico de abonos', [periodLabel.join(' · '), `Generado el ${dmy(todayIso())}`], margin)
+  const y = writeHeader(doc, business, 'Histórico de abonos', [periodLabel.join(' · ')], margin, logo)
 
   const body = receipts.map(receipt => {
     const documents = receipt.lines
@@ -136,6 +197,7 @@ export async function downloadAbonosPdf(
     margin,
     lastTableEnd(doc, y + 20) + 18,
   )
+  writeFooters(doc, margin)
 
   const from = filters.from ? filters.from.replace(/-/g, '') : 'inicio'
   const to = filters.to ? filters.to.replace(/-/g, '') : 'hoy'
@@ -177,9 +239,6 @@ const closeFigures = (close: CashSession): CloseFigures => ({
   total_collected: close.summary.total_collected ?? 0,
 })
 
-// Chromium writes "08:00 a. m." with no-break spaces, and one character outside
-// the standard fonts' WinAnsi turns the whole string into unreadable glyphs.
-const plainSpaces = (text: string): string => text.replace(/[\u00a0\u2009\u202f]/g, ' ')
 const instant = (iso: string | null): string => plainSpaces(formatFullDateTime(iso))
 const moneyOrDash = (value: number | null): string => (value === null ? '—' : money(value))
 
@@ -260,16 +319,13 @@ export async function downloadCashClosesPdf(
   totals: CashPeriodTotals,
   period: { from?: string; to?: string },
 ): Promise<string> {
-  const { jsPDF, autoTable } = await loadPdf()
+  const [{ jsPDF, autoTable }, logo] = await Promise.all([loadPdf(), logoDataUrl(business.logo_url)])
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
   const margin = 40
-  const width = doc.internal.pageSize.getWidth()
-  const height = doc.internal.pageSize.getHeight()
   let y = writeHeader(doc, business, 'Cierres de caja', [
     `${periodText(period.from, period.to)} · Solo los turnos cerrados`,
-    `Generado el ${dmy(todayIso())}`,
-  ], margin)
+  ], margin, logo)
 
   // The drawer half starts a little apart from the money that came in.
   const drawerPadding = { top: 3, bottom: 3, left: 16, right: 3 }
@@ -328,12 +384,7 @@ export async function downloadCashClosesPdf(
     doc.text('No hay cierres de caja en estas fechas.', margin, y + 6)
   }
 
-  const pages = doc.getNumberOfPages()
-  for (let page = 1; page <= pages; page++) {
-    doc.setPage(page)
-    doc.setFontSize(8)
-    doc.text(`Página ${page} de ${pages}`, width - margin, height - 20, { align: 'right' })
-  }
+  writeFooters(doc, margin)
 
   const filename = closesFilename(period.from, period.to)
   doc.save(filename)
