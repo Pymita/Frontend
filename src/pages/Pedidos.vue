@@ -1025,6 +1025,31 @@
         </v-btn>
       </template>
     </v-snackbar>
+
+    <!-- A new order must be noticed from across the counter, not read in
+         passing: its own larger alert at the top, apart from routine messages. -->
+    <v-snackbar
+      v-model="newOrderAlert"
+      color="info"
+      location="top"
+      :timeout="10000"
+      min-width="360"
+      max-width="560"
+      multi-line
+    >
+      <div class="d-flex align-center ga-4 py-2">
+        <v-icon icon="mdi-bell-ring" size="44" />
+        <div>
+          <div class="text-h6">
+            {{ newOrderCount === 1 ? 'Llegó un pedido nuevo' : `Llegaron ${newOrderCount} pedidos nuevos` }}
+          </div>
+          <div class="text-body-1">Ya está en la lista de pendientes</div>
+        </div>
+      </div>
+      <template #actions>
+        <v-btn variant="text" size="large" @click="newOrderAlert = false">Entendido</v-btn>
+      </template>
+    </v-snackbar>
   </v-container>
 </template>
 
@@ -1073,10 +1098,12 @@ import { creditDueDate, formatDay, formatFullDateTime, formatIsoDate, formatRece
 import {
   fillDocumentWindow,
   openDocumentWindow,
+  printedAtText,
   saleDocumentNumber,
   saleInvoiceHtml,
   taxRegimeText,
 } from '@/utils/printDocuments';
+import { resolveImageUrl } from '@/utils/images';
 import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage';
 import type { PageQuery, PaginatedResponse } from '@/types/api';
 import type { OrderGuest } from '@/services/ordersService';
@@ -1187,6 +1214,8 @@ const snackbarText = ref('');
 const snackbarColor = ref('success');
 interface MessageAction { text: string; run: () => void }
 const snackbarActions = ref<MessageAction[]>([]);
+const newOrderAlert = ref(false);
+const newOrderCount = ref(0);
 
 const headers = [
   { title: 'Mesa', key: 'dining_table', sortable: false },
@@ -1799,6 +1828,7 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
     ...totals,
     line,
     center(opts.preBill ? '** GRACIAS POR SU VISITA **' : '** GRACIAS POR SU COMPRA **'),
+    center(printedAtText()),
   ].filter(Boolean).join('\n');
 };
 
@@ -1816,16 +1846,35 @@ const openPrintWindow = (): Window | null => {
   return win;
 };
 
-const fillPrintWindow = (win: Window, title: string, body: string) => {
+const fillPrintWindow = (win: Window, title: string, body: string, logoUrl?: string | null) => {
+  const logo = resolveImageUrl(logoUrl);
   win.document.open();
   win.document.write(
     `<html><head><title>${title.replace(/</g, '&lt;')}</title>` +
-    '<style>body{font-family:monospace;font-size:12px;white-space:pre;width:80mm;margin:0 auto;padding:8px}</style>' +
-    `</head><body>${body.replace(/</g, '&lt;')}</body></html>`,
+    '<style>body{font-family:monospace;font-size:12px;white-space:pre;width:80mm;margin:0 auto;padding:8px}' +
+    '.logo{display:block;max-width:100%;max-height:48px;margin:0 auto 6px}</style>' +
+    '</head><body>' +
+    (logo ? `<img class="logo" src="${logo.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" alt="">` : '') +
+    `${body.replace(/</g, '&lt;')}</body></html>`,
   );
   win.document.close();
   win.focus();
-  win.print();
+  // Printing before the logo arrives from the API host prints it blank: it
+  // waits for the logo, or for its failure, a few seconds at most.
+  const image = win.document.images[0];
+  if (!image || image.complete) {
+    win.print();
+    return;
+  }
+  let printed = false;
+  const print = () => {
+    if (printed) return;
+    printed = true;
+    win.print();
+  };
+  image.addEventListener('load', print);
+  image.addEventListener('error', print);
+  win.setTimeout(print, 5000);
 };
 
 /** Factura (o comprobante) de un pedido ya cobrado. */
@@ -1834,7 +1883,7 @@ const printReceipt = async (order: Order) => {
   if (!win) return;
   try {
     const r = await ordersService.receipt(order.id);
-    fillPrintWindow(win, r.invoice_number || orderLabel({ ...order, number: r.number }), buildTicket(r));
+    fillPrintWindow(win, r.invoice_number || orderLabel({ ...order, number: r.number }), buildTicket(r), r.business.logo_url);
   } catch (error) {
     win.close();
     showMessage(errorMessage(error, 'No fue posible generar la factura. Inténtalo de nuevo.'), 'error');
@@ -1847,7 +1896,7 @@ const printGuestReceipt = async (order: Order, guest: OrderGuest) => {
   if (!win) return;
   try {
     const r = await ordersService.receipt(order.id, guest.number);
-    fillPrintWindow(win, `${guest.label} - ${orderLabel(order)}`, buildTicket(r, { preBill: true, paidNow: true }));
+    fillPrintWindow(win, `${guest.label} - ${orderLabel(order)}`, buildTicket(r, { preBill: true, paidNow: true }), r.business.logo_url);
   } catch (error) {
     win.close();
     showMessage(errorMessage(error, 'No fue posible generar el comprobante. Inténtalo de nuevo.'), 'error');
@@ -1907,7 +1956,7 @@ const printGuestBill = async (order: Order, guest: number | null) => {
       preBill: true,
       suggestedTip: tip,
       tipPercent: tipEnabled.value ? tipPercent.value : undefined,
-    }));
+    }), r.business.logo_url);
   } catch (error) {
     win.close();
     showMessage(errorMessage(error, 'No fue posible generar la cuenta. Inténtalo de nuevo.'), 'error');
@@ -1939,7 +1988,7 @@ const printPreBill = async (order: Order) => {
       suggestedTip: tip,
       tipPercent: tipEnabled.value ? tipPercent.value : undefined,
       amountPaid: consumptionPaid,
-    }));
+    }), r.business.logo_url);
   } catch (error) {
     win.close();
     showMessage(errorMessage(error, 'No fue posible generar la cuenta. Inténtalo de nuevo.'), 'error');
@@ -2201,7 +2250,9 @@ useLiveRefresh(({ newOrders }) => {
   loadOrders(true);
   // Desde el plano solo importa la mesa abierta: sin avisos de otros pedidos.
   if (!props.embedded && newOrders > 0) {
-    showMessage(newOrders === 1 ? 'Llegó un pedido nuevo' : `Llegaron ${newOrders} pedidos nuevos`, 'info');
+    // Several polls in a row add up until the alert is dismissed.
+    newOrderCount.value = newOrderAlert.value ? newOrderCount.value + newOrders : newOrders;
+    newOrderAlert.value = true;
     playNewOrderChime();
   }
 });

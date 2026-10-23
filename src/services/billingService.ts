@@ -61,11 +61,25 @@ export interface RecurringPreviewRow {
   tax_id: number | null
   tax_name: string | null
   tax_rate: number
-  billed: { id: number; document_number: string; status: RecurringInvoiceStatus; total: number } | null
+  /** The document of the month as it was issued: the row shows this, never a recalculation. */
+  billed: RecurringPreviewBilled | null
+}
+
+export interface RecurringPreviewBilled {
+  id: number
+  document_number: string
+  status: RecurringInvoiceStatus
+  total: number
+  customer_name?: string
+  customer_document?: string | null
+  concept?: string
+  due_date?: string | null
+  tax_name?: string | null
 }
 
 export interface RecurringPreview {
   period: string
+  /** The general concept the company last billed with (the default until then). */
   default_concept: string
   rows: RecurringPreviewRow[]
   summary: { customers: number; billed: number; pending: number; pending_total: number }

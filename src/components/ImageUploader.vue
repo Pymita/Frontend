@@ -10,7 +10,7 @@
         rounded="lg"
         class="border"
       >
-        <v-img :src="preview" :alt="label || 'Imagen'" cover />
+        <v-img :src="preview" :alt="label || 'Imagen'" :cover="!contain" />
       </v-avatar>
       <v-sheet
         v-else
@@ -67,6 +67,13 @@ const props = withDefaults(defineProps<{
   folder: ImageFolder
   label?: string
   size?: number
+  /** Shows the whole image (a logo) instead of filling the square. */
+  contain?: boolean
+  /**
+   * Leaves the previous file in place on upload: the form that owns it deletes
+   * it when saved, so leaving without saving never breaks the saved image.
+   */
+  keepPrevious?: boolean
 }>(), { size: 72 })
 
 const emit = defineEmits<{ 'update:modelValue': [value: string | null] }>()
@@ -84,7 +91,7 @@ const onSelect = async (selected: File | File[] | null) => {
   uploading.value = true
   error.value = ''
   try {
-    const url = await imagesService.upload(chosen, props.folder, props.modelValue)
+    const url = await imagesService.upload(chosen, props.folder, props.keepPrevious ? null : props.modelValue)
     emit('update:modelValue', url)
   } catch (e: any) {
     error.value = errorMessage(e, 'No se pudo subir la imagen')

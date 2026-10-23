@@ -306,7 +306,7 @@
 </template>
 
 <script setup lang="ts">
-import { money, percent } from '@/utils/money'
+import { money, percent, quantity } from '@/utils/money'
 import { formatDay } from '@/utils/dates'
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import DateField from '../components/DateField.vue'
@@ -382,11 +382,6 @@ const dashStats = ref<DashboardStats>({
 })
 
 const lowStockProducts = ref<LowStockProduct[]>([])
-
-
-// Stock can be fractional (kg, litros) but 12 units must not read "12.00".
-const quantity = (value: number | string | null | undefined): string =>
-  Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 })
 
 // Pendientes de cobro creados antes de hoy (los cancelados no cuentan).
 const overdueCount = computed(() => dashStats.value.overdue_pending?.count ?? 0)

@@ -1,6 +1,6 @@
 import { expect, test, type Locator } from '@playwright/test'
 import { encode } from 'uqr'
-import { ADMIN, API, COMPANY_SLUG, PLATFORM, apiLogin, field, lastResetLink, loginUI, openSidebarGroup, sidebarGroup, sidebarItem, totp } from './helpers'
+import { ADMIN, API, COMPANY_SLUG, PLATFORM, apiLogin, field, lastResetLink, loginUI, openSidebarGroup, raisePlanLimits, sidebarGroup, sidebarItem, totp } from './helpers'
 
 /**
  * Acceso por permisos: quien solo toma pedidos usa la app y no entra a la
@@ -56,13 +56,21 @@ test('empleado con acceso limitado solo ve sus secciones', async ({ page, reques
   await expect(sidebarItem(page, 'Pedidos')).toBeVisible()
   await expect(sidebarItem(page, 'Inicio')).toBeVisible()
 
+  // Informes es de "Inicio, ventas y reportes": está en Administración, que se
+  // despliega; Finanzas sigue siendo solo del admin.
+  await openSidebarGroup(page, 'Administración')
+  await expect(sidebarItem(page, 'Informes')).toBeVisible()
+
   // No ve lo que no le habilitaron:
   for (const hidden of ['Categorías', 'Productos', 'Recetas', 'Kardex', 'Clientes', 'Cartera', 'Gastos', 'Finanzas', 'Empleados', 'Configuración']) {
     await expect(sidebarItem(page, hidden)).toHaveCount(0)
   }
 
-  // Todo lo suyo es de Operación: con una sola sección el menú no pone encabezados.
-  await expect(sidebarItem(page, 'Operación')).toHaveCount(0)
+  await sidebarItem(page, 'Informes').click()
+  await expect(page).toHaveURL(/\/informes$/)
+  await expect(field(page, 'Informe')).toContainText('Ventas por fecha y vendedor')
+  await page.goto('/finanzas')
+  await expect(page).not.toHaveURL(/\/finanzas/)
 
   // Y aunque escriba la URL a mano, lo devuelve a una página permitida:
   await page.goto('/gastos')
@@ -70,6 +78,19 @@ test('empleado con acceso limitado solo ve sus secciones', async ({ page, reques
   // The cartera needs Clientes or Facturación automática, not orders.
   await page.goto('/cartera')
   await expect(page).not.toHaveURL(/\/cartera/)
+})
+
+test('con una sola sección el menú no pone encabezados', async ({ page, request }) => {
+  await raisePlanLimits(request, { max_users: 50 })
+  const cook = await createEmployee(request, 'cocina.menu', ['menu'])
+
+  await loginUI(page, cook.username, cook.password)
+
+  await expect(sidebarItem(page, 'Menú')).toBeVisible()
+  await expect(sidebarItem(page, 'Categorías')).toBeVisible()
+  for (const heading of ['Operación', 'Catálogo', 'Administración']) {
+    await expect(sidebarItem(page, heading)).toHaveCount(0)
+  }
 })
 
 /**

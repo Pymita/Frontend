@@ -1,5 +1,20 @@
-import { expect, test, type Page } from '@playwright/test'
-import { ADMIN, API, PLATFORM, apiLogin, field, freezeTime, loginUI, sidebarItem } from './helpers'
+import { readFileSync } from 'node:fs'
+import { crc32, deflateSync } from 'node:zlib'
+import { expect, test, type Locator, type Page } from '@playwright/test'
+import {
+  ADMIN,
+  API,
+  PLATFORM,
+  apiLogin,
+  createCompany,
+  field,
+  freezeTime,
+  issueDocuments,
+  loginUI,
+  pdfText,
+  sidebarItem,
+  watchPrinting,
+} from './helpers'
 
 /**
  * Resolución de facturación DIAN: el admin registra el rango autorizado como
@@ -373,4 +388,160 @@ test('un cobro revertido y vuelto a cobrar imprime el número de la venta nueva'
   expect(withNit.text).toContain('Responsable de IVA')
   expect(withNit.text).toContain('FACTURA DE VENTA No. FE2')
   await withNit.popup.close()
+})
+
+/** A wide logo made in memory (a teal mark and two grey bars), as a business would upload it. */
+const logoPng = (width = 360, height = 120): Buffer => {
+  const row = width * 3 + 1
+  const raw = Buffer.alloc(row * height, 255)
+  for (let y = 0; y < height; y++) {
+    raw[y * row] = 0
+    for (let x = 0; x < width; x++) {
+      const mark = (x - height / 2) ** 2 + (y - height / 2) ** 2 < (height * 0.4) ** 2
+      const title = x > height * 1.1 && x < width - 16 && y > height * 0.3 && y < height * 0.48
+      const line = x > height * 1.1 && x < width * 0.7 && y > height * 0.58 && y < height * 0.7
+      const color = mark ? [0, 128, 128] : title ? [40, 40, 40] : line ? [130, 130, 130] : null
+      if (color) raw.set(color, y * row + 1 + x * 3)
+    }
+  }
+  const chunk = (type: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), data])
+    const length = Buffer.alloc(4)
+    length.writeUInt32BE(data.length)
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(crc32(body))
+    return Buffer.concat([length, body, crc])
+  }
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(width, 0)
+  header.writeUInt32BE(height, 4)
+  header[8] = 8 // bits per channel
+  header[9] = 2 // RGB
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', header),
+    chunk('IDAT', deflateSync(raw)),
+    chunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
+const pad = (value: number) => String(value).padStart(2, '0')
+
+/** "23/10/2026, 02:31 p. m." as a printed document writes an instant, as a pattern (the browser uses no-break spaces). */
+const printedMoment = (at: Date): string =>
+  `${pad(at.getDate())}/${pad(at.getMonth() + 1)}/${at.getFullYear()}, ` +
+  `${pad(at.getHours() % 12 || 12)}:${pad(at.getMinutes())}\\s${at.getHours() < 12 ? 'a' : 'p'}\\.\\s?m\\.`
+
+/**
+ * El logo que el admin sube en Datos del negocio sale en el recibo de caja,
+ * la cuenta de cobro, la tirilla y el PDF del histórico, y cada impresión
+ * dice cuándo se imprimió sin cambiar la fecha del documento: el recibo, la
+ * hora en que se registró el abono; la cuenta de cobro, la de su emisión.
+ */
+test('el logo de Datos del negocio sale en lo que se imprime, con la fecha y hora de impresión', async ({ page, request }) => {
+  const company = await createCompany(request, `logo-${Date.now()}`, { business_type: 'other' })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const business = await request.put(`${API}/invoicing/business`, {
+    headers: auth,
+    data: {
+      legal_name: 'Panadería La Espiga SAS',
+      nit: `901${Date.now() % 1_000_000}`,
+      tax_regime: 'common',
+      address: 'Carrera 7 # 12-40',
+      city: 'Pereira',
+      department: 'Risaralda',
+      phone: '3104567890',
+    },
+  })
+  expect(business.ok()).toBeTruthy()
+  const [document] = await issueDocuments(request, company.token, [{ name: 'Lucía Logo', document_number: '8101', monthly_fee: 120000 }])
+  const abono = await request.post(`${API}/recurring-billing/invoices/${document!.id}/payments`, { headers: auth, data: { amount: 50000 } })
+  expect(abono.status()).toBe(201)
+  const receipt = await request.get(`${API}/recurring-billing/receipts/${(await abono.json()).data.receipt_number}`, { headers: auth })
+  const registeredAt = new Date((await receipt.json()).data.receipt.registered_at)
+
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: 'Panes' } })
+  const product = await request.post(`${API}/products`, {
+    headers: auth,
+    data: { name: 'Pan aliñado', type: 'final', unit: 'unidad', sale_price: 3456, tracks_stock: false, category_id: (await category.json()).data.id },
+  })
+  const order = await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: (await product.json()).data.id, quantity: 1 }] } })
+  expect(order.status()).toBe(201)
+  expect((await request.post(`${API}/orders/${(await order.json()).data.id}/pay`, { headers: auth, data: { payment_method: 'cash' } })).ok()).toBeTruthy()
+
+  // Printed a minute after the abono: the print says so, the documents keep their own moments.
+  const printedAt = new Date(registeredAt.getTime() + 60_000)
+  const printing = await watchPrinting(page)
+  await freezeTime(page, printedAt.toISOString())
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+
+  // --- Configuración › Datos del negocio: sube el logo y guarda ---
+  await page.goto('/configuracion')
+  const card = page.locator('.v-card', { hasText: 'Datos del negocio' })
+  await expect(card.getByText('Completo')).toBeVisible()
+  await card.locator('input[type="file"]').setInputFiles({ name: 'logo-espiga.png', mimeType: 'image/png', buffer: logoPng() })
+  const storedLogo = /^http:\/\/127\.0\.0\.1:\d+\/storage\/companies\/\d+\/companies\/[\w-]+\.jpg$/
+  await expect(card.locator('.v-avatar img')).toHaveAttribute('src', storedLogo)
+  await card.getByRole('button', { name: 'Guardar datos del negocio' }).click()
+  await expect(page.getByText('Datos del negocio guardados')).toBeVisible()
+  await page.reload()
+  await expect(card.locator('.v-avatar img')).toHaveAttribute('src', storedLogo)
+
+  const printFrom = async (button: Locator): Promise<Page> => {
+    const [popup] = await Promise.all([page.waitForEvent('popup'), button.click()])
+    return popup
+  }
+  const expectLogo = async (logo: Locator) => {
+    await expect(logo).toHaveAttribute('src', storedLogo)
+    await expect.poll(() => logo.evaluate(img => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+  }
+
+  // --- Pedidos: la tirilla, que se imprime sola cuando llega el logo ---
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Pedidos del día' }).click()
+  const ticket = await printFrom(page.locator('tbody tr', { hasText: '$3.456' }).getByRole('button', { name: 'Tirilla' }))
+  await expectLogo(ticket.locator('img.logo'))
+  await expect(ticket.locator('body')).toContainText('COMPROBANTE DE VENTA')
+  await expect(ticket.locator('body')).toContainText(new RegExp(`Impreso el ${printedMoment(printedAt)}`))
+  await expect.poll(async () => (await printing()).printed).toBe(1)
+  await ticket.close()
+
+  // --- Cartera: el recibo de caja, con la hora del abono ---
+  await page.goto('/cartera')
+  const history = page.getByTestId('historico-abonos')
+  const receiptWindow = await printFrom(history.getByRole('button', { name: 'Imprimir RC-1' }))
+  await expect(receiptWindow.locator('.doc-number')).toContainText('RECIBO DE CAJA')
+  await expectLogo(receiptWindow.locator('.header img.logo'))
+  await expect(receiptWindow.locator('.party')).toContainText(new RegExp(`FECHA \\(D/M/A\\): ${printedMoment(registeredAt)}`))
+  await expect(receiptWindow.locator('.printed-by')).toContainText(new RegExp(`Impreso el ${printedMoment(printedAt)}`))
+  await receiptWindow.getByRole('button', { name: 'Imprimir o guardar en PDF' }).click()
+  // The count starts again with each page load.
+  await expect.poll(async () => (await printing()).printed).toBe(1)
+  await receiptWindow.close()
+
+  // --- La cuenta de cobro, con la hora de su emisión ---
+  const panel = page.locator('.v-expansion-panel', { hasText: 'Lucía Logo' })
+  await panel.locator('.v-expansion-panel-title').click()
+  const invoiceWindow = await printFrom(panel.getByRole('button', { name: `Imprimir ${document!.document_number}` }))
+  await expect(invoiceWindow.locator('.doc-number')).toContainText('CUENTA DE COBRO')
+  await expectLogo(invoiceWindow.locator('.header img.logo'))
+  await expect(invoiceWindow.locator('.party')).toContainText(new RegExp(`FECHA \\(D/M/A\\): ${printedMoment(new Date(document!.issued_at))}`))
+  await expect(invoiceWindow.locator('.printed-by')).toContainText(new RegExp(`Impreso el ${printedMoment(printedAt)}`))
+  await invoiceWindow.close()
+
+  // --- El PDF del histórico: sin CORS en el host de las imágenes sale sin logo, nunca falla ---
+  const downloadPdf = async (): Promise<Buffer> => {
+    const [download] = await Promise.all([page.waitForEvent('download'), history.getByRole('button', { name: 'Descargar PDF' }).click()])
+    return readFileSync(await download.path())
+  }
+  const plain = await downloadPdf()
+  expect(pdfText(plain)).toMatch(new RegExp(`Impreso el ${printedMoment(printedAt)}`))
+  expect(pdfText(plain)).toContain('Página 1 de 1')
+  expect(plain.toString('latin1')).not.toMatch(/\/Subtype\s*\/Image/)
+  await page.route('**/storage/companies/**', async route => {
+    const response = await route.fetch()
+    await route.fulfill({ response, headers: { ...response.headers(), 'access-control-allow-origin': '*' } })
+  })
+  expect((await downloadPdf()).toString('latin1')).toMatch(/\/Subtype\s*\/Image/)
 })

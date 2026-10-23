@@ -1,6 +1,9 @@
 import api from './api'
 import type {
+  CompanyDeletionPlan,
+  CompanyDeletionSummary,
   CreateCompanyPayload,
+  DeleteCompanyPayload,
   PlatformCompany,
   PlatformCompanyDetail,
   PlatformSeller,
@@ -42,6 +45,31 @@ class PlatformService {
   async toggleActive(id: number): Promise<PlatformCompany> {
     const response = await api.post<ApiEnvelope<PlatformCompany>>(`/platform/companies/${id}/toggle-active`)
     return response.data.data
+  }
+
+  /** Descarga la copia completa de la empresa (el mismo archivo de tenant:export). */
+  async downloadCompanyExport(company: Pick<PlatformCompany, 'id' | 'slug'>): Promise<void> {
+    const response = await api.get(`/platform/companies/${company.id}/export`, { responseType: 'blob' })
+
+    const disposition: string = response.headers['content-disposition'] || ''
+    const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] || `${company.slug}.json`
+
+    const url = URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async getDeletionPlan(id: number): Promise<CompanyDeletionPlan> {
+    const response = await api.get<ApiEnvelope<CompanyDeletionPlan>>(`/platform/companies/${id}/deletion-plan`)
+    return response.data.data
+  }
+
+  async deleteCompany(id: number, payload: DeleteCompanyPayload): Promise<{ summary: CompanyDeletionSummary; message: string }> {
+    const response = await api.delete<ApiEnvelope<CompanyDeletionSummary>>(`/platform/companies/${id}`, { data: payload })
+    return { summary: response.data.data, message: response.data.message ?? '' }
   }
 
   async saveSubscription(companyId: number, payload: SaveSubscriptionPayload): Promise<PlatformSubscription> {

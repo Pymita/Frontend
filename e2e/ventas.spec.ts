@@ -59,6 +59,10 @@ test('las ventas pagadas aparecen con su total y el filtro de método funciona',
   await expect(page.locator('tr', { hasText: 'Cliente Transfer E2E' })).toBeVisible()
   await expect(page.locator('tr', { hasText: 'Cliente Impago E2E' })).toHaveCount(0)
 
+  // Quien tomó el pedido es el vendedor, la misma palabra de Informes.
+  await expect(field(page, 'Vendedor')).toBeVisible()
+  await expect(field(page, 'Mesero')).toHaveCount(0)
+
   // Filtrar por transferencia deja solo esa venta.
   await field(page, 'Método de pago').click()
   await page.getByRole('option', { name: 'Transferencia' }).click()

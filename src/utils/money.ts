@@ -15,6 +15,10 @@ export const money = (value: number | string | null | undefined): string => form
 /** Costos unitarios, que pueden llevar centavos ("$3,45" el gramo). */
 export const preciseMoney = (value: number | string | null | undefined): string => format(value, 2)
 
+/** Unidades y conteos: el stock puede ir en kilos o litros, pero 12 unidades no se leen "12,00" ("1.250,5"). */
+export const quantity = (value: number | string | null | undefined): string =>
+  Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 })
+
 /** La parte de un total, con una cifra decimal como la manda el API ("86,2 %"). */
 export const percent = (value: number | null | undefined): string =>
   `${Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 1 })} %`

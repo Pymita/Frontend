@@ -126,9 +126,12 @@ test('con todos los módulos lo fijo del menú cabe a 700 px y todo el menú a 9
   await expect(sidebarGroup(page, 'Administración')).toBeInViewport({ ratio: 1 })
   await expect.poll(fits).toBe(true)
 
+  // Administración open: Informes takes a row of its own and nothing scrolls.
   await page.setViewportSize({ width: 1440, height: 900 })
   await openSidebarGroup(page, 'Administración')
   await expect(page.locator('.v-list-group__items')).not.toHaveClass(/expand-transition/)
+  await expect(sidebarItem(page, 'Informes')).toBeInViewport()
   await expect(sidebarItem(page, 'Configuración')).toBeInViewport()
+  await expect(sidebarItem(page, 'Cerrar sesión')).toBeInViewport()
   await expect.poll(fits).toBe(true)
 })

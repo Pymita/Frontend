@@ -9,7 +9,8 @@ import { money } from './money'
  */
 import { customerLabel, documentKindLabels, saleMethodLabels, taxRegimeLabels } from './labels'
 import { APP_NAME } from './branding'
-import { formatFullDateTime, formatIsoDate } from './dates'
+import { formatFullDateTime, formatIsoDate, toIsoDate } from './dates'
+import { resolveImageUrl } from './images'
 import type { CashSession } from '../services/salesService'
 import type { OrderReceipt } from '../services/ordersService'
 
@@ -24,6 +25,8 @@ export interface DocumentBusiness {
   phone?: string | null
   email?: string | null
   document_notes?: string | null
+  /** Relative to the API host (`/storage/...`) or the bucket's URL; resolve it before using it. */
+  logo_url?: string | null
   complete?: boolean
 }
 
@@ -67,7 +70,10 @@ export interface PrintableInvoice {
 
 export interface PrintableReceipt {
   reference: string
+  /** The day the abono is dated with (AAAA-MM-DD), which may be earlier than when it was keyed in. */
   paid_at: string | null
+  /** When the abono was keyed in. */
+  registered_at?: string | null
   payment_method: string | null
   notes: string | null
   received_by: string | null
@@ -179,11 +185,16 @@ const resolutionLine = (resolution: DocumentResolution): string => {
 export const taxRegimeText = (business: { nit?: string | null; tax_regime?: string | null }): string =>
   business.nit && business.tax_regime ? taxRegimeLabels[business.tax_regime] ?? '' : ''
 
+/** "Impreso el 23/10/2026, 02:31 p. m.": the moment of printing, never the document's own date. */
+export const printedAtText = (): string => `Impreso el ${formatFullDateTime(new Date().toISOString())}`
+
 const header = (business: DocumentBusiness, kind: string, number: string, resolution: DocumentResolution | null = null): string => {
   const regime = taxRegimeText(business)
   const place = [business.city, business.department].filter(Boolean).join(' - ')
+  const logo = resolveImageUrl(business.logo_url)
   return `
     <div class="box header">
+      ${logo ? `<img class="logo" src="${escape(logo)}" alt="">` : ''}
       <div class="business">
         <div class="business-name">${escape(business.legal_name)}</div>
         ${business.trade_name ? `<div>${escape(business.trade_name)}</div>` : ''}
@@ -211,7 +222,7 @@ const footer = (left: string, right: string) => `
     <div class="signature">${left}</div>
     <div class="signature">${right}</div>
   </div>
-  <div class="printed-by">Documento impreso por computador · ${escape(APP_NAME)}</div>`
+  <div class="printed-by">Documento impreso por computador · ${escape(APP_NAME)} · <span class="printed-at">${escape(printedAtText())}</span></div>`
 
 export const invoiceHtml = (
   business: DocumentBusiness,
@@ -237,7 +248,7 @@ export const invoiceHtml = (
         </div>
         <div>
           ${partyRows([
-            ['FECHA (D/M/A)', dmy(invoice.issued_at)],
+            ['FECHA (D/M/A)', formatFullDateTime(invoice.issued_at)],
             ['VENCE', dmy(invoice.due_date)],
             ['CIUDAD', invoice.customer_city],
             ['PERÍODO', invoice.period ? periodName(invoice.period) : null],
@@ -353,6 +364,20 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
   </section>`
 }
 
+/**
+ * The date is the day the abono was dated with and the hour is when it was
+ * keyed in. An abono dated earlier prints both, so that hour is never read
+ * as one of the earlier day.
+ */
+const receiptDates = (receipt: PrintableReceipt): [string, string][] => {
+  const registered = receipt.registered_at
+  if (!registered) return [['FECHA (D/M/A)', dmy(receipt.paid_at)]]
+  if (!receipt.paid_at || toIsoDate(new Date(registered)) === receipt.paid_at.slice(0, 10)) {
+    return [['FECHA (D/M/A)', formatFullDateTime(registered)]]
+  }
+  return [['FECHA (D/M/A)', dmy(receipt.paid_at)], ['REGISTRADO', formatFullDateTime(registered)]]
+}
+
 export const receiptHtml = (business: DocumentBusiness, receipt: PrintableReceipt): string => `
   <section class="document">
     ${header(business, 'RECIBO DE CAJA', receipt.reference)}
@@ -368,7 +393,7 @@ export const receiptHtml = (business: DocumentBusiness, receipt: PrintableReceip
         </div>
         <div>
           ${partyRows([
-            ['FECHA (D/M/A)', dmy(receipt.paid_at)],
+            ...receiptDates(receipt),
             ['CIUDAD', receipt.customer.city],
             ['FORMA DE PAGO', METHOD_LABELS[receipt.payment_method ?? ''] ?? receipt.payment_method],
           ])}
@@ -554,6 +579,7 @@ const STYLES = `
   .document { max-width: 190mm; margin: 0 auto; }
   .box { border: 1.5px solid black; border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .logo { flex: none; align-self: center; max-width: 160px; max-height: 64px; }
   .business { flex: 1; text-align: center; line-height: 1.5; }
   .business-name { font-size: 20px; font-weight: bold; margin-bottom: 4px; }
   .doc-number { min-width: 190px; text-align: center; margin: 0; }
@@ -606,6 +632,7 @@ const STYLES = `
   body[data-paper="half"] { font-size: 10px; }
   body[data-paper="half"] .box { padding: 6px 10px; margin-bottom: 6px; border-radius: 8px; }
   body[data-paper="half"] .header { gap: 8px; }
+  body[data-paper="half"] .logo { max-width: 100px; max-height: 44px; }
   body[data-paper="half"] .party-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
   body[data-paper="half"] .business-name, body[data-paper="half"] .number { font-size: 15px; }
   body[data-paper="half"] .doc-number { min-width: 110px; }
@@ -766,6 +793,25 @@ const halfLetterNote = (laid: LaidOut): string => {
   return `No cabe en media carta: ${name} ${why}. Se imprime en carta.`
 }
 
+const IMAGE_TIMEOUT_MS = 5000
+
+/**
+ * Resolves when the window's images (the logo, from the API host) have
+ * loaded or failed, a few seconds at most; true when there were any.
+ */
+const imagesSettled = (win: Window): Promise<boolean> => {
+  const sources = [...new Set([...win.document.images].map(image => image.src))]
+  return Promise.all(sources.map(src => new Promise<void>(resolve => {
+    // An element of its own: every paper change replaces the window's ones.
+    const image = win.document.createElement('img')
+    const done = () => resolve()
+    image.onload = done
+    image.onerror = done
+    win.setTimeout(done, IMAGE_TIMEOUT_MS)
+    image.src = src
+  }))).then(() => sources.length > 0)
+}
+
 const preferredPaper = (): Paper => {
   try {
     return localStorage.getItem(PAPER_KEY) === 'half' ? 'half' : 'letter'
@@ -796,26 +842,41 @@ export const fillDocumentWindow = (win: Window, title: string, sections: string)
   )
   doc.close()
 
-  const tooLong = render(doc, sections, 'half').find(laid => laid.pages > 1)
   const buttons = [...doc.querySelectorAll<HTMLButtonElement>('button[data-paper]')]
-  const choose = (paper: Paper) => {
+  let paper = preferredPaper()
+  const choose = (next: Paper) => {
+    paper = next
     render(doc, sections, paper)
     buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.paper === paper)))
   }
-  if (tooLong) {
-    buttons.find(button => button.dataset.paper === 'half')!.disabled = true
-    doc.querySelector('.paper-note')!.textContent = halfLetterNote(tooLong)
+  const layOutAll = () => {
+    const tooLong = render(doc, sections, 'half').find(laid => laid.pages > 1)
+    buttons.find(button => button.dataset.paper === 'half')!.disabled = !!tooLong
+    doc.querySelector('.paper-note')!.textContent = tooLong ? halfLetterNote(tooLong) : ''
+    choose(!tooLong && paper === 'half' ? 'half' : 'letter')
   }
   buttons.forEach(button => button.addEventListener('click', () => {
-    const paper = button.dataset.paper as Paper
-    choose(paper)
+    const next = button.dataset.paper as Paper
+    choose(next)
     try {
-      localStorage.setItem(PAPER_KEY, paper)
+      localStorage.setItem(PAPER_KEY, next)
     } catch {
       // Without storage (private mode) the choice lasts this window.
     }
   }))
-  doc.querySelector('.print-button')!.addEventListener('click', () => win.print())
-  choose(!tooLong && preferredPaper() === 'half' ? 'half' : 'letter')
+  layOutAll()
+  // The sheets were measured before the logo arrived: they are measured
+  // again with it, and printing waits so it never comes out blank.
+  const images = imagesSettled(win).then(any => {
+    if (any) layOutAll()
+  })
+  const stamp = () => doc.querySelectorAll('.printed-at').forEach(el => {
+    el.textContent = printedAtText()
+  })
+  win.addEventListener('beforeprint', stamp)
+  doc.querySelector('.print-button')!.addEventListener('click', () => images.then(() => {
+    stamp()
+    win.print()
+  }))
   win.focus()
 }

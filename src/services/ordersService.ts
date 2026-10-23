@@ -99,6 +99,8 @@ export interface OrderReceipt {
     phone: string | null
     /** common | simplified | large_taxpayer (ver taxRegimeLabels) */
     tax_regime: string | null
+    /** Relative to the API host or the bucket's URL (`resolveImageUrl`). */
+    logo_url?: string | null
   }
   /** The resolution this order's number was taken from, never the current one; null without it. */
   resolution: {
