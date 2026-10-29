@@ -234,10 +234,17 @@ export const label = (map: Record<string, string>, value?: string | null): strin
   return map[value] ?? value
 }
 
+/**
+ * The buyer of a sale nobody identified, as the API sends it on receipts and
+ * sales: the DIAN's final-consumer NIT, the same for every company
+ * (Customer::FINAL_CONSUMER_* in the backend).
+ */
+export const FINAL_CONSUMER = { name: 'Consumidor final', documentType: 'NIT', document: '222222222222' } as const
+
 /** Un pedido nace con "Cliente" cuando nadie dio su nombre: es un consumidor final. */
 export const customerLabel = (name?: string | null): string => {
   const trimmed = name?.trim()
-  return trimmed && trimmed !== 'Cliente' ? trimmed : 'Consumidor final'
+  return trimmed && trimmed !== 'Cliente' ? trimmed : FINAL_CONSUMER.name
 }
 
 interface NamedOrder {
@@ -256,7 +263,7 @@ interface NamedOrder {
 export const orderReference = (order: NamedOrder): string => {
   if (order.number) return `#${order.number}`
   const customer = customerLabel(order.customer_name)
-  const who = order.dining_table?.display_name || (customer !== 'Consumidor final' ? customer : '')
+  const who = order.dining_table?.display_name || (customer !== FINAL_CONSUMER.name ? customer : '')
   if (who) return `de ${who}`
   return order.created_at ? `de las ${formatTime(order.created_at)}` : 'sin cobrar'
 }

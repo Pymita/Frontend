@@ -10,6 +10,7 @@ import {
   displayDate,
   e2eSql,
   field,
+  freezeTime,
   issueDocuments,
   loginUI,
   pageRule,
@@ -932,9 +933,16 @@ test('la venta se imprime en hoja como factura de venta, desde Pedidos y desde V
   })).json()).data.id
   const beer = await product('Cerveza Club', 6500)
   const empanada = await product('Empanada de pipián', 3000, tax.id)
+  const table = await request.post(`${API}/tables`, { headers: auth, data: { number: 5, capacity: 4 } })
+  expect(table.status()).toBe(201)
+  // Taken as the waiter app takes it: on its table, named after the table.
   const order = await request.post(`${API}/orders`, {
     headers: auth,
-    data: { customer_name: 'Mesa Hoja', items: [{ product_id: beer, quantity: 2 }, { product_id: empanada, quantity: 3 }] },
+    data: {
+      dining_table_id: (await table.json()).data.id,
+      customer_name: 'Mesa 5',
+      items: [{ product_id: beer, quantity: 2 }, { product_id: empanada, quantity: 3 }],
+    },
   })
   expect(order.status()).toBe(201)
 
@@ -972,7 +980,11 @@ test('la venta se imprime en hoja como factura de venta, desde Pedidos y desde V
   await expect(invoice.locator('.totals')).toContainText('IMPUESTO (INCLUIDO): $667')
   await expect(invoice.locator('.totals')).toContainText('TOTAL: $22.000')
   await expect(invoice.locator('.totals')).not.toContainText('PROPINA')
-  await expect(invoice.locator('.party')).toContainText('CLIENTE: Mesa Hoja')
+  // Nobody identified the buyer: the consumidor final with the DIAN's NIT, never the table.
+  await expect(invoice.locator('.party')).toContainText('CLIENTE: Consumidor final')
+  await expect(invoice.locator('.party')).toContainText('NIT: 222222222222')
+  await expect(invoice.locator('.party')).toContainText('MESA: Mesa 5')
+  await expect(invoice.locator('.party')).not.toContainText('CLIENTE: Mesa')
   await expect(invoice.locator('.party')).toContainText('FORMA DE PAGO: Efectivo')
   await expect(invoice.locator('.son')).toHaveText('SON: VEINTIDÓS MIL PESOS M/CTE')
   await expect(invoice.locator('.notes')).toContainText('Gracias por tu compra')
@@ -986,7 +998,16 @@ test('la venta se imprime en hoja como factura de venta, desde Pedidos y desde V
   // Later, from the paid order's row: "Tirilla" is the ticket, the menu has the factura.
   await page.getByRole('button', { name: 'Pagados' }).click()
   const paidRow = page.locator('tbody tr', { hasText: '$22.000' })
-  await expect(paidRow.getByRole('button', { name: 'Tirilla' })).toBeVisible()
+  const [ticket] = await Promise.all([
+    page.waitForEvent('popup'),
+    paidRow.getByRole('button', { name: 'Tirilla' }).click(),
+  ])
+  await expect(ticket.locator('body')).toContainText('FACTURA DE VENTA No. FE1')
+  const ticketText = await ticket.locator('body').innerText()
+  expect(ticketText).toContain('CLIENTE : Consumidor final')
+  expect(ticketText).toContain('NIT     : 222222222222')
+  expect(ticketText).toContain('MESA    : Mesa 5')
+  await ticket.close()
   await paidRow.getByRole('button', { name: 'Más acciones del pedido' }).click()
   await page.waitForTimeout(300)
   await page.screenshot({ path: '../screenshots/factura-ventas-productos-menu-1440.png' })
@@ -1045,6 +1066,7 @@ test('sin resolución, la venta de una persona sale en hoja como comprobante con
     await expect(doc.locator('.items tbody tr td')).toHaveText(['Arepa Persona', '1', '$4.200', '—', '$4.200'])
     await expect(doc.locator('.totals')).toContainText('TOTAL: $4.200')
     await expect(doc.locator('.party')).toContainText('CLIENTE: Consumidor final')
+    await expect(doc.locator('.party')).toContainText('NIT: 222222222222')
     await expect(doc.locator('body')).not.toContainText('Jugo Persona')
     await expect(doc.locator('body')).not.toContainText(/FACTURA DE VENTA|Resolución/)
   }
@@ -1063,6 +1085,59 @@ test('sin resolución, la venta de una persona sale en hoja como comprobante con
     page.getByRole('button', { name: `Imprimir el comprobante ${sale.reference}` }).click(),
   ])
   await expectComprobante(fromVentas)
+})
+
+/**
+ * A sale charged to a registered customer prints that customer, never the
+ * consumidor final: the ticket and the letter comprobante carry the name and
+ * the document as the customer has them, and Ventas reads the name.
+ */
+test('una venta a un cliente registrado imprime su nombre y su documento', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `cliente-hoja-${Date.now()}`)
+  const arepa = await seedSimpleProduct(request, auth, 'Arepa Cliente', 5300)
+  const customer = await request.post(`${API}/customers`, {
+    headers: auth,
+    data: { document_type: 'CC', document_number: '1.002.655.357', name: 'Ana Registrada', address: 'Calle 1 # 2-3' },
+  })
+  expect(customer.status(), await customer.text()).toBe(201)
+  const order = (await (await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { customer_name: 'Mesa 2', items: [{ product_id: arepa, quantity: 1 }] },
+  })).json()).data
+  const paid = await request.post(`${API}/orders/${order.id}/pay`, {
+    headers: auth,
+    data: { payment_method: 'cash', customer_id: (await customer.json()).data.id },
+  })
+  expect(paid.ok()).toBeTruthy()
+  const sale = (await (await request.get(`${API}/orders/${order.id}`, { headers: auth })).json()).data.payments[0]
+
+  await freezeTime(page, order.created_at)
+  await loginUI(page, credentials.email, credentials.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Pedidos del día' }).click()
+  const [ticket] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.locator('tbody tr', { hasText: '$5.300' }).getByRole('button', { name: 'Tirilla' }).click(),
+  ])
+  await expect(ticket.locator('body')).toContainText('COMPROBANTE DE VENTA')
+  const ticketText = await ticket.locator('body').innerText()
+  expect(ticketText).toContain('CLIENTE : Ana Registrada')
+  expect(ticketText).toContain('CC      : 1002655357')
+  expect(ticketText).not.toContain('222222222222')
+  await ticket.close()
+
+  await page.goto('/ventas')
+  const row = page.locator('tbody tr', { hasText: '$5.300' })
+  await expect(row).toContainText('Ana Registrada')
+  const [comprobante] = await Promise.all([
+    page.waitForEvent('popup'),
+    row.getByRole('button', { name: `Imprimir el comprobante ${sale.reference}` }).click(),
+  ])
+  const party = comprobante.locator('.party')
+  await expect(party).toContainText('CLIENTE: Ana Registrada')
+  await expect(party).toContainText('CC: 1002655357')
+  await expect(party).toContainText('DIRECCIÓN: Calle 1 # 2-3')
+  await expect(party).not.toContainText(/Consumidor final|222222222222/)
 })
 
 /**

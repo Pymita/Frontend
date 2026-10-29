@@ -256,6 +256,10 @@ test('cobrar por persona hasta cerrar la mesa', async ({ page, request }) => {
   expect(billText).toContain('$8.000')
   expect(billText).toContain('POR PAGAR')
   expect(billText).toContain('$16.000')
+  // Nobody identified the table's buyer: the pre-bill names the consumidor final, not the order's name.
+  expect(billText).toContain('CLIENTE : Consumidor final')
+  expect(billText).toContain('NIT     : 222222222222')
+  expect(billText).not.toContain('Mesa Separada E2E')
   await bill.close()
   expect(await printing()).toEqual({ opened: 1, printed: 1 })
 

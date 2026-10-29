@@ -1074,6 +1074,7 @@ import {
   orderPaymentMethodLabels,
   saleMethodLabels,
   customerDocumentTypeLabels,
+  customerLabel,
   orderLabel,
   orderReference,
   paymentState,
@@ -1809,8 +1810,8 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
     line,
     ...header,
     line,
-    `CLIENTE : ${r.customer.name || 'Consumidor final'}`,
-    r.customer.document ? `CC/NIT  : ${r.customer.document}` : '',
+    `CLIENTE : ${customerLabel(r.customer.name)}`,
+    r.customer.document ? `${(r.customer.document_type || 'CC/NIT').padEnd(8)}: ${r.customer.document}` : '',
     // Before its first charge an order has no number: the table, customer and date name it.
     r.number ? `PEDIDO  : #${r.number}` : '',
     `FECHA   : ${formatFullDateTime((!opts.preBill && r.paid_at) || r.created_at)}`,

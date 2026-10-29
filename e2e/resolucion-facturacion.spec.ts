@@ -138,7 +138,7 @@ test('la resolución numera las ventas tal cual y el consecutivo aparece en Vent
   await page.goto('/ventas')
   await page.getByRole('textbox', { name: 'Buscar factura o cliente' }).fill('POS1001')
   await expect(page.getByRole('columnheader').first()).toHaveText('Comprobante')
-  const sale = page.locator('tbody tr', { hasText: 'Mesa Resolución' })
+  const sale = page.locator('tbody tr', { hasText: 'POS1001' })
   await expect(sale.locator('td').first()).toHaveText('POS1001')
 
   // --- El kardex muestra el consecutivo como referencia ---
