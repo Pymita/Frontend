@@ -318,7 +318,7 @@
                             </td>
                             <td v-if="hasGuests(item)">
                               <v-chip size="x-small" :color="orderItem.guest_number ? 'primary' : undefined" variant="tonal">
-                                {{ guestLabel(orderItem.guest_number) }}
+                                {{ guestLabel(orderItem.guest_number, item.guest_names) }}
                               </v-chip>
                             </td>
                             <td>{{ money(orderItem.unit_price) }}</td>
@@ -1188,7 +1188,7 @@ const guestOptions = computed(() => {
   const count = guestsOf(selectedOrder.value) + 1;
   return [
     { title: 'Compartido', value: null },
-    ...Array.from({ length: count }, (_, i) => ({ title: `Persona ${i + 1}`, value: i + 1 })),
+    ...Array.from({ length: count }, (_, i) => ({ title: guestLabel(i + 1, selectedOrder.value?.guest_names), value: i + 1 })),
   ];
 });
 

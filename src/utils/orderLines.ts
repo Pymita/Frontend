@@ -56,6 +56,6 @@ export const linesTotal = (lines: PickedLine[]): number =>
 export const guestsIn = (lines: PickedLine[]): number =>
   lines.reduce((max, line) => Math.max(max, line.guest_number ?? 0), 0);
 
-/** Etiqueta corta de la persona, para chips. */
-export const guestLabel = (guest: number | null | undefined): string =>
-  guest ? `Persona ${guest}` : 'Compartido';
+/** The name given to the person, else "Persona N": the same rule as the API's `Order::guestLabel()`. */
+export const guestLabel = (guest: number | null | undefined, names?: Record<number, string> | null): string =>
+  guest ? names?.[guest]?.trim() || `Persona ${guest}` : 'Compartido';
