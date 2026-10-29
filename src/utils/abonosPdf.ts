@@ -217,6 +217,7 @@ interface CloseFigures {
   by_method: Record<string, { amount: number } | undefined>
   recurring_by_method: Partial<Record<string, number>>
   cash_expenses: number
+  cash_withdrawals: number
   opening_amount: number
   expected_cash: number
   counted_cash: number | null
@@ -232,6 +233,7 @@ const closeFigures = (close: CashSession): CloseFigures => ({
   by_method: close.summary.by_method ?? {},
   recurring_by_method: close.summary.recurring_by_method ?? {},
   cash_expenses: close.summary.cash_expenses ?? 0,
+  cash_withdrawals: close.summary.cash_withdrawals?.total ?? 0,
   opening_amount: close.opening_amount,
   expected_cash: close.expected_cash,
   counted_cash: close.counted_cash,
@@ -252,7 +254,8 @@ const bold = (content: string): CellDef => ({ content, styles: { fontStyle: 'bol
 
 /**
  * Two columns per row: what came in (cash always, it is the drawer, then
- * each method that brought money) and what the drawer should hold.
+ * each method that brought money) and what the drawer should hold, after the
+ * expenses and the withdrawals (only when there were) that left it.
  */
 const figureRows = (figures: CloseFigures, countedLabel: string): RowInput[] => {
   const charged = Object.keys(figures.by_method)
@@ -274,7 +277,8 @@ const figureRows = (figures: CloseFigures, countedLabel: string): RowInput[] => 
   const drawer: [string, CellDef | string][] = [
     ...(figures.opening_amount > 0 ? [['Base', money(figures.opening_amount)] as [string, string]] : []),
     ['Gastos en efectivo', money(figures.cash_expenses)],
-    ['Efectivo del turno', bold(money(figures.expected_cash))],
+    ...(figures.cash_withdrawals > 0 ? [['Retiros de caja', money(figures.cash_withdrawals)] as [string, string]] : []),
+    ['Efectivo a entregar', bold(money(figures.expected_cash))],
     [countedLabel, moneyOrDash(figures.counted_cash)],
     ['Diferencia', bold(figures.difference === null ? '—' : differenceText(figures.difference))],
   ]

@@ -1,18 +1,112 @@
 <template>
-  <div class="d-flex align-center flex-wrap ga-2">
+  <div class="d-flex align-center flex-wrap justify-lg-end ga-2">
+    <!-- The chips and the actions wrap as pairs: a lone "Cerrar caja" on its own line read as detached. -->
     <template v-if="session">
-      <v-chip
-        :color="session.has_previous_day_movements ? 'warning' : 'info'"
-        variant="tonal"
-        :prepend-icon="session.has_previous_day_movements ? 'mdi-alert-outline' : 'mdi-cash-register'"
-        data-testid="cash-open-chip"
-      >
-        {{ chipText }}
-      </v-chip>
-      <LockableButton variant="outlined" color="primary" icon="mdi-lock-outline" @click="openCloseDialog">
-        Cerrar caja
-      </LockableButton>
+      <div class="d-flex align-center flex-wrap ga-2">
+        <v-chip
+          :color="session.has_previous_day_movements ? 'warning' : 'info'"
+          variant="tonal"
+          :prepend-icon="session.has_previous_day_movements ? 'mdi-alert-outline' : 'mdi-cash-register'"
+          data-testid="cash-open-chip"
+        >
+          {{ chipText }}
+        </v-chip>
+        <v-chip
+          v-if="running.count"
+          color="secondary"
+          variant="tonal"
+          prepend-icon="mdi-cash-minus"
+          data-testid="cash-withdrawals-chip"
+          @click="withdrawalsDialog = true"
+        >
+          {{ withdrawalsText(running) }}
+        </v-chip>
+      </div>
+      <div class="d-flex align-center flex-wrap ga-2">
+        <LockableButton variant="outlined" color="primary" icon="mdi-cash-minus" @click="openWithdrawDialog">
+          Retirar dinero
+        </LockableButton>
+        <LockableButton variant="outlined" color="primary" icon="mdi-lock-outline" @click="openCloseDialog">
+          Cerrar caja
+        </LockableButton>
+      </div>
     </template>
+
+    <!-- Take cash out of the drawer: the server stamps when and who -->
+    <v-dialog v-model="withdrawDialog" max-width="460">
+      <v-card v-if="session">
+        <v-card-title>Retirar dinero</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 text-medium-emphasis mb-4">
+            Sale del cajón del turno {{ session.number }} con la fecha y la hora de ahora, y al cerrar la caja se
+            resta del efectivo a entregar. Ahora debería haber {{ money(session.expected_cash) }} en el cajón.
+          </p>
+          <MoneyField v-model="withdrawAmount" label="Valor" autofocus />
+          <p v-if="aboveDrawer" class="text-body-2 text-warning mb-2" data-testid="withdraw-above-drawer">
+            Es más de lo que debería haber en el cajón: revisa el valor antes de registrarlo.
+          </p>
+          <v-text-field
+            v-model="withdrawNotes"
+            label="Nota (opcional)"
+            hint="Motivo o quién recibe el dinero"
+            persistent-hint
+            maxlength="255"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="withdrawDialog = false">Cancelar</v-btn>
+          <LockableButton
+            color="primary"
+            variant="flat"
+            :loading="withdrawing"
+            :disabled="!(withdrawAmount && withdrawAmount > 0)"
+            @click="registerWithdrawal"
+          >
+            Registrar retiro
+          </LockableButton>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- What was taken out of the running shift, to reprint each comprobante -->
+    <v-dialog v-model="withdrawalsDialog" max-width="560" scrollable>
+      <v-card v-if="session">
+        <v-card-title>Retiros del turno {{ session.number }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 text-medium-emphasis mb-2">
+            {{ plural(running.count, 'retiro', 'retiros') }} por {{ money(running.total) }}. Al cerrar la caja se restan del
+            efectivo a entregar.
+          </p>
+          <div
+            v-for="withdrawal in running.list"
+            :key="withdrawal.number"
+            class="d-flex align-center ga-2 py-1"
+            data-testid="cash-withdrawal"
+          >
+            <div class="flex-grow-1">
+              <div class="d-flex justify-space-between ga-2">
+                <span>No. {{ withdrawal.number }} · {{ formatRecent(withdrawal.at) }}</span>
+                <span class="tabular-nums font-weight-medium">{{ money(withdrawal.amount) }}</span>
+              </div>
+              <div class="text-caption text-medium-emphasis">{{ withdrawalDetail(withdrawal) }}</div>
+            </div>
+            <v-btn
+              icon="mdi-printer"
+              size="small"
+              variant="text"
+              :aria-label="`Imprimir el retiro de caja No. ${withdrawal.number}`"
+              :title="`Imprimir el retiro de caja No. ${withdrawal.number}`"
+              @click="printWithdrawal(withdrawal, session.number)"
+            />
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="withdrawalsDialog = false">Cerrar</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Review the live shift, reconfirm, then show the summary the close froze -->
     <v-dialog v-model="closeDialog" max-width="600" scrollable>
@@ -103,6 +197,33 @@
               </tbody>
             </v-table>
 
+            <div v-if="shownWithdrawals.count" class="mb-4" data-testid="cash-withdrawals">
+              <div class="text-subtitle-2 mb-1">Retiros de caja</div>
+              <div
+                v-for="withdrawal in shownWithdrawals.list"
+                :key="withdrawal.number"
+                class="d-flex align-center ga-2 text-body-2"
+                data-testid="cash-withdrawal"
+              >
+                <div class="flex-grow-1">
+                  <div class="d-flex justify-space-between ga-2">
+                    <span>No. {{ withdrawal.number }} · {{ formatRecent(withdrawal.at) }}</span>
+                    <span class="tabular-nums">{{ money(withdrawal.amount) }}</span>
+                  </div>
+                  <div class="text-caption text-medium-emphasis">{{ withdrawalDetail(withdrawal) }}</div>
+                </div>
+                <v-btn
+                  icon="mdi-printer"
+                  size="small"
+                  variant="text"
+                  density="comfortable"
+                  :aria-label="`Imprimir el retiro de caja No. ${withdrawal.number}`"
+                  :title="`Imprimir el retiro de caja No. ${withdrawal.number}`"
+                  @click="printWithdrawal(withdrawal, shown.number)"
+                />
+              </div>
+            </div>
+
             <div class="mb-4">
               <div v-if="shown.opening_amount > 0" class="d-flex justify-space-between">
                 <span>+ Base</span><span class="tabular-nums">{{ money(shown.opening_amount) }}</span>
@@ -116,9 +237,12 @@
               <div v-if="shown.summary.cash_expenses" class="d-flex justify-space-between">
                 <span>− Gastos pagados en efectivo</span><span class="tabular-nums">{{ money(shown.summary.cash_expenses) }}</span>
               </div>
+              <div v-if="shownWithdrawals.total" class="d-flex justify-space-between">
+                <span>− Retiros de caja</span><span class="tabular-nums" data-testid="cash-withdrawn">{{ money(shownWithdrawals.total) }}</span>
+              </div>
               <v-divider class="my-2" />
               <div class="d-flex justify-space-between font-weight-bold">
-                <span>Efectivo del turno</span><span class="tabular-nums" data-testid="cash-expected">{{ money(shown.expected_cash) }}</span>
+                <span>Efectivo a entregar</span><span class="tabular-nums" data-testid="cash-expected">{{ money(shown.expected_cash) }}</span>
               </div>
               <template v-if="step === 'done' && shown.counted_cash !== null">
                 <div class="d-flex justify-space-between">
@@ -150,7 +274,7 @@
               <MoneyField
                 v-model="countedCash"
                 label="Efectivo contado (opcional)"
-                :hint="`Cuenta el efectivo de ${received.named}, sin la base que dejas en el cajón`"
+                :hint="countHint"
                 persistent-hint
               />
               <p
@@ -186,7 +310,19 @@
       </v-card>
     </v-dialog>
 
-    <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="5000">{{ snackbar.text }}</v-snackbar>
+    <v-snackbar
+      v-model="snackbar.show"
+      :color="snackbar.color"
+      :timeout="snackbar.actions.length ? 10000 : 5000"
+      closable
+    >
+      {{ snackbar.text }}
+      <template v-if="snackbar.actions.length" #actions>
+        <v-btn v-for="action in snackbar.actions" :key="action.text" @click="runSnackbarAction(action)">
+          {{ action.text }}
+        </v-btn>
+      </template>
+    </v-snackbar>
   </div>
 </template>
 
@@ -196,15 +332,29 @@ import { formatDateTime, formatMomentDay, formatRecent } from '@/utils/dates'
 import { computed, onMounted, ref } from 'vue'
 import LockableButton from './LockableButton.vue'
 import MoneyField from './MoneyField.vue'
-import salesService, { PAYMENT_METHOD_LABELS, type CashSession, type PaymentMethod } from '../services/salesService'
+import salesService, {
+  PAYMENT_METHOD_LABELS,
+  type CashSession,
+  type CashWithdrawal,
+  type PaymentMethod,
+} from '../services/salesService'
 import { billingService } from '../services/billingService'
-import { cashCloseHtml, fillDocumentWindow, openDocumentWindow } from '../utils/printDocuments'
+import {
+  cashCloseHtml,
+  cashWithdrawalHtml,
+  fillDocumentWindow,
+  openDocumentWindow,
+  type DocumentBusiness,
+} from '../utils/printDocuments'
 import { errorMessage } from '../utils/errors'
 import { useAuthStore } from '../stores/auth'
 
 // The printed summary lists up to 20.
 const PRODUCTS_SHOWN = 5
 const METHOD_ORDER = Object.keys(PAYMENT_METHOD_LABELS)
+const NO_WITHDRAWALS: CashSession['summary']['cash_withdrawals'] = { count: 0, total: 0, list: [] }
+
+interface MessageAction { text: string; run: () => void }
 
 const authStore = useAuthStore()
 
@@ -216,9 +366,28 @@ const saving = ref(false)
 const closeDialog = ref(false)
 const countedCash = ref<number | null>(null)
 const closingNotes = ref('')
-const snackbar = ref({ show: false, text: '', color: 'success' })
+const snackbar = ref<{ show: boolean; text: string; color: string; actions: MessageAction[] }>({
+  show: false,
+  text: '',
+  color: 'success',
+  actions: [],
+})
+
+const withdrawDialog = ref(false)
+const withdrawalsDialog = ref(false)
+const withdrawAmount = ref<number | null>(null)
+const withdrawNotes = ref('')
+const withdrawing = ref(false)
 
 const shown = computed(() => (step.value === 'done' ? closed.value : session.value))
+
+const withdrawalsOf = (shift: CashSession | null | undefined) => shift?.summary.cash_withdrawals ?? NO_WITHDRAWALS
+const running = computed(() => withdrawalsOf(session.value))
+const shownWithdrawals = computed(() => withdrawalsOf(shown.value))
+const withdrawalsText = ({ count, total }: { count: number; total: number }) =>
+  `${plural(count, 'retiro', 'retiros')} · ${money(total)}`
+const withdrawalDetail = (withdrawal: CashWithdrawal) => [withdrawal.user_name, withdrawal.notes].filter(Boolean).join(' · ')
+const aboveDrawer = computed(() => (withdrawAmount.value ?? 0) > Number(session.value?.expected_cash ?? 0))
 
 const chipText = computed(() => {
   const current = session.value
@@ -286,6 +455,10 @@ const closingAmounts = computed(() =>
     .filter(Boolean)
     .join(' y '),
 )
+const countHint = computed(() =>
+  `Cuenta el efectivo de ${received.value.named}${shownWithdrawals.value.count ? ' que quedó después de los retiros' : ''}, ` +
+  'sin la base que dejas en el cajón',
+)
 
 const topProducts = computed(() => (shown.value?.summary.products ?? []).slice(0, PRODUCTS_SHOWN))
 const moreProducts = computed(() => {
@@ -308,8 +481,13 @@ const resultType = computed(() => {
   return difference !== null && difference !== undefined && Math.abs(difference) >= 0.01 ? 'warning' : 'success'
 })
 
-const notify = (text: string, color = 'success') => {
-  snackbar.value = { show: true, text, color }
+const notify = (text: string, color = 'success', actions: MessageAction[] = []) => {
+  snackbar.value = { show: true, text, color, actions }
+}
+
+const runSnackbarAction = (action: MessageAction) => {
+  snackbar.value.show = false
+  action.run()
 }
 
 const load = async () => {
@@ -360,22 +538,87 @@ const closeRegister = async () => {
   }
 }
 
-const printSummary = async () => {
-  const summary = closed.value
-  if (!summary) return
+// One key per withdrawal until the server confirms it: sending the same
+// amount and note again (a double click, a lost answer) replays the first
+// answer instead of taking the money out twice; changing them is a new one.
+let pendingWithdrawal: { body: string; key: string } | null = null
+const withdrawalKey = (body: string): string => {
+  if (pendingWithdrawal?.body !== body) {
+    // randomUUID needs a secure context: a till opened over plain HTTP on the LAN has none.
+    const key = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
+    pendingWithdrawal = { body, key }
+  }
+  return pendingWithdrawal.key
+}
+
+// Brought up to date first: the drawer may have changed since the page loaded.
+const openWithdrawDialog = async () => {
+  withdrawAmount.value = null
+  withdrawNotes.value = ''
+  withdrawalsDialog.value = false
+  await load()
+  withdrawDialog.value = true
+}
+
+const registerWithdrawal = async () => {
+  const amount = withdrawAmount.value
+  if (!session.value || !amount || amount <= 0) return
+  const shift = session.value.id
+  const notes = withdrawNotes.value.trim()
+  withdrawing.value = true
+  try {
+    const result = await salesService.withdrawCash(shift, { amount, notes }, withdrawalKey(JSON.stringify([shift, amount, notes])))
+    pendingWithdrawal = null
+    session.value = result.session
+    withdrawDialog.value = false
+    // Printing is the cashier's choice, as with a charge's ticket.
+    notify(result.message, 'success', [
+      { text: 'Imprimir comprobante', run: () => printWithdrawal(result.withdrawal, result.session.number) },
+    ])
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible registrar el retiro. Inténtalo de nuevo.'), 'error')
+    // A shift closed meanwhile: the next attempt goes to the one that runs now.
+    try {
+      session.value = await salesService.currentCashSession()
+    } catch {
+      // Optional refresh: the failed withdrawal was already reported.
+    }
+  } finally {
+    withdrawing.value = false
+  }
+}
+
+/** Opens the print window in the same click (popup blockers) and fills it once the business header arrives. */
+const printDocument = async (title: string, build: (business: DocumentBusiness) => string, failure: string) => {
   const win = openDocumentWindow()
   if (!win) {
     notify('El navegador bloqueó la ventana de impresión: permite las ventanas emergentes para este sitio', 'error')
     return
   }
   try {
-    const business = await billingService.getBusiness()
-    fillDocumentWindow(win, `Cierre de caja ${summary.number}`, cashCloseHtml(business, summary, { orders: showSales.value }))
+    fillDocumentWindow(win, title, build(await billingService.getBusiness()))
   } catch (error) {
     win.close()
-    notify(errorMessage(error, 'No fue posible generar el resumen para imprimir. Inténtalo de nuevo.'), 'error')
+    notify(errorMessage(error, failure), 'error')
   }
 }
+
+const printSummary = () => {
+  const summary = closed.value
+  if (!summary) return
+  printDocument(
+    `Cierre de caja ${summary.number}`,
+    business => cashCloseHtml(business, summary, { orders: showSales.value }),
+    'No fue posible generar el resumen para imprimir. Inténtalo de nuevo.',
+  )
+}
+
+const printWithdrawal = (withdrawal: CashWithdrawal, shiftNumber: number) =>
+  printDocument(
+    `Retiro de caja ${withdrawal.number}`,
+    business => cashWithdrawalHtml(business, withdrawal, shiftNumber),
+    'No fue posible generar el comprobante para imprimir. Inténtalo de nuevo.',
+  )
 
 onMounted(load)
 

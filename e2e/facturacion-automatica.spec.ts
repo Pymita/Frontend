@@ -633,6 +633,7 @@ test('un empleado con solo clientes ve la Cartera, registra un abono y lee el hi
   await expect(panel).toContainText('Saldo $250.000')
   await expect(page.getByTestId('cash-open-chip')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Cerrar caja' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Retirar dinero' })).toHaveCount(0)
   await panel.getByRole('button', { name: 'Registrar abono', exact: true }).click()
   const dialog = page.getByRole('dialog').filter({ hasText: 'Abono de Ana Clientes' })
   await field(page, 'Valor del abono').locator('input').fill('100000')
@@ -687,6 +688,14 @@ test('un conjunto sin pedidos cierra la caja desde la Cartera con sus abonos por
   await loginUI(page, company.credentials.email, company.credentials.password)
   await sidebarItem(page, 'Cartera').click()
   await expect(page.getByTestId('cash-open-chip')).toContainText('Caja abierta desde')
+  // The same panel as Pedidos: whoever closes the register also takes cash out of it.
+  await page.getByRole('button', { name: 'Retirar dinero' }).click()
+  const withdraw = page.getByRole('dialog').filter({ hasText: 'Retirar dinero' })
+  await expect(withdraw).toContainText('Ahora debería haber $0 en el cajón')
+  await expect(withdraw.getByLabel('Valor')).toBeVisible()
+  await expect(withdraw.getByText('Motivo o quién recibe el dinero')).toBeVisible()
+  await withdraw.getByRole('button', { name: 'Cancelar' }).click()
+  await expect(withdraw).toHaveCount(0)
 
   // An abono in cash to the customer, then one by transfer to the document; each reloads the shift.
   const ana = page.locator('.v-expansion-panel', { hasText: 'Ana Caja 201' })
@@ -753,7 +762,7 @@ test('un conjunto sin pedidos cierra la caja desde la Cartera con sus abonos por
   const printed = await printout.locator('body').innerText()
   expect(printed).toMatch(/Abonos de cuotas · Efectivo\s+\$120\.000/)
   expect(printed).toMatch(/Abonos de cuotas · Transferencia\s+\$100\.000/)
-  expect(printed).toMatch(/EFECTIVO DEL TURNO\s+\$120\.000/)
+  expect(printed).toMatch(/EFECTIVO A ENTREGAR\s+\$120\.000/)
   expect(printed).not.toMatch(/VENTAS|PRODUCTOS|Propinas|Cobros en efectivo/)
   await printout.close()
   await done.getByRole('button', { name: 'Listo' }).click()
