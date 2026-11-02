@@ -6,7 +6,7 @@
         <p class="text-body-1 text-medium-emphasis">Elige qué quieres saber, filtra, agrupa y escoge las columnas</p>
       </div>
       <!-- El tooltip va sobre un span: un botón deshabilitado no emite eventos de mouse. -->
-      <v-tooltip v-if="definition" location="bottom" max-width="300" :text="downloadHint">
+      <v-tooltip v-if="definition || isAccounting" location="bottom" max-width="300" :text="downloadHint">
         <template #activator="{ props: tooltip }">
           <span v-bind="tooltip" class="d-inline-flex">
             <v-btn
@@ -34,7 +34,7 @@
     <div v-else-if="loadingCatalog" class="d-flex justify-center py-12">
       <v-progress-circular indeterminate color="primary" />
     </div>
-    <v-alert v-else-if="!definition" type="info" variant="tonal" density="compact">
+    <v-alert v-else-if="!reportItems.length" type="info" variant="tonal" density="compact">
       Ningún informe aplica a los módulos de tu negocio o a tus permisos. Pídele al administrador que te habilite el
       módulo que quieres consultar.
     </v-alert>
@@ -47,11 +47,11 @@
             :items="reportItems"
             label="Informe"
             density="compact"
-            :hint="definition.question"
+            :hint="definition?.question ?? (isAccounting ? ACCOUNTING_QUESTION : '')"
             persistent-hint
           />
         </v-col>
-        <v-col cols="12" sm="8" md="4">
+        <v-col v-if="definition" cols="12" sm="8" md="4">
           <v-select
             v-model="groupBy"
             :items="groupOptions"
@@ -66,7 +66,7 @@
             persistent-hint
           />
         </v-col>
-        <v-col cols="12" sm="4" md="3">
+        <v-col v-if="definition" cols="12" sm="4" md="3">
           <v-menu v-model="columnsMenu" :close-on-content-click="false" location="bottom end">
             <template #activator="{ props: menu }">
               <v-btn v-bind="menu" variant="tonal" color="secondary" prepend-icon="mdi-view-column-outline" block>
@@ -104,7 +104,7 @@
         </v-col>
       </v-row>
 
-      <v-row dense class="mt-2">
+      <v-row v-if="definition" dense class="mt-2">
         <template v-if="definition.period.type === 'range'">
           <v-col cols="6" sm="3" md="2">
             <DateField v-model="period.from" label="Desde" density="compact" hide-details @update:model-value="periodEdited = true" />
@@ -165,13 +165,13 @@
         </v-col>
       </v-row>
 
-      <v-alert v-if="reportError" type="error" variant="tonal" density="compact" class="mt-3">{{ reportError }}</v-alert>
+      <v-alert v-if="definition && reportError" type="error" variant="tonal" density="compact" class="mt-3">{{ reportError }}</v-alert>
 
-      <v-alert v-if="notes.length" type="info" variant="tonal" density="compact" class="mt-3">
+      <v-alert v-if="definition && notes.length" type="info" variant="tonal" density="compact" class="mt-3">
         <div v-for="note in notes" :key="note">{{ note }}</div>
       </v-alert>
 
-      <v-card v-if="!reportError" class="mt-3">
+      <v-card v-if="definition && !reportError" class="mt-3">
         <v-data-table-server
           v-model:page="page"
           v-model:items-per-page="perPage"
@@ -216,15 +216,144 @@
           </template>
         </v-data-table-server>
       </v-card>
+
+      <!-- Movimiento contable: one entry per document, in the columns of the chosen template -->
+      <template v-if="isAccounting">
+        <v-row dense class="mt-2" align="center">
+          <v-col cols="6" sm="3" md="2">
+            <DateField v-model="period.from" label="Desde" density="compact" hide-details @update:model-value="periodEdited = true" />
+          </v-col>
+          <v-col cols="6" sm="3" md="2">
+            <DateField v-model="period.to" label="Hasta" density="compact" hide-details @update:model-value="periodEdited = true" />
+          </v-col>
+          <v-col cols="12" sm="6" md="3">
+            <v-select
+              v-model="templateId"
+              :items="templates"
+              item-title="name"
+              item-value="id"
+              label="Plantilla"
+              density="compact"
+              hide-details
+            />
+          </v-col>
+          <v-col cols="12" md="5" class="d-flex flex-wrap ga-2">
+            <v-btn
+              color="primary"
+              prepend-icon="mdi-eye-outline"
+              :loading="movementLoading"
+              :disabled="!movementRequest"
+              @click="loadMovement"
+            >
+              Ver movimiento
+            </v-btn>
+            <v-btn variant="tonal" color="secondary" prepend-icon="mdi-cog-outline" @click="openSettings()">
+              Configurar contabilidad
+            </v-btn>
+          </v-col>
+        </v-row>
+
+        <v-alert v-if="periodProblem" type="info" variant="tonal" density="compact" class="mt-3">{{ periodProblem }}</v-alert>
+        <v-alert v-if="templatesError" type="error" variant="tonal" density="compact" class="mt-3">
+          <div class="d-flex align-center flex-wrap ga-3">
+            <span>{{ templatesError }}</span>
+            <v-spacer />
+            <v-btn variant="text" @click="loadTemplates">Reintentar</v-btn>
+          </div>
+        </v-alert>
+        <v-alert v-if="missingAccounts.length" type="warning" variant="tonal" class="mt-3">
+          <div class="d-flex align-center flex-wrap ga-3">
+            <span class="flex-1-1">{{ movementError }}</span>
+            <v-btn color="primary" variant="flat" prepend-icon="mdi-cog-outline" @click="openSettings(missingAccounts)">
+              Configurar contabilidad
+            </v-btn>
+          </div>
+        </v-alert>
+        <v-alert v-else-if="movementError" type="error" variant="tonal" density="compact" class="mt-3">{{ movementError }}</v-alert>
+
+        <template v-if="movement">
+          <v-card class="mt-3">
+            <v-card-text role="group" aria-label="Resumen del movimiento">
+              <v-row dense>
+                <v-col
+                  v-for="figure in movementFigures"
+                  :key="figure.label"
+                  role="group"
+                  :aria-label="figure.label"
+                  cols="6"
+                  sm="3"
+                  lg="2"
+                >
+                  <div class="text-caption text-medium-emphasis">{{ figure.label }}</div>
+                  <div class="text-h6 tabular-nums">{{ figure.value }}</div>
+                </v-col>
+              </v-row>
+            </v-card-text>
+          </v-card>
+
+          <v-alert v-if="movement.warnings.length" type="warning" variant="tonal" density="compact" class="mt-3">
+            <div class="font-weight-medium mb-1">Revisa antes de importar</div>
+            <ul class="pl-4">
+              <li v-for="warning in movement.warnings" :key="warning">{{ warning }}</li>
+            </ul>
+          </v-alert>
+
+          <p v-if="movement.rows_count > movement.rows.length" class="text-body-2 text-medium-emphasis mt-3">
+            Aquí ves las primeras {{ quantity(movement.rows.length) }} de {{ quantity(movement.rows_count) }} líneas; el Excel
+            trae todas.
+          </p>
+
+          <v-card class="mt-3">
+            <v-table v-if="movement.rows.length" density="compact" fixed-header :height="movement.rows.length > 15 ? 560 : undefined">
+              <caption class="d-sr-only">Vista previa del movimiento contable</caption>
+              <thead>
+                <tr>
+                  <th
+                    v-for="column in movement.columns"
+                    :key="column.key"
+                    class="text-no-wrap"
+                    :class="{ 'text-end': AMOUNT_COLUMNS.has(column.key) }"
+                  >
+                    {{ column.label }}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, index) in movement.rows" :key="index">
+                  <td v-for="(value, position) in row" :key="position" :class="movementCellClass(movement.columns[position]?.key)">
+                    {{ movementCell(movement.columns[position]?.key, value) }}
+                  </td>
+                </tr>
+              </tbody>
+            </v-table>
+            <p v-else class="text-medium-emphasis pa-6">No hay documentos en este período.</p>
+          </v-card>
+        </template>
+        <p v-else-if="!movementError && !periodProblem" class="text-body-2 text-medium-emphasis mt-4">
+          Elige el período y la plantilla y revisa el movimiento con «Ver movimiento» antes de descargarlo.
+        </p>
+      </template>
     </template>
+
+    <AccountingSettingsDialog
+      v-if="canUseAccounting"
+      v-model="settingsDialog"
+      :focus="settingsFocus"
+      @changed="settingsChanged = true"
+    />
   </v-container>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import AccountingSettingsDialog from '../components/AccountingSettingsDialog.vue'
 import DateField from '../components/DateField.vue'
 import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage'
 import reportsService, {
+  type AccountingCell,
+  type AccountingMovement,
+  type AccountingMovementRequest,
+  type AccountingTemplate,
   type ReportCatalog,
   type ReportColumn,
   type ReportDefinition,
@@ -250,6 +379,12 @@ const catalogError = ref('')
 const reportKey = ref('')
 const definition = computed(() => catalog.value.reports.find(report => report.key === reportKey.value) ?? null)
 
+/** Movimiento contable is not a report definition: it has its own endpoints and the "Contabilidad" grant. */
+const ACCOUNTING_KEY = 'accounting_movement'
+const ACCOUNTING_QUESTION = 'Los asientos de cada documento del período, para importarlos en tu programa contable'
+const canUseAccounting = computed(() => authStore.isAdmin || authStore.user?.can_use_accounting === true)
+const isAccounting = computed(() => canUseAccounting.value && reportKey.value === ACCOUNTING_KEY)
+
 const period = reactive({ from: todayIso(), to: todayIso(), cut: todayIso() })
 // Dates the user typed stay when another report is picked (the same period is usually what is
 // compared); until then each report opens on its own default.
@@ -272,12 +407,19 @@ const reportItems = computed(() => {
     props: { subtitle: report.question, lines: 'two' as const },
   })
   const known = new Set(areas.map(area => area.key))
+  const accounting = canUseAccounting.value
+    ? [
+        { type: 'subheader' as const, title: 'Contabilidad' },
+        { title: 'Movimiento contable', value: ACCOUNTING_KEY, props: { subtitle: ACCOUNTING_QUESTION, lines: 'two' as const } },
+      ]
+    : []
   return [
     ...areas.flatMap(area => {
       const own = reports.filter(report => report.area === area.key)
       return own.length ? [{ type: 'subheader' as const, title: area.title }, ...own.map(item)] : []
     }),
     ...reports.filter(report => !known.has(report.area)).map(item),
+    ...accounting,
   ]
 })
 
@@ -343,6 +485,8 @@ const STORAGE_KEY = 'pos.reports'
 interface ReportChoice {
   columns?: unknown
   group_by?: unknown
+  /** Movimiento contable: the template last used. */
+  template?: unknown
 }
 type UserChoices = { last?: string } & Record<string, ReportChoice | string | undefined>
 
@@ -594,16 +738,192 @@ const totalCell = (column: ReportColumn, index: number): string => {
   return hasValue ? cell(column, value) : ''
 }
 
-// --- Excel ---
-const downloading = ref(false)
-const canDownload = computed(() => total.value > 0 && !reportError.value)
-const downloadHint = computed(() =>
-  canDownload.value
-    ? 'Descarga el informe con los filtros, la agrupación y las columnas de arriba'
-    : 'No hay datos con estos filtros para descargar',
+// --- Movimiento contable ---
+const MAX_RANGE_DAYS = 366
+/** Amounts and rates: numbers in `rows` (debit and credit 0 on the other side; base and rate null off tax lines). */
+const AMOUNT_COLUMNS = new Set(['debit', 'credit', 'base', 'tax_rate'])
+
+const templates = ref<AccountingTemplate[]>([])
+const templateId = ref<string | null>(null)
+const templatesError = ref('')
+const movement = ref<AccountingMovement | null>(null)
+const movementLoading = ref(false)
+const movementError = ref('')
+/** The blank accounts the period needs (a 422 with `missing`): the message offers to fill them. */
+const missingAccounts = ref<string[]>([])
+const settingsDialog = ref(false)
+const settingsFocus = ref<string[]>([])
+const settingsChanged = ref(false)
+
+const isoDay = (iso: string): number => {
+  const [year = 1970, month = 1, day = 1] = iso.split('-').map(Number)
+  return Date.UTC(year, month - 1, day) / 86_400_000
+}
+
+/** The same checks as the API, before asking: both days count. */
+const periodProblem = computed((): string => {
+  if (!period.from || !period.to) return 'Elige las fechas Desde y Hasta.'
+  if (period.from > period.to) return 'Desde tiene que ser antes de Hasta o el mismo día.'
+  if (isoDay(period.to) - isoDay(period.from) + 1 > MAX_RANGE_DAYS) {
+    return `El rango puede ser de máximo ${MAX_RANGE_DAYS} días. Elige un periodo más corto.`
+  }
+  return ''
+})
+
+const movementRequest = computed((): AccountingMovementRequest | null =>
+  periodProblem.value || !templateId.value ? null : { from: period.from, to: period.to, template: templateId.value },
 )
 
+const rememberAccounting = () => {
+  const userId = authStore.user?.id
+  if (!userId) return
+  const stored = readStored()
+  const previous = readChoices()[ACCOUNTING_KEY]
+  // Until the templates load there is no choice yet: the remembered one stays.
+  const template = templateId.value ?? (previous && typeof previous === 'object' ? previous.template : undefined)
+  stored[userId] = { ...readChoices(), last: ACCOUNTING_KEY, [ACCOUNTING_KEY]: { template } }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(stored))
+}
+
+const loadTemplates = async () => {
+  templatesError.value = ''
+  try {
+    templates.value = (await reportsService.accountingSettings()).templates
+    const saved = readChoices()[ACCOUNTING_KEY]
+    const remembered = saved && typeof saved === 'object' ? saved.template : undefined
+    const ids = templates.value.map(template => template.id)
+    if (!templateId.value || !ids.includes(templateId.value)) {
+      templateId.value = typeof remembered === 'string' && ids.includes(remembered) ? remembered : (ids[0] ?? null)
+    }
+  } catch (error) {
+    templatesError.value = errorMessage(error, 'No fue posible cargar las plantillas de contabilidad. Inténtalo de nuevo.')
+  }
+}
+
+// Opening the entry brings the month (what is usually exported) unless the user already typed dates.
+watch(isAccounting, on => {
+  if (!on) return
+  if (!periodEdited.value) {
+    period.from = firstOfMonth()
+    period.to = todayIso()
+  }
+  rememberAccounting()
+  loadTemplates()
+})
+
+watch(templateId, () => {
+  if (isAccounting.value) rememberAccounting()
+})
+
+// What is shown always matches the period and template above it.
+let movementTicket = 0
+watch(
+  movementRequest,
+  () => {
+    movementTicket++
+    movement.value = null
+    movementError.value = ''
+    missingAccounts.value = []
+  },
+  { deep: true },
+)
+
+const showMovementError = (error: unknown, fallback: string) => {
+  const missing = (error as { response?: { data?: { missing?: unknown } } })?.response?.data?.missing
+  missingAccounts.value = Array.isArray(missing) ? missing.filter((name): name is string => typeof name === 'string') : []
+  movementError.value = errorMessage(error, fallback)
+}
+
+const loadMovement = async () => {
+  const request = movementRequest.value
+  if (!request) return
+  const ticket = ++movementTicket
+  movementLoading.value = true
+  movementError.value = ''
+  missingAccounts.value = []
+  try {
+    const answer = await reportsService.accountingMovement(request)
+    if (ticket === movementTicket) movement.value = answer
+  } catch (error) {
+    if (ticket !== movementTicket) return
+    movement.value = null
+    showMovementError(error, 'No fue posible ver el movimiento. Inténtalo de nuevo.')
+  } finally {
+    if (ticket === movementTicket) movementLoading.value = false
+  }
+}
+
+const movementFigures = computed(() => {
+  const shown = movement.value
+  if (!shown) return []
+  return [
+    { label: 'Asientos', value: quantity(shown.entries_count) },
+    { label: 'Líneas', value: quantity(shown.rows_count) },
+    { label: 'Total débito', value: money(shown.totals.debit) },
+    { label: 'Total crédito', value: money(shown.totals.credit) },
+  ]
+})
+
+// A line can carry cents (a tax on its base): the preview shows them as the file has them. The file
+// writes 0 on the side a line does not post on; here that side stays blank, as a journal reads.
+const movementCell = (key: string | undefined, value: AccountingCell): string => {
+  if (value === null || value === '') return ''
+  if ((key === 'debit' || key === 'credit') && Number(value) === 0) return ''
+  if (key === 'tax_rate') return percent(Number(value))
+  if (key && AMOUNT_COLUMNS.has(key)) return preciseMoney(Number(value))
+  return String(value)
+}
+
+// A code split in two ("FE-" / "3321") reads as two values: only names and details wrap.
+const WRAPPING_COLUMNS = new Set(['third_party_name', 'description', 'user', 'fixed'])
+const movementCellClass = (key: string | undefined): string[] => [
+  key && WRAPPING_COLUMNS.has(key) ? 'movement-text' : 'text-no-wrap',
+  ...(key && AMOUNT_COLUMNS.has(key) ? ['text-end'] : []),
+]
+
+const openSettings = (missing: string[] = []) => {
+  settingsFocus.value = missing
+  settingsDialog.value = true
+}
+
+// Closing after saving brings the new templates, and what was on screen is asked again with the new accounts.
+watch(settingsDialog, async open => {
+  if (open || !settingsChanged.value) return
+  settingsChanged.value = false
+  const shown = !!movement.value || !!movementError.value
+  await loadTemplates()
+  await nextTick()
+  if (shown) loadMovement()
+})
+
+// --- Excel ---
+const downloading = ref(false)
+const canDownload = computed(() => (isAccounting.value ? !!movementRequest.value : total.value > 0 && !reportError.value))
+const downloadHint = computed(() => {
+  if (isAccounting.value) {
+    return canDownload.value
+      ? 'Descarga todas las líneas del período con la plantilla elegida, listas para importar'
+      : periodProblem.value || 'Elige una plantilla para descargar el movimiento'
+  }
+  return canDownload.value
+    ? 'Descarga el informe con los filtros, la agrupación y las columnas de arriba'
+    : 'No hay datos con estos filtros para descargar'
+})
+
+const downloadMovement = async () => {
+  if (!movementRequest.value) return
+  downloading.value = true
+  try {
+    await reportsService.downloadAccountingMovement(movementRequest.value)
+  } catch (error) {
+    showMovementError(error, 'No fue posible descargar el Excel. Inténtalo de nuevo.')
+  } finally {
+    downloading.value = false
+  }
+}
+
 const downloadExcel = async () => {
+  if (isAccounting.value) return downloadMovement()
   if (!requested.value) return
   downloading.value = true
   try {
@@ -622,7 +942,7 @@ const loadCatalog = async () => {
   try {
     catalog.value = await reportsService.definitions()
     const last = readChoices().last
-    const keys = catalog.value.reports.map(report => report.key)
+    const keys = [...catalog.value.reports.map(report => report.key), ...(canUseAccounting.value ? [ACCOUNTING_KEY] : [])]
     reportKey.value = last && keys.includes(last) ? last : (keys[0] ?? '')
   } catch (error) {
     catalogError.value = errorMessage(error, 'No fue posible cargar los informes. Inténtalo de nuevo.')
@@ -638,5 +958,10 @@ onMounted(loadCatalog)
 .columns-list {
   max-height: 360px;
   overflow-y: auto;
+}
+
+/* Beside columns that never wrap, a detail would shrink to a word per line. */
+.movement-text {
+  min-width: 220px;
 }
 </style>

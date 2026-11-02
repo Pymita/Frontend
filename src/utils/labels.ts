@@ -208,6 +208,20 @@ export const yesNoLabels: Record<string, string> = {
   no: 'No',
 }
 
+// ===== Contabilidad =====
+/** The side an account posts on in the normal entry (`nature` in /accounting/settings). */
+export const accountingNatureLabels: Record<string, string> = {
+  debit: 'Débito',
+  credit: 'Crédito',
+}
+
+/** How a template writes its dates (`date_format`), with the example the Excel will read. */
+export const accountingDateFormatLabels: Record<string, string> = {
+  'd/m/Y': 'dd/mm/aaaa (31/12/2026)',
+  'Y-m-d': 'aaaa-mm-dd (2026-12-31)',
+  'm/d/Y': 'mm/dd/aaaa (12/31/2026)',
+}
+
 /**
  * The label map of each enum a report column names (`enum` in
  * /reports/definitions, `Report::ENUMS` in the API, which labels the Excel

@@ -91,6 +91,113 @@ export interface ReportPage extends PaginatedResponse<ReportRow> {
   totals: ReportRow
 }
 
+// --- Contabilidad (/accounting/*): accounts, voucher codes, export templates and the accounting movement ---
+
+/** The side a role posts on in the normal entry; null when it depends on the movement (an adjustment's inventory). */
+export type AccountingNature = 'debit' | 'credit'
+
+export interface AccountingPaymentMethod {
+  method: string
+  label: string
+  account: string | null
+}
+
+export interface AccountingTax {
+  id: number
+  name: string
+  rate: number
+  sales_account: string | null
+  purchase_account: string | null
+}
+
+export interface AccountingRole {
+  role: string
+  label: string
+  nature: AccountingNature | null
+  account: string | null
+}
+
+export interface AccountingDocument {
+  key: string
+  code: string
+  name: string
+  /** The voucher code of the accounting software (F-1); the document number stays Servify's own. */
+  voucher_code: string | null
+  /** Empty for a reversal: it posts the sale's own accounts, reversed. */
+  accounts: AccountingRole[]
+}
+
+export interface AccountingColumn {
+  key: string
+  label: string
+}
+
+/** `value` only for `fixed`: the same text on every row. */
+export interface AccountingTemplateColumn extends AccountingColumn {
+  value?: string | null
+}
+
+export type AccountingDateFormat = 'd/m/Y' | 'Y-m-d' | 'm/d/Y'
+
+export interface AccountingTemplate {
+  id: string
+  name: string
+  date_format: AccountingDateFormat
+  columns: AccountingTemplateColumn[]
+}
+
+export type AccountingTemplatePayload = Omit<AccountingTemplate, 'id'>
+
+export interface AccountingSettings {
+  payment_methods: AccountingPaymentMethod[]
+  taxes: AccountingTax[]
+  documents: AccountingDocument[]
+  /** Every column a template can use, with its default header (`fixed` included). */
+  columns: AccountingColumn[]
+  templates: AccountingTemplate[]
+  company_document: string | null
+  /** Every blank account, named as the screen shows it and in its order. */
+  missing: string[]
+}
+
+/** Every key optional: only what is sent changes. */
+export interface AccountingSettingsUpdate {
+  payment_methods?: { method: string; account: string | null }[]
+  taxes?: { id: number; sales_account: string | null; purchase_account: string | null }[]
+  documents?: { key: string; voucher_code: string | null; accounts: { role: string; account: string | null }[] }[]
+}
+
+export type AccountingCell = string | number | null
+
+export interface AccountingMovement {
+  columns: AccountingColumn[]
+  /** The first 200 lines at most, in the template's columns; counts and totals cover the whole period. */
+  rows: AccountingCell[][]
+  rows_count: number
+  entries_count: number
+  totals: { debit: number; credit: number }
+  warnings: string[]
+}
+
+export interface AccountingMovementRequest {
+  from: string
+  to: string
+  template: string
+}
+
+/** Saves a downloaded file under the name the API gave it. */
+const saveFile = (response: { data: Blob; headers: Record<string, unknown> }, fallback: string): void => {
+  const disposition = String(response.headers['content-disposition'] ?? '')
+  const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] || fallback
+
+  const url = URL.createObjectURL(response.data)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 /**
  * What the API reads: empty filters are not sent; a switch always is, as 1
  * or 0, since some start on (an unsent one would read as its default).
@@ -136,16 +243,47 @@ class ReportsService {
       params: { ...params(request), format: 'xlsx' },
       responseType: 'blob',
     })
+    saveFile(response, `informe-${request.report}.xlsx`)
+  }
 
-    const disposition: string = response.headers['content-disposition'] || ''
-    const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] || `informe-${request.report}.xlsx`
+  async accountingSettings(): Promise<AccountingSettings> {
+    const response = await api.get('/accounting/settings')
+    return response.data.data
+  }
 
-    const url = URL.createObjectURL(response.data)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    link.click()
-    URL.revokeObjectURL(url)
+  async saveAccountingSettings(update: AccountingSettingsUpdate): Promise<{ settings: AccountingSettings; message: string }> {
+    const response = await api.put('/accounting/settings', update)
+    return { settings: response.data.data, message: response.data.message }
+  }
+
+  async createAccountingTemplate(payload: AccountingTemplatePayload): Promise<{ template: AccountingTemplate; message: string }> {
+    const response = await api.post('/accounting/templates', payload)
+    return { template: response.data.data, message: response.data.message }
+  }
+
+  async updateAccountingTemplate(id: string, payload: AccountingTemplatePayload): Promise<{ template: AccountingTemplate; message: string }> {
+    const response = await api.put(`/accounting/templates/${id}`, payload)
+    return { template: response.data.data, message: response.data.message }
+  }
+
+  async deleteAccountingTemplate(id: string): Promise<string> {
+    const response = await api.delete(`/accounting/templates/${id}`)
+    return response.data.message
+  }
+
+  /** The preview: a 422 with `missing` names the blank accounts the period needs. */
+  async accountingMovement(request: AccountingMovementRequest): Promise<AccountingMovement> {
+    const response = await api.get('/accounting/movements', { params: request })
+    return response.data.data
+  }
+
+  /** Every line of the period as the template's Excel, ready to import. */
+  async downloadAccountingMovement(request: AccountingMovementRequest): Promise<void> {
+    const response = await api.get('/accounting/movements', {
+      params: { ...request, format: 'xlsx' },
+      responseType: 'blob',
+    })
+    saveFile(response, `movimiento-contable-${request.from}_${request.to}.xlsx`)
   }
 }
 

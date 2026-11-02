@@ -100,3 +100,13 @@ export const documentProblem = (value?: string | null, type?: string | null): st
 
 /** Regla de Vuetify para el número de documento del tipo elegido. */
 export const documentRule = (type?: string | null) => (v: string) => documentProblem(v, type) ?? true
+
+/** An accounting account (PUC): blank, or 1 to 20 digits (PUT /accounting/settings, same message). */
+export const ACCOUNT_MAX_LENGTH = 20
+
+export const accountProblem = (value: string | null | undefined, name: string): string | null => {
+  const account = (value ?? '').trim()
+  return account === '' || /^\d{1,20}$/.test(account) ? null : `La cuenta de ${name} debe tener solo números (p. ej., 110505).`
+}
+
+export const accountRule = (name: string) => (v: string | null) => accountProblem(v, name) ?? true
