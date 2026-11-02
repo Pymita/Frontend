@@ -90,6 +90,18 @@
             </v-btn>
           </v-col>
         </v-row>
+        <!-- What customers owed before Servify: typed by hand or from a spreadsheet. -->
+        <div class="d-flex flex-wrap align-center ga-2 mt-3">
+          <LockableButton color="primary" icon="mdi-file-document-plus-outline" @click="openOpeningDialog">
+            Registrar saldos iniciales
+          </LockableButton>
+          <LockableButton color="primary" variant="outlined" icon="mdi-microsoft-excel" @click="openOpeningImport">
+            Importar saldos iniciales desde Excel
+          </LockableButton>
+          <span class="text-caption text-medium-emphasis">
+            Lo que tus clientes ya te debían antes de usar Servify POS. No es una venta: solo queda en la cartera.
+          </span>
+        </div>
       </v-card-text>
     </v-card>
 
@@ -151,7 +163,10 @@
                 <td class="px-2 text-no-wrap">{{ formatDay(doc.issued_at) }}</td>
                 <td class="px-2 py-1">
                   <div class="font-weight-medium text-no-wrap">{{ doc.document_number }}</div>
-                  <div class="text-caption text-medium-emphasis text-no-wrap">{{ label(documentKindLabels, doc.document_kind) }}</div>
+                  <v-chip v-if="doc.document_kind === 'opening_balance'" size="x-small" variant="tonal" color="secondary">
+                    {{ label(documentKindLabels, doc.document_kind) }}
+                  </v-chip>
+                  <div v-else class="text-caption text-medium-emphasis text-no-wrap">{{ label(documentKindLabels, doc.document_kind) }}</div>
                 </td>
                 <td class="px-2 py-1">
                   <div>{{ doc.concept }}</div>
@@ -171,7 +186,7 @@
                 </td>
                 <td class="px-2 text-end text-no-wrap">
                   <v-btn
-                    v-if="doc.document_kind !== 'credit_sale' || canPrintSales"
+                    v-if="canPrint(doc)"
                     icon="mdi-printer"
                     size="small"
                     variant="text"
@@ -187,7 +202,7 @@
                     {{ doc.balance > 0 ? 'Abonar' : 'Ver abonos' }}
                   </v-btn>
                   <v-btn
-                    v-if="canCancel && doc.paid === 0 && doc.document_kind !== 'credit_sale'"
+                    v-if="canCancel(doc)"
                     icon="mdi-cancel"
                     size="small"
                     variant="text"
@@ -224,7 +239,8 @@
           <v-col cols="12" md="4">
             <v-autocomplete
               v-model="historyFilters.customer_id"
-              :items="historyCustomerOptions"
+              :items="customerOptions"
+              :custom-filter="customerFilter"
               item-title="title"
               item-value="value"
               label="Cliente"
@@ -501,7 +517,11 @@
       <v-card v-if="cancelTarget">
         <v-card-title class="bg-primary">Anular {{ cancelTarget.document_number }}</v-card-title>
         <v-card-text class="pt-4">
-          <p class="mb-3">
+          <p v-if="cancelTarget.kind === 'opening_balance'" class="mb-3">
+            El saldo inicial de <strong>{{ cancelTarget.customer }}</strong> sale de la cartera.
+            Si lo registraste mal, puedes registrarlo de nuevo con el mismo número.
+          </p>
+          <p v-else class="mb-3">
             El documento de <strong>{{ cancelTarget.customer }}</strong> sale de la cartera y el número no se vuelve a usar.
             Podrás facturarle de nuevo ese mes.
           </p>
@@ -511,6 +531,338 @@
           <v-spacer />
           <v-btn @click="cancelDialog = false">Volver</v-btn>
           <v-btn color="error" :loading="cancelling" @click="confirmCancel">Anular</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Saldos iniciales of one customer: one line per pending document, like
+         a purchase with several products in Kardex › Registrar movimiento. -->
+    <v-dialog v-model="openingDialog" max-width="960" persistent scrollable>
+      <v-card>
+        <v-card-title class="text-wrap">Registrar saldos iniciales</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 text-medium-emphasis mb-4">
+            Lo que el cliente ya te debía antes de usar Servify POS, con el número de cada factura. No es una venta:
+            no suma en Ventas ni en los informes de ventas; queda en la cartera para recibir sus abonos.
+          </p>
+          <v-autocomplete
+            v-model="openingForm.customer_id"
+            :items="customerOptions"
+            item-title="title"
+            item-value="value"
+            :custom-filter="customerFilter"
+            hint="Búscalo por nombre o documento"
+            persistent-hint
+            @update:model-value="openingError = ''">
+            <template #label>
+              Cliente <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+            </template>
+          </v-autocomplete>
+          <v-btn
+            v-if="!newCustomerOpen"
+            variant="text"
+            color="primary"
+            size="small"
+            prepend-icon="mdi-account-plus"
+            class="mt-1"
+            @click="openNewCustomer">
+            Nuevo cliente
+          </v-btn>
+          <v-card v-else variant="outlined" class="pa-3 mt-3">
+            <v-form ref="newCustomerFormRef" @submit.prevent="createOpeningCustomer">
+              <div class="text-subtitle-2 mb-2">Nuevo cliente</div>
+              <v-row dense>
+                <v-col cols="12" sm="5">
+                  <v-select
+                    v-model="newCustomer.document_type"
+                    :items="options(customerDocumentTypeLabels)"
+                    label="Tipo de documento"
+                    density="compact" />
+                </v-col>
+                <v-col cols="12" sm="7">
+                  <v-text-field
+                    v-model="newCustomer.document_number"
+                    label="Número de documento"
+                    density="compact"
+                    :rules="[filled('Escribe el número de documento'), documentRule(newCustomer.document_type)]" />
+                </v-col>
+                <v-col cols="12" sm="7">
+                  <v-text-field
+                    v-model="newCustomer.name"
+                    label="Nombre"
+                    density="compact"
+                    :rules="[filled('Escribe el nombre del cliente')]" />
+                </v-col>
+                <v-col cols="12" sm="5">
+                  <v-text-field v-model="newCustomer.phone" label="Teléfono (opcional)" density="compact" />
+                </v-col>
+              </v-row>
+              <v-alert v-if="newCustomerError" type="error" variant="tonal" density="compact" class="mb-2">
+                {{ newCustomerError }}
+              </v-alert>
+              <div class="d-flex justify-end ga-2">
+                <v-btn variant="text" @click="newCustomerOpen = false">Cancelar</v-btn>
+                <v-btn type="submit" color="primary" variant="tonal" :loading="creatingCustomer">Crear cliente</v-btn>
+              </div>
+            </v-form>
+          </v-card>
+
+          <div class="text-subtitle-1 mt-4">Documentos</div>
+          <p class="text-caption text-medium-emphasis mb-2">
+            Una línea por factura o documento pendiente. Vence es opcional: si lo dejas vacío, vence en la fecha del
+            documento. Las líneas vacías no se registran.
+          </p>
+          <div
+            v-for="(line, index) in openingLines"
+            :key="line.key"
+            role="group"
+            :aria-label="`Línea ${index + 1}`"
+            class="mb-2">
+            <v-row dense align="center">
+              <!-- On a phone the delete button sits beside the number; on a wide screen it closes the line. -->
+              <v-col cols="10" sm="4" md="3">
+                <v-text-field
+                  v-model="line.document_number"
+                  :error="line.error?.field === 'document_number'"
+                  hide-details="auto"
+                  @update:model-value="line.error = null">
+                  <template #label>
+                    N.º de documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </v-text-field>
+              </v-col>
+              <v-col cols="2" sm="1" order-md="last" class="text-center">
+                <v-btn
+                  icon="mdi-delete-outline"
+                  variant="text"
+                  size="small"
+                  :disabled="openingLines.length === 1"
+                  :aria-label="line.document_number.trim() ? `Quitar el documento ${line.document_number.trim()}` : `Quitar la línea ${index + 1}`"
+                  @click="openingLines.splice(index, 1)" />
+              </v-col>
+              <v-col cols="6" sm="4" md="2">
+                <DateField
+                  v-model="line.issued_at"
+                  :max="today"
+                  :error="line.error?.field === 'issued_at'"
+                  hide-details="auto"
+                  @update:model-value="line.error = null">
+                  <template #label>
+                    Fecha <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </DateField>
+              </v-col>
+              <v-col cols="6" sm="3" md="2">
+                <!-- No focus hint: it vanished on blur and moved Registrar away from a click. -->
+                <DateField
+                  v-model="line.due_date"
+                  label="Vence"
+                  :error="line.error?.field === 'due_date'"
+                  hide-details="auto"
+                  @update:model-value="line.error = null" />
+              </v-col>
+              <v-col cols="6" sm="4" md="2">
+                <MoneyField
+                  v-model="line.total"
+                  :error="line.error?.field === 'total'"
+                  hide-details="auto"
+                  @update:model-value="line.error = null">
+                  <template #label>
+                    Valor <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </MoneyField>
+              </v-col>
+              <v-col cols="6" sm="8" md="2">
+                <v-text-field
+                  v-model="line.concept"
+                  label="Concepto"
+                  placeholder="Saldo inicial"
+                  :error="line.error?.field === 'concept'"
+                  hide-details="auto"
+                  @update:model-value="line.error = null" />
+              </v-col>
+            </v-row>
+            <div v-if="line.error" class="text-caption text-error px-2">{{ line.error.text }}</div>
+          </div>
+          <div class="d-flex flex-wrap align-center justify-space-between ga-2">
+            <v-btn variant="tonal" color="primary" prepend-icon="mdi-plus" @click="addOpeningLine">Agregar documento</v-btn>
+            <div class="text-body-1 font-weight-bold tabular-nums" data-testid="opening-total">
+              Total {{ money(openingTotal) }}
+            </div>
+          </div>
+        </v-card-text>
+        <!-- Errors stay inside the dialog: the page snackbar would cover its buttons -->
+        <v-alert v-if="openingError" type="error" variant="tonal" density="compact" class="mx-4 mt-2">
+          {{ openingError }}
+        </v-alert>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn :disabled="savingOpening" @click="openingDialog = false">Cancelar</v-btn>
+          <LockableButton color="primary" :loading="savingOpening" @click="saveOpeningBalances">Registrar</LockableButton>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Saldos iniciales from Excel: reviewed first, then the valid rows (the customers import's pattern) -->
+    <v-dialog v-model="openingImportDialog" max-width="960" scrollable>
+      <v-card>
+        <v-card-title class="bg-primary text-wrap">
+          <v-icon start>mdi-microsoft-excel</v-icon>
+          Importar saldos iniciales desde Excel
+        </v-card-title>
+        <v-card-text class="pt-4">
+          <p class="text-body-2 mb-3">
+            Sube un Excel con una fila por cada factura que un cliente te debía antes de usar Servify POS. Si el cliente
+            todavía no existe, se crea con el nombre y el documento de la fila.
+          </p>
+          <div class="d-flex align-center flex-wrap ga-2 mb-4">
+            <v-btn
+              color="primary"
+              variant="tonal"
+              prepend-icon="mdi-download"
+              :loading="downloadingOpeningTemplate"
+              @click="downloadOpeningTemplate">
+              Descargar plantilla
+            </v-btn>
+            <span class="text-caption text-medium-emphasis">
+              Trae los encabezados, una fila de ejemplo y una hoja con estas instrucciones.
+            </span>
+          </div>
+
+          <v-expansion-panels v-model="openingTutorialOpen" multiple class="mb-4">
+            <v-expansion-panel value="tutorial">
+              <v-expansion-panel-title>Cómo armar el archivo: columnas y ejemplo</v-expansion-panel-title>
+              <v-expansion-panel-text>
+                <p class="text-body-2 text-medium-emphasis mb-3">
+                  La primera fila lleva los nombres de las columnas. La columna Ejemplo es una fila completa de muestra.
+                </p>
+                <v-data-table
+                  :headers="importColumnHeaders"
+                  :items="openingImportFormat?.columns ?? []"
+                  item-value="key"
+                  density="compact"
+                  :items-per-page="-1"
+                  disable-sort
+                  hide-default-footer
+                  mobile-breakpoint="sm"
+                  :hide-default-header="xs"
+                  class="mb-3 border rounded">
+                  <template #item.label="{ item }">
+                    <span class="font-weight-bold text-no-wrap">{{ item.label }}</span>
+                  </template>
+                  <template #item.required="{ item }">
+                    <v-chip :color="item.required ? 'error' : 'secondary'" size="x-small" variant="flat">
+                      {{ item.required ? 'Obligatoria' : 'Opcional' }}
+                    </v-chip>
+                  </template>
+                  <template #item.help="{ item }">
+                    <span class="text-body-2">{{ item.help }}</span>
+                  </template>
+                  <template #item.example="{ item }">
+                    <span class="text-body-2 text-medium-emphasis">{{ item.example }}</span>
+                  </template>
+                </v-data-table>
+                <ul class="text-body-2 text-medium-emphasis pl-4">
+                  <li v-for="note in openingImportFormat?.notes ?? []" :key="note">{{ note }}</li>
+                </ul>
+              </v-expansion-panel-text>
+            </v-expansion-panel>
+          </v-expansion-panels>
+
+          <v-file-input
+            v-model="openingImportFile"
+            label="Archivo de saldos iniciales (.xlsx o .csv)"
+            accept=".xlsx,.csv"
+            prepend-icon="mdi-paperclip"
+            density="comfortable"
+            show-size
+            :disabled="importingOpening" />
+
+          <v-alert v-if="openingImportError" type="error" variant="tonal" class="mt-2">
+            {{ openingImportError }}
+            <ul v-if="openingImportFileErrors.length > 1" class="pl-4 mt-1">
+              <li v-for="item in openingImportFileErrors" :key="item">{{ item }}</li>
+            </ul>
+          </v-alert>
+
+          <template v-if="openingImportResult">
+            <v-alert
+              :type="openingImportResult.dry_run ? 'info' : openingImportResult.summary.errors ? 'warning' : 'success'"
+              variant="tonal"
+              class="mt-2 mb-3">
+              <div class="font-weight-medium">{{ openingImportMessage }}</div>
+              <div v-if="openingImportResult.dry_run" class="text-body-2">
+                Todavía no se registró nada: revisa las filas y confirma.
+              </div>
+              <div v-else-if="openingImportResult.summary.errors" class="text-body-2">
+                Corrige las filas con error y vuelve a subir el archivo: las que ya entraron se saltan.
+              </div>
+            </v-alert>
+            <v-alert
+              v-if="openingImportResult.ignored_columns.length"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mb-3">
+              No usamos estas columnas porque no las reconocimos: {{ openingImportResult.ignored_columns.join(', ') }}.
+              Si debían importarse, cámbiales el nombre como dice la tabla de columnas.
+            </v-alert>
+            <v-data-table
+              :headers="openingImportHeaders"
+              :items="openingImportResult.rows"
+              item-value="fila"
+              density="compact"
+              :items-per-page="10"
+              disable-sort
+              mobile-breakpoint="sm"
+              :hide-default-header="xs"
+              class="border rounded">
+              <template #item.customer_name="{ item }">
+                <div class="font-weight-medium">{{ item.customer_name || 'Sin nombre' }}</div>
+                <div class="text-caption text-medium-emphasis">{{ item.customer_document || 'Sin documento' }}</div>
+              </template>
+              <template #item.document_number="{ item }">
+                <div class="font-weight-medium text-no-wrap">{{ item.document_number || '—' }}</div>
+                <div v-if="item.issued_at" class="text-caption text-medium-emphasis">
+                  {{ formatDay(item.issued_at) }}<template v-if="item.due_date && item.due_date !== item.issued_at">
+                    · vence {{ formatDay(item.due_date) }}</template>
+                </div>
+              </template>
+              <template #item.total="{ item }">
+                <span class="tabular-nums">{{ item.total === null ? '—' : money(item.total) }}</span>
+              </template>
+              <template #item.status="{ item }">
+                <v-chip size="small" variant="tonal" :color="customerImportStatusColors[item.status]">
+                  {{ label(openingBalanceImportStatusLabels, item.status) }}
+                </v-chip>
+              </template>
+              <template #item.message="{ item }">
+                <span class="text-body-2">{{ item.message ?? '' }}</span>
+              </template>
+            </v-data-table>
+          </template>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn :disabled="importingOpening" @click="openingImportDialog = false">Cerrar</v-btn>
+          <v-spacer />
+          <LockableButton
+            v-if="!openingImportResult"
+            color="primary"
+            icon="mdi-file-search"
+            :loading="importingOpening"
+            :disabled="!openingImportFile"
+            @click="runOpeningImport(true)">
+            Revisar archivo
+          </LockableButton>
+          <LockableButton
+            v-else-if="openingImportResult.dry_run"
+            color="primary"
+            icon="mdi-upload"
+            :loading="importingOpening"
+            :disabled="openingImportResult.summary.valid === 0"
+            @click="runOpeningImport(false)">
+            {{ openingImportButtonLabel }}
+          </LockableButton>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -527,6 +879,7 @@ import { formatDay, formatTime } from '@/utils/dates'
 import { downloadAbonosPdf } from '@/utils/abonosPdf'
 import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage'
 import { computed, onMounted, ref, watch } from 'vue'
+import { useDisplay } from 'vuetify'
 import LockableButton from '../components/LockableButton.vue'
 import CashRegisterPanel from '../components/CashRegisterPanel.vue'
 import DateField from '../components/DateField.vue'
@@ -536,11 +889,14 @@ import {
   billingService,
   type CashReceipt,
   type Customer,
+  type OpeningBalanceImportResult,
+  type OpeningBalanceLine,
   type ReceivableCustomer,
   type ReceivableDocument,
   type Receivables,
   type RecurringInvoice,
 } from '../services/billingService'
+import type { ImportFormat } from '../services/productImportService'
 import {
   fillDocumentWindow,
   invoiceHtml,
@@ -555,9 +911,14 @@ import { PAYMENT_METHOD_LABELS, type PaymentMethod } from '../services/salesServ
 import { useAuthStore } from '../stores/auth'
 import { effectiveFeatures } from '../types/auth'
 import { errorMessage } from '../utils/errors'
+import { documentRule } from '../utils/validation'
 import {
+  customerDocumentTypeLabels,
+  customerImportStatusColors,
   documentKindLabels,
   label,
+  openingBalanceImportStatusLabels,
+  options,
   recurringInvoiceStatusColors,
   recurringInvoiceStatusLabels,
 } from '../utils/labels'
@@ -566,8 +927,14 @@ const isReadOnly = useReadOnly()
 const authStore = useAuthStore()
 // Revertir abonos cambia la cartera ya reportada: solo el admin.
 const isAdmin = computed(() => authStore.isAdmin)
-// Anular un documento es además de la facturación automática (el API lo pide).
-const canCancel = computed(() => isAdmin.value && effectiveFeatures(authStore.user).includes('recurring_billing'))
+const hasAutomaticBilling = computed(() => effectiveFeatures(authStore.user).includes('recurring_billing'))
+// Cancelling is the admin's, only without abonos. An opening balance belongs
+// to Cartera itself; any other document also needs automatic billing (the API
+// asks for it), and a credit sale is undone by reverting its charge in Pedidos.
+const canCancel = (doc: ReceivableDocument): boolean => {
+  if (!isAdmin.value || doc.paid !== 0 || doc.document_kind === 'credit_sale') return false
+  return doc.document_kind === 'opening_balance' || hasAutomaticBilling.value
+}
 // The abonos are cash of the shift: the register opens with orders or automatic
 // billing, like the API (feature:orders,recurring_billing). Clientes alone has none.
 const canUseCashRegister = computed(() =>
@@ -603,8 +970,13 @@ const business = ref<DocumentBusiness | null>(null)
 const printBlocked = () =>
   notify('El navegador bloqueó la ventana de impresión: permite las ventanas emergentes para este sitio', 'error')
 
-// A credit sale prints the POS factura of its order's sale, not the monthly template.
+// A credit sale prints the POS factura of its order's sale, not the monthly
+// template. An opening balance was printed before Servify, by someone else.
 const canPrintSales = computed(() => effectiveFeatures(authStore.user).some(f => f === 'orders' || f === 'reports'))
+const canPrint = (doc: ReceivableDocument): boolean => {
+  if (doc.document_kind === 'opening_balance') return false
+  return doc.document_kind !== 'credit_sale' || canPrintSales.value
+}
 
 const printInvoice = async (receivable: ReceivableDocument) => {
   const win = openDocumentWindow()
@@ -705,12 +1077,28 @@ const historyHeaders = [
   { title: 'Registró', key: 'received_by', sortable: false },
 ]
 
-const historyCustomerOptions = computed(() =>
+const customerOptions = computed(() =>
   customers.value.map(customer => ({
     value: customer.id,
     title: `${customer.name}${customer.document_number ? ` (${customer.document_number})` : ''}`,
+    name: customer.name,
+    document: customer.document_number ?? '',
   })),
 )
+
+const plainText = (text: string) => text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+
+// By name without accents, or by document written with or without dots.
+const customerFilter = (_value: string, query: string, item?: { raw: { name: string; document: string } }) => {
+  if (!item) return false
+  const typed = plainText(query.trim())
+  const digits = query.replace(/\D/g, '')
+  return (
+    plainText(item.raw.name).includes(typed) ||
+    plainText(item.raw.document).includes(typed) ||
+    (digits !== '' && item.raw.document.replace(/\D/g, '').includes(digits))
+  )
+}
 
 const {
   items: paymentHistory,
@@ -885,12 +1273,12 @@ const revertPayment = async (paymentId: number) => {
 
 // --- Anular ---
 const cancelDialog = ref(false)
-const cancelTarget = ref<{ id: number; document_number: string; customer: string } | null>(null)
+const cancelTarget = ref<{ id: number; document_number: string; customer: string; kind: ReceivableDocument['document_kind'] } | null>(null)
 const cancelReason = ref('')
 const cancelling = ref(false)
 
 const openCancelDialog = (doc: ReceivableDocument, customer: string) => {
-  cancelTarget.value = { id: doc.id, document_number: doc.document_number, customer }
+  cancelTarget.value = { id: doc.id, document_number: doc.document_number, customer, kind: doc.document_kind }
   cancelReason.value = ''
   cancelDialog.value = true
 }
@@ -907,6 +1295,247 @@ const confirmCancel = async () => {
     notify(errorMessage(error, 'No se pudo anular el documento'), 'error')
   } finally {
     cancelling.value = false
+  }
+}
+
+// ===== Saldos iniciales =====
+interface OpeningLine {
+  key: number
+  document_number: string
+  issued_at: string
+  due_date: string
+  total: number | null
+  concept: string
+  error: { field: 'document_number' | 'issued_at' | 'due_date' | 'total' | 'concept'; text: string } | null
+}
+
+let openingLineKey = 0
+const newOpeningLine = (): OpeningLine => ({
+  key: ++openingLineKey,
+  document_number: '',
+  issued_at: '',
+  due_date: '',
+  total: null,
+  concept: '',
+  error: null,
+})
+
+const openingDialog = ref(false)
+const openingForm = ref<{ customer_id: number | null }>({ customer_id: null })
+const openingLines = ref<OpeningLine[]>([newOpeningLine()])
+const openingError = ref('')
+const savingOpening = ref(false)
+
+const addOpeningLine = () => openingLines.value.push(newOpeningLine())
+const openingTotal = computed(() => openingLines.value.reduce((sum, line) => sum + (line.total ?? 0), 0))
+
+const openOpeningDialog = () => {
+  today.value = localDate()
+  openingForm.value = { customer_id: null }
+  openingLines.value = [newOpeningLine(), newOpeningLine()]
+  openingError.value = ''
+  newCustomerOpen.value = false
+  openingDialog.value = true
+}
+
+// A line with nothing typed is a leftover row: it is not sent.
+const isBlankOpeningLine = (line: OpeningLine) =>
+  !line.document_number.trim() && !line.issued_at && !line.due_date && line.total === null && !line.concept.trim()
+
+const openingLineProblem = (line: OpeningLine): OpeningLine['error'] => {
+  const number = line.document_number.trim()
+  if (!number) return { field: 'document_number', text: 'Escribe el número de este documento, como sale en la factura' }
+  if (!line.issued_at) return { field: 'issued_at', text: `Escribe la fecha del documento ${number}` }
+  if (!(Number(line.total) > 0)) return { field: 'total', text: `Escribe el valor del documento ${number}` }
+  return null
+}
+
+const OPENING_FIELDS = ['document_number', 'issued_at', 'due_date', 'total', 'concept'] as const
+
+const saveOpeningBalances = async () => {
+  openingError.value = ''
+  openingLines.value.forEach(line => (line.error = isBlankOpeningLine(line) ? null : openingLineProblem(line)))
+  const lines = openingLines.value.filter(line => !isBlankOpeningLine(line))
+
+  const customerId = openingForm.value.customer_id
+  if (!customerId) {
+    openingError.value = 'Falta el cliente que te debe esos documentos: búscalo o créalo con Nuevo cliente'
+    return
+  }
+  if (lines.length === 0) {
+    openingError.value = 'Falta al menos un documento con su número, fecha y valor'
+    return
+  }
+  const problem = lines.find(line => line.error)?.error
+  if (problem) {
+    openingError.value = problem.text
+    return
+  }
+
+  // Optional fields left empty are not sent: no due date is due on the document's date.
+  const payload: OpeningBalanceLine[] = lines.map(line => ({
+    document_number: line.document_number.trim(),
+    issued_at: line.issued_at,
+    total: Number(line.total),
+    ...(line.due_date ? { due_date: line.due_date } : {}),
+    ...(line.concept.trim() ? { concept: line.concept.trim() } : {}),
+  }))
+
+  savingOpening.value = true
+  try {
+    const { message } = await billingService.registerOpeningBalances(customerId, payload)
+    notify(message)
+    openingDialog.value = false
+    await refreshCartera()
+  } catch (error: any) {
+    // The API indexes the lines it was sent, blank ones already dropped.
+    const errors: Record<string, string[]> = error?.response?.data?.errors ?? {}
+    for (const [key, messages] of Object.entries(errors)) {
+      const [, index, field] = /^lines\.(\d+)\.(\w+)$/.exec(key) ?? []
+      const line = index !== undefined ? lines[Number(index)] : undefined
+      const known = OPENING_FIELDS.find(name => name === field)
+      if (line && known) line.error = { field: known, text: messages[0] ?? '' }
+    }
+    openingError.value = errorMessage(error, 'No fue posible registrar los saldos iniciales. Inténtalo de nuevo.')
+  } finally {
+    savingOpening.value = false
+  }
+}
+
+// A customer created right there, as Pedidos does when it sells on credit.
+const emptyNewCustomer = () => ({ document_type: 'CC', document_number: '', name: '', phone: '' })
+const newCustomer = ref(emptyNewCustomer())
+const newCustomerOpen = ref(false)
+const newCustomerFormRef = ref<any>(null)
+const newCustomerError = ref('')
+const creatingCustomer = ref(false)
+const filled = (message: string) => (value: string | null) => !!value?.trim() || message
+
+const openNewCustomer = () => {
+  newCustomer.value = emptyNewCustomer()
+  newCustomerError.value = ''
+  newCustomerOpen.value = true
+}
+
+const createOpeningCustomer = async () => {
+  const { valid } = await newCustomerFormRef.value.validate()
+  if (!valid) return
+  creatingCustomer.value = true
+  newCustomerError.value = ''
+  try {
+    const created = await billingService.createCustomer({
+      ...newCustomer.value,
+      name: newCustomer.value.name.trim(),
+      phone: newCustomer.value.phone.trim() || undefined,
+    })
+    customers.value = [...customers.value, created]
+    openingForm.value.customer_id = created.id
+    newCustomerOpen.value = false
+    openingError.value = ''
+  } catch (error) {
+    newCustomerError.value = errorMessage(error, 'No fue posible crear el cliente. Inténtalo de nuevo.')
+  } finally {
+    creatingCustomer.value = false
+  }
+}
+
+// --- Saldos iniciales desde Excel ---
+const openingImportDialog = ref(false)
+const openingImportFormat = ref<ImportFormat | null>(null)
+const openingImportFile = ref<File | File[] | null>(null)
+const openingImportResult = ref<OpeningBalanceImportResult | null>(null)
+const openingImportMessage = ref('')
+const openingImportError = ref('')
+const openingImportFileErrors = ref<string[]>([])
+const importingOpening = ref(false)
+const downloadingOpeningTemplate = ref(false)
+const openingTutorialOpen = ref<string[]>(['tutorial'])
+
+// On a phone each row stacks with its own labels: the header is not needed.
+const { xs } = useDisplay()
+
+const importColumnHeaders = [
+  { title: 'Columna', key: 'label' },
+  { title: '¿Obligatoria?', key: 'required' },
+  { title: 'Qué va ahí', key: 'help' },
+  { title: 'Ejemplo', key: 'example' },
+]
+
+const openingImportHeaders = [
+  { title: 'Fila', key: 'fila' },
+  { title: 'Cliente', key: 'customer_name' },
+  { title: 'Documento', key: 'document_number' },
+  { title: 'Valor', key: 'total', align: 'end' as const },
+  { title: 'Estado', key: 'status' },
+  { title: 'Detalle', key: 'message', sortable: false },
+]
+
+const openingImportButtonLabel = computed(() => {
+  const valid = openingImportResult.value?.summary.valid ?? 0
+  if (valid === 0) return 'Registrar saldos'
+  return valid === 1 ? 'Registrar 1 saldo inicial' : `Registrar ${valid} saldos iniciales`
+})
+
+const clearOpeningImport = () => {
+  openingImportResult.value = null
+  openingImportMessage.value = ''
+  openingImportError.value = ''
+  openingImportFileErrors.value = []
+}
+
+// Another file is another review.
+watch(openingImportFile, clearOpeningImport)
+
+const openOpeningImport = async () => {
+  openingImportFile.value = null
+  clearOpeningImport()
+  openingTutorialOpen.value = ['tutorial']
+  openingImportDialog.value = true
+  if (openingImportFormat.value) return
+  try {
+    openingImportFormat.value = await billingService.getOpeningBalanceImportFormat()
+  } catch (error) {
+    openingImportError.value = errorMessage(error, 'No fue posible cargar las instrucciones. Inténtalo de nuevo.')
+  }
+}
+
+const downloadOpeningTemplate = async () => {
+  downloadingOpeningTemplate.value = true
+  try {
+    await billingService.downloadOpeningBalanceImportTemplate()
+  } catch (error) {
+    openingImportError.value = errorMessage(error, 'No fue posible descargar la plantilla. Inténtalo de nuevo.')
+  } finally {
+    downloadingOpeningTemplate.value = false
+  }
+}
+
+const runOpeningImport = async (dryRun: boolean) => {
+  const value = openingImportFile.value
+  const file = Array.isArray(value) ? value[0] ?? null : value
+  if (!file) return
+  importingOpening.value = true
+  openingImportError.value = ''
+  openingImportFileErrors.value = []
+  try {
+    const { data, message } = await billingService.importOpeningBalances(file, dryRun)
+    openingImportResult.value = data
+    openingImportMessage.value = message
+    openingTutorialOpen.value = []
+    if (!dryRun) {
+      notify(message)
+      await Promise.all([refreshCartera(), loadCustomers()])
+    }
+  } catch (error: any) {
+    openingImportError.value = errorMessage(
+      error,
+      dryRun
+        ? 'No fue posible revisar el archivo. Inténtalo de nuevo.'
+        : 'No fue posible importar los saldos iniciales. Inténtalo de nuevo.',
+    )
+    openingImportFileErrors.value = (error?.response?.data?.data?.errors ?? []).map((item: { error: string }) => item.error)
+  } finally {
+    importingOpening.value = false
   }
 }
 

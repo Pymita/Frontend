@@ -64,6 +64,8 @@ export const documentKindLabels: Record<string, string> = {
   collection: 'Cuenta de cobro',
   // An order charged "A crédito" in Pedidos: what the customer owes for it.
   credit_sale: 'Venta a crédito',
+  // What a customer already owed before Servify: never a sale, only cartera.
+  opening_balance: 'Saldo inicial',
 }
 
 /** Where a sale in Ventas comes from: an order charged or a document issued. */
@@ -76,6 +78,14 @@ export const saleOriginLabels: Record<string, string> = {
 export const customerImportStatusLabels: Record<string, string> = {
   valid: 'Se crea',
   created: 'Creado',
+  skipped: 'Se salta',
+  error: 'Con error',
+}
+
+/** Each row of the opening balances Excel; the colors are `customerImportStatusColors`. */
+export const openingBalanceImportStatusLabels: Record<string, string> = {
+  valid: 'Se registra',
+  created: 'Registrado',
   skipped: 'Se salta',
   error: 'Con error',
 }

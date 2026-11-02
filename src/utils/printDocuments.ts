@@ -42,7 +42,7 @@ export interface DocumentResolution {
 }
 
 export interface PrintableInvoice {
-  document_kind: 'invoice' | 'collection' | 'credit_sale'
+  document_kind: 'invoice' | 'collection' | 'credit_sale' | 'opening_balance'
   document_number: string
   issued_at: string
   due_date: string | null
@@ -89,7 +89,7 @@ export interface PrintableReceipt {
   total: number
   lines: {
     payment_id?: number
-    document_kind: 'invoice' | 'collection' | 'credit_sale' | null
+    document_kind: 'invoice' | 'collection' | 'credit_sale' | 'opening_balance' | null
     document_number: string | null
     concept: string | null
     period: string | null
@@ -408,13 +408,18 @@ export const receiptHtml = (business: DocumentBusiness, receipt: PrintableReceip
           <tr><th class="left">POR CONCEPTO DE</th><th class="right">VALOR DOCUMENTO</th><th class="right">ABONO</th><th class="right">SALDO</th></tr>
         </thead>
         <tbody>
-          ${receipt.lines.map(line => `
+          ${receipt.lines.map(line => {
+            const kind = (documentKindLabels[line.document_kind ?? ''] ?? 'Cuenta de cobro').toLowerCase()
+            // An opening balance's default concept is its kind: "Abono a saldo inicial FV-1 · Saldo inicial" says it twice.
+            const concept = line.concept && line.concept.toLowerCase() !== kind ? ` · ${escape(line.concept)}` : ''
+            return `
           <tr>
-            <td class="left">Abono a ${(documentKindLabels[line.document_kind ?? ''] ?? 'Cuenta de cobro').toLowerCase()} ${escape(line.document_number)}${line.concept ? ` · ${escape(line.concept)}` : ''}${line.period ? ` (${escape(periodName(line.period))})` : ''}</td>
+            <td class="left">Abono a ${kind} ${escape(line.document_number)}${concept}${line.period ? ` (${escape(periodName(line.period))})` : ''}</td>
             <td class="right">${money(line.document_total)}</td>
             <td class="right">${money(line.amount)}</td>
             <td class="right">${money(line.balance)}</td>
-          </tr>`).join('')}
+          </tr>`
+          }).join('')}
         </tbody>
       </table>
       <div class="totals">
