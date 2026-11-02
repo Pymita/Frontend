@@ -1613,4 +1613,7 @@ test('lo facturado es venta del día en Inicio y en Ventas, y su abono no la dup
   await expect(page.locator('tbody tr', { hasText: 'CC-1' })).toContainText('Abonada')
   await expect(page.locator('tbody tr', { hasText: 'CC-2' })).toContainText('Por pagar')
   await expect(page.locator('tbody tr', { hasText: 'CC-2' })).toContainText('$180.000')
+  // A condominium takes no orders, so it has no tables.
+  await expect(page.getByRole('columnheader', { name: 'Cliente' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'Mesa' })).toHaveCount(0)
 })

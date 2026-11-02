@@ -461,6 +461,9 @@
                 </v-chip>
               </div>
             </template>
+            <template #item.dining_table="{ item }">
+              {{ item.dining_table || '—' }}
+            </template>
             <template #item.customer_name="{ item }">
               {{ customerLabel(item.customer_name) }}
             </template>
@@ -668,6 +671,7 @@
 import { money, percent } from '@/utils/money'
 import { formatDateTime, formatIsoDate, parseTimeText, toIsoDate, toTimeText, todayIso } from '@/utils/dates'
 import { computed, onMounted, ref, watch } from 'vue'
+import { useDisplay } from 'vuetify'
 import DateField from '../components/DateField.vue'
 import LockableButton from '../components/LockableButton.vue'
 import MoneyField from '../components/MoneyField.vue'
@@ -1033,15 +1037,19 @@ const notify = (text: string, color = 'error') => {
   snackbar.value = { show: true, text, color }
 }
 
+const { xlAndUp } = useDisplay()
 // A document's date is its issue, not a payment: with automatic billing the column is just "Fecha".
+// Origen and Mesa together overflow a 1440 px row: below xl the tip goes, and the
+// Propinas card and the Excel still carry it.
 const headers = computed(() => [
   { title: 'Comprobante', key: 'invoice_number', sortable: false },
   ...(recurringBilling.value ? [{ title: 'Origen', key: 'origin', sortable: false }] : []),
+  ...(takesOrders.value ? [{ title: 'Mesa', key: 'dining_table', sortable: false }] : []),
   { title: 'Cliente', key: 'customer_name', sortable: false },
   { title: recurringBilling.value ? 'Fecha' : 'Fecha de pago', key: 'paid_at' },
   { title: 'Vendedor', key: 'waiter' },
   { title: 'Método', key: 'payment_methods', sortable: false },
-  { title: 'Propina', key: 'tip', align: 'end' as const },
+  ...(showOriginFilter.value && !xlAndUp.value ? [] : [{ title: 'Propina', key: 'tip', align: 'end' as const }]),
   { title: 'Total', key: 'total', align: 'end' as const },
   { title: '', key: 'actions', align: 'end' as const, sortable: false },
 ])

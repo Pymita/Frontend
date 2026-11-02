@@ -1,5 +1,13 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { ADMIN, API, SHOP_WITH_FEES, apiLogin, createCompany, field, freezeTime, issueDocuments, loginUI, raisePlanLimits } from './helpers'
+
+/** The cell of `row` under the column `header` of the sales list. */
+async function cellUnder(page: Page, row: Locator, header: string): Promise<Locator> {
+  const headers = (await page.locator('.v-data-table thead th').allInnerTexts()).map(text => text.trim())
+  const index = headers.indexOf(header)
+  expect(index, `columna «${header}»`).toBeGreaterThanOrEqual(0)
+  return row.locator('td').nth(index)
+}
 
 /**
  * Pestaña de Ventas: solo los pedidos PAGADOS cuentan, los totales se ven
@@ -89,9 +97,9 @@ test('las ventas pagadas aparecen con su total y el filtro de método funciona',
 /**
  * A sale nobody identified is the consumidor final's, whatever its order is
  * called: "Cliente" when nobody gave a name, or the table's name, which the
- * waiter app sends as the order's customer.
+ * waiter app sends as the order's customer. The table reads under Mesa.
  */
-test('una venta sin nombre es de un consumidor final y se identifica con su comprobante', async ({ page, request }) => {
+test('una venta sin nombre es de un consumidor final, su mesa se lee en Mesa y se identifica con su comprobante', async ({ page, request }) => {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
   const auth = { Authorization: `Bearer ${token}` }
   const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `Consumidor E2E ${Date.now()}` } })
@@ -132,11 +140,14 @@ test('una venta sin nombre es de un consumidor final y se identifica con su comp
   const row = page.locator('tr', { hasText: '$2.347' })
   await expect(row).toContainText('Consumidor final')
   await expect(row).not.toContainText(/^Cliente$/)
+  // A counter sale has no table.
+  await expect(await cellUnder(page, row, 'Mesa')).toHaveText('—')
   const tableRow = page.locator('tr', { hasText: '$4.694' })
-  await expect(tableRow).toContainText('Consumidor final')
-  await expect(tableRow).not.toContainText(nickname)
+  await expect(await cellUnder(page, tableRow, 'Mesa')).toHaveText(nickname)
+  await expect(await cellUnder(page, tableRow, 'Cliente')).toHaveText('Consumidor final')
   // Without automatic billing the page reads as it always did.
   await expect(page.getByRole('columnheader', { name: 'Fecha de pago' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'Propina' })).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'Origen' })).toHaveCount(0)
   await expect(page.getByRole('group', { name: 'Origen de las ventas' })).toHaveCount(0)
 })
@@ -193,6 +204,11 @@ test('con facturación automática los documentos son ventas con su número, cli
   // Sold the day it was issued, and still partly owed.
   await expect(document).toContainText('Abonada')
   await expect(document).toContainText('$250.000')
+  await expect(await cellUnder(page, document, 'Mesa')).toHaveText('—')
+  // With Origen and Mesa the tip column gives way, so the row fits 1440 px without scrolling.
+  await expect(page.getByRole('columnheader', { name: 'Propina' })).toHaveCount(0)
+  const wrapper = page.locator('.v-data-table .v-table__wrapper')
+  expect(await wrapper.evaluate(table => table.scrollWidth - table.clientWidth)).toBeLessThanOrEqual(0)
   // A name typed at the counter does not identify a buyer: without a customer it is a consumidor final.
   const sale = page.locator('tbody tr', { hasText: 'Consumidor final' })
   await expect(sale).toContainText('Pedido')
