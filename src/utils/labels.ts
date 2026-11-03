@@ -37,6 +37,23 @@ export const orderStatusColors: Record<string, string> = {
   cancelled: 'error',
 }
 
+/** Who pays a table's time (same texts as TIME_BILLING_LABELS in mobile/src/utils/labels.ts). */
+export const timeBillingLabels: Record<string, string> = {
+  table: 'Por mesa',
+  person: 'Por persona',
+}
+
+/** "1 h", "1 h 30 min", "45 min": the minutes of a printed time line. */
+export const durationLabel = (minutes: number): string => {
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  if (!hours) return `${rest} min`
+  return rest ? `${hours} h ${rest} min` : `${hours} h`
+}
+
+/** "5 personas", "1 persona" (same as `playersLabel()` in mobile/src/utils/labels.ts). */
+export const playersLabel = (players: number): string => `${players} ${players === 1 ? 'persona' : 'personas'}`
+
 export const itemStatusLabels: Record<string, string> = {
   pending: 'Pendiente',
   preparing: 'Preparando',

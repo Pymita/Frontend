@@ -28,12 +28,18 @@ export interface OrderPayment {
   invoice_sequence?: number | null;
   /** Etiqueta amigable #<número del pedido>-n; null en un abono antes del primer cobro */
   reference?: string | null;
+  /** Por persona: who paid, and the shares of a table time billed by person it took (and their value). */
+  guest_number?: number | null;
+  time_shares?: number | null;
+  time_amount?: number | null;
   created_at: string;
 }
 
 export interface PartialPaymentPayload {
   amount?: number;
   items?: { order_item_id: number; quantity: number }[];
+  /** Por persona: the person charged; with the time billed by person, their share goes with it. */
+  guest_number?: number | null;
   payment_method?: OrderPaymentMethod;
   /** Propina de este pago (cuentas separadas: cada persona deja la suya) */
   tip?: number;
@@ -69,7 +75,13 @@ export interface OrderGuest {
   pending_amount: number;
   paid: boolean;
   item_ids: number[];
+  /** Only in `guest_bills`: the share of the table time this person still owes, and whether they paid it. */
+  time_amount?: number;
+  time_paid?: boolean;
 }
+
+/** Who pays the time of a table that bills by time: the table (rate × time) or each player (× players). */
+export type TimeBilling = 'table' | 'person';
 
 export interface OrderTime {
   started_at: string;
@@ -84,6 +96,21 @@ export interface OrderTime {
   minutes_billed: number | null;
   amount: number;
   current_amount: number;
+  billing: TimeBilling;
+  /** Players, when each one pays the time; null by table. */
+  players: number | null;
+  /** One player's part right now (by table, the whole time). */
+  share_amount: number;
+  /** Shares already charged by person, and what they were charged. */
+  shares_paid: number;
+  charged_amount: number;
+}
+
+/** The figures of a printed time line: minutes × players × rate/h (players null when the table pays). */
+export interface ReceiptTimeDetail {
+  minutes: number;
+  rate: number;
+  players: number | null;
 }
 
 /** Datos de la factura sencilla (tirilla POS), no la e-factura DIAN. */
@@ -142,6 +169,8 @@ export interface OrderReceipt {
   total: number
   payment_methods: string[]
   time_amount: number | null
+  /** How the time line reads; null when its amount is not one product (a slice prorated by products). */
+  time_detail?: ReceiptTimeDetail | null
   /** The sale this receipt is about (?payment=); absent on the whole order's ticket. */
   sale?: { id: number; reference: string; sale_amount: number } | null
 }
@@ -186,6 +215,8 @@ export interface Order {
   items: OrderItem[];
   /** Vacío cuando nadie separó la cuenta */
   guests?: OrderGuest[];
+  /** Por persona as it is charged: `guests` plus, with the time billed by person, every player and their share. */
+  guest_bills?: OrderGuest[];
   payments?: OrderPayment[] | null;
   created_at: string;
   paid_at?: string;
@@ -232,7 +263,10 @@ export const ordersService = {
     return response.data.data;
   },
 
-  async update(id: number, data: Partial<Order>): Promise<Order> {
+  async update(
+    id: number,
+    data: Partial<Omit<Order, 'time'>> & { time_billing?: TimeBilling; time_players?: number | null },
+  ): Promise<Order> {
     const response = await api.put<ApiResponse<Order>>(`/orders/${id}`, data);
     return response.data.data;
   },

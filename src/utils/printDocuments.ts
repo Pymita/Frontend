@@ -8,12 +8,12 @@ import { money } from './money'
  * Datos del negocio), así que cada negocio imprime con su nombre, NIT,
  * régimen, dirección, teléfonos y observaciones.
  */
-import { customerLabel, documentKindLabels, saleMethodLabels, taxRegimeLabels } from './labels'
+import { customerLabel, documentKindLabels, durationLabel, playersLabel, saleMethodLabels, taxRegimeLabels } from './labels'
 import { APP_NAME } from './branding'
 import { formatFullDateTime, formatIsoDate, toIsoDate } from './dates'
 import { resolveImageUrl } from './images'
 import type { CashSession, CashWithdrawal } from '../services/salesService'
-import type { OrderReceipt } from '../services/ordersService'
+import type { OrderReceipt, ReceiptTimeDetail } from '../services/ordersService'
 
 export interface DocumentBusiness {
   legal_name: string
@@ -289,6 +289,18 @@ export const invoiceHtml = (
   </section>`
 }
 
+/**
+ * How a time line reads on the ticket and the factura: "1 h × 5 personas ×
+ * $1.000/h" when each player pays, "45 min × $12.000/h" when the table does.
+ * Null when its amount is not one product (a slice prorated by products).
+ */
+export const timeLineDetail = (detail?: ReceiptTimeDetail | null): string | null =>
+  detail
+    ? [durationLabel(detail.minutes), detail.players ? playersLabel(detail.players) : null, `${money(detail.rate)}/h`]
+        .filter(Boolean)
+        .join(' × ')
+    : null
+
 /** What a POS sale document is numbered with: its DIAN number, or its `#<order>-<n>` reference without one. */
 export const saleDocumentNumber = (sale: OrderReceipt): string => sale.invoice_number || sale.sale?.reference || ''
 
@@ -304,7 +316,9 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
   const value = Number(sale.total) - Number(sale.tip || 0)
   const lines = sale.items.map(item => ({ ...item, tax: item.tax_rate > 0 ? `${item.tax_rate}%` : '—' }))
   if (sale.time_amount && sale.time_amount > 0) {
-    lines.push({ quantity: 1, name: 'Tiempo de mesa', unit_price: sale.time_amount, total: sale.time_amount, tax_rate: 0, tax: '—' })
+    const detail = timeLineDetail(sale.time_detail)
+    const name = detail ? `Tiempo de mesa: ${detail}` : 'Tiempo de mesa'
+    lines.push({ quantity: 1, name, unit_price: sale.time_amount, total: sale.time_amount, tax_rate: 0, tax: '—' })
   }
   const documentType = sale.customer.document_type
   const methods = sale.payment_methods.map(method => METHOD_LABELS[method] ?? method).join(' + ')

@@ -280,7 +280,7 @@ const headers = [
 
 const featureLabels: Record<Feature, string> = {
   orders: 'Pedidos y mesas',
-  time_billing: 'Cobro por tiempo (billar)',
+  time_billing: 'Cobro por tiempo',
   menu: 'Menú y categorías',
   inventory: 'Productos e inventario',
   recipes: 'Recetas y costeo',

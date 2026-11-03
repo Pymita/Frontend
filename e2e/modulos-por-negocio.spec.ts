@@ -44,23 +44,23 @@ test('un billar no ve recetas pero sí cobro por tiempo', async ({ page, request
   await page.goto('/recetas')
   await expect(page).not.toHaveURL(/\/recetas/)
 
-  // En cambio sí puede crear mesas de billar (tiene cobro por tiempo).
+  // En cambio sí puede crear mesas que cobran por tiempo.
   await page.goto('/mesas')
   await page.getByRole('button', { name: /Nueva mesa/i }).click()
-  await expect(page.getByRole('dialog').getByText('Tipo de mesa').first()).toBeVisible()
+  await expect(page.getByRole('dialog').getByLabel('Cobra por tiempo')).toBeVisible()
 })
 
-test('un restaurante ve recetas y no ofrece mesas de billar', async ({ page, request }) => {
+test('un restaurante ve recetas y no ofrece mesas que cobran por tiempo', async ({ page, request }) => {
   const admin = await createCompany(request, 'restaurant', 'restaurante')
 
   await loginUI(page, admin.email, admin.password)
 
   await expect(sidebarItem(page, 'Recetas')).toBeVisible()
 
-  // El selector de tipo de mesa no aparece: no tiene cobro por tiempo.
+  // "Cobra por tiempo" no aparece: no tiene ese módulo.
   await page.goto('/mesas')
   await page.getByRole('button', { name: /Nueva mesa/i }).click()
-  await expect(page.getByRole('dialog').getByText('Tipo de mesa')).toHaveCount(0)
+  await expect(page.getByRole('dialog').getByText('Cobra por tiempo')).toHaveCount(0)
 })
 
 test('la facturación automática es del cobro mensual: un restaurante no la ve', async ({ page, request }) => {

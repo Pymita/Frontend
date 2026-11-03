@@ -225,7 +225,9 @@ const selectionEstimate = computed(() => {
 
   const itemsBase = order.items.reduce((sum, i) => sum + Number(i.total_price || 0), 0)
   if (itemsBase <= 0) return 0
-  const factor = Number(order.total || 0) / itemsBase
+  // Billed by person, the time is charged in shares, not spread over the products.
+  const timeBase = order.time?.billing === 'person' ? Number(order.time.amount || 0) : 0
+  const factor = Number(order.total || 0) / (itemsBase + timeBase)
 
   const base = order.items.reduce(
     (sum, i) => sum + unitPriceOf(i) * (paymentSelection.value[i.id] || 0),

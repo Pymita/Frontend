@@ -344,7 +344,7 @@
                           <template v-if="item.time">
                             <div class="d-flex justify-space-between mb-1 align-center">
                               <span>
-                                🎱 Tiempo
+                                ⏱ Tiempo
                                 <v-chip
                                   v-if="item.time.running"
                                   size="x-small"
@@ -355,9 +355,22 @@
                                 </v-chip>
                                 <span v-else class="text-caption text-medium-emphasis">({{ item.time.minutes_billed }} min)</span>
                               </span>
-                              <span class="font-weight-medium">
+                              <span class="font-weight-medium tabular-nums">
                                 {{ money(item.time.running ? liveTimeAmount(item.time) : item.time.amount) }}
                               </span>
+                            </div>
+                            <div class="d-flex justify-space-between align-center text-caption text-medium-emphasis mb-2">
+                              <span>{{ timeBillingText(item.time) }}</span>
+                              <v-btn
+                                v-if="canManageOrders && isOpen(item)"
+                                size="x-small"
+                                variant="text"
+                                color="primary"
+                                :aria-label="`Cambiar el cobro del tiempo de ${orderLabel(item)}`"
+                                @click="openTimeBillingDialog(item)"
+                              >
+                                Cambiar
+                              </v-btn>
                             </div>
                             <v-btn
                               v-if="item.time.running && item.payment_status !== 'paid'"
@@ -397,12 +410,12 @@
                             <span>Factura:</span>
                             <span>{{ item.invoice_number }}</span>
                           </div>
-                          <!-- Cuentas separadas: lo que debe cada persona. -->
-                          <template v-if="hasGuests(item)">
+                          <!-- Cuentas separadas: lo que debe cada persona (y su parte del tiempo). -->
+                          <template v-if="hasBills(item)">
                             <v-divider class="my-2" />
                             <div class="text-caption text-medium-emphasis mb-1">Por persona</div>
                             <div
-                              v-for="guest in item.guests"
+                              v-for="guest in billsOf(item)"
                               :key="guest.number ?? 0"
                               class="d-flex justify-space-between text-body-2"
                             >
@@ -515,7 +528,7 @@
         <v-card-text>
           <!-- La mesa separó la cuenta: se pregunta si pagan juntos o cada uno lo suyo. -->
           <v-btn-toggle
-            v-if="hasGuests(selectedOrder)"
+            v-if="hasBills(selectedOrder)"
             v-model="payMode"
             mandatory
             density="compact"
@@ -535,8 +548,16 @@
 
           <template v-if="payMode === 'split'">
             <p class="text-body-2 text-medium-emphasis mb-2">
-              Cada persona paga lo suyo. Los descuentos y cargos de la mesa se reparten
-              proporcionalmente. Al pagar la última, el pedido queda cerrado.
+              <template v-if="selectedOrder.time?.billing === 'person'">
+                Cada persona paga lo suyo y su parte del tiempo
+                ({{ money(liveShareAmount(selectedOrder.time)) }}{{ selectedOrder.time.running ? ' hasta ahora' : '' }}).
+                El tiempo de quien no pague aquí se cobra con «Todos juntos».
+              </template>
+              <template v-else>
+                Cada persona paga lo suyo. Los descuentos y cargos de la mesa se reparten
+                proporcionalmente.
+              </template>
+              Al pagar la última, el pedido queda cerrado.
             </p>
             <v-row dense class="align-center mb-1">
               <v-col cols="12" sm="7">
@@ -566,10 +587,14 @@
               referencia: a cada persona se le cobra la propina que escribas, o ninguna.
             </p>
             <v-list density="compact" class="border rounded mb-2">
-              <v-list-item v-for="guest in selectedOrder.guests" :key="guest.number ?? 0">
+              <v-list-item v-for="guest in billsOf(selectedOrder)" :key="guest.number ?? 0">
                 <v-list-item-title>
                   {{ guest.label }}
-                  <span class="text-caption text-medium-emphasis"> · {{ guest.items_count }} prod.</span>
+                  <span v-if="guest.items_count" class="text-caption text-medium-emphasis"> · {{ guest.items_count }} prod.</span>
+                  <span v-if="Number(guest.time_amount) > 0" class="text-caption text-medium-emphasis">
+                    · tiempo {{ money(guest.time_amount) }}
+                  </span>
+                  <span v-else-if="guest.time_paid" class="text-caption text-medium-emphasis"> · tiempo pagado</span>
                 </v-list-item-title>
                 <v-list-item-subtitle>
                   <span v-if="guest.paid" class="text-success">Pagado</span>
@@ -852,6 +877,52 @@
       </v-card>
     </v-dialog>
 
+    <!-- Who pays the table time and how many play, while the order is open. -->
+    <v-dialog v-model="timeBillingDialog" max-width="440">
+      <v-card>
+        <v-card-title>Cobro del tiempo</v-card-title>
+        <v-card-text>
+          <v-btn-toggle
+            v-model="timeBillingForm.billing"
+            mandatory
+            density="compact"
+            color="primary"
+            class="mb-4"
+            aria-label="Cobro del tiempo"
+          >
+            <v-btn value="table">{{ timeBillingLabels.table }}</v-btn>
+            <v-btn value="person">{{ timeBillingLabels.person }}</v-btn>
+          </v-btn-toggle>
+          <v-text-field
+            v-if="timeBillingForm.billing === 'person'"
+            v-model.number="timeBillingForm.players"
+            label="Jugadores"
+            type="number"
+            min="1"
+            max="50"
+            autofocus
+          />
+          <p class="text-body-2 text-medium-emphasis mb-0">
+            {{ timeBillingForm.billing === 'person'
+              ? 'El número de jugadores cuenta para todo el tiempo de la mesa: cada jugador paga el tiempo completo, también quien llegó después.'
+              : 'La mesa paga su tiempo, sin importar cuántos jueguen.' }}
+          </p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="timeBillingDialog = false">Cancelar</v-btn>
+          <v-btn
+            color="primary"
+            :loading="saving"
+            :disabled="timeBillingForm.billing === 'person' && !validPlayers(timeBillingForm.players)"
+            @click="saveTimeBilling"
+          >
+            Guardar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Pago parcial / división de cuenta -->
     <PartialPaymentDialog
       v-model="pagoDialog"
@@ -936,6 +1007,36 @@
             </v-col>
           </v-row>
 
+          <!-- A table that bills by time opens with its clock: who pays it is decided here. -->
+          <v-card v-if="newOrderTable?.table_type === 'billiard'" elevation="0" color="surface-light" class="pa-3 mt-2">
+            <div class="d-flex align-center flex-wrap ga-3">
+              <span class="text-subtitle-2">Cobro del tiempo · {{ money(newOrderTable.hourly_rate) }}/h</span>
+              <v-btn-toggle
+                v-model="nuevoPedido.time_billing"
+                mandatory
+                density="compact"
+                color="primary"
+                aria-label="Cobro del tiempo"
+              >
+                <v-btn value="table">{{ timeBillingLabels.table }}</v-btn>
+                <v-btn value="person">{{ timeBillingLabels.person }}</v-btn>
+              </v-btn-toggle>
+              <v-text-field
+                v-if="nuevoPedido.time_billing === 'person'"
+                v-model.number="nuevoPedido.time_players"
+                label="Jugadores"
+                type="number"
+                min="1"
+                max="50"
+                density="compact"
+                hide-details
+                max-width="140"
+                autofocus
+              />
+            </div>
+            <p class="text-body-2 text-medium-emphasis mt-2 mb-0">{{ newOrderTimeHint }}</p>
+          </v-card>
+
           <v-divider class="my-4" />
 
           <ProductPicker
@@ -956,7 +1057,7 @@
           />
         </v-card-text>
         <v-card-actions>
-          <div class="text-h6 ml-4">
+          <div v-if="nuevoPedido.items.length || !opensByTime" class="text-h6 ml-4">
             Total: {{ money(totalNuevoPedido) }}
           </div>
           <v-spacer />
@@ -964,11 +1065,11 @@
           <v-btn
             color="primary"
             :loading="saving"
-            :disabled="nuevoPedido.items.length === 0"
+            :disabled="!canCreateOrder"
             @click="crearPedido"
           >
             <v-icon start>mdi-check</v-icon>
-            Crear pedido
+            {{ nuevoPedido.items.length === 0 && opensByTime ? 'Abrir mesa' : 'Crear pedido' }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -1064,6 +1165,8 @@ import {
   type OrderPayment,
   type OrderPaymentMethod,
   type OrderReceipt,
+  type OrderTime,
+  type TimeBilling,
 } from '@/services/ordersService';
 import { billingService, type Customer } from '@/services/billingService';
 import {
@@ -1078,6 +1181,8 @@ import {
   orderLabel,
   orderReference,
   paymentState,
+  playersLabel,
+  timeBillingLabels,
   label,
   options,
 } from '@/utils/labels';
@@ -1103,6 +1208,7 @@ import {
   saleDocumentNumber,
   saleInvoiceHtml,
   taxRegimeText,
+  timeLineDetail,
 } from '@/utils/printDocuments';
 import { resolveImageUrl } from '@/utils/images';
 import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage';
@@ -1145,9 +1251,15 @@ const isOpen = (order: Order) =>
 /** La mesa separó la cuenta por personas. */
 const hasGuests = (order: Order | null | undefined) => (order?.guests?.length ?? 0) > 0;
 
-/** Cuántas personas numeradas tiene el pedido. */
+/** Por persona as it is charged: with the time billed by person, every player and their share. */
+const billsOf = (order: Order | null | undefined) => order?.guest_bills ?? order?.guests ?? [];
+
+/** Something to charge person by person: a split bill, or players who each pay the time. */
+const hasBills = (order: Order | null | undefined) => billsOf(order).length > 0;
+
+/** Cuántas personas numeradas tiene el pedido (los jugadores cuentan). */
 const guestsOf = (order: Order | null | undefined) =>
-  (order?.guests ?? []).reduce((max, g) => Math.max(max, g.number ?? 0), 0);
+  billsOf(order).reduce((max, g) => Math.max(max, g.number ?? 0), 0);
 
 const startOfToday = () => {
   const now = new Date();
@@ -1206,6 +1318,28 @@ const nuevoPedido = ref({
   notes: '',
   items: [] as PickedLine[],
   guest_names: {} as Record<number, string>,
+  time_billing: 'table' as TimeBilling,
+  time_players: null as number | null,
+});
+
+/** A count of players the API takes: a whole number from 1 to 50. */
+const validPlayers = (players: number | null | undefined): players is number =>
+  Number.isInteger(players) && (players as number) >= 1 && (players as number) <= 50;
+
+// A table that bills by time opens with its clock alone; its products come later.
+const newOrderTable = computed(() => mesasDisponibles.value.find(t => t.id === nuevoPedido.value.dining_table_id) ?? null);
+const opensByTime = computed(() => newOrderTable.value?.table_type === 'billiard');
+const newOrderTimeHint = computed(() => {
+  const rate = money(newOrderTable.value?.hourly_rate);
+  if (nuevoPedido.value.time_billing === 'table') return `La mesa paga ${rate} por hora, sin importar cuántos jueguen.`;
+  const players = nuevoPedido.value.time_players;
+  return validPlayers(players)
+    ? `Cada jugador paga ${rate} por hora: con ${playersLabel(players)} la mesa suma ${money(Number(newOrderTable.value?.hourly_rate ?? 0) * players)} por hora.`
+    : `Cada jugador paga ${rate} por hora. Escribe cuántos juegan.`;
+});
+const canCreateOrder = computed(() => {
+  if (opensByTime.value && nuevoPedido.value.time_billing === 'person' && !validPlayers(nuevoPedido.value.time_players)) return false;
+  return nuevoPedido.value.items.length > 0 || opensByTime.value;
 });
 // Nombres de las personas al agregar productos a un pedido ya abierto.
 const agregarGuestNames = ref<Record<number, string>>({});
@@ -1289,11 +1423,58 @@ const isOvertime = (time: { started_at: string; planned_minutes?: number | null 
 };
 
 // Estimación en vivo con la misma regla del backend: fracción hacia arriba, mínimo una.
-const liveTimeAmount = (time: { started_at: string; rate: number; increment_minutes: number }): number => {
+const liveShareAmount = (time: OrderTime): number => {
+  if (!time.running) return Number(time.share_amount ?? time.amount);
   const elapsed = (nowTick.value - new Date(time.started_at).getTime()) / 60000;
   const increment = Math.max(1, time.increment_minutes || 15);
   const billed = Math.max(increment, Math.ceil(elapsed / increment) * increment);
   return Math.round((time.rate * billed) / 60 * 100) / 100;
+};
+
+/** By person: what was already charged plus one share for each player who has not paid. */
+const liveTimeAmount = (time: OrderTime): number =>
+  time.billing === 'person' && time.players
+    ? Number(time.charged_amount) + Math.max(0, time.players - Number(time.shares_paid)) * liveShareAmount(time)
+    : liveShareAmount(time);
+
+/** The time a running clock has not billed yet: "Cobrar" stops it and charges it too. */
+const unbilledTime = (order: Order): number =>
+  order.time?.running ? Math.max(0, liveTimeAmount(order.time) - Number(order.time.amount)) : 0;
+
+/** "Por persona · 5 personas · $1.000/h" or "Por mesa · $12.000/h". */
+const timeBillingText = (time: OrderTime): string =>
+  [label(timeBillingLabels, time.billing), time.players ? playersLabel(time.players) : null, `${money(time.rate)}/h`]
+    .filter(Boolean)
+    .join(' · ');
+
+// --- Cobro del tiempo: por mesa o por persona, y cuántos juegan ---
+const timeBillingDialog = ref(false);
+const timeBillingOrder = ref<Order | null>(null);
+const timeBillingForm = ref({ billing: 'table' as TimeBilling, players: null as number | null });
+
+const openTimeBillingDialog = (order: Order) => {
+  timeBillingOrder.value = order;
+  timeBillingForm.value = { billing: order.time?.billing ?? 'table', players: order.time?.players ?? null };
+  timeBillingDialog.value = true;
+};
+
+const saveTimeBilling = async () => {
+  if (!timeBillingOrder.value) return;
+  const { billing, players } = timeBillingForm.value;
+  saving.value = true;
+  try {
+    await ordersService.update(timeBillingOrder.value.id, {
+      time_billing: billing,
+      ...(billing === 'person' ? { time_players: players } : {}),
+    });
+    showMessage(billing === 'person' ? `El tiempo se cobra a ${playersLabel(players ?? 0)}` : 'El tiempo se cobra por mesa');
+    timeBillingDialog.value = false;
+    await loadOrders();
+  } catch (error) {
+    showMessage(errorMessage(error, 'No fue posible cambiar el cobro del tiempo. Inténtalo de nuevo.'), 'error');
+  } finally {
+    saving.value = false;
+  }
 };
 
 // --- Revertir un cobro (solo admin) ---
@@ -1540,7 +1721,7 @@ const unpaidTip = (order: Order) => Math.max(0, Number(order.tip || 0) - Number(
  * los que faltan.
  */
 const consumptionOf = (order: Order) =>
-  Math.max(0, Number(order.pending_balance ?? order.total) - unpaidTip(order));
+  Math.max(0, Number(order.pending_balance ?? order.total) - unpaidTip(order)) + unbilledTime(order);
 
 const payBase = computed(() => (selectedOrder.value ? consumptionOf(selectedOrder.value) : 0));
 
@@ -1595,7 +1776,7 @@ const openPayDialog = async (order: Order) => {
   payCustomerId.value = null;
   payDueDate.value = '';
   newCustomerOpen.value = false;
-  payMode.value = hasGuests(order) ? 'split' : 'together';
+  payMode.value = hasBills(order) ? 'split' : 'together';
   guestTips.value = {};
   payDialog.value = true;
   // El catálogo de clientes se carga una sola vez, al primer cobro.
@@ -1655,8 +1836,9 @@ const confirmarCobro = async (withTip: boolean) => {
 
 /**
  * Cobra lo que debe una persona: sus unidades sin pagar, con el cobro por
- * ítems del backend (que prorratea descuentos y cargos). Cuando paga la
- * última, el pedido queda pagado y sale la factura de toda la mesa.
+ * ítems del backend (que prorratea descuentos y cargos), y su parte del
+ * tiempo cuando cada jugador lo paga. Cuando paga la última, el pedido queda
+ * pagado y sale la factura de toda la mesa.
  */
 const cobrarPersona = async (guest: OrderGuest, withTip = false) => {
   const order = selectedOrder.value;
@@ -1666,14 +1848,16 @@ const cobrarPersona = async (guest: OrderGuest, withTip = false) => {
   const items = order.items
     .filter(i => (i.guest_number ?? null) === (guest.number ?? null) && i.unpaid_quantity > 0)
     .map(i => ({ order_item_id: i.id, quantity: i.unpaid_quantity }));
-  if (items.length === 0) return;
+  if (items.length === 0 && !(Number(guest.time_amount) > 0)) return;
 
   // Solo se cobra propina si el cajero la escribió y confirmó "con propina".
   const tip = withTip && tipEnabled.value ? guestTip(guest) : 0;
   saving.value = true;
   try {
     const updated = await ordersService.recordPartialPayment(order.id, {
-      items,
+      ...(items.length ? { items } : {}),
+      // 0 is "Compartido": its products never close the time other players still owe.
+      guest_number: guest.number ?? 0,
       payment_method: method,
       tip: tip > 0 ? tip : undefined,
     });
@@ -1741,6 +1925,8 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
     .map(i => `${String(i.quantity).padEnd(4)}${i.name.slice(0, 22).padEnd(24)}${money(i.total).padStart(10)}`);
   if (r.time_amount && r.time_amount > 0) {
     rows.push(`${'1'.padEnd(4)}${'Tiempo de mesa'.padEnd(24)}${money(r.time_amount).padStart(10)}`);
+    const detail = timeLineDetail(r.time_detail);
+    if (detail) rows.push(`${''.padEnd(4)}${detail}`);
   }
 
   const totalWithoutTip = Number(r.total) - Number(r.tip || 0);
@@ -1948,7 +2134,7 @@ const printGuestBill = async (order: Order, guest: number | null) => {
   try {
     const r = await ordersService.receipt(order.id, guest);
     // La sugerencia va sobre lo que le falta a ESA persona, no sobre otro total.
-    const g = order.guests?.find(x => (x.number ?? null) === (guest ?? null));
+    const g = billsOf(order).find(x => (x.number ?? null) === (guest ?? null));
     const tipBase = g ? g.pending_amount : Math.max(0, Number(r.total) - Number(r.tip || 0));
     const tip = tipEnabled.value
       ? Math.round((tipBase * Math.max(0, Number(tipPercent.value) || 0)) / 100)
@@ -2117,6 +2303,8 @@ const openNuevoPedidoDialog = () => {
     notes: '',
     items: [],
     guest_names: {},
+    time_billing: 'table',
+    time_players: null,
   };
   nuevoPedidoDialog.value = true;
   cargarCatalogo();
@@ -2141,11 +2329,16 @@ const totalNuevoPedido = computed(() => linesTotal(nuevoPedido.value.items));
 const totalParaAgregar = computed(() => linesTotal(itemsParaAgregar.value));
 
 const crearPedido = async () => {
-  if (nuevoPedido.value.items.length === 0) {
+  if (nuevoPedido.value.items.length === 0 && !opensByTime.value) {
     showMessage('Agrega al menos un producto', 'error');
     return;
   }
+  if (!canCreateOrder.value) {
+    showMessage('Escribe cuántos jugadores hay en la mesa', 'error');
+    return;
+  }
 
+  const byPerson = opensByTime.value && nuevoPedido.value.time_billing === 'person';
   saving.value = true;
   try {
     await ordersService.create({
@@ -2158,9 +2351,11 @@ const crearPedido = async () => {
         guest_number: line.guest_number ?? undefined,
       })),
       guest_names: Object.keys(nuevoPedido.value.guest_names).length ? nuevoPedido.value.guest_names : undefined,
+      ...(opensByTime.value ? { time_billing: nuevoPedido.value.time_billing } : {}),
+      ...(byPerson ? { time_players: nuevoPedido.value.time_players } : {}),
     });
 
-    showMessage('Pedido creado');
+    showMessage(nuevoPedido.value.items.length === 0 ? 'Mesa abierta: el tiempo empezó a contar' : 'Pedido creado');
     nuevoPedidoDialog.value = false;
     loadOrders();
   } catch (error: any) {

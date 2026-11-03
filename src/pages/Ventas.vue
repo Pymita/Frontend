@@ -368,7 +368,7 @@
               <div class="text-h6">{{ tableReport?.summary.sales_count ?? 0 }}</div>
             </div>
             <div v-if="hasTimeBilling">
-              <div class="text-caption text-medium-emphasis">Tiempo de billar</div>
+              <div class="text-caption text-medium-emphasis">Tiempo de mesa</div>
               <div class="text-h6">{{ money(tableReport?.summary.time_total) }}</div>
             </div>
             <div>
@@ -388,7 +388,7 @@
             :items-per-page="25"
           >
             <template #item.name="{ item }">
-              <v-icon v-if="item.table_type === 'billiard'" size="small" class="mr-1">mdi-billiards</v-icon>
+              <v-icon v-if="item.table_type === 'billiard'" size="small" class="mr-1" aria-label="Cobra por tiempo">mdi-timer-outline</v-icon>
               {{ item.name }}
             </template>
             <template #item.products_total="{ item }">{{ money(item.products_total) }}</template>
@@ -745,7 +745,7 @@ const formatMinutes = (minutes: number): string => {
 }
 
 // El cobro por tiempo es un módulo: un restaurante no cobra por tiempo, así que
-// no debe ver la columna ni el resumen de "Tiempo de billar".
+// no debe ver la columna ni el resumen de "Tiempo de mesa".
 const authStore = useAuthStore()
 const hasTimeBilling = computed(() => effectiveFeatures(authStore.user).includes('time_billing'))
 // A company that bills monthly fees sees where each sale comes from; the
