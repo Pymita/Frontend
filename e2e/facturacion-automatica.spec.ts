@@ -1456,6 +1456,43 @@ test('la cuenta de cobro sale con el encabezado del negocio y el valor en letras
   await expect(batch.locator('section.document').nth(1)).toContainText('Segundo Cliente SAS')
 })
 
+/**
+ * A cuenta de cobro with a tax and a discount adds up on paper: the subtotal
+ * is the value before the tax, so subtotal − discount + tax = total. A fee of
+ * $119.000 with $19.000 off and IVA 19 % included carries $15.966.
+ */
+test('la cuenta de cobro con impuesto y descuento suma el total en lo impreso', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'subtotal')
+  const auth = { Authorization: `Bearer ${company.token}` }
+  // Every new company starts with the usual taxes.
+  const taxes: { id: number; name: string }[] = (await (await request.get(`${API}/taxes`, { headers: auth })).json()).data
+  const iva = taxes.find(tax => tax.name === 'IVA 19%')!
+  const client = await createResident(request, company.token, { name: 'Local Subtotal SAS', document_number: '901555001', monthly_fee: 119000 })
+  const generated = await request.post(`${API}/recurring-billing/invoices/generate`, {
+    headers: auth,
+    data: { period: PERIOD, items: [{ customer_id: client, tax_id: iva.id, discount: 19000 }] },
+  })
+  expect(generated.status(), await generated.text()).toBe(201)
+
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Facturación automática').click()
+  await field(page, 'Mes a facturar').locator('input').fill(PERIOD)
+  const [popup] = await Promise.all([
+    page.waitForEvent('popup'),
+    row(page, 'Local Subtotal SAS').getByRole('button', { name: 'Imprimir CC-1' }).click(),
+  ])
+  await expect(popup.locator('.doc-number')).toContainText('CUENTA DE COBRO')
+  await expect(popup.locator('.items tbody tr td').nth(3)).toHaveText('$119.000')
+  // 103.034 − 19.000 + 15.966 = 100.000.
+  await expect(popup.locator('.totals > div')).toHaveText([
+    'SUBTOTAL: $103.034',
+    'DESCUENTO: -$19.000',
+    'IVA 19%: $15.966',
+    'TOTAL: $100.000',
+  ])
+  await expect(popup.locator('.son')).toHaveText('SON: CIEN MIL PESOS M/CTE')
+})
+
 test('la factura de venta lleva el número tal cual y la resolución en el encabezado, antes de los ítems', async ({ page, request }) => {
   const company = await createRecurringCompany(request, 'factura')
   const auth = { Authorization: `Bearer ${company.token}` }

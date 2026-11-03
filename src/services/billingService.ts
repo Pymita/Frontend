@@ -148,6 +148,8 @@ export interface RecurringInvoice {
   quantity: number
   unit_price: number
   subtotal: number
+  /** What the document prints as SUBTOTAL, in whole pesos: − discount + tax_amount = total. */
+  subtotal_before_tax: number
   discount: number
   tax_name: string | null
   tax_rate: number

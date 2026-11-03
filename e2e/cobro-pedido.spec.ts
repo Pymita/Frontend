@@ -1169,7 +1169,9 @@ test('la venta se imprime en hoja como factura de venta, desde Pedidos y desde V
   await expect(rows).toHaveCount(2)
   await expect(rows.nth(0).locator('td')).toHaveText(['Cerveza Club', '2', '$6.500', '—', '$13.000'])
   await expect(rows.nth(1).locator('td')).toHaveText(['Empanada de pipián', '3', '$3.000', '8%', '$9.000'])
-  await expect(invoice.locator('.totals')).toContainText('IMPUESTO (INCLUIDO): $667')
+  // The subtotal is the value before the tax: 21.333 + 667 = 22.000.
+  await expect(invoice.locator('.totals')).toContainText('SUBTOTAL: $21.333')
+  await expect(invoice.locator('.totals')).toContainText('IMPUESTO: $667')
   await expect(invoice.locator('.totals')).toContainText('TOTAL: $22.000')
   await expect(invoice.locator('.totals')).not.toContainText('PROPINA')
   // Nobody identified the buyer: the consumidor final with the DIAN's NIT, never the table.
@@ -1226,6 +1228,132 @@ test('la venta se imprime en hoja como factura de venta, desde Pedidos y desde V
   await expect(again.locator('.doc-number .number')).toHaveText('FE1')
   await expect(again.locator('.items tbody tr')).toHaveCount(2)
   await expect(again.locator('.totals')).toContainText('TOTAL: $22.000')
+})
+
+/** A paid order, arranged through the API, with products whose prices include the tax named. */
+async function paidOrderWithTaxes(
+  request: APIRequestContext,
+  auth: Auth,
+  lines: { name: string; price: number; rate?: number; quantity: number }[],
+  charge: { discountPercent?: number; tip?: number; table?: number } = {},
+) {
+  const categoryId = (await (await request.post(`${API}/categories`, { headers: auth, data: { name: `Bebidas ${Date.now()}` } })).json()).data.id
+  const items = []
+  for (const line of lines) {
+    const tax = line.rate
+      ? (await (await request.post(`${API}/taxes`, { headers: auth, data: { name: `Impuesto ${line.rate}% ${Date.now()}`, rate: line.rate } })).json()).data
+      : null
+    const product = await request.post(`${API}/products`, {
+      headers: auth,
+      data: { name: line.name, type: 'final', unit: 'und', sale_price: line.price, tracks_stock: false, category_id: categoryId, ...(tax ? { tax_id: tax.id } : {}) },
+    })
+    expect(product.status(), await product.text()).toBe(201)
+    items.push({ product_id: (await product.json()).data.id, quantity: line.quantity })
+  }
+  const table = charge.table
+    ? (await (await request.post(`${API}/tables`, { headers: auth, data: { number: charge.table, capacity: 4 } })).json()).data
+    : null
+  const order = (await (await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { items, ...(table ? { dining_table_id: table.id, customer_name: table.display_name } : {}) },
+  })).json()).data
+  if (charge.discountPercent) {
+    const discount = await request.post(`${API}/orders/${order.id}/discount`, { headers: auth, data: { type: 'percentage', value: charge.discountPercent } })
+    expect(discount.ok()).toBeTruthy()
+  }
+  const paid = await request.post(`${API}/orders/${order.id}/pay`, { headers: auth, data: { payment_method: 'cash', tip: charge.tip ?? 0 } })
+  expect(paid.ok(), await paid.text()).toBeTruthy()
+  return order
+}
+
+/** The paid order's ticket ("Tirilla") and its letter document ("Generar factura" in the row menu), from Pedidos. */
+async function printPaidOrder(page: Page, rowTotal: string): Promise<{ ticket: string; letter: Page }> {
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Pedidos del día' }).click()
+  const paidRow = page.locator('tbody tr', { hasText: rowTotal })
+  const [ticketWindow] = await Promise.all([
+    page.waitForEvent('popup'),
+    paidRow.getByRole('button', { name: 'Tirilla' }).click(),
+  ])
+  await expect(ticketWindow.locator('body')).toContainText('GRACIAS POR SU COMPRA')
+  const ticket = await ticketWindow.locator('body').innerText()
+  await ticketWindow.close()
+  await paidRow.getByRole('button', { name: 'Más acciones del pedido' }).click()
+  const [letter] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('listitem').filter({ hasText: 'Generar factura' }).click(),
+  ])
+  await expect(letter.locator('.totals')).toBeVisible()
+  return { ticket, letter }
+}
+
+/** `SUBTOTAL                    $20.168`: a ticket line with its label and its amount. */
+const ticketLine = (label: string, amount: string) => new RegExp(`^${label} +${amount.replace(/[$.]/g, '\\$&')}$`, 'm')
+
+/**
+ * The owner's photo: 4 × Corona at $6.000 with IVA 19 % included printed
+ * SUBTOTAL $24.000, IMPUESTO $3.832 and TOTAL $24.000, a subtotal that already
+ * carried the tax. The printed subtotal is the value before taxes, so the
+ * letter comprobante and the ticket add up: 20.168 + 3.832 = 24.000.
+ */
+test('el subtotal impreso es el valor antes de impuestos y suma el total con el impuesto', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `subtotal-foto-${Date.now()}`)
+  const order = await paidOrderWithTaxes(request, auth, [{ name: 'CERVEZA CORONA x 330ML', price: 6000, rate: 19, quantity: 4 }], { table: 1 })
+
+  await freezeTime(page, order.created_at)
+  await loginUI(page, credentials.email, credentials.password)
+  const { ticket, letter } = await printPaidOrder(page, '$24.000')
+
+  expect(ticket).toMatch(ticketLine('SUBTOTAL', '$20.168'))
+  expect(ticket).toMatch(ticketLine('IMPUESTO', '$3.832'))
+  expect(ticket).toMatch(ticketLine('TOTAL', '$24.000'))
+  expect(ticket).not.toContain('IVA INCL.')
+
+  await expect(letter.locator('.doc-number')).toContainText('COMPROBANTE DE VENTA')
+  await expect(letter.locator('.items tbody tr td')).toHaveText(['CERVEZA CORONA x 330ML', '4', '$6.000', '19%', '$24.000'])
+  await expect(letter.locator('.totals > div')).toHaveText(['SUBTOTAL: $20.168', 'IMPUESTO: $3.832', 'TOTAL: $24.000'])
+  await expect(letter.locator('.son')).toHaveText('SON: VEINTICUATRO MIL PESOS M/CTE')
+})
+
+/**
+ * With a discount, two tax rates and a tip every printed line still adds up:
+ * subtotal before taxes − discount + taxes = total, and the tip on top is the
+ * total paid. The taxes are the accounting movement's, computed on the lines
+ * before the discount: $12.000 of beer with 19 % and $9.000 of empanadas with
+ * 8 % carry $2.583.
+ */
+test('con descuento, dos impuestos y propina las cifras impresas suman el total', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `subtotal-descuento-${Date.now()}`)
+  const order = await paidOrderWithTaxes(request, auth, [
+    { name: 'Cerveza Descuento', price: 6000, rate: 19, quantity: 2 },
+    { name: 'Empanada Descuento', price: 3000, rate: 8, quantity: 3 },
+  ], { discountPercent: 10, tip: 2000 })
+
+  await freezeTime(page, order.created_at)
+  await loginUI(page, credentials.email, credentials.password)
+  const { ticket, letter } = await printPaidOrder(page, '$20.900')
+
+  // 18.417 − 2.100 + 2.583 = 18.900, and 2.000 of tip make 20.900.
+  for (const [label, amount] of [
+    ['SUBTOTAL', '$18.417'],
+    ['DESCUENTO', '-$2.100'],
+    ['IMPUESTO', '$2.583'],
+    ['TOTAL SIN PROPINA', '$18.900'],
+    ['PROPINA VOLUNTARIA', '$2.000'],
+    ['TOTAL PAGADO', '$20.900'],
+  ]) {
+    expect(ticket).toMatch(ticketLine(label!, amount!))
+  }
+
+  await expect(letter.locator('.totals > div')).toHaveText([
+    'SUBTOTAL: $18.417',
+    'DESCUENTO: -$2.100',
+    'IMPUESTO: $2.583',
+    'TOTAL: $18.900',
+    'PROPINA VOLUNTARIA: $2.000',
+    'TOTAL PAGADO: $20.900',
+  ])
+  await expect(letter.locator('.son')).toHaveText('SON: DIECIOCHO MIL NOVECIENTOS PESOS M/CTE')
 })
 
 /**

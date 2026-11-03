@@ -58,6 +58,8 @@ export interface PrintableInvoice {
   quantity: number
   unit_price: number
   subtotal: number
+  /** What prints as SUBTOTAL, in whole pesos: − discount + tax_amount = total. */
+  subtotal_before_tax: number
   discount: number
   tax_name: string | null
   tax_rate: number
@@ -272,8 +274,9 @@ export const invoiceHtml = (
         </tbody>
       </table>
       <div class="totals">
+        <div><span>SUBTOTAL:</span> <span>${money(invoice.subtotal_before_tax)}</span></div>
         ${invoice.discount > 0 ? `<div><span>DESCUENTO:</span> <span>-${money(invoice.discount)}</span></div>` : ''}
-        ${invoice.tax_amount > 0 ? `<div><span>${escape(invoice.tax_name || 'IMPUESTO')} (INCLUIDO):</span> <span>${money(invoice.tax_amount)}</span></div>` : ''}
+        ${invoice.tax_amount > 0 ? `<div><span>${escape(invoice.tax_name || 'IMPUESTO')}:</span> <span>${money(invoice.tax_amount)}</span></div>` : ''}
         <div class="grand-total"><span>TOTAL:</span> <span>${money(invoice.total)}</span></div>
       </div>
     </div>
@@ -347,10 +350,10 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
         </tbody>
       </table>
       <div class="totals">
-        <div><span>SUBTOTAL:</span> <span>${money(sale.subtotal)}</span></div>
+        <div><span>SUBTOTAL:</span> <span>${money(sale.subtotal_before_tax)}</span></div>
         ${sale.discount > 0 ? `<div><span>DESCUENTO:</span> <span>-${money(sale.discount)}</span></div>` : ''}
+        ${sale.included_vat > 0 ? `<div><span>IMPUESTO:</span> <span>${money(sale.included_vat)}</span></div>` : ''}
         ${sale.delivery_fee > 0 ? `<div><span>DOMICILIO:</span> <span>${money(sale.delivery_fee)}</span></div>` : ''}
-        ${sale.included_vat > 0 ? `<div><span>IMPUESTO (INCLUIDO):</span> <span>${money(sale.included_vat)}</span></div>` : ''}
         <div class="grand-total"><span>TOTAL:</span> <span>${money(value)}</span></div>
         ${sale.tip > 0 ? `<div><span>PROPINA VOLUNTARIA:</span> <span>${money(sale.tip)}</span></div>` : ''}
         ${sale.tip > 0 ? `<div class="grand-total"><span>TOTAL PAGADO:</span> <span>${money(sale.total)}</span></div>` : ''}

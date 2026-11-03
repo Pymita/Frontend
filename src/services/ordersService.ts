@@ -131,7 +131,10 @@ export interface OrderReceipt {
     phone?: string | null
   }
   items: { quantity: number; name: string; unit_price: number; total: number; tax_rate: number }[]
+  /** Lines + table time, tax included. Printed documents show `subtotal_before_tax`. */
   subtotal: number
+  /** What the documents print as SUBTOTAL, in whole pesos: − discount + included_vat + delivery_fee + tip = total. */
+  subtotal_before_tax: number
   discount: number
   delivery_fee: number
   tip: number

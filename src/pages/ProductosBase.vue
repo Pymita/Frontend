@@ -240,8 +240,9 @@
       </v-col>
     </v-row>
 
-    <!-- Dialog Producto: ancho a propósito para que quepa sin scrollear -->
-    <v-dialog v-model="dialog" max-width="1100" persistent>
+    <!-- Dialog Producto: ancho y en columnas a propósito, para que a 1440×900
+         quepa sin desplazarse (e2e productos lo comprueba) -->
+    <v-dialog v-model="dialog" max-width="1280" persistent>
       <v-card>
         <v-card-title>{{ editing ? 'Editar producto' : 'Nuevo producto' }}</v-card-title>
         <v-card-text>
@@ -256,264 +257,258 @@
               son obligatorios.
             </p>
 
-            <!-- Lo esencial primero: nombre, categoría y tipo definen el producto -->
             <v-row dense>
-              <v-col cols="12" :md="hasRecipes ? 4 : 6">
-                <v-text-field
-                  v-model="formData.name"
-                  :rules="[v => !!v || 'Nombre requerido']"
-                  required
-                >
-                  <template #label>
-                    Nombre del producto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
-                  </template>
-                </v-text-field>
+              <v-col cols="12" md="9">
+                <v-row dense>
+                  <v-col cols="12" md="6">
+                    <v-text-field
+                      v-model="formData.name"
+                      :rules="[v => !!v || 'Nombre requerido']"
+                      required
+                    >
+                      <template #label>
+                        Nombre del producto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                      </template>
+                    </v-text-field>
+                  </v-col>
+                  <v-col cols="12" sm="6" md="3">
+                    <v-text-field
+                      v-model="formData.sku"
+                      label="SKU (opcional)"
+                      :hint="!formData.sku?.trim() ? `Se generará: ${skuPreview}` : 'Código interno'"
+                      persistent-hint
+                      placeholder="Automático"
+                    />
+                  </v-col>
+                  <v-col cols="12" sm="6" md="3">
+                    <v-text-field
+                      v-model="formData.barcode"
+                      label="Código de barras"
+                      hint="Escanéalo o escríbelo"
+                      persistent-hint
+                      placeholder="Opcional"
+                    />
+                  </v-col>
+                  <v-col cols="12" :md="hasRecipes ? 4 : 6">
+                    <v-select
+                      v-model="formData.category_id"
+                      :items="categorias"
+                      :item-title="(c: any) => c.path || c.name"
+                      item-value="id"
+                      :rules="[v => !!v || 'Categoría requerida']"
+                      required
+                    >
+                      <template #label>
+                        Categoría <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                      </template>
+                    </v-select>
+                  </v-col>
+                  <v-col v-if="hasRecipes" cols="12" sm="6" md="4">
+                    <v-select
+                      v-model="formData.type"
+                      :items="productTypeOptions"
+                      :rules="[v => !!v || 'Tipo requerido']"
+                      required
+                    >
+                      <template #label>
+                        Tipo de producto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                      </template>
+                    </v-select>
+                  </v-col>
+                  <v-col cols="12" sm="6" :md="hasRecipes ? 4 : 6">
+                    <v-combobox
+                      v-model="formData.unit"
+                      :items="UNIT_OPTIONS"
+                      hint="Elige una o escribe la tuya"
+                      persistent-hint
+                      :rules="[v => !!v || 'Unidad requerida']"
+                      required
+                    >
+                      <template #label>
+                        Unidad de medida <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                      </template>
+                    </v-combobox>
+                  </v-col>
+                  <v-col v-if="formData.type !== 'intermediate'" cols="12" sm="6" md="4">
+                    <MoneyField
+                      v-model="formData.unit_cost"
+                      label="Precio de costo"
+                      hint="¿Cuánto te cuesta a ti?"
+                      persistent-hint
+                      :rules="[v => (v ?? 0) >= 0 || 'Costo inválido']"
+                      empty-as-zero
+                    />
+                  </v-col>
+                  <v-col v-if="formData.type === 'final'" cols="12" sm="6" md="4">
+                    <MoneyField
+                      v-model="formData.sale_price"
+                      :hint="marginHint"
+                      persistent-hint
+                      :rules="[v => (v ?? 0) > 0 || 'Precio de venta requerido']"
+                      required
+                    >
+                      <template #label>
+                        Precio de venta <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                      </template>
+                    </MoneyField>
+                  </v-col>
+                  <v-col cols="12" sm="6" md="4">
+                    <v-select
+                      v-model="formData.tax_id"
+                      :items="taxOptions"
+                      hint="Catálogo en configuración"
+                      persistent-hint
+                      :rules="[v => v !== null && v !== undefined || 'Selecciona el impuesto (hay opción Exento)']"
+                    >
+                      <template #label>
+                        Impuesto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                      </template>
+                    </v-select>
+                  </v-col>
+                </v-row>
               </v-col>
-              <v-col cols="12" :md="hasRecipes ? 4 : 6">
-                <v-select
-                  v-model="formData.category_id"
-                  :items="categorias"
-                  :item-title="(c: any) => c.path || c.name"
-                  item-value="id"
-                  :rules="[v => !!v || 'Categoría requerida']"
-                  required
-                >
-                  <template #label>
-                    Categoría <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
-                  </template>
-                </v-select>
-              </v-col>
-              <v-col v-if="hasRecipes" cols="12" md="4">
-                <v-select
-                  v-model="formData.type"
-                  :items="productTypeOptions"
-                  :rules="[v => !!v || 'Tipo requerido']"
-                  required
-                >
-                  <template #label>
-                    Tipo de producto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
-                  </template>
-                </v-select>
-              </v-col>
-            </v-row>
-
-            <v-row dense>
-              <v-col cols="6" md="3">
-                <v-combobox
-                  v-model="formData.unit"
-                  :items="UNIT_OPTIONS"
-                  hint="Elige una o escribe la tuya"
-                  persistent-hint
-                  :rules="[v => !!v || 'Unidad requerida']"
-                  required
-                >
-                  <template #label>
-                    Unidad de medida <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
-                  </template>
-                </v-combobox>
-              </v-col>
-              <v-col v-if="formData.type !== 'intermediate'" cols="6" md="3">
-                <MoneyField
-                  v-model="formData.unit_cost"
-                  label="Precio de costo"
-                  hint="¿Cuánto te cuesta a ti?"
-                  persistent-hint
-                  :rules="[v => (v ?? 0) >= 0 || 'Costo inválido']"
-                  empty-as-zero
-                />
-              </v-col>
-              <v-col v-if="formData.type === 'final'" cols="6" md="3">
-                <MoneyField
-                  v-model="formData.sale_price"
-                  :hint="marginHint"
-                  persistent-hint
-                  :rules="[v => (v ?? 0) > 0 || 'Precio de venta requerido']"
-                  required
-                >
-                  <template #label>
-                    Precio de venta <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
-                  </template>
-                </MoneyField>
-              </v-col>
-              <v-col cols="6" md="3">
-                <v-select
-                  v-model="formData.tax_id"
-                  :items="taxOptions"
-                  hint="Catálogo en configuración"
-                  persistent-hint
-                  :rules="[v => v !== null && v !== undefined || 'Selecciona el impuesto (hay opción Exento)']"
-                >
-                  <template #label>
-                    Impuesto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
-                  </template>
-                </v-select>
-              </v-col>
-            </v-row>
-
-            <v-row dense>
-              <v-col cols="12" md="6">
-                <v-textarea
-                  v-model="formData.description"
-                  label="Descripción"
-                  rows="3"
-                />
-              </v-col>
-              <v-col cols="12" md="6">
+              <v-col cols="12" md="3">
                 <ImageUploader
                   v-model="formData.image_url"
                   folder="products"
                   label="Foto del producto"
                   class="mb-2"
                 />
-              </v-col>
-            </v-row>
-
-            <v-row dense>
-              <v-col cols="6" md="3">
-                <v-text-field
-                  v-model="formData.sku"
-                  label="SKU (opcional)"
-                  :hint="!formData.sku?.trim() ? `Se generará: ${skuPreview}` : 'Código interno'"
-                  persistent-hint
-                  placeholder="Automático"
-                />
-              </v-col>
-              <v-col cols="6" md="3">
-                <v-text-field
-                  v-model="formData.barcode"
-                  label="Código de barras"
-                  hint="Escanéalo o escríbelo"
-                  persistent-hint
-                  placeholder="Opcional"
+                <v-textarea
+                  v-model="formData.description"
+                  label="Descripción"
+                  rows="3"
                 />
               </v-col>
             </v-row>
 
-            <v-divider class="my-4" />
-            <h4 class="mb-3">Control de inventario</h4>
+            <v-divider class="my-3" />
 
             <v-row dense>
-              <v-col cols="12" :md="formData.tracks_stock ? 6 : 12">
+              <v-col cols="12" :md="formData.type === 'final' ? 8 : 12">
+                <h4 class="mb-2">Control de inventario</h4>
+
+                <v-row dense>
+                  <v-col cols="12" :md="formData.tracks_stock ? 6 : 12">
+                    <v-switch
+                      v-model="formData.tracks_stock"
+                      color="primary"
+                      inset
+                      label="Este producto maneja stock e inventario"
+                      hint="Desactívalo para productos de receta bajo demanda (ej: pizza) que no quieres en reportes de stock"
+                      persistent-hint
+                      class="mb-2"
+                    />
+                  </v-col>
+                  <v-col v-if="formData.tracks_stock" cols="12" md="6">
+                    <v-switch
+                      v-model="formData.allows_negative_stock"
+                      color="primary"
+                      inset
+                      label="Permite ventas en rojo"
+                      :hint="formData.allows_negative_stock
+                        ? 'Puedes venderlo aunque el kardex no tenga existencias; el saldo queda en negativo hasta que registres la compra'
+                        : 'No podrás vender ni sacar más de lo que hay en el kardex'"
+                      persistent-hint
+                      class="mb-2"
+                    />
+                  </v-col>
+                </v-row>
+
+                <v-row v-if="formData.tracks_stock" dense>
+                  <!-- Creación: el saldo inicial entra al kardex (SI) con su
+                       fecha real, que puede ser anterior a hoy. -->
+                  <template v-if="!editing">
+                    <v-col cols="12" md="4">
+                      <v-text-field
+                        v-model="formData.current_stock"
+                        type="text"
+                        inputmode="decimal"
+                        label="Saldo inicial"
+                        :suffix="formData.unit || ''"
+                        @blur="formatStockField('current_stock')"
+                        @keypress="allowDecimalInput"
+                        hint="Opcional. Déjalo en 0 si aún no tienes existencias: el stock luego entra por compras o ajustes."
+                        persistent-hint
+                        :rules="[v => parseStock(v) >= 0 || 'No puede ser negativo']"
+                      />
+                    </v-col>
+                    <v-col cols="12" md="4">
+                      <DateField
+                        v-model="formData.initial_stock_date"
+                        label="Fecha del saldo inicial"
+                        :max="today"
+                        hint="Si el inventario existe desde antes, pon la fecha real: así queda en el kardex"
+                        persistent-hint
+                      />
+                    </v-col>
+                  </template>
+                  <!-- Edición: el stock es consecuencia del kardex; se cambia
+                       solo con el botón Ajustar stock, que pide motivo. -->
+                  <v-col v-else cols="12" md="4">
+                    <v-text-field
+                      :model-value="`${editing.current_stock ?? 0} ${editing.unit}`"
+                      label="Stock actual"
+                      readonly
+                      disabled
+                      hint="Se mueve con pedidos o con Ajustar stock (queda en el kardex)"
+                      persistent-hint
+                    />
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-text-field
+                      v-model="formData.minimum_stock"
+                      label="Stock mínimo (alerta)"
+                      type="text"
+                      inputmode="decimal"
+                      :suffix="formData.unit || ''"
+                      @blur="formatStockField('minimum_stock')"
+                      @keypress="allowDecimalInput"
+                      hint="Se alertará cuando baje de este nivel. Ej: 5,5 o 5.5"
+                      persistent-hint
+                    />
+                  </v-col>
+                </v-row>
+                <v-alert
+                  v-else
+                  type="info"
+                  density="compact"
+                  variant="tonal"
+                  class="mb-2"
+                >
+                  Este producto no se incluirá en alertas ni reportes de stock.
+                </v-alert>
+              </v-col>
+
+              <v-col v-if="formData.type === 'final'" cols="12" md="4">
+                <h4 class="mb-2">Menú</h4>
+
                 <v-switch
-                  v-model="formData.tracks_stock"
+                  v-model="publishToMenu"
                   color="primary"
                   inset
-                  label="Este producto maneja stock e inventario"
-                  hint="Desactívalo para productos de receta bajo demanda (ej: pizza) que no quieres en reportes de stock"
+                  label="Publicar en el menú de venta"
+                  :hint="editing?.in_menu
+                    ? 'Este producto está en el menú; apágalo para retirarlo de la venta'
+                    : 'Crea el ítem del menú de una vez, visible en la app y en Pedidos'"
                   persistent-hint
                   class="mb-2"
                 />
-              </v-col>
-              <v-col v-if="formData.tracks_stock" cols="12" md="6">
-                <v-switch
-                  v-model="formData.allows_negative_stock"
-                  color="primary"
-                  inset
-                  label="Permite ventas en rojo"
-                  :hint="formData.allows_negative_stock
-                    ? 'Puedes venderlo aunque el kardex no tenga existencias; el saldo queda en negativo hasta que registres la compra'
-                    : 'No podrás vender ni sacar más de lo que hay en el kardex'"
-                  persistent-hint
-                  class="mb-2"
-                />
-              </v-col>
-            </v-row>
 
-            <v-row v-if="formData.tracks_stock">
-              <!-- Creación: el saldo inicial entra al kardex (SI) con su
-                   fecha real, que puede ser anterior a hoy. -->
-              <template v-if="!editing">
-                <v-col cols="12" md="4">
-                  <v-text-field
-                    v-model="formData.current_stock"
-                    type="text"
-                    inputmode="decimal"
-                    label="Saldo inicial"
-                    :suffix="formData.unit || ''"
-                    @blur="formatStockField('current_stock')"
-                    @keypress="allowDecimalInput"
-                    hint="Opcional. Déjalo en 0 si aún no tienes existencias: el stock luego entra por compras o ajustes."
-                    persistent-hint
-                    :rules="[v => parseStock(v) >= 0 || 'No puede ser negativo']"
-                  />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <DateField
-                    v-model="formData.initial_stock_date"
-                    label="Fecha del saldo inicial"
-                    :max="today"
-                    hint="Si el inventario existe desde antes, pon la fecha real: así queda en el kardex"
-                    persistent-hint
-                  />
-                </v-col>
-              </template>
-              <!-- Edición: el stock es consecuencia del kardex; se cambia
-                   solo con el botón Ajustar stock, que pide motivo. -->
-              <v-col v-else cols="12" md="4">
-                <v-text-field
-                  :model-value="`${editing.current_stock ?? 0} ${editing.unit}`"
-                  label="Stock actual"
-                  readonly
-                  disabled
-                  hint="Se mueve con pedidos o con Ajustar stock (queda en el kardex)"
+                <MoneyField
+                  v-if="publishToMenu"
+                  v-model="menuForm.base_price"
+                  label="Precio en el menú"
+                  hint="Viene del precio de venta; cámbialo si en el menú cuesta distinto"
                   persistent-hint
-                />
-              </v-col>
-              <v-col cols="12" md="4">
-                <v-text-field
-                  v-model="formData.minimum_stock"
-                  label="Stock mínimo (alerta)"
-                  type="text"
-                  inputmode="decimal"
-                  :suffix="formData.unit || ''"
-                  @blur="formatStockField('minimum_stock')"
-                  @keypress="allowDecimalInput"
-                  hint="Se alertará cuando baje de este nivel. Ej: 5,5 o 5.5"
-                  persistent-hint
+                  class="mt-2"
                 />
               </v-col>
             </v-row>
-            <v-alert
-              v-else
-              type="info"
-              density="compact"
-              variant="tonal"
-              class="mb-2"
-            >
-              Este producto no se incluirá en alertas ni reportes de stock.
-            </v-alert>
 
             <v-alert v-if="formData.type === 'intermediate'" type="info" density="compact" class="mt-2">
               <strong>Producto intermedio:</strong> El costo de este producto se calculará automáticamente desde su receta
             </v-alert>
-
-            <template v-if="formData.type === 'final'">
-              <v-divider class="my-4" />
-              <h4 class="mb-3">Menú</h4>
-
-              <v-switch
-                v-model="publishToMenu"
-                color="primary"
-                inset
-                label="Publicar en el menú de venta"
-                :hint="editing?.in_menu
-                  ? 'Este producto está en el menú; apágalo para retirarlo de la venta'
-                  : 'Crea el ítem del menú de una vez, visible en la app y en Pedidos'"
-                persistent-hint
-                class="mb-2"
-              />
-
-              <v-row v-if="publishToMenu">
-                <v-col cols="12" md="6">
-                  <MoneyField
-                    v-model="menuForm.base_price"
-                    label="Precio en el menú"
-                    hint="Viene del precio de venta; cámbialo si en el menú cuesta distinto"
-                    persistent-hint
-                  />
-                </v-col>
-              </v-row>
-            </template>
           </v-form>
         </v-card-text>
         <v-card-actions>
