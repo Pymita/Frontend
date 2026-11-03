@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, loginUI, watchPrinting } from './helpers'
+import { expect, test, type Page } from '@playwright/test'
+import { ADMIN, API, apiLogin, field, loginUI, raisePlanLimits, watchPrinting } from './helpers'
 
 /**
  * Cuentas separadas: varias personas en la misma mesa, cada una con lo
@@ -21,6 +21,48 @@ async function seedProduct(request: any, auth: any, name: string, price: number)
   return productId
 }
 
+/**
+ * An open order on a table of its own: the search finds it by the table's
+ * timestamped name, whatever other specs left open.
+ */
+async function seedTableOrder(
+  request: any,
+  auth: any,
+  data: { items: { guest_number?: number }[]; guest_names?: Record<number, string> },
+) {
+  await raisePlanLimits(request, { max_tables: 60 })
+  const stamp = Date.now()
+  const nickname = `Personas ${stamp}`
+  const product = `Limonada ${stamp}`
+  const productId = await seedProduct(request, auth, product, 3000)
+  const tables = (await (await request.get(`${API}/tables`, { headers: auth })).json()).data
+  const table = await request.post(`${API}/tables`, {
+    headers: auth,
+    data: { number: Math.max(0, ...tables.map((t: any) => t.number)) + 1, nickname, capacity: 4 },
+  })
+  expect(table.status()).toBe(201)
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: {
+      dining_table_id: (await table.json()).data.id,
+      items: data.items.map(item => ({ product_id: productId, quantity: 1, ...item })),
+      guest_names: data.guest_names,
+    },
+  })
+  expect(order.status()).toBe(201)
+  return { nickname, product }
+}
+
+/** Pedidos with the order of that table found and its row expanded. */
+async function openOrderSummary(page: Page, nickname: string) {
+  await page.goto('/pedidos')
+  await page.getByRole('textbox', { name: 'Buscar mesa o pedido' }).fill(nickname)
+  const row = page.locator('tbody tr', { hasText: nickname })
+  await expect(row).toHaveCount(1)
+  await row.locator('.v-data-table__td--expanded-row').getByRole('button').click()
+  return page.locator('tr', { hasText: 'Productos del pedido' })
+}
+
 test('armar un pedido por personas desde la web', async ({ page, request }) => {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
   const auth = { Authorization: `Bearer ${token}` }
@@ -40,8 +82,8 @@ test('armar un pedido por personas desde la web', async ({ page, request }) => {
   await dialog.getByText('Arepa Separada').first().click()
   await dialog.getByText('Arepa Separada').first().click()
 
-  await expect(dialog.getByText('P1')).toBeVisible()
-  await expect(dialog.getByText('P2')).toBeVisible()
+  await expect(dialog.locator('.v-list-item', { hasText: 'Persona 1' })).toContainText('$5.000')
+  await expect(dialog.locator('.v-list-item', { hasText: 'Persona 2' })).toContainText('$10.000')
   await expect(dialog.getByText('Total: $15.000')).toBeVisible()
   await dialog.getByRole('button', { name: 'Crear pedido' }).click()
   await expect(page.getByText('Pedido creado')).toBeVisible()
@@ -79,6 +121,7 @@ test('poner nombre a una persona con el lapicito', async ({ page, request }) => 
   await valeChip.click()
   await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill('Empanada Nombre')
   await dialog.getByText('Empanada Nombre').first().click()
+  await expect(dialog.locator('.v-list-item', { hasText: 'Vale' })).toContainText('Empanada Nombre')
   await dialog.getByRole('button', { name: 'Crear pedido' }).click()
   await expect(page.getByText('Pedido creado')).toBeVisible()
 
@@ -88,6 +131,58 @@ test('poner nombre a una persona con el lapicito', async ({ page, request }) => 
   )
   expect(created.guest_names).toEqual({ '1': 'Vale' })
   expect(created.guests.map((g: any) => g.label)).toContain('Vale')
+})
+
+test('el resumen del pedido muestra el nombre que se le puso a cada persona', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const { nickname, product } = await seedTableOrder(request, auth, {
+    items: [{ guest_number: 3 }, { guest_number: 1 }, { guest_number: 2 }, {}],
+    guest_names: { 1: 'Ana', 2: 'Luis' },
+  })
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  const summary = await openOrderSummary(page, nickname)
+  await expect(summary.locator('tbody .v-chip')).toHaveText(['Persona 3', 'Ana', 'Luis', 'Compartido'])
+
+  // Moving a line to someone else offers the same names, plus one more person.
+  await summary
+    .locator('tbody tr')
+    .filter({ has: page.getByText('Ana', { exact: true }) })
+    .getByRole('button', { name: `Editar ${product}` })
+    .click()
+  const persona = field(page, 'Persona (cuentas separadas)')
+  await expect(persona).toContainText('Ana')
+  await persona.click()
+  await expect(page.locator('.v-select__content').getByRole('option')).toHaveText([
+    'Compartido',
+    'Ana',
+    'Luis',
+    'Persona 3',
+    'Persona 4',
+  ])
+})
+
+test('el nombre que se le pone a una persona de un pedido abierto queda en el resumen', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const { nickname } = await seedTableOrder(request, auth, { items: [{ guest_number: 1 }, { guest_number: 2 }] })
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  const summary = await openOrderSummary(page, nickname)
+  await expect(summary.locator('tbody .v-chip')).toHaveText(['Persona 1', 'Persona 2'])
+
+  await summary.getByRole('button', { name: 'Agregar productos' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.locator('.v-chip', { hasText: 'Persona 2' }).getByTitle('Editar nombre').click()
+  await dialog.getByLabel('Nombre de la Persona 2').fill('Marta')
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(dialog.locator('.v-chip', { hasText: 'Marta' })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+  await expect(summary.locator('tbody .v-chip')).toHaveText(['Persona 1', 'Marta'])
+
+  // The name was saved on the order: a fresh load still shows it.
+  await expect((await openOrderSummary(page, nickname)).locator('tbody .v-chip')).toHaveText(['Persona 1', 'Marta'])
 })
 
 test('cobrar por persona hasta cerrar la mesa', async ({ page, request }) => {
@@ -161,6 +256,10 @@ test('cobrar por persona hasta cerrar la mesa', async ({ page, request }) => {
   expect(billText).toContain('$8.000')
   expect(billText).toContain('POR PAGAR')
   expect(billText).toContain('$16.000')
+  // Nobody identified the table's buyer: the pre-bill names the consumidor final, not the order's name.
+  expect(billText).toContain('CLIENTE : Consumidor final')
+  expect(billText).toContain('NIT     : 222222222222')
+  expect(billText).not.toContain('Mesa Separada E2E')
   await bill.close()
   expect(await printing()).toEqual({ opened: 1, printed: 1 })
 

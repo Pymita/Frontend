@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import {
   API,
   apiLogin,
@@ -633,6 +633,7 @@ test('un empleado con solo clientes ve la Cartera, registra un abono y lee el hi
   await expect(panel).toContainText('Saldo $250.000')
   await expect(page.getByTestId('cash-open-chip')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Cerrar caja' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Retirar dinero' })).toHaveCount(0)
   await panel.getByRole('button', { name: 'Registrar abono', exact: true }).click()
   const dialog = page.getByRole('dialog').filter({ hasText: 'Abono de Ana Clientes' })
   await field(page, 'Valor del abono').locator('input').fill('100000')
@@ -687,6 +688,14 @@ test('un conjunto sin pedidos cierra la caja desde la Cartera con sus abonos por
   await loginUI(page, company.credentials.email, company.credentials.password)
   await sidebarItem(page, 'Cartera').click()
   await expect(page.getByTestId('cash-open-chip')).toContainText('Caja abierta desde')
+  // The same panel as Pedidos: whoever closes the register also takes cash out of it.
+  await page.getByRole('button', { name: 'Retirar dinero' }).click()
+  const withdraw = page.getByRole('dialog').filter({ hasText: 'Retirar dinero' })
+  await expect(withdraw).toContainText('Ahora debería haber $0 en el cajón')
+  await expect(withdraw.getByLabel('Valor')).toBeVisible()
+  await expect(withdraw.getByText('Motivo o quién recibe el dinero')).toBeVisible()
+  await withdraw.getByRole('button', { name: 'Cancelar' }).click()
+  await expect(withdraw).toHaveCount(0)
 
   // An abono in cash to the customer, then one by transfer to the document; each reloads the shift.
   const ana = page.locator('.v-expansion-panel', { hasText: 'Ana Caja 201' })
@@ -753,7 +762,7 @@ test('un conjunto sin pedidos cierra la caja desde la Cartera con sus abonos por
   const printed = await printout.locator('body').innerText()
   expect(printed).toMatch(/Abonos de cuotas · Efectivo\s+\$120\.000/)
   expect(printed).toMatch(/Abonos de cuotas · Transferencia\s+\$100\.000/)
-  expect(printed).toMatch(/EFECTIVO DEL TURNO\s+\$120\.000/)
+  expect(printed).toMatch(/EFECTIVO A ENTREGAR\s+\$120\.000/)
   expect(printed).not.toMatch(/VENTAS|PRODUCTOS|Propinas|Cobros en efectivo/)
   await printout.close()
   await done.getByRole('button', { name: 'Listo' }).click()
@@ -1604,4 +1613,215 @@ test('lo facturado es venta del día en Inicio y en Ventas, y su abono no la dup
   await expect(page.locator('tbody tr', { hasText: 'CC-1' })).toContainText('Abonada')
   await expect(page.locator('tbody tr', { hasText: 'CC-2' })).toContainText('Por pagar')
   await expect(page.locator('tbody tr', { hasText: 'CC-2' })).toContainText('$180.000')
+  // A condominium takes no orders, so it has no tables.
+  await expect(page.getByRole('columnheader', { name: 'Cliente' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'Mesa' })).toHaveCount(0)
+})
+
+// ===== Saldos iniciales =====
+
+/** An input of one line of the opening balances dialog, by its label. */
+const lineInput = (line: Locator, label: string) =>
+  line.getByLabel(label)
+
+async function fillOpeningLine(
+  line: Locator,
+  values: { number?: string; date?: string; due?: string; total?: string; concept?: string },
+) {
+  if (values.number !== undefined) await lineInput(line, 'N.º de documento').fill(values.number)
+  if (values.date !== undefined) await lineInput(line, 'Fecha').fill(values.date)
+  if (values.due !== undefined) await lineInput(line, 'Vence').fill(values.due)
+  if (values.total !== undefined) await lineInput(line, 'Valor').fill(values.total)
+  if (values.concept !== undefined) await lineInput(line, 'Concepto').fill(values.concept)
+}
+
+/**
+ * "Así como se hace una factura de compra": a customer's old documents are
+ * typed in one dialog, one line each. They are cartera (abonos, recibo de
+ * caja, Inicio's balance) and never a sale.
+ */
+test('registra los saldos iniciales de un cliente, recibe su abono y no son ventas', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'saldos-iniciales')
+  await createResident(request, company.token, { name: 'Ana Saldo', document_number: '6001' })
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Cartera').click()
+  await page.getByRole('button', { name: 'Registrar saldos iniciales' }).click()
+
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Registrar saldos iniciales' })
+  await dialog.getByRole('combobox', { name: /Cliente/ }).fill('6001')
+  await page.getByRole('option', { name: /Ana Saldo/ }).click()
+  const first = dialog.getByRole('group', { name: 'Línea 1' })
+  const second = dialog.getByRole('group', { name: 'Línea 2' })
+  await fillOpeningLine(first, { number: 'FV-1001', date: '15/01/2025', due: '15/02/2025', total: '300.000' })
+  await fillOpeningLine(second, { number: 'FV-1002', date: '20/02/2025', concept: 'Mantenimiento' })
+  await expect(dialog.getByTestId('opening-total')).toHaveText('Total $300.000')
+
+  // A line without its value says so inside the dialog and nothing is sent.
+  await dialog.getByRole('button', { name: 'Registrar' }).click()
+  await expect(dialog.locator('.v-alert')).toContainText('Escribe el valor del documento FV-1002')
+  await expect(second).toContainText('Escribe el valor del documento FV-1002')
+  await fillOpeningLine(second, { total: '200000' })
+  await expect(dialog.getByTestId('opening-total')).toHaveText('Total $500.000')
+  await dialog.getByRole('button', { name: 'Registrar' }).click()
+  await expect(page.getByText('2 saldos iniciales registrados para Ana Saldo por $500.000.')).toBeVisible()
+
+  // Both under Ana, overdue already, with the chip, the abono actions and no print button.
+  const panel = page.locator('.v-expansion-panel', { hasText: 'Ana Saldo' })
+  await expect(panel).toContainText('Saldo $500.000')
+  await expect(panel).toContainText('Vencido $500.000')
+  await panel.locator('.v-expansion-panel-title').click()
+  const fv1001 = panel.locator('tbody tr', { hasText: 'FV-1001' })
+  const fv1002 = panel.locator('tbody tr', { hasText: 'FV-1002' })
+  await expect(fv1001.locator('.v-chip', { hasText: 'Saldo inicial' })).toBeVisible()
+  await expect(fv1001).toContainText('Vencida')
+  await expect(fv1001).toContainText(dayLabel(new Date(2025, 1, 15)))
+  // Without a due date it is due on its own date.
+  await expect(fv1002).toContainText(dayLabel(new Date(2025, 1, 20)))
+  await expect(fv1002).toContainText('Mantenimiento')
+  await expect(fv1002.getByRole('button', { name: 'Abonar' })).toBeVisible()
+  await expect(panel.getByRole('button', { name: /^Imprimir FV-/ })).toHaveCount(0)
+  await expect(fv1001.getByRole('button', { name: 'Anular FV-1001' })).toBeVisible()
+
+  // An abono to Ana pays the oldest first and its recibo de caja names the opening balances.
+  await panel.getByRole('button', { name: 'Registrar abono', exact: true }).click()
+  const payment = page.getByRole('dialog').filter({ hasText: 'Abono de Ana Saldo' })
+  await field(page, 'Valor del abono').locator('input').fill('350000')
+  await payment.getByRole('button', { name: 'Registrar abono' }).click()
+  await expect(payment).toContainText('Abono registrado en el recibo de caja RC-1 por $350.000')
+  const [popup] = await Promise.all([
+    page.waitForEvent('popup'),
+    payment.getByRole('button', { name: 'Imprimir recibo RC-1' }).click(),
+  ])
+  await expect(popup.locator('tbody tr').nth(0)).toContainText('Abono a saldo inicial FV-1001')
+  await expect(popup.locator('tbody tr').nth(0)).not.toContainText('· Saldo inicial')
+  await expect(popup.locator('tbody tr').nth(1)).toContainText('Abono a saldo inicial FV-1002 · Mantenimiento')
+  await expect(popup.locator('tbody tr').nth(1)).toContainText('$150.000')
+  await popup.close()
+  await payment.getByRole('button', { name: 'Cerrar' }).click()
+  await expect(panel).toContainText('Saldo $150.000')
+
+  // Never a sale: Ventas and Inicio count nothing, while the cartera is still owed.
+  await sidebarItem(page, 'Ventas').click()
+  await expect(page.locator('.v-card', { hasText: 'Total vendido' })).toContainText('$0')
+  await expect(page.locator('tbody tr', { hasText: 'FV-100' })).toHaveCount(0)
+  await sidebarItem(page, 'Inicio').click()
+  const card = (title: string) => page.locator('.v-card').filter({ has: page.getByText(title, { exact: true }) })
+  await expect(card('Ventas hoy')).toContainText('$0')
+  await expect(card('Saldo por cobrar')).toContainText('$150.000')
+})
+
+test('importa saldos iniciales desde Excel: un cliente que ya existe, uno nuevo y una fila con error', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'saldos-excel')
+  await createResident(request, company.token, { name: 'Dora Existente', document_number: '5001' })
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Cartera').click()
+  await page.getByRole('button', { name: 'Importar saldos iniciales desde Excel' }).click()
+
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Importar saldos iniciales desde Excel' })
+  const tutorial = dialog.locator('table').first()
+  await expect(tutorial.getByRole('row', { name: /^numero_factura / })).toContainText('Obligatoria')
+  await expect(tutorial.getByRole('row', { name: /^nombre / })).toContainText('Obligatorio solo si todavía no es tu cliente')
+  await expect(dialog).toContainText('Un saldo inicial no es una venta')
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    dialog.getByRole('button', { name: 'Descargar plantilla' }).click(),
+  ])
+  expect(download.suggestedFilename()).toBe('plantilla_saldos_iniciales.xlsx')
+  const headers = xlsxRows(readFileSync(await download.path()))[0]!
+  expect(headers).toEqual(await tutorial.locator('tbody tr td:first-child').allInnerTexts())
+
+  const fileRow = (cells: Record<string, string>) => [...headers.map(header => cells[header] ?? ''), cells.Sucursal ?? '']
+  const file = buildXlsx([
+    [...headers, 'Sucursal'],
+    fileRow({ numero_documento: '5.001', numero_factura: 'FV-1', fecha: '15/01/2025', valor: '250.000', Sucursal: 'Centro' }),
+    fileRow({ nombre: 'Eva Nueva', numero_documento: '7001', telefono: '3001234567', numero_factura: 'FV-10', fecha: '01/02/2025', valor: '100000' }),
+    fileRow({ numero_documento: '7001', numero_factura: 'FV-11', fecha: '01/03/2025', vencimiento: '01/04/2025', valor: '50.000' }),
+    fileRow({ numero_documento: '8001', numero_factura: 'FV-20', fecha: '01/03/2025', valor: '10000' }),
+  ])
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'saldos.xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: file,
+  })
+
+  await dialog.getByRole('button', { name: 'Revisar archivo' }).click()
+  await expect(dialog).toContainText('3 saldos iniciales se pueden registrar por $400.000 (se crea 1 cliente). 1 fila tiene errores y no se importa.')
+  await expect(dialog).toContainText('Todavía no se registró nada')
+  await expect(dialog).toContainText('No usamos estas columnas porque no las reconocimos: Sucursal.')
+  // The last table is the review (the tutorial's example reads FV-1001), and a
+  // row is found by an exact text: "FV-1" runs into its date as "FV-115 ene".
+  const resultRow = (text: string) =>
+    dialog.locator('table').last().locator('tbody tr').filter({ has: page.getByText(text, { exact: true }) })
+  await expect(resultRow('FV-20')).toContainText('Con error')
+  await expect(resultRow('FV-20')).toContainText('Falta el nombre: 8001 no es de ningún cliente tuyo')
+  await expect(resultRow('FV-20').locator('td').first()).toHaveText('5')
+  await expect(resultRow('FV-10')).toContainText('Se crea el cliente Eva Nueva.')
+  await expect(resultRow('FV-11')).toContainText('Del cliente nuevo Eva Nueva, que se crea en la fila 3.')
+  await expect(resultRow('Dora Existente')).toContainText('FV-1')
+  await expect(resultRow('Dora Existente')).toContainText('$250.000')
+  await expect(resultRow('Dora Existente')).toContainText('El documento «5.001» queda como 5001.')
+  await expect(page.locator('.v-expansion-panel', { hasText: 'Dora Existente' })).toHaveCount(0)
+
+  await dialog.getByRole('button', { name: 'Registrar 3 saldos iniciales' }).click()
+  await expect(dialog.locator('.v-alert').first()).toContainText(
+    'Se registraron 3 saldos iniciales por $400.000 y se creó 1 cliente. 1 fila tiene errores y no se importa.',
+  )
+  await expect(resultRow('FV-10')).toContainText('Registrado')
+  await dialog.getByRole('button', { name: 'Cerrar' }).click()
+
+  await expect(page.locator('.v-expansion-panel', { hasText: 'Dora Existente' })).toContainText('Saldo $250.000')
+  const eva = page.locator('.v-expansion-panel', { hasText: 'Eva Nueva' })
+  await expect(eva).toContainText('Saldo $150.000')
+  await eva.locator('.v-expansion-panel-title').click()
+  await expect(eva.locator('tbody tr', { hasText: 'FV-11' }).locator('.v-chip', { hasText: 'Saldo inicial' })).toBeVisible()
+})
+
+/**
+ * A restaurant has Clientes and no automatic billing: an employee with only
+ * Clientes registers what a new customer owed, on a phone, and cannot
+ * cancel it.
+ */
+test('en un restaurante, un empleado con solo clientes registra un saldo inicial desde el teléfono', async ({ page, request }) => {
+  const company = await createCompany(request, 'saldos-restaurante', { business_type: 'restaurant' })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const slug = (await (await request.get(`${API}/auth/me`, { headers: auth })).json()).user.company.slug
+  const employee = { username: `saldos.${Date.now() % 1_000_000}`, password: 'secreto123' }
+  const created = await request.post(`${API}/users`, {
+    headers: auth,
+    data: { name: 'Cajero Saldos', role: 'employee', permissions: ['customers'], ...employee },
+  })
+  expect(created.status(), await created.text()).toBe(201)
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await loginUI(page, employee.username, employee.password, slug)
+  await page.goto('/cartera')
+  await expect(page.getByText('Nadie tiene saldo pendiente.')).toBeVisible()
+  await page.getByRole('button', { name: 'Registrar saldos iniciales' }).click()
+
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Registrar saldos iniciales' })
+  await dialog.getByRole('button', { name: 'Nuevo cliente' }).click()
+  await field(page, 'Número de documento').locator('input').fill('9.001')
+  await field(page, 'Nombre').locator('input').fill('Gabo Nuevo')
+  await dialog.getByRole('button', { name: 'Crear cliente' }).click()
+  await expect(dialog.locator('.v-autocomplete')).toContainText('Gabo Nuevo')
+  // The second line stays blank: it is dropped, not an error.
+  await fillOpeningLine(dialog.getByRole('group', { name: 'Línea 1' }), { number: 'F-77', date: '10/03/2025', total: '80000' })
+  await dialog.getByRole('button', { name: 'Registrar' }).click()
+  await expect(page.getByText('1 saldo inicial registrado para Gabo Nuevo por $80.000.')).toBeVisible()
+
+  const panel = page.locator('.v-expansion-panel', { hasText: 'Gabo Nuevo' })
+  await expect(panel).toContainText('Saldo $80.000')
+  await panel.locator('.v-expansion-panel-title').click()
+  const row = panel.locator('tbody tr', { hasText: 'F-77' })
+  await expect(row.locator('.v-chip', { hasText: 'Saldo inicial' })).toBeVisible()
+  await expect(row.getByRole('button', { name: 'Abonar' })).toBeVisible()
+  await expect(row.getByRole('button', { name: 'Anular F-77' })).toHaveCount(0)
+  await expect(row.getByRole('button', { name: 'Imprimir F-77' })).toHaveCount(0)
+  // Nothing on the page is wider than the phone.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
 })

@@ -63,6 +63,14 @@
                   >
                     Editar movimientos del kardex
                   </v-chip>
+                  <v-chip
+                    v-if="feature === 'reports' && item.can_use_accounting"
+                    size="x-small"
+                    class="mr-1 mb-1"
+                    variant="outlined"
+                  >
+                    Contabilidad
+                  </v-chip>
                 </template>
               </template>
             </template>
@@ -194,6 +202,16 @@
                       density="compact"
                     />
                   </v-col>
+                  <v-col v-if="feature === 'reports'" cols="6">
+                    <v-checkbox
+                      v-model="useAccounting"
+                      label="Contabilidad"
+                      :disabled="!formData.permissions.includes('reports')"
+                      hint="Configura las cuentas y descarga el movimiento contable"
+                      persistent-hint
+                      density="compact"
+                    />
+                  </v-col>
                 </template>
               </v-row>
             </template>
@@ -243,10 +261,11 @@ const allFeatures = computed(() => {
   const companyModules = authStore.user?.company?.modules
   return companyModules?.length ? ALL_FEATURES.filter(f => companyModules.includes(f)) : ALL_FEATURES
 })
-// Pedidos and Inventario go first so the permission inside each one sits beside it in the two-column grid.
+// Pedidos, Inventario and Informes go first so the permission inside each one sits beside it in the two-column grid.
+const WITH_INNER_PERMISSION: Feature[] = ['orders', 'inventory', 'reports']
 const dialogFeatures = computed(() => [
-  ...allFeatures.value.filter(f => f === 'orders' || f === 'inventory'),
-  ...allFeatures.value.filter(f => f !== 'orders' && f !== 'inventory'),
+  ...allFeatures.value.filter(f => WITH_INNER_PERMISSION.includes(f)),
+  ...allFeatures.value.filter(f => !WITH_INNER_PERMISSION.includes(f)),
 ])
 
 const headers = [
@@ -309,6 +328,7 @@ const formData = ref({
   permissions: [] as Feature[],
   canChargeOrders: true,
   canEditKardex: false,
+  canUseAccounting: false,
 })
 
 // Cobrar is part of Pedidos: without it the box reads unchecked and nothing is granted.
@@ -324,6 +344,14 @@ const editKardex = computed({
   get: () => formData.value.canEditKardex && formData.value.permissions.includes('inventory'),
   set: (value: boolean) => {
     formData.value.canEditKardex = value
+  },
+})
+
+// And accounting is part of Informes.
+const useAccounting = computed({
+  get: () => formData.value.canUseAccounting && formData.value.permissions.includes('reports'),
+  set: (value: boolean) => {
+    formData.value.canUseAccounting = value
   },
 })
 
@@ -347,6 +375,7 @@ const openDialog = (user?: CompanyUser) => {
         permissions: [...user.features],
         canChargeOrders: user.can_charge_orders,
         canEditKardex: user.can_edit_kardex,
+        canUseAccounting: !!user.can_use_accounting,
       }
     : {
         name: '',
@@ -359,6 +388,7 @@ const openDialog = (user?: CompanyUser) => {
         permissions: allFeatures.value.filter(f => f !== 'expenses'),
         canChargeOrders: true,
         canEditKardex: false,
+        canUseAccounting: false,
       }
   dialog.value = true
 }
@@ -378,6 +408,7 @@ const save = async () => {
       permissions: formData.value.role === 'employee' ? formData.value.permissions : undefined,
       can_charge_orders: formData.value.role === 'employee' ? chargeOrders.value : undefined,
       can_edit_kardex: formData.value.role === 'employee' ? editKardex.value : undefined,
+      can_use_accounting: formData.value.role === 'employee' ? useAccounting.value : undefined,
     }
 
     if (editing.value) {

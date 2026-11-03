@@ -17,6 +17,8 @@ export interface CompanyUser {
   can_charge_orders: boolean
   /** "Editar movimientos del kardex": a permission inside Inventario, granted like can_charge_orders */
   can_edit_kardex: boolean
+  /** "Contabilidad": a permission inside Informes, granted like can_edit_kardex */
+  can_use_accounting: boolean
   last_login_at: string | null
 }
 
@@ -30,6 +32,7 @@ export interface CreateUserPayload {
   permissions?: Feature[]
   can_charge_orders?: boolean
   can_edit_kardex?: boolean
+  can_use_accounting?: boolean
 }
 
 export interface UpdateUserPayload {
@@ -43,6 +46,7 @@ export interface UpdateUserPayload {
   permissions?: Feature[] | null
   can_charge_orders?: boolean
   can_edit_kardex?: boolean
+  can_use_accounting?: boolean
 }
 
 interface ApiEnvelope<T> {

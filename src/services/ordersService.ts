@@ -120,11 +120,12 @@ export interface OrderReceipt {
   is_paid: boolean
   dining_table: string | null
   waiter: string | null
+  /** Without a customer, the consumidor final (`FINAL_CONSUMER` in utils/labels). */
   customer: {
     name: string | null
     document: string | null
-    /** Only on the receipt of one sale (?payment=). */
     document_type?: string | null
+    /** Only on the receipt of one sale (?payment=). */
     address?: string | null
     city?: string | null
     phone?: string | null

@@ -148,10 +148,20 @@ export interface CashAdjustment {
   after: CashShiftTotals
 }
 
+/** Cash taken out of the drawer ("Retiro de caja No. N"); `at` and `user_name` are the server's. */
+export interface CashWithdrawal {
+  number: number
+  amount: number
+  at: string
+  user_name: string
+  notes: string | null
+}
+
 /**
  * A cash shift. Shifts open by themselves; `opening_amount` is the base of
  * the shifts opened by hand before 2026-10 (0 since). Closes frozen back then
- * have no detailed summary: those keys come as null.
+ * have no detailed summary: those keys come as null. `expected_cash` is what
+ * must be in the drawer: the cash that came in minus expenses and withdrawals.
  */
 export interface CashSession {
   id: number
@@ -174,6 +184,8 @@ export interface CashSession {
     cash_sales: number
     cash_recurring: number
     cash_expenses: number
+    /** Closes frozen before withdrawals existed read as none. */
+    cash_withdrawals: { count: number; total: number; list: CashWithdrawal[] }
     expected_cash: number
     total_collected: number
     sales_total: number | null
@@ -210,6 +222,7 @@ export interface CashPeriodTotals {
   cash_sales: number
   cash_recurring: number
   cash_expenses: number
+  cash_withdrawals: number
   opening_amount: number
   expected_cash: number
   counted_closes: number
@@ -238,6 +251,23 @@ class SalesService {
       closed_at: payload.closed_at || undefined,
     })
     return { session: response.data.data, next: response.data.next, message: response.data.message }
+  }
+
+  /**
+   * Takes cash out of the open shift. `key` (Idempotency-Key) stays the same
+   * for a retry of the same withdrawal, so it is never registered twice.
+   */
+  async withdrawCash(
+    id: number,
+    payload: { amount: number; notes?: string },
+    key: string,
+  ): Promise<{ withdrawal: CashWithdrawal; session: CashSession; message: string }> {
+    const response = await api.post(
+      `/cash-register/${id}/withdrawals`,
+      { amount: payload.amount, notes: payload.notes || undefined },
+      { headers: { 'Idempotency-Key': key } },
+    )
+    return { withdrawal: response.data.data, session: response.data.session, message: response.data.message }
   }
 
   /** Admin only. `previous` is set only when the previous shift's close moved too. */

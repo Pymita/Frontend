@@ -39,8 +39,11 @@ export interface Customer {
 
 // ===== Facturación automática =====
 export type RecurringInvoiceStatus = 'pending' | 'partial' | 'paid' | 'cancelled'
-/** 'credit_sale': an order charged "A crédito" in Pedidos, owed in Cartera (its factura is the order's sale). */
-export type DocumentKind = 'invoice' | 'collection' | 'credit_sale'
+/**
+ * 'credit_sale': an order charged "A crédito" in Pedidos, owed in Cartera (its factura is the order's sale).
+ * 'opening_balance': what a customer already owed before Servify, with the old document's number; never a sale.
+ */
+export type DocumentKind = 'invoice' | 'collection' | 'credit_sale' | 'opening_balance'
 
 /** Fila lista para facturar en un período: se puede editar antes de generar. */
 export interface RecurringPreviewRow {
@@ -259,6 +262,37 @@ export interface CustomerImportResult {
   errors: ImportRowError[]
 }
 
+/** One pending document of an opening balance; without `due_date` it is due on `issued_at`. */
+export interface OpeningBalanceLine {
+  document_number: string
+  issued_at: string
+  due_date?: string
+  total: number
+  concept?: string
+}
+
+/** A row of the opening balances Excel: registered, to register, skipped (already there) or with an error. */
+export interface OpeningBalanceImportRow {
+  fila: number
+  status: 'valid' | 'created' | 'skipped' | 'error'
+  customer_name: string
+  customer_document: string
+  document_number: string
+  issued_at: string | null
+  due_date: string | null
+  total: number | null
+  new_customer: boolean
+  message: string | null
+}
+
+export interface OpeningBalanceImportResult {
+  dry_run: boolean
+  summary: { rows: number; valid: number; created: number; new_customers: number; total: number; skipped: number; errors: number }
+  rows: OpeningBalanceImportRow[]
+  ignored_columns: string[]
+  errors: ImportRowError[]
+}
+
 export interface CustomerPaymentPayload {
   amount: number
   payment_method: PaymentMethod
@@ -315,6 +349,17 @@ interface ApiResponse<T> {
   message?: string
 }
 
+const downloadFile = async (url: string, filename: string): Promise<void> => {
+  const response = await api.get(url, { responseType: 'blob' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(response.data as Blob)
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(link.href)
+}
+
 export const billingService = {
   // ===== Clientes =====
   async getCustomers(): Promise<Customer[]> {
@@ -355,15 +400,7 @@ export const billingService = {
   },
 
   async downloadCustomerImportTemplate(): Promise<void> {
-    const response = await api.get('/recurring-billing/customers/import/template', { responseType: 'blob' })
-    const url = URL.createObjectURL(response.data as Blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'plantilla_clientes.xlsx'
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
+    await downloadFile('/recurring-billing/customers/import/template', 'plantilla_clientes.xlsx')
   },
 
   /** `dryRun`: solo revisa y dice qué pasará con cada fila, sin crear nada. */
@@ -483,6 +520,38 @@ export const billingService = {
   async cancelRecurringInvoice(invoiceId: number, reason?: string): Promise<RecurringInvoice> {
     const response = await api.post<ApiResponse<RecurringInvoice>>(`/recurring-billing/invoices/${invoiceId}/cancel`, { reason })
     return response.data.data
+  },
+
+  // --- Saldos iniciales: lo que los clientes ya debían antes de Servify ---
+  async registerOpeningBalances(
+    customerId: number,
+    lines: OpeningBalanceLine[],
+  ): Promise<{ data: RecurringInvoice[]; message: string }> {
+    const response = await api.post<ApiResponse<RecurringInvoice[]>>('/recurring-billing/opening-balances', {
+      customer_id: customerId,
+      lines,
+    })
+    return { data: response.data.data, message: response.data.message ?? '' }
+  },
+
+  async getOpeningBalanceImportFormat(): Promise<ImportFormat> {
+    const response = await api.get<ApiResponse<ImportFormat>>('/recurring-billing/opening-balances/import/columns')
+    return response.data.data
+  },
+
+  async downloadOpeningBalanceImportTemplate(): Promise<void> {
+    await downloadFile('/recurring-billing/opening-balances/import/template', 'plantilla_saldos_iniciales.xlsx')
+  },
+
+  /** `dryRun`: only reviews and says what will happen to each row. */
+  async importOpeningBalances(file: File, dryRun: boolean): Promise<{ data: OpeningBalanceImportResult; message: string }> {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('dry_run', dryRun ? '1' : '0')
+    const response = await api.post<ApiResponse<OpeningBalanceImportResult>>('/recurring-billing/opening-balances/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return { data: response.data.data, message: response.data.message ?? '' }
   },
 
   async getReceivables(filters: ReceivableFilters = {}): Promise<Receivables> {

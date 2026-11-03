@@ -242,6 +242,20 @@
             <template #item.expected_cash="{ item }">
               {{ money(item.expected_cash) }}
               <div v-if="item.opening_amount > 0" class="text-caption text-medium-emphasis">Incluye base de {{ money(item.opening_amount) }}</div>
+              <!-- A button and not a column: one more column pushed Diferencia and the actions off a 1440 px screen. -->
+              <v-btn
+                v-if="item.summary.cash_withdrawals?.count"
+                size="x-small"
+                variant="tonal"
+                color="secondary"
+                prepend-icon="mdi-cash-minus"
+                class="mb-1"
+                :aria-label="`${withdrawalsText(item)}: ver los retiros del turno ${item.number}`"
+                data-testid="cash-withdrawals-button"
+                @click="withdrawalsSession = item"
+              >
+                {{ withdrawalsText(item) }}
+              </v-btn>
             </template>
             <template #item.counted_cash="{ item }">{{ item.counted_cash === null ? '—' : money(item.counted_cash) }}</template>
             <template #item.difference="{ item }">
@@ -447,6 +461,9 @@
                 </v-chip>
               </div>
             </template>
+            <template #item.dining_table="{ item }">
+              {{ item.dining_table || '—' }}
+            </template>
             <template #item.customer_name="{ item }">
               {{ customerLabel(item.customer_name) }}
             </template>
@@ -589,7 +606,7 @@
             <div class="text-body-2">Motivo: {{ entry.reason }}</div>
             <div class="text-body-2 tabular-nums">
               Ventas {{ moneyOrDash(entry.before.sales_total) }} → {{ moneyOrDash(entry.after.sales_total) }} ·
-              Efectivo del turno {{ moneyOrDash(entry.before.expected_cash) }} → {{ moneyOrDash(entry.after.expected_cash) }}
+              Efectivo a entregar {{ moneyOrDash(entry.before.expected_cash) }} → {{ moneyOrDash(entry.after.expected_cash) }}
             </div>
             <div class="text-caption text-medium-emphasis">{{ entry.user_name }} · {{ formatDateTime(entry.at) }}</div>
           </div>
@@ -597,6 +614,49 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="adjustmentsSession = null">Cerrar</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog :model-value="withdrawalsSession !== null" max-width="560" scrollable @update:model-value="withdrawalsSession = null">
+      <v-card v-if="withdrawalsSession">
+        <v-card-title>Retiros del turno {{ withdrawalsSession.number }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 text-medium-emphasis mb-2">
+            Ya están restados del efectivo a entregar ({{ money(withdrawalsSession.expected_cash) }}).
+          </p>
+          <div
+            v-for="withdrawal in withdrawalsSession.summary.cash_withdrawals.list"
+            :key="withdrawal.number"
+            class="d-flex align-center ga-2 py-1"
+            data-testid="cash-withdrawal"
+          >
+            <div class="flex-grow-1">
+              <div class="d-flex justify-space-between ga-2">
+                <span>No. {{ withdrawal.number }} · {{ formatDateTime(withdrawal.at) }}</span>
+                <span class="tabular-nums font-weight-medium">{{ money(withdrawal.amount) }}</span>
+              </div>
+              <div class="text-caption text-medium-emphasis">
+                {{ [withdrawal.user_name, withdrawal.notes].filter(Boolean).join(' · ') }}
+              </div>
+            </div>
+            <v-btn
+              icon="mdi-printer"
+              size="small"
+              variant="text"
+              :aria-label="`Imprimir el retiro de caja No. ${withdrawal.number}`"
+              :title="`Imprimir el retiro de caja No. ${withdrawal.number}`"
+              @click="printWithdrawal(withdrawal, withdrawalsSession)"
+            />
+          </div>
+          <div class="d-flex justify-space-between font-weight-bold pt-2">
+            <span>Total retirado</span>
+            <span class="tabular-nums">{{ money(withdrawalsSession.summary.cash_withdrawals.total) }}</span>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="withdrawalsSession = null">Cerrar</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -611,6 +671,7 @@
 import { money, percent } from '@/utils/money'
 import { formatDateTime, formatIsoDate, parseTimeText, toIsoDate, toTimeText, todayIso } from '@/utils/dates'
 import { computed, onMounted, ref, watch } from 'vue'
+import { useDisplay } from 'vuetify'
 import DateField from '../components/DateField.vue'
 import LockableButton from '../components/LockableButton.vue'
 import MoneyField from '../components/MoneyField.vue'
@@ -627,6 +688,7 @@ import salesService, {
   type SalesView,
   type TableSalesReport,
   type CashSession,
+  type CashWithdrawal,
 } from '../services/salesService'
 import { billingService } from '../services/billingService'
 import { downloadCashClosesPdf } from '@/utils/abonosPdf'
@@ -645,10 +707,12 @@ import {
 } from '@/utils/labels'
 import {
   cashCloseHtml,
+  cashWithdrawalHtml,
   fillDocumentWindow,
   openDocumentWindow,
   saleDocumentNumber,
   saleInvoiceHtml,
+  type DocumentBusiness,
 } from '@/utils/printDocuments'
 import { ordersService } from '@/services/ordersService'
 
@@ -741,7 +805,7 @@ const cashHeaders = computed(() => [
     : []),
   ...(recurringBilling.value ? [{ title: 'Abonos de cuotas', key: 'abonos', align: 'end' as const, sortable: false }] : []),
   { title: 'Recibido por medio', key: 'methods', sortable: false },
-  { title: 'Efectivo del turno', key: 'expected_cash', align: 'end' as const, sortable: false },
+  { title: 'Efectivo a entregar', key: 'expected_cash', align: 'end' as const, sortable: false },
   { title: 'Contado', key: 'counted_cash', align: 'end' as const, sortable: false },
   { title: 'Diferencia', key: 'difference', align: 'end' as const, sortable: false },
   { title: 'Acciones', key: 'actions', align: 'end' as const, sortable: false },
@@ -892,20 +956,39 @@ const saveBackdatedClose = async () => {
   }
 }
 
-const printCashClose = async (session: CashSession) => {
+/** A document of a shift, built from the shift in hand: the window opens in the click, the business header fills it. */
+const printShiftDocument = async (title: string, build: (business: DocumentBusiness) => string, failure: string) => {
   const win = openDocumentWindow()
   if (!win) {
     notify('El navegador bloqueó la ventana de impresión: permite las ventanas emergentes para este sitio', 'error')
     return
   }
   try {
-    const business = await billingService.getBusiness()
-    fillDocumentWindow(win, `Cierre de caja ${session.number}`, cashCloseHtml(business, session, { orders: takesOrders.value }))
+    fillDocumentWindow(win, title, build(await billingService.getBusiness()))
   } catch (error) {
     win.close()
-    notify(errorMessage(error, 'No fue posible generar el cierre para imprimir. Inténtalo de nuevo.'), 'error')
+    notify(errorMessage(error, failure), 'error')
   }
 }
+
+const printCashClose = (session: CashSession) =>
+  printShiftDocument(
+    `Cierre de caja ${session.number}`,
+    business => cashCloseHtml(business, session, { orders: takesOrders.value }),
+    'No fue posible generar el cierre para imprimir. Inténtalo de nuevo.',
+  )
+
+const withdrawalsSession = ref<CashSession | null>(null)
+const withdrawalsText = (session: CashSession): string => {
+  const { count, total } = session.summary.cash_withdrawals
+  return `${count} ${count === 1 ? 'retiro' : 'retiros'} · ${money(total)}`
+}
+const printWithdrawal = (withdrawal: CashWithdrawal, session: CashSession) =>
+  printShiftDocument(
+    `Retiro de caja ${withdrawal.number}`,
+    business => cashWithdrawalHtml(business, withdrawal, session.number),
+    'No fue posible generar el comprobante para imprimir. Inténtalo de nuevo.',
+  )
 
 /** What the row's print button prints: the factura with a DIAN number, the comprobante without one. */
 const saleDocumentName = (sale: Sale): string =>
@@ -954,15 +1037,19 @@ const notify = (text: string, color = 'error') => {
   snackbar.value = { show: true, text, color }
 }
 
+const { xlAndUp } = useDisplay()
 // A document's date is its issue, not a payment: with automatic billing the column is just "Fecha".
+// Origen and Mesa together overflow a 1440 px row: below xl the tip goes, and the
+// Propinas card and the Excel still carry it.
 const headers = computed(() => [
   { title: 'Comprobante', key: 'invoice_number', sortable: false },
   ...(recurringBilling.value ? [{ title: 'Origen', key: 'origin', sortable: false }] : []),
+  ...(takesOrders.value ? [{ title: 'Mesa', key: 'dining_table', sortable: false }] : []),
   { title: 'Cliente', key: 'customer_name', sortable: false },
   { title: recurringBilling.value ? 'Fecha' : 'Fecha de pago', key: 'paid_at' },
   { title: 'Vendedor', key: 'waiter' },
   { title: 'Método', key: 'payment_methods', sortable: false },
-  { title: 'Propina', key: 'tip', align: 'end' as const },
+  ...(showOriginFilter.value && !xlAndUp.value ? [] : [{ title: 'Propina', key: 'tip', align: 'end' as const }]),
   { title: 'Total', key: 'total', align: 'end' as const },
   { title: '', key: 'actions', align: 'end' as const, sortable: false },
 ])

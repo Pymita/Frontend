@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, COMPANY_SLUG, apiLogin, field, loginUI, raisePlanLimits } from './helpers'
+import { ADMIN, API, COMPANY_SLUG, apiLogin, chooseReport, field, loginUI, raisePlanLimits, reportTitles } from './helpers'
 
 /**
  * Empleados: el admin crea la cuenta de alguien de su equipo con usuario
@@ -293,4 +293,69 @@ test('el admin le da y le quita a un empleado el permiso de editar movimientos d
   await expect(row).not.toContainText('Editar movimientos del kardex')
   await expect(row).toContainText('Productos e inventario')
   expect((await storedUser()).can_edit_kardex).toBe(false)
+})
+
+/**
+ * "Contabilidad" lives inside Informes, like the kardex permission inside
+ * Inventario: without it an employee with Informes does not see the
+ * accounting movement and the API refuses it; granted in Empleados, it shows.
+ */
+test('el admin le da a un empleado el permiso de contabilidad y solo entonces ve el movimiento contable', async ({ page, request }) => {
+  test.setTimeout(90_000)
+  await raisePlanLimits(request, { max_users: 50 })
+  const stamp = Date.now() % 1_000_000
+  const name = `Contadora ${stamp}`
+  const username = `contadora.${stamp}`
+  const adminAuth = { Authorization: `Bearer ${await apiLogin(request, ADMIN.email, ADMIN.password)}`, Accept: 'application/json' }
+  const created = await request.post(`${API}/users`, {
+    headers: adminAuth,
+    // Each report also needs its module: with Pedidos she reads the sales reports.
+    data: { name, username, password: 'clave123', role: 'employee', permissions: ['orders', 'reports'] },
+  })
+  expect(created.status()).toBe(201)
+  expect((await created.json()).data.can_use_accounting).toBe(false)
+
+  // Without the grant the API says whom to ask, and Informes has no Contabilidad.
+  const employeeToken = await apiLogin(request, username, 'clave123', COMPANY_SLUG)
+  const refused = await request.get(`${API}/accounting/settings`, { headers: { Authorization: `Bearer ${employeeToken}`, Accept: 'application/json' } })
+  expect(refused.status()).toBe(403)
+  expect((await refused.json()).message).toBe('Para usar la contabilidad necesitas el permiso Contabilidad. Pídeselo a tu administrador.')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, username, 'clave123')
+  await page.goto('/informes')
+  const titles = await reportTitles(page)
+  expect(titles).toContain('Ventas por fecha y vendedor')
+  expect(titles).not.toContain('Movimiento contable')
+
+  // The admin grants it in Empleados; it depends on Informes.
+  await page.evaluate(() => localStorage.clear())
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/empleados')
+  const dialog = page.getByRole('dialog')
+  const accounting = dialog.getByLabel('Contabilidad', { exact: true })
+  const reports = dialog.getByLabel('Inicio, ventas y reportes', { exact: true })
+  const row = page.locator('tbody tr', { hasText: name })
+  await expect(row).toContainText('Inicio, ventas y reportes')
+  await expect(row).not.toContainText('Contabilidad')
+  await row.getByRole('button', { name: `Editar a ${name}` }).click()
+  await expect(accounting).not.toBeChecked()
+  await expect(dialog.getByText('Configura las cuentas y descarga el movimiento contable')).toBeVisible()
+  await accounting.check()
+  await reports.uncheck()
+  await expect(accounting).toBeDisabled()
+  await expect(accounting).not.toBeChecked()
+  await reports.check()
+  await expect(accounting).toBeChecked()
+  await dialog.getByRole('button', { name: 'Guardar cambios' }).click()
+  await expect(page.getByText('Empleado actualizado exitosamente')).toBeVisible()
+  await expect(row).toContainText('Contabilidad')
+
+  // Now she sees it and opens it.
+  await page.evaluate(() => localStorage.clear())
+  await loginUI(page, username, 'clave123')
+  await page.goto('/informes')
+  await chooseReport(page, 'Movimiento contable')
+  await expect(field(page, 'Plantilla')).toContainText('Genérica')
+  await expect(page.getByRole('button', { name: 'Configurar contabilidad' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Ver movimiento' })).toBeEnabled()
 })

@@ -5,6 +5,7 @@ import {
   API,
   PLATFORM,
   apiLogin,
+  chooseReport,
   createCompany,
   displayDate,
   field,
@@ -12,6 +13,8 @@ import {
   issueDocuments,
   loginUI,
   openSidebarGroup,
+  pickOption,
+  reportTitles,
   sidebarItem,
   xlsxRows,
 } from './helpers'
@@ -96,45 +99,6 @@ async function cellUnder(page: Page, row: Locator, header: string): Promise<Loca
   const index = (await headerTexts(page)).indexOf(header)
   expect(index, `columna «${header}»`).toBeGreaterThanOrEqual(0)
   return row.locator('td').nth(index)
-}
-
-/**
- * Every report the picker offers. The menu renders only the options that fit,
- * so it is scrolled to the end, collecting the titles on the way.
- */
-async function reportTitles(page: Page): Promise<string[]> {
-  await field(page, 'Informe').click()
-  const titles = new Set<string>()
-  for (let step = 0; step < 30; step++) {
-    for (const text of await page.locator('.v-overlay--active .v-list-item-title').allInnerTexts()) titles.add(text.trim())
-    const atEnd = await page.getByRole('listbox').evaluate(list => {
-      let node: HTMLElement | null = list as HTMLElement
-      while (node && node.scrollHeight <= node.clientHeight) node = node.parentElement
-      if (!node) return true
-      const end = node.scrollTop + node.clientHeight >= node.scrollHeight - 1
-      node.scrollBy(0, node.clientHeight / 2)
-      return end
-    })
-    await page.waitForTimeout(100)
-    if (atEnd) break
-  }
-  await page.keyboard.press('Escape')
-  return [...titles]
-}
-
-async function chooseReport(page: Page, title: string): Promise<void> {
-  await field(page, 'Informe').click()
-  const option = page.getByRole('option').filter({ has: page.locator('.v-list-item-title', { hasText: new RegExp(`^${title}$`) }) })
-  for (let step = 0; step < 30 && (await option.count()) === 0; step++) {
-    await page.getByRole('listbox').evaluate(list => {
-      let node: HTMLElement | null = list as HTMLElement
-      while (node && node.scrollHeight <= node.clientHeight) node = node.parentElement
-      node?.scrollBy(0, node.clientHeight / 2)
-    })
-    await page.waitForTimeout(100)
-  }
-  await option.click()
-  await expect(field(page, 'Informe')).toContainText(title)
 }
 
 async function openColumns(page: Page): Promise<Locator> {
@@ -322,4 +286,260 @@ test('un conjunto ve sus informes, no los de pedidos ni kardex, y más de 366 d�
   await field(page, 'Desde').locator('input').press('Enter')
   await expect(page.getByRole('alert').filter({ hasText: 'El rango puede ser de máximo 366 días. Elige un periodo más corto.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Descargar Excel' })).toBeDisabled()
+})
+
+// --- Contabilidad: Movimiento contable and Configurar contabilidad ---
+
+/** The company's tax by that name; a new restaurant may already bring it. */
+async function taxNamed(request: APIRequestContext, auth: Auth, name: string, rate: number): Promise<number> {
+  const taxes = (await (await request.get(`${API}/taxes`, { headers: auth })).json()).data
+  const existing = taxes.find((tax: { name: string; rate: number | string }) => tax.name === name && Number(tax.rate) === rate)
+  if (existing) return existing.id
+  const response = await request.post(`${API}/taxes`, { headers: auth, data: { name, rate } })
+  expect(response.status(), await response.text()).toBe(201)
+  return (await response.json()).data.id
+}
+
+/**
+ * A product that manages stock. Its opening balance (SI, $0) is dated 40 days
+ * back, before any month: the period holds only what the test registers.
+ */
+async function createStockedProduct(request: APIRequestContext, auth: Auth, name: string, price: number, taxId?: number): Promise<number> {
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `${name} Cat` } })
+  const product = await request.post(`${API}/products`, {
+    headers: auth,
+    data: {
+      name, type: 'final', unit: 'und', sale_price: price, unit_cost: 0, current_stock: 0, tracks_stock: true,
+      initial_stock_date: new Date(Date.now() - 40 * 86_400_000).toLocaleDateString('en-CA'),
+      category_id: (await category.json()).data.id,
+      ...(taxId ? { tax_id: taxId } : {}),
+    },
+  })
+  expect(product.status(), await product.text()).toBe(201)
+  return (await product.json()).data.id
+}
+
+async function registerKardex(request: APIRequestContext, auth: Auth, code: string, data: Record<string, unknown>): Promise<void> {
+  const types = (await (await request.get(`${API}/document-types`, { headers: auth })).json()).data
+  const response = await request.post(`${API}/kardex/movements`, {
+    headers: auth,
+    data: { document_type_id: types.find((type: { code: string }) => type.code === code).id, ...data },
+  })
+  expect(response.status(), await response.text()).toBe(201)
+}
+
+const accountingDialog = (page: Page) => page.getByRole('dialog').filter({ hasText: 'Configurar contabilidad' })
+const templateEditor = (page: Page) => page.getByRole('dialog').filter({ hasText: 'Así queda la primera fila del Excel' })
+const preview = (page: Page) => page.getByRole('table', { name: 'Vista previa del movimiento contable' })
+/** The preview lines that carry every one of these texts (an account, a voucher code). */
+const previewRow = (page: Page, ...texts: string[]) =>
+  texts.reduce((rows, text) => rows.filter({ hasText: text }), preview(page).locator('tbody tr'))
+/** A figure of the summary over the preview (Asientos, Total débito…). */
+const figure = (page: Page, label: string) =>
+  page.getByRole('group', { name: 'Resumen del movimiento' }).getByRole('group', { name: label, exact: true })
+
+async function previewCell(page: Page, row: Locator, header: string): Promise<Locator> {
+  const index = (await preview(page).locator('thead th').allInnerTexts()).map(text => text.trim()).indexOf(header)
+  expect(index, `columna «${header}»`).toBeGreaterThanOrEqual(0)
+  return row.locator('td').nth(index)
+}
+
+test('contabilidad: las cuentas y los comprobantes quedan guardados, la plantilla propia ordena el Excel y el movimiento de una venta con IVA y una compra cuadra', async ({ page, request }) => {
+  test.setTimeout(150_000)
+  const shop = await createRestaurant(request, `contable-${Date.now()}`)
+  const stamp = Date.now() % 1_000_000
+  const iva = await taxNamed(request, shop.auth, 'IVA 19%', 19)
+  const productId = await createStockedProduct(request, shop.auth, `Cerveza Contable ${stamp}`, 11900, iva)
+  // The purchase: 10 at $5.000 before IVA, from a supplier that is not in Proveedores.
+  const supplier = `Distribuidora Contable ${stamp}`
+  await registerKardex(request, shop.auth, 'FC', {
+    movement_type: 'in',
+    items: [{ product_id: productId, quantity: 10, unit_cost: 5000, tax_id: iva }],
+    counterparty: supplier,
+    reference: `FC-${stamp}`,
+  })
+  // The sale: one at $11.900 with IVA included, in cash, with no customer.
+  const at = await chargeOrder(request, shop.auth, productId, 1, { payment_method: 'cash' })
+  const day = new Date(at).toLocaleDateString('en-CA')
+  const from = `${day.slice(0, 8)}01`
+
+  await freezeTime(page, at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, shop.credentials.email, shop.credentials.password, shop.slug)
+  await page.goto('/informes')
+  await chooseReport(page, 'Movimiento contable')
+  await expect(field(page, 'Desde').locator('input')).toHaveValue(displayDate(from))
+  await expect(field(page, 'Hasta').locator('input')).toHaveValue(displayDate(day))
+  // The generic report controls do not apply to it.
+  await expect(field(page, 'Agrupar por')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Columnas/ })).toHaveCount(0)
+
+  // The cash account and the voucher codes of the sale and the purchase.
+  await page.getByRole('button', { name: 'Configurar contabilidad' }).click()
+  const dialog = accountingDialog(page)
+  const cash = dialog.getByLabel('Cuenta de Efectivo', { exact: true })
+  await expect(cash).toHaveValue('110505')
+  await expect(dialog.getByRole('alert').filter({ hasText: /Faltan \d+ cuentas/ })).toContainText('Ingreso · Factura de facturación automática')
+  await cash.fill('1105 caja')
+  await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(dialog.getByText('La cuenta de Efectivo debe tener solo números (p. ej., 110505).').first()).toBeVisible()
+  await expect(page.getByText('Contabilidad guardada.')).toHaveCount(0)
+  await cash.fill('11050501')
+  await dialog.getByRole('tab', { name: 'Documentos' }).click()
+  const saleVoucher = dialog.getByLabel('Comprobante de Venta (factura o comprobante de venta)', { exact: true })
+  const purchaseVoucher = dialog.getByLabel('Comprobante de Factura de compra', { exact: true })
+  await saleVoucher.fill('F-1')
+  await purchaseVoucher.fill('C-1')
+  await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Contabilidad guardada.')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cerrar', exact: true }).click()
+  await expect(dialog).toBeHidden()
+
+  // Reloaded, Informes opens on the movement and the configuration kept what was typed.
+  await page.reload()
+  await expect(field(page, 'Informe')).toContainText('Movimiento contable')
+  await page.getByRole('button', { name: 'Configurar contabilidad' }).click()
+  await expect(cash).toHaveValue('11050501')
+  await dialog.getByRole('tab', { name: 'Documentos' }).click()
+  await expect(saleVoucher).toHaveValue('F-1')
+  await expect(purchaseVoucher).toHaveValue('C-1')
+
+  // A template of its own: "Cuenta" renamed and first, without "Base", with a fixed "Sucursal".
+  await dialog.getByRole('tab', { name: 'Plantillas' }).click()
+  await expect(dialog.getByText('Genérica', { exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Nueva plantilla' }).click()
+  const editor = templateEditor(page)
+  const templateName = `Siigo ${stamp}`
+  await editor.getByLabel('Nombre', { exact: true }).fill(templateName)
+  await field(page, 'Formato de fecha').click()
+  await page.getByRole('option', { name: 'aaaa-mm-dd (2026-12-31)' }).click()
+  await editor.getByLabel('Encabezado de la columna Cuenta', { exact: true }).fill('Cuenta contable')
+  for (let step = 0; step < 3; step++) await editor.getByRole('button', { name: 'Subir la columna Cuenta contable', exact: true }).click()
+  await expect(editor.getByRole('button', { name: 'Subir la columna Cuenta contable', exact: true })).toBeDisabled()
+  await editor.getByRole('button', { name: 'Quitar la columna Base', exact: true }).click()
+  await editor.getByRole('button', { name: 'Columna fija', exact: true }).click()
+  await editor.getByLabel('Encabezado de la columna fija', { exact: true }).fill('Sucursal')
+  await editor.getByLabel('Valor de la columna fija', { exact: true }).fill('01')
+  const headers = ['Cuenta contable', 'Comprobante', 'Número', 'Fecha', 'NIT tercero', 'Nombre del tercero', 'Detalle', 'Débito', 'Crédito', 'Sucursal']
+  await expect(editor.getByRole('table', { name: 'Encabezados de la plantilla' }).locator('tbody td')).toHaveText(headers)
+  await editor.getByRole('button', { name: 'Guardar plantilla' }).click()
+  await expect(page.getByText(`Plantilla «${templateName}» guardada.`)).toBeVisible()
+  await expect(editor).toBeHidden()
+  await expect(dialog.getByText(templateName, { exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cerrar', exact: true }).click()
+
+  // The preview in that template: the accounts of each line and the same total on both sides.
+  await field(page, 'Plantilla').click()
+  await pickOption(page, templateName)
+  await page.getByRole('button', { name: 'Ver movimiento' }).click()
+  await expect(preview(page).locator('thead th')).toHaveText(headers)
+  const cashLine = previewRow(page, '11050501')
+  await expect(cashLine).toHaveCount(1)
+  await expect(await previewCell(page, cashLine, 'Débito')).toHaveText('$11.900')
+  await expect(await previewCell(page, cashLine, 'Crédito')).toHaveText('')
+  await expect(await previewCell(page, cashLine, 'Comprobante')).toHaveText('F-1')
+  await expect(await previewCell(page, cashLine, 'Fecha')).toHaveText(day)
+  await expect(await previewCell(page, cashLine, 'NIT tercero')).toHaveText('222222222222')
+  await expect(await previewCell(page, cashLine, 'Nombre del tercero')).toHaveText('Consumidor final')
+  await expect(await previewCell(page, cashLine, 'Sucursal')).toHaveText('01')
+  const amounts: [string, string, string, string][] = [
+    ['414015', 'F-1', 'Crédito', '$10.000'],
+    ['240801', 'F-1', 'Crédito', '$1.900'],
+    ['614015', 'F-1', 'Débito', '$5.000'],
+    ['143505', 'F-1', 'Crédito', '$5.000'],
+    ['143505', 'C-1', 'Débito', '$50.000'],
+    ['240802', 'C-1', 'Débito', '$9.500'],
+    ['220505', 'C-1', 'Crédito', '$59.500'],
+  ]
+  for (const [account, voucher, header, amount] of amounts) {
+    const line = previewRow(page, account, voucher)
+    await expect(line, `${account} ${voucher}`).toHaveCount(1)
+    await expect(await previewCell(page, line, header), `${account} ${voucher}`).toHaveText(amount)
+  }
+  await expect(await previewCell(page, previewRow(page, '220505'), 'Nombre del tercero')).toHaveText(supplier)
+  await expect(figure(page, 'Asientos')).toContainText('2')
+  await expect(figure(page, 'Total débito')).toContainText('$76.400')
+  await expect(figure(page, 'Total crédito')).toContainText('$76.400')
+  await expect(page.getByRole('alert').filter({ hasText: 'Revisa antes de importar' })).toContainText(supplier)
+
+  // The Excel: the template's headers in order on row 1, then every line, and no totals row.
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Descargar Excel' }).click()
+  const download = await downloading
+  expect(download.suggestedFilename()).toBe(`movimiento-contable-${from}_${day}.xlsx`)
+  const rows = xlsxRows(readFileSync(await download.path())).filter(row => row.some(cell => cell !== ''))
+  expect(rows[0]).toEqual(headers)
+  const lines = rows.slice(1)
+  expect(lines).toHaveLength(8)
+  const col = (header: string) => headers.indexOf(header)
+  const sheetLine = (account: string, voucher: string) => {
+    const found = lines.filter(line => line[col('Cuenta contable')] === account && line[col('Comprobante')] === voucher)
+    expect(found, `${account} ${voucher}`).toHaveLength(1)
+    return found[0]!
+  }
+  const cashRow = sheetLine('11050501', 'F-1')
+  expect(cashRow[col('Número')]).not.toBe('')
+  expect(cashRow[col('Fecha')]).toBe(day)
+  expect(cashRow[col('NIT tercero')]).toBe('222222222222')
+  expect(cashRow[col('Nombre del tercero')]).toBe('Consumidor final')
+  // The file writes 0 on the side a line does not post on.
+  expect(Number(cashRow[col('Débito')])).toBe(11900)
+  expect(cashRow[col('Crédito')]).toBe('0')
+  expect(cashRow[col('Sucursal')]).toBe('01')
+  const payableRow = sheetLine('220505', 'C-1')
+  expect(payableRow[col('Nombre del tercero')]).toBe(supplier)
+  expect(payableRow[col('NIT tercero')]).toBe('')
+  expect(payableRow[col('Débito')]).toBe('0')
+  expect(Number(payableRow[col('Crédito')])).toBe(59500)
+  for (const [account, voucher, header, amount] of amounts) {
+    expect(Number(sheetLine(account, voucher)[col(header)]), `${account} ${voucher}`).toBe(Number(amount.replace(/\D/g, '')))
+  }
+  const sum = (header: string) => lines.reduce((total, line) => total + Number(line[col(header)] || 0), 0)
+  expect(sum('Débito')).toBe(76400)
+  expect(sum('Crédito')).toBe(76400)
+  expect(lines.every(line => line[col('Fecha')] === day && line[col('Sucursal')] === '01')).toBe(true)
+})
+
+test('contabilidad: un período que necesita una cuenta en blanco lo explica y abre la configuración en esa cuenta', async ({ page, request }) => {
+  test.setTimeout(90_000)
+  const shop = await createRestaurant(request, `contable-falta-${Date.now()}`)
+  const stamp = Date.now() % 1_000_000
+  const productId = await createStockedProduct(request, shop.auth, `Harina Ajuste ${stamp}`, 4000)
+  // Two found counting: the adjustment's "Sobrante" account comes blank.
+  await registerKardex(request, shop.auth, 'AJ', {
+    movement_type: 'in',
+    items: [{ product_id: productId, quantity: 2, unit_cost: 1000 }],
+    reference: `AJ-${stamp}`,
+  })
+  await freezeTime(page, new Date().toISOString())
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, shop.credentials.email, shop.credentials.password, shop.slug)
+  await page.goto('/informes')
+  await chooseReport(page, 'Movimiento contable')
+
+  // Downloading says what is missing instead of a file.
+  await page.getByRole('button', { name: 'Descargar Excel' }).click()
+  const missing = page.getByRole('alert').filter({ hasText: 'Faltan cuentas por configurar' })
+  await expect(missing).toContainText('Sobrante · Ajuste de inventario')
+  await expect(missing).toContainText('Complétalas en Configurar contabilidad.')
+
+  await missing.getByRole('button', { name: 'Configurar contabilidad' }).click()
+  const dialog = accountingDialog(page)
+  await expect(dialog.getByRole('tab', { name: 'Documentos' })).toHaveAttribute('aria-selected', 'true')
+  const surplus = dialog.getByLabel('Cuenta de Sobrante · Ajuste de inventario', { exact: true })
+  await expect(surplus).toBeFocused()
+  await expect(surplus).toHaveValue('')
+  await surplus.fill('425050')
+  await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Contabilidad guardada.')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cerrar', exact: true }).click()
+
+  // Closed, the movement is asked again with the new account.
+  await expect(missing).toBeHidden()
+  const surplusLine = previewRow(page, '425050')
+  await expect(surplusLine).toHaveCount(1)
+  await expect(await previewCell(page, surplusLine, 'Crédito')).toHaveText('$2.000')
+  await expect(await previewCell(page, previewRow(page, '143505'), 'Débito')).toHaveText('$2.000')
+  await expect(figure(page, 'Total débito')).toContainText('$2.000')
+  await expect(figure(page, 'Total crédito')).toContainText('$2.000')
 })

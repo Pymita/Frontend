@@ -2,7 +2,8 @@ import { money } from './money'
 /**
  * Documentos imprimibles en carta o media carta: cuenta de cobro / factura de venta y
  * recibo de caja de la facturación automática, la factura de venta de una
- * venta del POS y el cierre de caja de un turno. Es UNA plantilla para todas
+ * venta del POS, el cierre de caja de un turno y el comprobante de un retiro
+ * de caja. Es UNA plantilla para todas
  * las empresas: el encabezado sale de los datos de cada una (Configuración >
  * Datos del negocio), así que cada negocio imprime con su nombre, NIT,
  * régimen, dirección, teléfonos y observaciones.
@@ -11,7 +12,7 @@ import { customerLabel, documentKindLabels, saleMethodLabels, taxRegimeLabels } 
 import { APP_NAME } from './branding'
 import { formatFullDateTime, formatIsoDate, toIsoDate } from './dates'
 import { resolveImageUrl } from './images'
-import type { CashSession } from '../services/salesService'
+import type { CashSession, CashWithdrawal } from '../services/salesService'
 import type { OrderReceipt } from '../services/ordersService'
 
 export interface DocumentBusiness {
@@ -41,7 +42,7 @@ export interface DocumentResolution {
 }
 
 export interface PrintableInvoice {
-  document_kind: 'invoice' | 'collection' | 'credit_sale'
+  document_kind: 'invoice' | 'collection' | 'credit_sale' | 'opening_balance'
   document_number: string
   issued_at: string
   due_date: string | null
@@ -88,7 +89,7 @@ export interface PrintableReceipt {
   total: number
   lines: {
     payment_id?: number
-    document_kind: 'invoice' | 'collection' | 'credit_sale' | null
+    document_kind: 'invoice' | 'collection' | 'credit_sale' | 'opening_balance' | null
     document_number: string | null
     concept: string | null
     period: string | null
@@ -407,13 +408,18 @@ export const receiptHtml = (business: DocumentBusiness, receipt: PrintableReceip
           <tr><th class="left">POR CONCEPTO DE</th><th class="right">VALOR DOCUMENTO</th><th class="right">ABONO</th><th class="right">SALDO</th></tr>
         </thead>
         <tbody>
-          ${receipt.lines.map(line => `
+          ${receipt.lines.map(line => {
+            const kind = (documentKindLabels[line.document_kind ?? ''] ?? 'Cuenta de cobro').toLowerCase()
+            // An opening balance's default concept is its kind: "Abono a saldo inicial FV-1 · Saldo inicial" says it twice.
+            const concept = line.concept && line.concept.toLowerCase() !== kind ? ` · ${escape(line.concept)}` : ''
+            return `
           <tr>
-            <td class="left">Abono a ${(documentKindLabels[line.document_kind ?? ''] ?? 'Cuenta de cobro').toLowerCase()} ${escape(line.document_number)}${line.concept ? ` · ${escape(line.concept)}` : ''}${line.period ? ` (${escape(periodName(line.period))})` : ''}</td>
+            <td class="left">Abono a ${kind} ${escape(line.document_number)}${concept}${line.period ? ` (${escape(periodName(line.period))})` : ''}</td>
             <td class="right">${money(line.document_total)}</td>
             <td class="right">${money(line.amount)}</td>
             <td class="right">${money(line.balance)}</td>
-          </tr>`).join('')}
+          </tr>`
+          }).join('')}
         </tbody>
       </table>
       <div class="totals">
@@ -436,6 +442,54 @@ const amountRows = (rows: [string, number | null | undefined, boolean?][]): stri
 export const differenceText = (difference: number): string =>
   Math.abs(difference) < 0.01 ? 'Cuadra' : difference > 0 ? `Sobran ${money(difference)}` : `Faltan ${money(Math.abs(difference))}`
 
+/**
+ * The comprobante of one withdrawal, built from the withdrawal in hand (the
+ * answer that registered it, or the shift that lists it), so a reprint never
+ * changes. The cashier hands the money over and both sign.
+ */
+export const cashWithdrawalHtml = (business: DocumentBusiness, withdrawal: CashWithdrawal, shiftNumber: number): string => `
+  <section class="document">
+    ${header(business, 'RETIRO DE CAJA', String(withdrawal.number))}
+    <div class="box party">
+      <div class="party-grid">
+        <div>
+          ${partyRows([
+            ['FECHA (D/M/A)', formatFullDateTime(withdrawal.at)],
+            ['TURNO DE CAJA', `No. ${shiftNumber}`],
+          ])}
+        </div>
+        <div>
+          ${partyRows([['REGISTRÓ', withdrawal.user_name]])}
+        </div>
+      </div>
+    </div>
+    <div class="box">
+      <table class="compact"><tbody>${amountRows([['VALOR RETIRADO', withdrawal.amount, true]])}</tbody></table>
+    </div>
+    <div class="son"><span class="label">SON:</span> ${escape(amountInWords(withdrawal.amount))}</div>
+    <div class="box notes">
+      <div class="label">OBSERVACIONES:</div>
+      <div>${withdrawal.notes ? escape(withdrawal.notes) : '&nbsp;'}</div>
+    </div>
+    ${footer('ENTREGA (CAJERO)', 'RECIBE')}
+  </section>`
+
+const withdrawalsTable = (withdrawals: CashWithdrawal[], total: number): string => `
+  <table class="compact">
+    <thead><tr><th class="left">No.</th><th class="left">FECHA Y HORA</th><th class="left">REGISTRÓ</th><th class="left">NOTA</th><th class="right">VALOR</th></tr></thead>
+    <tbody>
+      ${withdrawals.map(w => `
+      <tr>
+        <td class="left">${w.number}</td>
+        <td class="left">${escape(formatFullDateTime(w.at))}</td>
+        <td class="left">${escape(w.user_name)}</td>
+        <td class="left">${escape(w.notes ?? '')}</td>
+        <td class="right">${money(w.amount)}</td>
+      </tr>`).join('')}
+      <tr class="grand-total"><td class="left" colspan="4">TOTAL RETIRADO</td><td class="right">${money(total)}</td></tr>
+    </tbody>
+  </table>`
+
 const productsTable = (products: { name: string; quantity: number }[]): string => `
   <table class="compact">
     <thead><tr><th class="left">PRODUCTO</th><th class="right">CANT.</th></tr></thead>
@@ -447,6 +501,8 @@ const productsTable = (products: { name: string; quantity: number }[]): string =
  * changes. Closes frozen before 2026-10 have no sales, products or invoice
  * range: they print without them. `orders: false` (a company that only bills
  * monthly fees) prints its abonos without the orders' sales, tips and products.
+ * The withdrawals of the shift are listed one by one and subtracted from the
+ * cash to deliver.
  */
 export const cashCloseHtml = (
   business: DocumentBusiness,
@@ -462,6 +518,8 @@ export const cashCloseHtml = (
   const detailed = summary.sales_total !== null && sales
   const products = summary.products ?? []
   const half = Math.ceil(products.length / 2)
+  const withdrawals = summary.cash_withdrawals?.list ?? []
+  const withdrawn = summary.cash_withdrawals?.total ?? 0
   const invoices = summary.first_invoice
     ? summary.first_invoice === summary.last_invoice ? summary.first_invoice : `${summary.first_invoice} a ${summary.last_invoice}`
     : null
@@ -547,7 +605,8 @@ export const cashCloseHtml = (
                 ? [['+ Abonos de cuotas en efectivo', summary.cash_recurring] as [string, number]]
                 : []),
               ['− Gastos pagados en efectivo', summary.cash_expenses],
-              ['EFECTIVO DEL TURNO', session.expected_cash, true],
+              ...(withdrawn > 0 ? [['− Retiros de caja', withdrawn] as [string, number]] : []),
+              ['EFECTIVO A ENTREGAR', session.expected_cash, true],
               ...(session.counted_cash !== null ? [['Efectivo contado', session.counted_cash] as [string, number]] : []),
             ])}
             ${session.difference !== null ? `<tr class="grand-total"><td class="left">DIFERENCIA</td><td class="right">${differenceText(session.difference)}</td></tr>` : ''}
@@ -555,6 +614,11 @@ export const cashCloseHtml = (
         </table>
       </div>
     </div>
+    ${withdrawals.length ? `
+    <div class="box">
+      <div class="label">RETIROS DE CAJA</div>
+      ${withdrawalsTable(withdrawals, withdrawn)}
+    </div>` : ''}
     ${detailed ? `
     <div class="box">
       <div class="label">PRODUCTOS VENDIDOS</div>

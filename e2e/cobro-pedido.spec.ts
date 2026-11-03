@@ -10,6 +10,7 @@ import {
   displayDate,
   e2eSql,
   field,
+  freezeTime,
   issueDocuments,
   loginUI,
   pageRule,
@@ -514,7 +515,7 @@ test('la caja se abre sola, el cierre pide confirmación, resume el turno y se i
   const printed = await summary.locator('body').innerText()
   expect(printed).toMatch(/Efectivo\s+1\s+\$0\s+\$12\.345/)
   expect(printed).toMatch(/Nequi\s+1\s+\$0\s+\$12\.345/)
-  expect(printed).toMatch(/EFECTIVO DEL TURNO\s+\$12\.345/)
+  expect(printed).toMatch(/EFECTIVO A ENTREGAR\s+\$12\.345/)
   expect(printed).toContain('Faltan $1.000')
   expect(printed).toContain(productName)
   expect(printed).not.toContain('Base')
@@ -804,7 +805,7 @@ test('los cierres del día o de un período se descargan en Excel y en PDF con s
   expect(cell(rows[0], 'Diferencia')).toBe('0')
   expect(cell(rows[0], 'Nota')).toBe('Cuadró al peso')
   expect(cell(rows[1], 'Gastos en efectivo')).toBe('5000')
-  expect(cell(rows[1], 'Efectivo del turno')).toBe('25000')
+  expect(cell(rows[1], 'Efectivo a entregar')).toBe('25000')
   expect(cell(rows[1], 'Efectivo contado')).toBe('')
   expect(cell(rows[3], 'Ventas (sin propina)')).toBe('60000')
   expect(cell(rows[3], 'Cobros · Efectivo')).toBe('45000')
@@ -828,14 +829,14 @@ test('los cierres del día o de un período se descargan en Excel y en PDF con s
   expect(two).toMatch(/^Cierre N\.º 2\n/)
   expect(two).not.toContain('Nequi')
   expect(two).toContain('Gastos en efectivo\n$5.000')
-  expect(two).toContain('Efectivo del turno\n$25.000')
+  expect(two).toContain('Efectivo a entregar\n$25.000')
   expect(two).toContain('Efectivo contado\n—')
   expect(two).toContain('Diferencia\n—')
   expect(period).toMatch(/^Total del período \(2 cierres\)\n/)
   expect(period).toContain('Ventas (sin propina)\n$60.000')
   expect(period).toContain('N.º de ventas\n3')
   expect(period).toContain('Cobros · Efectivo\n$45.000')
-  expect(period).toContain('Efectivo del turno\n$40.000')
+  expect(period).toContain('Efectivo a entregar\n$40.000')
   expect(period).toContain('Efectivo contado (1 de 2 cierres)\n$15.000')
   expect(period).toContain('Total recibido\n$60.000')
 
@@ -859,6 +860,198 @@ test('los cierres del día o de un período se descargan en Excel y en PDF con s
   const empty = pdfText(emptyPdf.bytes)
   expect(empty).toContain('No hay cierres de caja en estas fechas.')
   expect(empty).not.toContain('Total del período')
+})
+
+/**
+ * "El cierre de caja debe permitir recoger dinero": a withdrawal asks for the
+ * value, keeps the server's date and time and who registered it, prints its
+ * own comprobante only when asked, and the close lists every withdrawal of
+ * the shift and subtracts them from the cash to deliver, on screen, on paper,
+ * in Ventas › Cierres de caja, the Excel and the PDF.
+ */
+test('los retiros de caja se registran, se imprimen y el cierre los relaciona y los resta del efectivo a entregar', async ({ page, request }) => {
+  test.setTimeout(90_000)
+  const { credentials, auth } = await createRestaurant(request, `caja-retiros-${Date.now()}`)
+  const today = isoDay()
+  const productId = await seedSimpleProduct(request, auth, 'Almuerzo Retiro E2E', 60000)
+  await chargeOrder(request, auth, productId, 'cash', 2)   // $120.000 en efectivo
+  await chargeOrder(request, auth, productId, 'nequi')     // $60.000 por Nequi: nunca está en el cajón
+
+  const printing = await watchPrinting(page)
+  await loginUI(page, credentials.email, credentials.password)
+  await page.goto('/pedidos')
+  await expect(page.getByTestId('cash-open-chip')).toContainText('Caja abierta desde')
+  await expect(page.getByTestId('cash-withdrawals-chip')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Retirar dinero' }).click()
+  const withdraw = page.getByRole('dialog').filter({ hasText: 'Retirar dinero' })
+  await expect(withdraw).toContainText('Sale del cajón del turno 1')
+  await expect(withdraw).toContainText('Ahora debería haber $120.000 en el cajón')
+  await expect(withdraw.getByText('Motivo o quién recibe el dinero')).toBeVisible()
+  const value = withdraw.getByLabel('Valor')
+  await expect(value).not.toHaveAttribute('type', 'number')
+  await expect(withdraw.getByRole('button', { name: 'Registrar retiro' })).toBeDisabled()
+  await value.fill('500.000')
+  await expect(withdraw.getByTestId('withdraw-above-drawer')).toBeVisible()
+  await value.fill('50.000')
+  await expect(withdraw.getByTestId('withdraw-above-drawer')).toHaveCount(0)
+  await withdraw.getByLabel('Nota (opcional)').fill('Lo recoge Juan, el dueño')
+  await withdraw.getByRole('button', { name: 'Registrar retiro' }).click()
+  const message = page.locator('.v-snackbar', { hasText: 'Retiro de caja No. 1 por $50.000 registrado.' })
+  await expect(message).toBeVisible()
+  await expect(withdraw).toHaveCount(0)
+  // Registering never printed by itself: the message offers the comprobante.
+  expect(await printing()).toEqual({ opened: 0, printed: 0 })
+
+  const [comprobante] = await Promise.all([
+    page.waitForEvent('popup'),
+    message.getByRole('button', { name: 'Imprimir comprobante' }).click(),
+  ])
+  await expect(comprobante.locator('.doc-number')).toContainText('RETIRO DE CAJA')
+  await expect(comprobante.locator('.doc-number .number')).toHaveText('1')
+  const paper = await comprobante.locator('.document').innerText()
+  expect(paper).toContain(`E2E caja-retiros`)
+  expect(paper).toMatch(/FECHA \(D\/M\/A\):\s+\d{2}\/\d{2}\/\d{4}, \d{2}:\d{2}/)
+  expect(paper).toContain('TURNO DE CAJA: No. 1')
+  expect(paper).toContain('REGISTRÓ: Dueña Caja')
+  expect(paper).toMatch(/VALOR RETIRADO\s+\$50\.000/)
+  expect(paper).toContain('SON: CINCUENTA MIL PESOS M/CTE')
+  expect(paper).toContain('Lo recoge Juan, el dueño')
+  expect(paper).toContain('ENTREGA (CAJERO)')
+  expect(paper).toContain('RECIBE')
+  expect(paper).toMatch(/Impreso el \d{2}\/\d{2}\/\d{4}/)
+  // It fits half letter: one half page.
+  await comprobante.getByRole('button', { name: 'Media carta' }).click()
+  await expect(comprobante.getByRole('button', { name: 'Media carta' })).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(() => pageRule(comprobante)).toContain('size: 5.5in 8.5in')
+  const halfPdf = await comprobante.pdf({ preferCSSPageSize: true })
+  expect(pdfPages(halfPdf)).toBe(1)
+  expect(pdfPageSize(halfPdf)).toEqual([396, 612])
+  await comprobante.close()
+
+  // A second one, without a note.
+  await page.getByRole('button', { name: 'Retirar dinero' }).click()
+  await expect(withdraw).toContainText('Ahora debería haber $70.000 en el cajón')
+  await withdraw.getByLabel('Valor').fill('20.000')
+  await withdraw.getByRole('button', { name: 'Registrar retiro' }).click()
+  await expect(page.locator('.v-snackbar', { hasText: 'Retiro de caja No. 2 por $20.000 registrado.' })).toBeVisible()
+
+  // The panel: how many, how much, and the list with a reprint for each.
+  const chip = page.getByTestId('cash-withdrawals-chip')
+  await expect(chip).toHaveText('2 retiros · $70.000')
+  await chip.click()
+  const list = page.getByRole('dialog').filter({ hasText: 'Retiros del turno 1' })
+  await expect(list).toContainText('2 retiros por $70.000. Al cerrar la caja se restan del efectivo a entregar.')
+  const rows = list.getByTestId('cash-withdrawal')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0)).toContainText(/No\. 1 · \d{2}:\d{2}/)
+  await expect(rows.nth(0)).toContainText('$50.000')
+  await expect(rows.nth(0)).toContainText('Dueña Caja · Lo recoge Juan, el dueño')
+  await expect(rows.nth(1)).toContainText(/No\. 2 · \d{2}:\d{2}/)
+  await expect(rows.nth(1)).toContainText('$20.000')
+  await expect(rows.nth(1)).toContainText('Dueña Caja')
+  const [reprint] = await Promise.all([
+    page.waitForEvent('popup'),
+    list.getByRole('button', { name: 'Imprimir el retiro de caja No. 2' }).click(),
+  ])
+  await expect(reprint.locator('.doc-number .number')).toHaveText('2')
+  await expect(reprint.locator('.document')).toContainText('VEINTE MIL PESOS M/CTE')
+  await expect(reprint.locator('.notes')).not.toContainText('Lo recoge')
+  await reprint.close()
+  await list.getByRole('button', { name: 'Cerrar' }).click()
+
+  // The close: the relación and the cash after the withdrawals, counted.
+  await page.getByRole('button', { name: 'Cerrar caja' }).click()
+  const close = page.getByRole('dialog').filter({ hasText: 'Cerrar caja' })
+  const relation = close.getByTestId('cash-withdrawals')
+  await expect(relation).toContainText('Retiros de caja')
+  await expect(relation.getByTestId('cash-withdrawal')).toHaveCount(2)
+  await expect(relation.getByTestId('cash-withdrawal').nth(0)).toContainText('Lo recoge Juan, el dueño')
+  await expect(close.getByTestId('cash-withdrawn')).toHaveText('$70.000')
+  await expect(close.getByTestId('cash-expected')).toHaveText('$50.000')
+  await expect(close.getByText('Cuenta el efectivo de las ventas que quedó después de los retiros, sin la base que dejas en el cajón')).toBeVisible()
+  await close.getByLabel('Efectivo contado (opcional)').fill('50.000')
+  await expect(close.getByTestId('cash-difference')).toHaveText('Cuadra: el efectivo está completo')
+  await close.getByRole('button', { name: 'Cerrar caja' }).click()
+  await close.getByRole('button', { name: 'Sí, cerrar caja' }).click()
+  const done = page.getByRole('dialog').filter({ hasText: 'Caja cerrada' })
+  await expect(done).toContainText('Caja cerrada: el efectivo cuadra.')
+  await expect(done.getByTestId('cash-withdrawal')).toHaveCount(2)
+  await expect(done.getByTestId('cash-withdrawn')).toHaveText('$70.000')
+  await expect(done.getByTestId('cash-expected')).toHaveText('$50.000')
+
+  const [summary] = await Promise.all([
+    page.waitForEvent('popup'),
+    done.getByRole('button', { name: 'Imprimir resumen' }).click(),
+  ])
+  await expect(summary.locator('.doc-number')).toContainText('CIERRE DE CAJA')
+  const printed = await summary.locator('body').innerText()
+  expect(printed).toMatch(/Efectivo\s+1\s+\$0\s+\$120\.000/)
+  expect(printed).toMatch(/− Retiros de caja\s+\$70\.000/)
+  expect(printed).toMatch(/EFECTIVO A ENTREGAR\s+\$50\.000/)
+  expect(printed).toMatch(/Efectivo contado\s+\$50\.000/)
+  expect(printed).toMatch(/DIFERENCIA\s+Cuadra/)
+  expect(printed).toContain('RETIROS DE CAJA')
+  expect(printed).toMatch(/1\s+\d{2}\/\d{2}\/\d{4}, \d{2}:\d{2} .*\s+Dueña Caja\s+Lo recoge Juan, el dueño\s+\$50\.000/)
+  expect(printed).toMatch(/2\s+\d{2}\/\d{2}\/\d{4}, \d{2}:\d{2} .*\s+Dueña Caja\s+\$20\.000/)
+  expect(printed).toMatch(/TOTAL RETIRADO\s+\$70\.000/)
+  await summary.close()
+  await done.getByRole('button', { name: 'Listo' }).click()
+  // The new shift starts with nothing taken out.
+  await expect(page.getByTestId('cash-withdrawals-chip')).toHaveCount(0)
+
+  // Ventas › Cierres de caja shows them per close, and the downloads carry them.
+  await openCashCloses(page)
+  await expect(page.locator('.v-data-table thead')).toContainText('Efectivo a entregar')
+  const row = shiftRow(page, 1)
+  await expect(row).toContainText('$50.000')
+  await expect(row).toContainText('Cuadra')
+  await row.getByRole('button', { name: '2 retiros · $70.000: ver los retiros del turno 1' }).click()
+  const closedList = page.getByRole('dialog').filter({ hasText: 'Retiros del turno 1' })
+  await expect(closedList).toContainText('Ya están restados del efectivo a entregar ($50.000).')
+  const closedRows = closedList.getByTestId('cash-withdrawal')
+  await expect(closedRows).toHaveCount(2)
+  await expect(closedRows.nth(0)).toContainText(/No\. 1 · .*\$50\.000/)
+  await expect(closedRows.nth(0)).toContainText('Dueña Caja · Lo recoge Juan, el dueño')
+  await expect(closedRows.nth(1)).toContainText(/No\. 2 · .*\$20\.000/)
+  await expect(closedList).toContainText(/Total retirado\s*\$70\.000/)
+  const [fromVentas] = await Promise.all([
+    page.waitForEvent('popup'),
+    closedList.getByRole('button', { name: 'Imprimir el retiro de caja No. 1' }).click(),
+  ])
+  await expect(fromVentas.locator('.doc-number .number')).toHaveText('1')
+  await expect(fromVentas.locator('.document')).toContainText('TURNO DE CAJA: No. 1')
+  await fromVentas.close()
+  await closedList.getByRole('button', { name: 'Cerrar' }).click()
+  await expect(closedList).toHaveCount(0)
+
+  const download = async (name: string) => {
+    const [file] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name }).click()])
+    return readFileSync((await file.path())!)
+  }
+  const [header, ...sheet] = xlsxRows(await download('Descargar Excel'))
+  const cell = (values: string[] | undefined, title: string) => values?.[header!.indexOf(title)] ?? ''
+  expect(header!.slice(header!.indexOf('Gastos en efectivo'), header!.indexOf('Efectivo contado') + 1))
+    .toEqual(['Gastos en efectivo', 'Retiros de caja', 'Efectivo a entregar', 'Efectivo contado'])
+  expect(sheet.map(values => values[0] ?? '')).toEqual(['1', '', 'Total del período (1 cierre)'])
+  for (const values of [sheet[0], sheet[2]]) {
+    expect(cell(values, 'Cobros · Efectivo')).toBe('120000')
+    expect(cell(values, 'Cobros · Nequi')).toBe('60000')
+    expect(cell(values, 'Gastos en efectivo')).toBe('0')
+    expect(cell(values, 'Retiros de caja')).toBe('70000')
+    expect(cell(values, 'Efectivo a entregar')).toBe('50000')
+    expect(cell(values, 'Efectivo contado')).toBe('50000')
+    expect(cell(values, 'Diferencia')).toBe('0')
+    expect(cell(values, 'Total recibido')).toBe('180000')
+  }
+
+  const text = pdfText(await download('Descargar PDF'))
+  expect(text).toContain(`Día: ${displayDate(today)} · Solo los turnos cerrados`)
+  const [, one, period] = text.split(/(?=Cierre N\.º \d+\n|Total del período)/)
+  expect(one).toContain('Retiros de caja\n$70.000')
+  expect(one).toContain('Efectivo a entregar\n$50.000')
+  expect(period).toContain('Retiros de caja\n$70.000')
+  expect(period).toContain('Efectivo a entregar\n$50.000')
 })
 
 /** One file carries at most 2,000 closes: a longer period is narrowed first, and both downloads say so. */
@@ -932,9 +1125,16 @@ test('la venta se imprime en hoja como factura de venta, desde Pedidos y desde V
   })).json()).data.id
   const beer = await product('Cerveza Club', 6500)
   const empanada = await product('Empanada de pipián', 3000, tax.id)
+  const table = await request.post(`${API}/tables`, { headers: auth, data: { number: 5, capacity: 4 } })
+  expect(table.status()).toBe(201)
+  // Taken as the waiter app takes it: on its table, named after the table.
   const order = await request.post(`${API}/orders`, {
     headers: auth,
-    data: { customer_name: 'Mesa Hoja', items: [{ product_id: beer, quantity: 2 }, { product_id: empanada, quantity: 3 }] },
+    data: {
+      dining_table_id: (await table.json()).data.id,
+      customer_name: 'Mesa 5',
+      items: [{ product_id: beer, quantity: 2 }, { product_id: empanada, quantity: 3 }],
+    },
   })
   expect(order.status()).toBe(201)
 
@@ -972,7 +1172,11 @@ test('la venta se imprime en hoja como factura de venta, desde Pedidos y desde V
   await expect(invoice.locator('.totals')).toContainText('IMPUESTO (INCLUIDO): $667')
   await expect(invoice.locator('.totals')).toContainText('TOTAL: $22.000')
   await expect(invoice.locator('.totals')).not.toContainText('PROPINA')
-  await expect(invoice.locator('.party')).toContainText('CLIENTE: Mesa Hoja')
+  // Nobody identified the buyer: the consumidor final with the DIAN's NIT, never the table.
+  await expect(invoice.locator('.party')).toContainText('CLIENTE: Consumidor final')
+  await expect(invoice.locator('.party')).toContainText('NIT: 222222222222')
+  await expect(invoice.locator('.party')).toContainText('MESA: Mesa 5')
+  await expect(invoice.locator('.party')).not.toContainText('CLIENTE: Mesa')
   await expect(invoice.locator('.party')).toContainText('FORMA DE PAGO: Efectivo')
   await expect(invoice.locator('.son')).toHaveText('SON: VEINTIDÓS MIL PESOS M/CTE')
   await expect(invoice.locator('.notes')).toContainText('Gracias por tu compra')
@@ -986,7 +1190,16 @@ test('la venta se imprime en hoja como factura de venta, desde Pedidos y desde V
   // Later, from the paid order's row: "Tirilla" is the ticket, the menu has the factura.
   await page.getByRole('button', { name: 'Pagados' }).click()
   const paidRow = page.locator('tbody tr', { hasText: '$22.000' })
-  await expect(paidRow.getByRole('button', { name: 'Tirilla' })).toBeVisible()
+  const [ticket] = await Promise.all([
+    page.waitForEvent('popup'),
+    paidRow.getByRole('button', { name: 'Tirilla' }).click(),
+  ])
+  await expect(ticket.locator('body')).toContainText('FACTURA DE VENTA No. FE1')
+  const ticketText = await ticket.locator('body').innerText()
+  expect(ticketText).toContain('CLIENTE : Consumidor final')
+  expect(ticketText).toContain('NIT     : 222222222222')
+  expect(ticketText).toContain('MESA    : Mesa 5')
+  await ticket.close()
   await paidRow.getByRole('button', { name: 'Más acciones del pedido' }).click()
   await page.waitForTimeout(300)
   await page.screenshot({ path: '../screenshots/factura-ventas-productos-menu-1440.png' })
@@ -1045,6 +1258,7 @@ test('sin resolución, la venta de una persona sale en hoja como comprobante con
     await expect(doc.locator('.items tbody tr td')).toHaveText(['Arepa Persona', '1', '$4.200', '—', '$4.200'])
     await expect(doc.locator('.totals')).toContainText('TOTAL: $4.200')
     await expect(doc.locator('.party')).toContainText('CLIENTE: Consumidor final')
+    await expect(doc.locator('.party')).toContainText('NIT: 222222222222')
     await expect(doc.locator('body')).not.toContainText('Jugo Persona')
     await expect(doc.locator('body')).not.toContainText(/FACTURA DE VENTA|Resolución/)
   }
@@ -1063,6 +1277,59 @@ test('sin resolución, la venta de una persona sale en hoja como comprobante con
     page.getByRole('button', { name: `Imprimir el comprobante ${sale.reference}` }).click(),
   ])
   await expectComprobante(fromVentas)
+})
+
+/**
+ * A sale charged to a registered customer prints that customer, never the
+ * consumidor final: the ticket and the letter comprobante carry the name and
+ * the document as the customer has them, and Ventas reads the name.
+ */
+test('una venta a un cliente registrado imprime su nombre y su documento', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `cliente-hoja-${Date.now()}`)
+  const arepa = await seedSimpleProduct(request, auth, 'Arepa Cliente', 5300)
+  const customer = await request.post(`${API}/customers`, {
+    headers: auth,
+    data: { document_type: 'CC', document_number: '1.002.655.357', name: 'Ana Registrada', address: 'Calle 1 # 2-3' },
+  })
+  expect(customer.status(), await customer.text()).toBe(201)
+  const order = (await (await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { customer_name: 'Mesa 2', items: [{ product_id: arepa, quantity: 1 }] },
+  })).json()).data
+  const paid = await request.post(`${API}/orders/${order.id}/pay`, {
+    headers: auth,
+    data: { payment_method: 'cash', customer_id: (await customer.json()).data.id },
+  })
+  expect(paid.ok()).toBeTruthy()
+  const sale = (await (await request.get(`${API}/orders/${order.id}`, { headers: auth })).json()).data.payments[0]
+
+  await freezeTime(page, order.created_at)
+  await loginUI(page, credentials.email, credentials.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Pedidos del día' }).click()
+  const [ticket] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.locator('tbody tr', { hasText: '$5.300' }).getByRole('button', { name: 'Tirilla' }).click(),
+  ])
+  await expect(ticket.locator('body')).toContainText('COMPROBANTE DE VENTA')
+  const ticketText = await ticket.locator('body').innerText()
+  expect(ticketText).toContain('CLIENTE : Ana Registrada')
+  expect(ticketText).toContain('CC      : 1002655357')
+  expect(ticketText).not.toContain('222222222222')
+  await ticket.close()
+
+  await page.goto('/ventas')
+  const row = page.locator('tbody tr', { hasText: '$5.300' })
+  await expect(row).toContainText('Ana Registrada')
+  const [comprobante] = await Promise.all([
+    page.waitForEvent('popup'),
+    row.getByRole('button', { name: `Imprimir el comprobante ${sale.reference}` }).click(),
+  ])
+  const party = comprobante.locator('.party')
+  await expect(party).toContainText('CLIENTE: Ana Registrada')
+  await expect(party).toContainText('CC: 1002655357')
+  await expect(party).toContainText('DIRECCIÓN: Calle 1 # 2-3')
+  await expect(party).not.toContainText(/Consumidor final|222222222222/)
 })
 
 /**
@@ -1351,7 +1618,7 @@ test('vender a crédito: el pedido queda cobrado, Ventas lo cuenta una vez y Car
   const printed = await summary.locator('body').innerText()
   expect(printed).toMatch(/Ventas a crédito \(en Cartera\)\s+\$94\.200/)
   expect(printed).toMatch(/Abonos de cuotas · Efectivo\s+\$10\.000/)
-  expect(printed).toMatch(/EFECTIVO DEL TURNO\s+\$10\.000/)
+  expect(printed).toMatch(/EFECTIVO A ENTREGAR\s+\$10\.000/)
   await summary.close()
   await close.getByRole('button', { name: 'Listo' }).click()
 

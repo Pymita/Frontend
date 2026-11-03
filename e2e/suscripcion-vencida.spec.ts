@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { API, PLATFORM, apiLogin, loginUI } from './helpers'
+import { API, PLATFORM, apiLogin, chooseReport, loginUI } from './helpers'
 
 /**
  * Una empresa con la suscripción vencida queda en SOLO LECTURA: puede
@@ -104,6 +104,18 @@ test('una empresa vencida ve el motivo y las acciones apagadas, no escondidas', 
 
   await page.goto('/finanzas')
   await expect(page.getByRole('button', { name: 'Registrar movimiento' })).toBeDisabled()
+
+  // La contabilidad se consulta, pero sus cuentas y plantillas no se guardan.
+  await page.goto('/informes')
+  await chooseReport(page, 'Movimiento contable')
+  await page.getByRole('button', { name: 'Configurar contabilidad' }).click()
+  const accounting = page.getByRole('dialog').filter({ hasText: 'Configurar contabilidad' })
+  await expect(accounting.getByLabel('Cuenta de Efectivo', { exact: true })).toHaveValue('110505')
+  await expect(accounting.getByRole('button', { name: 'Guardar', exact: true })).toBeDisabled()
+  await accounting.getByRole('tab', { name: 'Plantillas' }).click()
+  await expect(accounting.getByRole('button', { name: 'Nueva plantilla' })).toBeDisabled()
+  await expect(accounting.getByRole('button', { name: 'Eliminar la plantilla Genérica' })).toBeDisabled()
+  await accounting.getByRole('button', { name: 'Cerrar', exact: true }).click()
 
   // Editar y eliminar también quedan apagados: si no, el cliente choca
   // contra un error en vez de entender que se le venció la cuenta.

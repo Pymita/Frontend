@@ -1,5 +1,13 @@
-import { expect, test } from '@playwright/test'
-import { ADMIN, API, SHOP_WITH_FEES, apiLogin, createCompany, field, freezeTime, issueDocuments, loginUI } from './helpers'
+import { expect, test, type Locator, type Page } from '@playwright/test'
+import { ADMIN, API, SHOP_WITH_FEES, apiLogin, createCompany, field, freezeTime, issueDocuments, loginUI, raisePlanLimits } from './helpers'
+
+/** The cell of `row` under the column `header` of the sales list. */
+async function cellUnder(page: Page, row: Locator, header: string): Promise<Locator> {
+  const headers = (await page.locator('.v-data-table thead th').allInnerTexts()).map(text => text.trim())
+  const index = headers.indexOf(header)
+  expect(index, `columna «${header}»`).toBeGreaterThanOrEqual(0)
+  return row.locator('td').nth(index)
+}
 
 /**
  * Pestaña de Ventas: solo los pedidos PAGADOS cuentan, los totales se ven
@@ -30,26 +38,36 @@ test('las ventas pagadas aparecen con su total y el filtro de método funciona',
   })
   const productId = (await product.json()).data.id
 
-  // Una venta en efectivo y otra por transferencia; una tercera sin pagar.
-  const payOrder = async (method: string, customer: string) => {
-    const order = await request.post(`${API}/orders`, {
+  // Una venta en efectivo y otra por transferencia; una tercera sin pagar. Cada
+  // una a un cliente registrado: Ventas lee su nombre en la columna Cliente.
+  const stamp = Date.now() % 1_000_000_000
+  const registered = async (name: string, n: number): Promise<number> => {
+    const customer = await request.post(`${API}/customers`, {
       headers: auth,
-      data: { customer_name: customer, items: [{ product_id: productId, quantity: 1 }] },
+      data: { document_type: 'CC', document_number: `${stamp}${n}`, name },
     })
-    const orderId = (await order.json()).data.id
-    const payment = await request.post(`${API}/orders/${orderId}/pay`, {
+    expect(customer.status(), await customer.text()).toBe(201)
+    return (await customer.json()).data.id
+  }
+  const newOrder = async (): Promise<number> => (await (await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { items: [{ product_id: productId, quantity: 1 }] },
+  })).json()).data.id
+  const payOrder = async (method: string, customer: string, n: number) => {
+    const payment = await request.post(`${API}/orders/${await newOrder()}/pay`, {
       headers: auth,
-      data: { payment_method: method },
+      data: { payment_method: method, customer_id: await registered(customer, n) },
     })
     expect(payment.ok()).toBeTruthy()
   }
 
-  await payOrder('cash', 'Cliente Efectivo E2E')
-  await payOrder('transfer', 'Cliente Transfer E2E')
-  await request.post(`${API}/orders`, {
+  await payOrder('cash', 'Cliente Efectivo E2E', 1)
+  await payOrder('transfer', 'Cliente Transfer E2E', 2)
+  const unpaid = await request.put(`${API}/orders/${await newOrder()}`, {
     headers: auth,
-    data: { customer_name: 'Cliente Impago E2E', items: [{ product_id: productId, quantity: 1 }] },
+    data: { customer_id: await registered('Cliente Impago E2E', 3) },
   })
+  expect(unpaid.ok()).toBeTruthy()
 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/ventas')
@@ -76,7 +94,12 @@ test('las ventas pagadas aparecen con su total y el filtro de método funciona',
   expect(download.suggestedFilename()).toMatch(/^ventas_.*\.xlsx$/)
 })
 
-test('una venta sin nombre es de un consumidor final y se identifica con su comprobante', async ({ page, request }) => {
+/**
+ * A sale nobody identified is the consumidor final's, whatever its order is
+ * called: "Cliente" when nobody gave a name, or the table's name, which the
+ * waiter app sends as the order's customer. The table reads under Mesa.
+ */
+test('una venta sin nombre es de un consumidor final, su mesa se lee en Mesa y se identifica con su comprobante', async ({ page, request }) => {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
   const auth = { Authorization: `Bearer ${token}` }
   const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `Consumidor E2E ${Date.now()}` } })
@@ -87,12 +110,28 @@ test('una venta sin nombre es de un consumidor final y se identifica con su comp
       current_stock: 10, tracks_stock: true, category_id: (await category.json()).data.id,
     },
   })
+  const productId = (await product.json()).data.id
   const order = await request.post(`${API}/orders`, {
     headers: auth,
-    data: { items: [{ product_id: (await product.json()).data.id, quantity: 1 }] },
+    data: { items: [{ product_id: productId, quantity: 1 }] },
   })
   const orderId = (await order.json()).data.id
   expect((await request.post(`${API}/orders/${orderId}/pay`, { headers: auth, data: {} })).ok()).toBeTruthy()
+
+  await raisePlanLimits(request, { max_tables: 60 })
+  const nickname = `Terraza ${Date.now()}`
+  const tables = (await (await request.get(`${API}/tables`, { headers: auth })).json()).data
+  const table = await request.post(`${API}/tables`, {
+    headers: auth,
+    data: { number: Math.max(0, ...tables.map((t: { number: number }) => t.number)) + 1, nickname, capacity: 4 },
+  })
+  expect(table.status()).toBe(201)
+  const fromApp = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { dining_table_id: (await table.json()).data.id, customer_name: nickname, items: [{ product_id: productId, quantity: 2 }] },
+  })
+  expect(fromApp.status()).toBe(201)
+  expect((await request.post(`${API}/orders/${(await fromApp.json()).data.id}/pay`, { headers: auth, data: {} })).ok()).toBeTruthy()
 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/ventas')
@@ -101,8 +140,14 @@ test('una venta sin nombre es de un consumidor final y se identifica con su comp
   const row = page.locator('tr', { hasText: '$2.347' })
   await expect(row).toContainText('Consumidor final')
   await expect(row).not.toContainText(/^Cliente$/)
+  // A counter sale has no table.
+  await expect(await cellUnder(page, row, 'Mesa')).toHaveText('—')
+  const tableRow = page.locator('tr', { hasText: '$4.694' })
+  await expect(await cellUnder(page, tableRow, 'Mesa')).toHaveText(nickname)
+  await expect(await cellUnder(page, tableRow, 'Cliente')).toHaveText('Consumidor final')
   // Without automatic billing the page reads as it always did.
   await expect(page.getByRole('columnheader', { name: 'Fecha de pago' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'Propina' })).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'Origen' })).toHaveCount(0)
   await expect(page.getByRole('group', { name: 'Origen de las ventas' })).toHaveCount(0)
 })
@@ -159,7 +204,13 @@ test('con facturación automática los documentos son ventas con su número, cli
   // Sold the day it was issued, and still partly owed.
   await expect(document).toContainText('Abonada')
   await expect(document).toContainText('$250.000')
-  const sale = page.locator('tbody tr', { hasText: 'Cliente Tienda E2E' })
+  await expect(await cellUnder(page, document, 'Mesa')).toHaveText('—')
+  // With Origen and Mesa the tip column gives way, so the row fits 1440 px without scrolling.
+  await expect(page.getByRole('columnheader', { name: 'Propina' })).toHaveCount(0)
+  const wrapper = page.locator('.v-data-table .v-table__wrapper')
+  expect(await wrapper.evaluate(table => table.scrollWidth - table.clientWidth)).toBeLessThanOrEqual(0)
+  // A name typed at the counter does not identify a buyer: without a customer it is a consumidor final.
+  const sale = page.locator('tbody tr', { hasText: 'Consumidor final' })
   await expect(sale).toContainText('Pedido')
   await expect(sale).toContainText('$5.000')
   await expect(page.locator('tbody tr', { hasText: 'Beto Apto 102' })).toHaveCount(0)

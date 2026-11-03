@@ -216,6 +216,45 @@ export function field(page: Page, label: string) {
 }
 
 /**
+ * Every report the Informes picker offers. The menu renders only the options
+ * that fit, so it is scrolled to the end, collecting the titles on the way.
+ */
+export async function reportTitles(page: Page): Promise<string[]> {
+  await field(page, 'Informe').click()
+  const titles = new Set<string>()
+  for (let step = 0; step < 30; step++) {
+    for (const text of await page.locator('.v-overlay--active .v-list-item-title').allInnerTexts()) titles.add(text.trim())
+    const atEnd = await page.getByRole('listbox').evaluate(list => {
+      let node: HTMLElement | null = list as HTMLElement
+      while (node && node.scrollHeight <= node.clientHeight) node = node.parentElement
+      if (!node) return true
+      const end = node.scrollTop + node.clientHeight >= node.scrollHeight - 1
+      node.scrollBy(0, node.clientHeight / 2)
+      return end
+    })
+    await page.waitForTimeout(100)
+    if (atEnd) break
+  }
+  await page.keyboard.press('Escape')
+  return [...titles]
+}
+
+export async function chooseReport(page: Page, title: string): Promise<void> {
+  await field(page, 'Informe').click()
+  const option = page.getByRole('option').filter({ has: page.locator('.v-list-item-title', { hasText: new RegExp(`^${title}$`) }) })
+  for (let step = 0; step < 30 && (await option.count()) === 0; step++) {
+    await page.getByRole('listbox').evaluate(list => {
+      let node: HTMLElement | null = list as HTMLElement
+      while (node && node.scrollHeight <= node.clientHeight) node = node.parentElement
+      node?.scrollBy(0, node.clientHeight / 2)
+    })
+    await page.waitForTimeout(100)
+  }
+  await option.click()
+  await expect(field(page, 'Informe')).toContainText(title)
+}
+
+/**
  * Picks an option of the open v-select by its text. The menu only renders the
  * options that fit (a virtual list), and every spec adds categories and
  * products to the seeded company: it scrolls the list until the option shows.

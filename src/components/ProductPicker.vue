@@ -64,7 +64,7 @@
           :variant="guest === n ? 'flat' : 'tonal'"
           @click="setGuest(n)"
         >
-          {{ nameOf(n) }}
+          {{ guestLabel(n, guestNames) }}
           <!-- Lapicito: renombrar la persona (por defecto "Persona N"). -->
           <v-icon size="x-small" class="ml-1" title="Editar nombre" @click.stop="startEdit(n)">
             mdi-pencil
@@ -110,7 +110,7 @@
               variant="tonal"
               class="mr-1"
             >
-              P{{ line.guest_number }}
+              {{ guestLabel(line.guest_number, guestNames) }}
             </v-chip>
             {{ line.name }}
           </v-list-item-title>
@@ -146,7 +146,7 @@
 <script setup lang="ts">
 import { money } from '@/utils/money'
 import { computed, ref, watch } from 'vue';
-import { guestsIn, priceOf, type PickedLine } from '@/utils/orderLines';
+import { guestLabel, guestsIn, priceOf, type PickedLine } from '@/utils/orderLines';
 
 const props = defineProps<{
   items: any[];
@@ -165,9 +165,6 @@ const emit = defineEmits<{
 }>();
 
 const search = ref('');
-
-// Nombre visible de una persona: el que le pusieron, o "Persona N".
-const nameOf = (n: number): string => props.guestNames?.[n] || `Persona ${n}`;
 
 // Edición del nombre de una persona (lapicito).
 const editingGuest = ref<number | null>(null);

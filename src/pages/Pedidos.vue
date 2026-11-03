@@ -318,7 +318,7 @@
                             </td>
                             <td v-if="hasGuests(item)">
                               <v-chip size="x-small" :color="orderItem.guest_number ? 'primary' : undefined" variant="tonal">
-                                {{ guestLabel(orderItem.guest_number) }}
+                                {{ guestLabel(orderItem.guest_number, item.guest_names) }}
                               </v-chip>
                             </td>
                             <td>{{ money(orderItem.unit_price) }}</td>
@@ -1074,6 +1074,7 @@ import {
   orderPaymentMethodLabels,
   saleMethodLabels,
   customerDocumentTypeLabels,
+  customerLabel,
   orderLabel,
   orderReference,
   paymentState,
@@ -1188,7 +1189,7 @@ const guestOptions = computed(() => {
   const count = guestsOf(selectedOrder.value) + 1;
   return [
     { title: 'Compartido', value: null },
-    ...Array.from({ length: count }, (_, i) => ({ title: `Persona ${i + 1}`, value: i + 1 })),
+    ...Array.from({ length: count }, (_, i) => ({ title: guestLabel(i + 1, selectedOrder.value?.guest_names), value: i + 1 })),
   ];
 });
 
@@ -1809,8 +1810,8 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
     line,
     ...header,
     line,
-    `CLIENTE : ${r.customer.name || 'Consumidor final'}`,
-    r.customer.document ? `CC/NIT  : ${r.customer.document}` : '',
+    `CLIENTE : ${customerLabel(r.customer.name)}`,
+    r.customer.document ? `${(r.customer.document_type || 'CC/NIT').padEnd(8)}: ${r.customer.document}` : '',
     // Before its first charge an order has no number: the table, customer and date name it.
     r.number ? `PEDIDO  : #${r.number}` : '',
     `FECHA   : ${formatFullDateTime((!opts.preBill && r.paid_at) || r.created_at)}`,

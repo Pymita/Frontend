@@ -64,6 +64,8 @@ export const documentKindLabels: Record<string, string> = {
   collection: 'Cuenta de cobro',
   // An order charged "A crédito" in Pedidos: what the customer owes for it.
   credit_sale: 'Venta a crédito',
+  // What a customer already owed before Servify: never a sale, only cartera.
+  opening_balance: 'Saldo inicial',
 }
 
 /** Where a sale in Ventas comes from: an order charged or a document issued. */
@@ -76,6 +78,14 @@ export const saleOriginLabels: Record<string, string> = {
 export const customerImportStatusLabels: Record<string, string> = {
   valid: 'Se crea',
   created: 'Creado',
+  skipped: 'Se salta',
+  error: 'Con error',
+}
+
+/** Each row of the opening balances Excel; the colors are `customerImportStatusColors`. */
+export const openingBalanceImportStatusLabels: Record<string, string> = {
+  valid: 'Se registra',
+  created: 'Registrado',
   skipped: 'Se salta',
   error: 'Con error',
 }
@@ -198,6 +208,20 @@ export const yesNoLabels: Record<string, string> = {
   no: 'No',
 }
 
+// ===== Contabilidad =====
+/** The side an account posts on in the normal entry (`nature` in /accounting/settings). */
+export const accountingNatureLabels: Record<string, string> = {
+  debit: 'Débito',
+  credit: 'Crédito',
+}
+
+/** How a template writes its dates (`date_format`), with the example the Excel will read. */
+export const accountingDateFormatLabels: Record<string, string> = {
+  'd/m/Y': 'dd/mm/aaaa (31/12/2026)',
+  'Y-m-d': 'aaaa-mm-dd (2026-12-31)',
+  'm/d/Y': 'mm/dd/aaaa (12/31/2026)',
+}
+
 /**
  * The label map of each enum a report column names (`enum` in
  * /reports/definitions, `Report::ENUMS` in the API, which labels the Excel
@@ -234,10 +258,17 @@ export const label = (map: Record<string, string>, value?: string | null): strin
   return map[value] ?? value
 }
 
+/**
+ * The buyer of a sale nobody identified, as the API sends it on receipts and
+ * sales: the DIAN's final-consumer NIT, the same for every company
+ * (Customer::FINAL_CONSUMER_* in the backend).
+ */
+export const FINAL_CONSUMER = { name: 'Consumidor final', documentType: 'NIT', document: '222222222222' } as const
+
 /** Un pedido nace con "Cliente" cuando nadie dio su nombre: es un consumidor final. */
 export const customerLabel = (name?: string | null): string => {
   const trimmed = name?.trim()
-  return trimmed && trimmed !== 'Cliente' ? trimmed : 'Consumidor final'
+  return trimmed && trimmed !== 'Cliente' ? trimmed : FINAL_CONSUMER.name
 }
 
 interface NamedOrder {
@@ -256,7 +287,7 @@ interface NamedOrder {
 export const orderReference = (order: NamedOrder): string => {
   if (order.number) return `#${order.number}`
   const customer = customerLabel(order.customer_name)
-  const who = order.dining_table?.display_name || (customer !== 'Consumidor final' ? customer : '')
+  const who = order.dining_table?.display_name || (customer !== FINAL_CONSUMER.name ? customer : '')
   if (who) return `de ${who}`
   return order.created_at ? `de las ${formatTime(order.created_at)}` : 'sin cobrar'
 }
