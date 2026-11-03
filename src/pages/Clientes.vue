@@ -11,13 +11,24 @@
               <p class="text-body-1 text-medium-emphasis">A quién le vendes y a quién le compras</p>
             </div>
           </div>
-          <LockableButton
-            icon="mdi-plus"
-            color="primary"
-            size="large"
-            @click="activeTab === 'clientes' ? openDialog() : openSupplierDialog()">
-            {{ activeTab === 'clientes' ? 'Nuevo cliente' : 'Nuevo proveedor' }}
-          </LockableButton>
+          <div class="d-flex flex-wrap ga-2">
+            <LockableButton
+              v-if="activeTab === 'clientes'"
+              icon="mdi-microsoft-excel"
+              color="primary"
+              variant="outlined"
+              size="large"
+              @click="importDialog = true">
+              Importar clientes desde Excel
+            </LockableButton>
+            <LockableButton
+              icon="mdi-plus"
+              color="primary"
+              size="large"
+              @click="activeTab === 'clientes' ? openDialog() : openSupplierDialog()">
+              {{ activeTab === 'clientes' ? 'Nuevo cliente' : 'Nuevo proveedor' }}
+            </LockableButton>
+          </div>
         </div>
       </v-col>
     </v-row>
@@ -69,6 +80,13 @@
                   <v-chip size="small" color="primary" variant="outlined">
                     {{ item.document_type }}
                   </v-chip>
+                </template>
+
+                <template #item.verification_digit="{ item }">
+                  <span v-if="item.verification_digit !== null && item.verification_digit !== undefined" class="tabular-nums">
+                    {{ item.verification_digit }}
+                  </span>
+                  <span v-else class="text-medium-emphasis">—</span>
                 </template>
 
                 <template #item.person_type="{ item }">
@@ -211,11 +229,12 @@
                 </v-select>
               </v-col>
 
-              <v-col cols="12" md="8">
+              <v-col :cols="showsDigit ? 8 : 12" :md="showsDigit ? 5 : 8">
                 <v-text-field
                   v-model="formData.document_number"
                   variant="outlined"
                   density="comfortable"
+                  hint="Otro cliente con el mismo documento (otra casa, otro local): agrega -A, -B al final"
                   :rules="[rules.required, documentRule(formData.document_type)]"
                   @blur="tidyDocument"
                 >
@@ -223,6 +242,18 @@
                     Número de documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                   </template>
                 </v-text-field>
+              </v-col>
+
+              <v-col v-if="showsDigit" cols="4" md="3">
+                <v-text-field
+                  :model-value="formDigit ?? ''"
+                  label="DV"
+                  variant="outlined"
+                  density="comfortable"
+                  readonly
+                  hint="Lo calcula el sistema"
+                  persistent-hint
+                  aria-label="Dígito de verificación" />
               </v-col>
 
               <v-col cols="12">
@@ -367,6 +398,8 @@
       </v-card>
     </v-dialog>
 
+    <CustomerImportDialog v-model="importDialog" @imported="onCustomersImported" />
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="snackbarColor === 'error' ? 9000 : 3000" closable>
       {{ snackbarText }}
     </v-snackbar>
@@ -375,9 +408,16 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/errors';
-import { documentProblem, documentRule, normalizeDocument } from '@/utils/validation'
-import { ref, onMounted } from 'vue'
+import {
+  VERIFICATION_DIGIT_TYPES,
+  customerVerificationDigit,
+  documentProblem,
+  documentRule,
+  normalizeDocument,
+} from '@/utils/validation'
+import { computed, ref, onMounted } from 'vue'
 import { billingService, type Customer, type PersonType, type Supplier } from '@/services/billingService'
+import CustomerImportDialog from '../components/CustomerImportDialog.vue'
 import LockableButton from '../components/LockableButton.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 import { PAGE_SIZE_OPTIONS, useServerPage } from '../composables/useServerPage'
@@ -413,6 +453,7 @@ const form = ref<any>(null)
 const headers = [
   { title: 'Tipo doc', key: 'document_type', sortable: true },
   { title: 'Documento', key: 'document_number', sortable: true },
+  { title: 'DV', key: 'verification_digit', sortable: false },
   { title: 'Nombre / Razón social', key: 'name', sortable: true },
   { title: 'Correo', key: 'email', sortable: false },
   { title: 'Teléfono', key: 'phone', sortable: false },
@@ -445,6 +486,19 @@ const emptyForm = (): ClienteForm => ({
 })
 
 const formData = ref<ClienteForm>(emptyForm())
+
+// The DIAN verification digit, live as the number is typed; the API computes the one it stores.
+const showsDigit = computed(() => VERIFICATION_DIGIT_TYPES.includes(formData.value.document_type))
+const formDigit = computed(() => {
+  const { document_type, document_number } = formData.value
+  return customerVerificationDigit(document_type, normalizeDocument(document_number, document_type))
+})
+
+const importDialog = ref(false)
+const onCustomersImported = (message: string) => {
+  showMessage(message, 'success')
+  loadClientes()
+}
 
 const rules = {
   required: (v: any) => !!v || 'Este campo es requerido',

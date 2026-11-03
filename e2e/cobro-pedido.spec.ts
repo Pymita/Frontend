@@ -1455,9 +1455,53 @@ test('una venta a un cliente registrado imprime su nombre y su documento', async
   ])
   const party = comprobante.locator('.party')
   await expect(party).toContainText('CLIENTE: Ana Registrada')
+  // A cédula prints without its verification digit.
   await expect(party).toContainText('CC: 1002655357')
+  await expect(party).not.toContainText('1002655357-')
   await expect(party).toContainText('DIRECCIÓN: Calle 1 # 2-3')
   await expect(party).not.toContainText(/Consumidor final|222222222222/)
+  await comprobante.close()
+
+  // A NIT prints with the digit the DIAN computes (Bancolombia, 890903938-8)
+  // and never the letter that tells its sedes apart in the lists.
+  const sede = await request.post(`${API}/customers`, {
+    headers: auth,
+    data: { document_type: 'NIT', document_number: '890.903.938-a', name: 'Bancolombia Sede A' },
+  })
+  expect(sede.status(), await sede.text()).toBe(201)
+  expect((await sede.json()).data).toMatchObject({ document_number: '890903938-A', verification_digit: '8' })
+  const nitOrder = (await (await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { customer_name: 'Mesa 3', items: [{ product_id: arepa, quantity: 2 }] },
+  })).json()).data
+  expect((await request.post(`${API}/orders/${nitOrder.id}/pay`, {
+    headers: auth,
+    data: { payment_method: 'cash', customer_id: (await sede.json()).data.id },
+  })).ok()).toBeTruthy()
+  const nitSale = (await (await request.get(`${API}/orders/${nitOrder.id}`, { headers: auth })).json()).data.payments[0]
+
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Pedidos del día' }).click()
+  const [nitTicket] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.locator('tbody tr', { hasText: '$10.600' }).getByRole('button', { name: 'Tirilla' }).click(),
+  ])
+  await expect(nitTicket.locator('body')).toContainText('COMPROBANTE DE VENTA')
+  const nitTicketText = await nitTicket.locator('body').innerText()
+  expect(nitTicketText).toContain('CLIENTE : Bancolombia Sede A')
+  expect(nitTicketText).toContain('NIT     : 890903938-8')
+  expect(nitTicketText).not.toContain('890903938-A')
+  await nitTicket.close()
+
+  await page.goto('/ventas')
+  const nitRow = page.locator('tbody tr', { hasText: '$10.600' })
+  const [nitComprobante] = await Promise.all([
+    page.waitForEvent('popup'),
+    nitRow.getByRole('button', { name: `Imprimir el comprobante ${nitSale.reference}` }).click(),
+  ])
+  await expect(nitComprobante.locator('.party')).toContainText('CLIENTE: Bancolombia Sede A')
+  await expect(nitComprobante.locator('.party')).toContainText('NIT: 890903938-8')
+  await expect(nitComprobante.locator('.party')).not.toContainText('890903938-A')
 })
 
 /**

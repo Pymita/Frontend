@@ -1205,6 +1205,7 @@ import {
   fillDocumentWindow,
   openDocumentWindow,
   printedAtText,
+  printedDocument,
   saleDocumentNumber,
   saleInvoiceHtml,
   taxRegimeText,
@@ -1997,7 +1998,7 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
     ...header,
     line,
     `CLIENTE : ${customerLabel(r.customer.name)}`,
-    r.customer.document ? `${(r.customer.document_type || 'CC/NIT').padEnd(8)}: ${r.customer.document}` : '',
+    r.customer.document ? `${(r.customer.document_type || 'CC/NIT').padEnd(8)}: ${printedDocument(r.customer.document_type, r.customer.document)}` : '',
     // Before its first charge an order has no number: the table, customer and date name it.
     r.number ? `PEDIDO  : #${r.number}` : '',
     `FECHA   : ${formatFullDateTime((!opts.preBill && r.paid_at) || r.created_at)}`,

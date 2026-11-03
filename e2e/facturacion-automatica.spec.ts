@@ -420,7 +420,7 @@ test('los documentos con puntos quedan solo con números y en 200 filas la mala 
       numero_documento: n % 10 === 0 ? document.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : document,
     })
   })
-  rows[2] = fileRow({ nombre: 'Inversiones Andinas SAS', tipo_documento: 'NIT', numero_documento: '900.608.736 - 1' })
+  rows[2] = fileRow({ nombre: 'Inversiones Andinas SAS', tipo_documento: 'NIT', numero_documento: '900.608.736 - 8' })
   rows[4] = fileRow({ nombre: 'Ana Otra Vez', numero_documento: '1.002.655.357' })
   rows[49] = fileRow({ nombre: 'Apto 50 con letra', numero_documento: '10030000SO' })
   rows[119] = fileRow({ nombre: 'Apto 120 repetido', numero_documento: '1.003.000.001' })
@@ -442,7 +442,7 @@ test('los documentos con puntos quedan solo con números y en 200 filas la mala 
   await expect(resultRow('Apto 120 repetido').locator('td').first()).toHaveText('121')
   await expect(resultRow('Apto 120 repetido')).toContainText('El documento 1003000001 (en el archivo dice «1.003.000.001») está repetido en el archivo (ya venía en la fila 2).')
   await expect(resultRow('Ana Otra Vez')).toContainText('Ya existe: Ana Formulario tiene el documento 1002655357 (en el archivo dice «1.002.655.357»). No se modificó.')
-  await expect(resultRow('Inversiones Andinas SAS')).toContainText('El documento «900.608.736 - 1» queda como 900608736-1.')
+  await expect(resultRow('Inversiones Andinas SAS')).toContainText('El documento «900.608.736 - 8» queda como 900608736.')
   await page.waitForTimeout(400)
   await page.screenshot({ path: '../screenshots/documentos-clientes-importar-revision-1440.png' })
 
@@ -457,11 +457,12 @@ test('los documentos con puntos quedan solo con números y en 200 filas la mala 
   await page.setViewportSize({ width: 1440, height: 900 })
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
 
-  // En la lista: el NIT con su DV y la cédula que venía con puntos, solo con
-  // números. El buscador encuentra por documento, escrito con o sin puntos.
+  // En la lista: el NIT sin su DV (lo calcula el sistema) y la cédula que
+  // venía con puntos, solo con números. El buscador encuentra por documento,
+  // escrito con o sin puntos, y el NIT con o sin su DV.
   const search = page.getByRole('textbox', { name: 'Buscar por nombre o documento' })
-  await search.fill('900608736')
-  await expect(row(page, 'Inversiones Andinas SAS')).toContainText('NIT 900608736-1')
+  await search.fill('900.608.736-8')
+  await expect(row(page, 'Inversiones Andinas SAS')).toContainText('NIT 900608736')
   await search.fill('1.003.000.010')
   await expect(page.locator('.v-window-item--active tbody tr')).toHaveCount(1)
   await expect(row(page, 'Apto 10')).toContainText('CC 1003000010')
@@ -1491,6 +1492,69 @@ test('la cuenta de cobro con impuesto y descuento suma el total en lo impreso', 
     'TOTAL: $100.000',
   ])
   await expect(popup.locator('.son')).toHaveText('SON: CIEN MIL PESOS M/CTE')
+})
+
+/**
+ * Valentina: a person with automatic billing and three houses needs a
+ * factura per house, so each house is a customer with the document and a
+ * letter (1002655357-A, -B). The lists keep the letter to tell them apart;
+ * the cuenta de cobro prints only the number. A NIT prints its DIAN
+ * verification digit, computed, never typed.
+ */
+test('la cuenta de cobro de una casa imprime solo el número del documento y la de un NIT su DV', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'casas')
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const north = await createResident(request, company.token, { name: 'Ana Casa Norte', document_number: '1002655357-a' })
+  const south = await createResident(request, company.token, { name: 'Ana Casa Sur', document_number: '1002655357-B', monthly_fee: 180000 })
+  const bank = await request.post(`${API}/customers`, {
+    headers: auth,
+    data: { document_type: 'NIT', document_number: '890903938', name: 'Bancolombia SA', recurring_active: true, monthly_fee: 70000, billing_day: 10 },
+  })
+  expect(bank.status()).toBe(201)
+  const generated = await request.post(`${API}/recurring-billing/invoices/generate`, {
+    headers: auth,
+    data: { period: PERIOD, items: [{ customer_id: north }, { customer_id: south }, { customer_id: (await bank.json()).data.id }] },
+  })
+  expect(generated.status()).toBe(201)
+  const numberOf = async (name: string): Promise<string> =>
+    (await generated.json()).data.created.find((invoice: IssuedDocument) => invoice.customer_name === name).document_number
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Facturación automática').click()
+
+  // Clientes: each house with its letter, and the number finds both.
+  await page.getByRole('tab', { name: /Clientes/ }).click()
+  await expect(row(page, 'Ana Casa Norte')).toContainText('CC 1002655357-A')
+  await expect(row(page, 'Ana Casa Sur')).toContainText('CC 1002655357-B')
+  await page.getByRole('textbox', { name: 'Buscar por nombre o documento' }).fill('1.002.655.357')
+  await expect(page.locator('.v-window-item--active tbody tr')).toHaveCount(2)
+
+  await page.getByRole('tab', { name: /Facturar/ }).click()
+  await field(page, 'Mes a facturar').locator('input').fill(PERIOD)
+  const northNumber = await numberOf('Ana Casa Norte')
+  const [house] = await Promise.all([
+    page.waitForEvent('popup'),
+    row(page, 'Ana Casa Norte').getByRole('button', { name: `Imprimir ${northNumber}` }).click(),
+  ])
+  await expect(house.locator('.doc-number')).toContainText(northNumber)
+  await expect(house.locator('.party')).toContainText('NOMBRE: Ana Casa Norte')
+  await expect(house.locator('.party')).toContainText('CC: 1002655357')
+  await expect(house.locator('body')).not.toContainText('1002655357-')
+  await house.close()
+
+  const bankNumber = await numberOf('Bancolombia SA')
+  const [nit] = await Promise.all([
+    page.waitForEvent('popup'),
+    row(page, 'Bancolombia SA').getByRole('button', { name: `Imprimir ${bankNumber}` }).click(),
+  ])
+  await expect(nit.locator('.party')).toContainText('NIT: 890903938-8')
+  await nit.close()
+
+  // Cartera lists each house apart, with its letter.
+  await sidebarItem(page, 'Cartera').click()
+  await expect(page.getByText('1002655357-A', { exact: true })).toBeVisible()
+  await expect(page.getByText('1002655357-B', { exact: true })).toBeVisible()
 })
 
 test('la factura de venta lleva el número tal cual y la resolución en el encabezado, antes de los ítems', async ({ page, request }) => {

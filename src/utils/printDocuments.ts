@@ -8,10 +8,11 @@ import { money } from './money'
  * Datos del negocio), así que cada negocio imprime con su nombre, NIT,
  * régimen, dirección, teléfonos y observaciones.
  */
-import { customerLabel, documentKindLabels, durationLabel, playersLabel, saleMethodLabels, taxRegimeLabels } from './labels'
+import { FINAL_CONSUMER, customerLabel, documentKindLabels, durationLabel, playersLabel, saleMethodLabels, taxRegimeLabels } from './labels'
 import { APP_NAME } from './branding'
 import { formatFullDateTime, formatIsoDate, toIsoDate } from './dates'
 import { resolveImageUrl } from './images'
+import { documentBase, verificationDigit } from './validation'
 import type { CashSession, CashWithdrawal } from '../services/salesService'
 import type { OrderReceipt, ReceiptTimeDetail } from '../services/ordersService'
 
@@ -214,6 +215,24 @@ const header = (business: DocumentBusiness, kind: string, number: string, resolu
     </div>`
 }
 
+/**
+ * The buyer's document as every printed document writes it: the number
+ * without the letter that tells customers with the same document apart
+ * ("123-A" prints 123) and, next to a NIT, its DIAN verification digit
+ * ("900123456-8"); a CC prints without it. The consumidor final's NIT is
+ * not a RUT and prints bare, and a document issued when the NIT kept the
+ * digit typed after a dash reprints as it was.
+ */
+export const printedDocument = (type: string | null | undefined, document: string | null | undefined): string => {
+  const number = documentBase(document)
+  const digit = type === 'NIT' && number !== FINAL_CONSUMER.document ? verificationDigit(number) : null
+  return digit === null ? number : `${number}-${digit}`
+}
+
+/** "NIT" for a NIT, the type otherwise: the label of the buyer's document row. */
+const documentRow = (type: string | null | undefined, document: string | null | undefined, fallback: string): [string, string] =>
+  [type === 'NIT' ? 'NIT' : type || fallback, printedDocument(type, document)]
+
 const partyRows = (rows: [string, string | null | undefined][]): string =>
   rows
     .filter(([, value]) => value)
@@ -244,7 +263,7 @@ export const invoiceHtml = (
         <div>
           ${partyRows([
             ['NOMBRE', invoice.customer_name],
-            [invoice.customer_document_type === 'NIT' ? 'NIT' : invoice.customer_document_type || 'NIT', invoice.customer_document],
+            documentRow(invoice.customer_document_type, invoice.customer_document, 'NIT'),
             ['DIRECCIÓN', invoice.customer_address],
             ['TELÉFONO', invoice.customer_phone],
           ])}
@@ -320,7 +339,6 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
     const name = detail ? `Tiempo de mesa: ${detail}` : 'Tiempo de mesa'
     lines.push({ quantity: 1, name, unit_price: sale.time_amount, total: sale.time_amount, tax_rate: 0, tax: '—' })
   }
-  const documentType = sale.customer.document_type
   const methods = sale.payment_methods.map(method => METHOD_LABELS[method] ?? method).join(' + ')
   const notes = [business.document_notes].filter(Boolean).map(escape).join('<br>')
 
@@ -332,7 +350,7 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
         <div>
           ${partyRows([
             ['CLIENTE', customerLabel(sale.customer.name)],
-            [documentType === 'NIT' ? 'NIT' : documentType || 'CC/NIT', sale.customer.document],
+            documentRow(sale.customer.document_type, sale.customer.document, 'CC/NIT'),
             ['DIRECCIÓN', sale.customer.address],
             ['TELÉFONO', sale.customer.phone],
           ])}
@@ -404,7 +422,7 @@ export const receiptHtml = (business: DocumentBusiness, receipt: PrintableReceip
         <div>
           ${partyRows([
             ['RECIBIMOS DE', receipt.customer.name],
-            [receipt.customer.document_type === 'NIT' ? 'NIT' : receipt.customer.document_type || 'NIT', receipt.customer.document],
+            documentRow(receipt.customer.document_type, receipt.customer.document, 'NIT'),
             ['DIRECCIÓN', receipt.customer.address],
             ['TELÉFONO', receipt.customer.phone],
           ])}

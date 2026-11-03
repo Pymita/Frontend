@@ -9,7 +9,10 @@ export type PersonType = 'natural' | 'legal'
 export interface Customer {
   id: number
   document_type: string
+  /** As stored: a NIT without its verification digit; "-A", "-B"… tell apart customers with the same document. */
   document_number: string
+  /** DIAN verification digit, computed by the API for NIT and CC; never typed. */
+  verification_digit?: string | null
   name: string
   trade_name?: string
   email?: string
@@ -260,8 +263,15 @@ export interface CustomerImportResult {
   rows: CustomerImportRow[]
   /** Encabezados que no corresponden a ninguna columna (se ignoraron) */
   ignored_columns: string[]
+  /** Also in ignored_columns: fee columns of a file for a company without automatic billing. */
+  ignored_fee_columns?: string[]
   /** Problemas del archivo entero (fila 0 o 1) */
   errors: ImportRowError[]
+}
+
+/** The customers import's columns: the fee ones only when the company has automatic billing (`with_fee`). */
+export interface CustomerImportFormat extends ImportFormat {
+  with_fee?: boolean
 }
 
 /** One pending document of an opening balance; without `due_date` it is due on `issued_at`. */
@@ -396,8 +406,8 @@ export const billingService = {
 
   // --- Importar clientes (y su cuota) desde Excel ---
   /** Las columnas y las notas del tutorial, tal como las lee el backend. */
-  async getCustomerImportFormat(): Promise<ImportFormat> {
-    const response = await api.get<ApiResponse<ImportFormat>>('/recurring-billing/customers/import/columns')
+  async getCustomerImportFormat(): Promise<CustomerImportFormat> {
+    const response = await api.get<ApiResponse<CustomerImportFormat>>('/recurring-billing/customers/import/columns')
     return response.data.data
   },
 
