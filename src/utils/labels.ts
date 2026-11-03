@@ -225,6 +225,18 @@ export const yesNoLabels: Record<string, string> = {
   no: 'No',
 }
 
+/** The direction of a kardex movement, as the Kardex Excel writes its "Tipo". */
+export const movementTypeLabels: Record<string, string> = {
+  in: 'Entrada',
+  out: 'Salida',
+}
+
+/** Green in, red out: the Kardex's own colors for a movement. */
+export const movementTypeColors: Record<string, string> = {
+  in: 'success',
+  out: 'error',
+}
+
 // ===== Contabilidad =====
 /** The side an account posts on in the normal entry (`nature` in /accounting/settings). */
 export const accountingNatureLabels: Record<string, string> = {
@@ -257,13 +269,15 @@ export const enumLabels: Record<string, Record<string, string>> = {
   expense_type: expenseCategoryTypeLabels,
   expense_payment_method: expensePaymentMethodLabels,
   payment_status: paymentStatusLabels,
+  movement_type: movementTypeLabels,
 }
 
-/** Enums that are states: their cells read as a chip of the state's role. */
+/** Enums that are states (or a kardex direction): their cells read as a chip of its role. */
 export const enumColors: Record<string, Record<string, string>> = {
   stock_status: stockStatusColors,
   document_status: recurringInvoiceStatusColors,
   payment_status: paymentStatusColors,
+  movement_type: movementTypeColors,
 }
 
 /** Opciones de un v-select a partir de un mapa de etiquetas, en su orden. */

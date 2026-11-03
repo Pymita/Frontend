@@ -1,8 +1,22 @@
 import api from './api'
 import type { PageMeta, PageQuery, PaginatedResponse } from '@/types/api'
 
-/** How a cell reads: week is its Monday (AAAA-MM-DD), month AAAA-MM, hour 0–23. */
-export type ReportColumnType = 'text' | 'enum' | 'integer' | 'quantity' | 'money' | 'percent' | 'date' | 'week' | 'month' | 'hour'
+/**
+ * How a cell reads: week is its Monday (AAAA-MM-DD), month AAAA-MM, hour 0–23,
+ * datetime "AAAA-MM-DD HH:MM" in Bogotá time (a day alone for the kardex's opening row).
+ */
+export type ReportColumnType =
+  | 'text'
+  | 'enum'
+  | 'integer'
+  | 'quantity'
+  | 'money'
+  | 'percent'
+  | 'date'
+  | 'datetime'
+  | 'week'
+  | 'month'
+  | 'hour'
 
 export interface ReportColumn {
   key: string
@@ -45,7 +59,10 @@ export interface ReportDefinition {
   question: string
   /** `default`: today, or month (from the 1st to today). */
   period: { type: ReportPeriodType; max_days?: number; default?: 'today' | 'month' }
+  /** `max` 0: one row per record (a kardex movement), nothing to group by; each row then carries its `id`. */
   group_by: { default: string[]; max: number }
+  /** Raised when the report's defaults change on purpose: a choice remembered under another version is dropped. */
+  defaults_version?: number
   columns: ReportColumn[]
   filters: ReportFilter[]
   default_sort?: { by: string; dir: 'asc' | 'desc' }
