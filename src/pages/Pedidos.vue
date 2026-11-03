@@ -462,16 +462,16 @@
           <MoneyField v-model="tipAmount" label="Propina" autofocus empty-as-zero />
           <v-select
             v-model="tipMethod"
-            :items="payMethodOptions"
-            item-title="title"
-            item-value="value"
+            :items="saleMethods"
             label="Medio de pago de la propina"
+            :hint="saleMethods.length ? undefined : noSaleMethods"
+            persistent-hint
           />
         </v-card-text>
         <v-card-actions>
           <v-spacer />
           <v-btn @click="tipDialog = false">Cancelar</v-btn>
-          <v-btn color="primary" :loading="saving" :disabled="!(tipAmount > 0)" @click="saveTip">
+          <v-btn color="primary" :loading="saving" :disabled="!(tipAmount > 0) || !tipMethod" @click="saveTip">
             Agregar propina
           </v-btn>
         </v-card-actions>
@@ -545,6 +545,9 @@
             label="Método de pago"
             class="mb-1"
           />
+          <v-alert v-if="!saleMethods.length" type="warning" variant="tonal" density="compact" class="mb-3">
+            {{ noSaleMethods }}
+          </v-alert>
 
           <template v-if="payMode === 'split'">
             <p class="text-body-2 text-medium-emphasis mb-2">
@@ -828,6 +831,7 @@
               color="primary"
               variant="tonal"
               :loading="saving"
+              :disabled="!payMethod"
               @click="confirmarCobro(true)"
             >
               Cobrar con propina
@@ -836,7 +840,7 @@
               color="primary"
               variant="flat"
               :loading="saving"
-              :disabled="onCredit && (!payCustomerId || !payDueDate)"
+              :disabled="!payMethod || (onCredit && (!payCustomerId || !payDueDate))"
               @click="confirmarCobro(false)"
             >
               {{ onCredit ? 'Vender a crédito' : tipOffered ? 'Cobrar sin propina' : 'Confirmar cobro' }}
@@ -1174,8 +1178,6 @@ import {
   orderStatusColors,
   paymentStatusLabels,
   paymentStatusColors,
-  orderPaymentMethodLabels,
-  saleMethodLabels,
   customerDocumentTypeLabels,
   customerLabel,
   orderLabel,
@@ -1199,11 +1201,13 @@ import { tablesService } from '@/services/tablesService';
 import { effectiveFeatures } from '@/types/auth';
 import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/utils/orderLines';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
+import { methodOptions, methodsFor, paymentMethodLabel, usePaymentMethods } from '@/composables/usePaymentMethods';
 import { money } from '@/utils/money';
 import { creditDueDate, formatDay, formatFullDateTime, formatIsoDate, formatRecent, todayIso } from '@/utils/dates';
 import {
   fillDocumentWindow,
   openDocumentWindow,
+  paymentMethodsText,
   printedAtText,
   printedDocument,
   saleDocumentNumber,
@@ -1478,17 +1482,27 @@ const saveTimeBilling = async () => {
   }
 };
 
+// Every charge of an order (the bill, by person, a tip) is a sale: the
+// methods the company allows for sales, asked once for the page and its dialogs.
+const { loadError: methodsError, ready: methodsReady } = usePaymentMethods({ fresh: true });
+const saleMethods = computed(() => methodOptions('sale'));
+const firstSaleMethod = (): OrderPaymentMethod => methodsFor('sale')[0]?.key ?? '';
+const noSaleMethods = computed(() =>
+  methodsError.value || 'No tienes formas de pago activas para cobrar ventas. Actívalas en Configuración › Formas de pago.',
+);
+
 // --- Revertir un cobro (solo admin) ---
 // --- Propina posterior al cobro (endpoint /orders/{id}/tip) ---
 const tipDialog = ref(false);
 const tippingOrder = ref<Order | null>(null);
 const tipAmount = ref<number>(0);
-const tipMethod = ref<OrderPaymentMethod>('cash');
+const tipMethod = ref<OrderPaymentMethod>('');
 
-const openTipDialog = (order: Order) => {
+const openTipDialog = async (order: Order) => {
   tippingOrder.value = order;
   tipAmount.value = 0;
-  tipMethod.value = 'cash';
+  await methodsReady();
+  tipMethod.value = firstSaleMethod();
   tipDialog.value = true;
 };
 
@@ -1621,22 +1635,21 @@ const getPagoText = (estado: string) => label(paymentStatusLabels, estado) || es
 // --- Cobro: método, cliente y propina (voluntaria) ---
 const payDialog = ref(false);
 const printing = ref(false);
-const payMethod = ref<SaleMethod>('cash');
+const payMethod = ref<SaleMethod>('');
 const payTip = ref(0);
 const payCustomerId = ref<number | null>(null);
 const customers = ref<Customer[]>([]);
 
-const payMethodOptions = options(orderPaymentMethodLabels);
-
 // "A crédito" closes the whole order and leaves it owed in Cartera, so it
-// takes the Cartera permission too (the API refuses it without one).
+// takes the Cartera permission too (the API refuses it without one). It is
+// not one of the company's methods: no money comes in.
 const canSellOnCredit = computed(() =>
   canCharge.value && effectiveFeatures(authStore.user).some(f => f === 'customers' || f === 'recurring_billing'),
 );
 const chargeMethodOptions = computed(() =>
   payMode.value === 'together' && canSellOnCredit.value
-    ? [...payMethodOptions, { value: 'credit', title: label(saleMethodLabels, 'credit') }]
-    : payMethodOptions,
+    ? [...saleMethods.value, { value: 'credit', title: paymentMethodLabel('credit') }]
+    : saleMethods.value,
 );
 const onCredit = computed(() => payMode.value === 'together' && payMethod.value === 'credit');
 const payDueDate = ref('');
@@ -1760,7 +1773,7 @@ watch([tipEnabled, tipPercent], () => {
 const payMode = ref<'together' | 'split'>('together');
 
 watch(payMode, mode => {
-  if (mode === 'split' && payMethod.value === 'credit') payMethod.value = 'cash';
+  if (mode === 'split' && payMethod.value === 'credit') payMethod.value = firstSaleMethod();
 });
 watch(onCredit, credit => {
   if (credit && !payCustomerId.value && selectedOrder.value?.customer_id) payCustomerId.value = selectedOrder.value.customer_id;
@@ -1772,7 +1785,7 @@ watch([onCredit, creditCustomer], ([credit, customer]) => {
 
 const openPayDialog = async (order: Order) => {
   selectedOrder.value = order;
-  payMethod.value = 'cash';
+  payMethod.value = firstSaleMethod();
   payTip.value = tipEnabled.value ? suggestedTip(order) : 0;
   payCustomerId.value = null;
   payDueDate.value = '';
@@ -1780,6 +1793,10 @@ const openPayDialog = async (order: Order) => {
   payMode.value = hasBills(order) ? 'split' : 'together';
   guestTips.value = {};
   payDialog.value = true;
+  if (!payMethod.value) {
+    await methodsReady();
+    payMethod.value = firstSaleMethod();
+  }
   // El catálogo de clientes se carga una sola vez, al primer cobro.
   if (customers.value.length === 0) {
     try {
@@ -1844,7 +1861,7 @@ const confirmarCobro = async (withTip: boolean) => {
 const cobrarPersona = async (guest: OrderGuest, withTip = false) => {
   const order = selectedOrder.value;
   const method = payMethod.value;
-  if (!order || method === 'credit') return;
+  if (!order || !method || method === 'credit') return;
 
   const items = order.items
     .filter(i => (i.guest_number ?? null) === (guest.number ?? null) && i.unpaid_quantity > 0)
@@ -1893,6 +1910,15 @@ const center = (text: string): string => {
   return ' '.repeat(Math.floor((TICKET_WIDTH - text.length) / 2)) + text;
 };
 
+/** A text longer than the ticket breaks at its spaces (a bank account), so nothing runs off the paper. */
+const wrapped = (text: string): string[] =>
+  text.split(' ').reduce<string[]>((lines, word) => {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && `${last} ${word}`.length <= TICKET_WIDTH) lines[lines.length - 1] = `${last} ${word}`;
+    else lines.push(word);
+    return lines;
+  }, []);
+
 /** `ETIQUETA                 $1.000` en el ancho de la tirilla. */
 const amountLine = (labelText: string, value: number, sign = ''): string => {
   const left = labelText.padEnd(20);
@@ -1933,6 +1959,7 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
   const totalWithoutTip = Number(r.total) - Number(r.tip || 0);
   const amountPaid = Number(opts.amountPaid || 0);
   const suggestedTip = Math.max(0, Number(opts.suggestedTip || 0));
+  const methods = r.payment_methods.length ? paymentMethodsText(r.payment_methods, r.payment_methods_detail) : '';
 
   const header = opts.preBill
     ? [
@@ -1972,9 +1999,7 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
               center('Puede pagar con o sin ella.'),
             ]
           : []),
-        ...(opts.paidNow
-          ? [line, center('PAGADO'), r.payment_methods.length ? center(r.payment_methods.map(m => label(saleMethodLabels, m)).join(' + ')) : '']
-          : []),
+        ...(opts.paidNow ? [line, center('PAGADO'), ...wrapped(methods).map(center)] : []),
       ]
     : [
         // Con propina, la factura desglosa los dos totales: lo consumido y
@@ -1982,9 +2007,7 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
         r.tip > 0 ? amountLine('TOTAL SIN PROPINA', totalWithoutTip) : '',
         r.tip > 0 ? amountLine('PROPINA VOLUNTARIA', r.tip) : '',
         amountLine(r.tip > 0 ? 'TOTAL PAGADO' : 'TOTAL', r.total),
-        r.payment_methods.length
-          ? `FORMA DE PAGO: ${r.payment_methods.map(m => label(saleMethodLabels, m)).join(' + ')}`
-          : '',
+        ...(methods ? wrapped(`FORMA DE PAGO: ${methods}`) : []),
       ];
 
   return [

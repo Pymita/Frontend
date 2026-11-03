@@ -196,6 +196,101 @@
       </v-col>
     </v-row>
 
+    <!-- Formas de pago: cada negocio define las suyas, dónde se usa cada una
+         y la cuenta donde le pagan. El orden es el de los selectores de cobro. -->
+    <v-row>
+      <v-col cols="12">
+        <v-card class="pa-4">
+          <div class="d-flex flex-wrap align-center ga-2 mb-1">
+            <h2 class="text-h6">Formas de pago</h2>
+            <v-spacer />
+            <LockableButton icon="mdi-plus" color="primary" size="small" aria-label="Nueva forma de pago" @click="openMethodDialog()">
+              Nueva
+            </LockableButton>
+          </div>
+          <p class="text-caption text-medium-emphasis mb-3">
+            Las que ofreces al cobrar, en este orden. La cuenta bancaria sale en las facturas, los recibos de caja y
+            las cuentas de cobro para que tus clientes sepan dónde pagarte.
+          </p>
+          <v-alert v-if="methodsError" type="error" variant="tonal" density="compact" class="mb-3">{{ methodsError }}</v-alert>
+          <v-data-table
+            :headers="methodHeaders"
+            :items="paymentMethods"
+            item-value="id"
+            :items-per-page="-1"
+            hide-default-footer
+            density="compact"
+            mobile-breakpoint="sm"
+            :hide-default-header="xs"
+            aria-label="Formas de pago"
+          >
+            <template #item.name="{ item }">
+              <span class="font-weight-medium text-no-wrap">{{ item.name }}</span>
+            </template>
+            <template #item.is_cash="{ item }">
+              <v-chip v-if="item.is_cash" size="x-small" variant="tonal" color="secondary" prepend-icon="mdi-cash-register">Sí</v-chip>
+              <span v-else class="text-medium-emphasis">No</span>
+            </template>
+            <template #item.bank_account="{ item }">
+              <span v-if="item.bank_account">{{ item.bank_account }}</span>
+              <span v-else class="text-medium-emphasis">—</span>
+            </template>
+            <template #item.documents="{ item }">
+              <span class="text-body-2">{{ documentsText(item.documents) }}</span>
+            </template>
+            <template #item.active="{ item }">
+              <v-chip :color="item.active ? 'success' : 'secondary'" size="x-small">
+                {{ item.active ? 'Activa' : 'Inactiva' }}
+              </v-chip>
+            </template>
+            <template #item.actions="{ item, index }">
+              <div class="d-flex justify-end text-no-wrap">
+                <v-btn
+                  icon="mdi-arrow-up"
+                  size="x-small"
+                  variant="text"
+                  :disabled="isReadOnly || index === 0 || reordering"
+                  :aria-label="`Subir la forma de pago ${item.name}`"
+                  @click="moveMethod(index, -1)"
+                />
+                <v-btn
+                  icon="mdi-arrow-down"
+                  size="x-small"
+                  variant="text"
+                  :disabled="isReadOnly || index === paymentMethods.length - 1 || reordering"
+                  :aria-label="`Bajar la forma de pago ${item.name}`"
+                  @click="moveMethod(index, 1)"
+                />
+                <v-btn
+                  icon="mdi-pencil"
+                  size="x-small"
+                  variant="text"
+                  :disabled="isReadOnly"
+                  :aria-label="`Editar la forma de pago ${item.name}`"
+                  @click="openMethodDialog(item)"
+                />
+                <v-btn
+                  icon="mdi-delete"
+                  size="x-small"
+                  variant="text"
+                  color="error"
+                  :disabled="isReadOnly"
+                  :aria-label="`Eliminar la forma de pago ${item.name}`"
+                  @click="deleteMethod(item)"
+                />
+              </div>
+            </template>
+            <template #no-data>
+              <div class="text-medium-emphasis py-4">Todavía no tienes formas de pago.</div>
+            </template>
+          </v-data-table>
+          <p class="text-caption text-medium-emphasis mt-2">
+            Una forma de pago con movimientos no se puede eliminar: desactívala y deja de salir al cobrar.
+          </p>
+        </v-card>
+      </v-col>
+    </v-row>
+
     <!-- Resolución de facturación DIAN: rango autorizado de consecutivos.
          Cada venta toma el siguiente número y lo deja como referencia en
          el kardex; el sistema alerta antes de que el rango se agote. -->
@@ -405,6 +500,64 @@
       </v-card>
     </v-dialog>
 
+    <!-- Dialog forma de pago -->
+    <v-dialog v-model="methodDialog" max-width="520" persistent scrollable>
+      <v-card>
+        <v-card-title>{{ editingMethod ? `Editar ${editingMethod.name}` : 'Nueva forma de pago' }}</v-card-title>
+        <v-card-text>
+          <v-form ref="methodFormRef" @submit.prevent="saveMethod">
+            <v-text-field
+              v-model="methodForm.name"
+              :maxlength="PAYMENT_METHOD_NAME_MAX_LENGTH"
+              :rules="paymentMethodNameRules"
+            >
+              <template #label>Nombre <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+            </v-text-field>
+            <v-switch
+              v-model="methodForm.is_cash"
+              label="Entra al cajón"
+              color="primary"
+              hint="Como el efectivo: suma en el efectivo a entregar del cierre"
+              persistent-hint
+              class="mb-2"
+            />
+            <v-text-field
+              v-model="methodForm.bank_account"
+              label="Cuenta bancaria (opcional)"
+              :maxlength="BANK_ACCOUNT_MAX_LENGTH"
+              :rules="[bankAccountRule]"
+              hint="Ej: Bancolombia ahorros 123-456. Sale en facturas y recibos"
+              persistent-hint
+              class="mb-2"
+            />
+            <div role="group" aria-labelledby="method-documents-label" class="mt-2">
+              <div id="method-documents-label" class="text-subtitle-2">Dónde se puede usar</div>
+              <v-checkbox
+                v-for="document in documentOptions"
+                :key="document.value"
+                v-model="methodForm.documents"
+                :value="document.value"
+                :label="document.title"
+                color="primary"
+                density="compact"
+                hide-details
+              />
+              <p v-if="!methodForm.documents.length" class="text-caption text-error mt-1">
+                {{ PAYMENT_METHOD_DOCUMENTS_MESSAGE }}
+              </p>
+            </div>
+            <v-switch v-model="methodForm.active" label="Activa" color="primary" hide-details class="mt-2" />
+          </v-form>
+        </v-card-text>
+        <v-alert v-if="methodError" type="error" variant="tonal" density="compact" class="mx-4 mt-2">{{ methodError }}</v-alert>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" :disabled="savingMethod" @click="methodDialog = false">Cancelar</v-btn>
+          <v-btn color="primary" :loading="savingMethod" :disabled="!methodForm.documents.length" @click="saveMethod">Guardar</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar.show" :color="snackbar.color" :timeout="snackbar.color === 'error' ? 9000 : 3000" closable>
       {{ snackbar.text }}
     </v-snackbar>
@@ -413,6 +566,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useDisplay } from 'vuetify'
 import kardexService, { type DocumentType, type Tax } from '../services/kardexService'
 import invoicingService, { type InvoicingResolution, type ResolutionStatus } from '../services/invoicingService'
 import LockableButton from '../components/LockableButton.vue'
@@ -420,11 +574,20 @@ import ImageUploader from '../components/ImageUploader.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
+import { usePaymentMethods } from '../composables/usePaymentMethods'
 import { billingService, type BusinessForm } from '../services/billingService'
+import salesService, { type PaymentDocument, type PaymentMethodPayload, type PaymentMethodRow } from '../services/salesService'
 import type { DocumentBusiness } from '../utils/printDocuments'
-import { options, taxRegimeLabels } from '../utils/labels'
+import { label, options, paymentDocumentLabels, taxRegimeLabels } from '../utils/labels'
 import { toIsoDate } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
+import {
+  BANK_ACCOUNT_MAX_LENGTH,
+  PAYMENT_METHOD_DOCUMENTS_MESSAGE,
+  PAYMENT_METHOD_NAME_MAX_LENGTH,
+  bankAccountRule,
+  paymentMethodNameRules,
+} from '../utils/validation'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
 const isReadOnly = useReadOnly()
@@ -712,6 +875,106 @@ const deleteTax = async (tax: Tax) => {
     await load()
   } catch (error: any) {
     notify(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error')
+  }
+}
+
+// --- Formas de pago (the admin reads the inactive ones too) ---
+const { methods: paymentMethods, loadError: methodsError, reload: reloadMethods } = usePaymentMethods({ fresh: true })
+const documentOptions = options(paymentDocumentLabels) as { value: PaymentDocument; title: string }[]
+const documentsText = (documents: PaymentDocument[]): string =>
+  documentOptions.every(option => documents.includes(option.value))
+    ? 'En todos'
+    : documentOptions.filter(option => documents.includes(option.value)).map(option => label(paymentDocumentLabels, option.value)).join(', ')
+// On a phone the rows stack with their own labels: the header (a sort picker there) is not needed.
+const { xs } = useDisplay()
+
+const methodHeaders = [
+  { title: 'Nombre', key: 'name', sortable: false },
+  { title: 'Entra al cajón', key: 'is_cash', sortable: false },
+  { title: 'Cuenta bancaria', key: 'bank_account', sortable: false },
+  { title: 'Dónde se puede usar', key: 'documents', sortable: false },
+  { title: 'Estado', key: 'active', sortable: false },
+  { title: '', key: 'actions', sortable: false, align: 'end' as const },
+]
+
+const methodDialog = ref(false)
+const editingMethod = ref<PaymentMethodRow | null>(null)
+const methodFormRef = ref<any>(null)
+const savingMethod = ref(false)
+const methodError = ref('')
+const reordering = ref(false)
+const emptyMethod = (): PaymentMethodPayload => ({
+  name: '',
+  is_cash: false,
+  bank_account: '',
+  documents: documentOptions.map(option => option.value),
+  active: true,
+})
+const methodForm = ref<PaymentMethodPayload>(emptyMethod())
+
+const payloadOf = (method: PaymentMethodRow): PaymentMethodPayload => ({
+  name: method.name,
+  is_cash: method.is_cash,
+  bank_account: method.bank_account,
+  documents: [...method.documents],
+  active: method.active,
+})
+
+const openMethodDialog = (method?: PaymentMethodRow) => {
+  editingMethod.value = method ?? null
+  methodForm.value = method ? { ...payloadOf(method), bank_account: method.bank_account ?? '' } : emptyMethod()
+  methodError.value = ''
+  methodDialog.value = true
+}
+
+const saveMethod = async () => {
+  const { valid } = await methodFormRef.value.validate()
+  if (!valid || !methodForm.value.documents.length) return
+  savingMethod.value = true
+  methodError.value = ''
+  const payload: PaymentMethodPayload = {
+    ...methodForm.value,
+    name: methodForm.value.name.trim(),
+    bank_account: methodForm.value.bank_account?.trim() || null,
+  }
+  try {
+    const { message } = editingMethod.value
+      ? await salesService.updatePaymentMethod(editingMethod.value.id, payload)
+      : await salesService.createPaymentMethod(payload)
+    methodDialog.value = false
+    notify(message)
+    await reloadMethods()
+  } catch (error) {
+    methodError.value = errorMessage(error, 'No fue posible guardar la forma de pago. Inténtalo de nuevo.')
+  } finally {
+    savingMethod.value = false
+  }
+}
+
+/** Swaps the positions of two neighbours: the pickers offer the methods in this order. */
+const moveMethod = async (index: number, delta: -1 | 1) => {
+  const method = paymentMethods.value[index]
+  const neighbour = paymentMethods.value[index + delta]
+  if (!method || !neighbour) return
+  reordering.value = true
+  try {
+    await salesService.updatePaymentMethod(method.id, { position: neighbour.position })
+    await salesService.updatePaymentMethod(neighbour.id, { position: method.position })
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cambiar el orden. Inténtalo de nuevo.'), 'error')
+  } finally {
+    await reloadMethods()
+    reordering.value = false
+  }
+}
+
+const deleteMethod = async (method: PaymentMethodRow) => {
+  if (!window.confirm(`¿Seguro que quieres eliminar la forma de pago «${method.name}»?`)) return
+  try {
+    notify(await salesService.deletePaymentMethod(method.id))
+    await reloadMethods()
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible eliminar la forma de pago. Inténtalo de nuevo.'), 'error')
   }
 }
 

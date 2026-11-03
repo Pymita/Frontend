@@ -303,6 +303,17 @@
                 </MoneyField>
               </v-col>
 
+              <v-col cols="12" md="6">
+                <v-select
+                  v-model="expenseFormData.payment_method"
+                  :items="methodOptions(undefined, editingExpense?.payment_method, expensePaymentMethodLabels)"
+                  label="Forma de pago"
+                  variant="outlined"
+                  density="comfortable"
+                  hint="Si entra al cajón, como el efectivo, se resta del efectivo a entregar al cerrar la caja"
+                  persistent-hint />
+              </v-col>
+
               <v-col cols="12">
                 <v-text-field
                   v-model="expenseFormData.concept"
@@ -425,15 +436,19 @@ import { formatDay, toIsoDate } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors';
 import { ref, computed, onMounted, watch } from 'vue'
 import { expensesService, type Expense, type ExpenseCategory, type ExpenseSummary } from '@/services/expensesService'
-import { expenseCategoryTypeLabels, label } from '@/utils/labels'
+import { expenseCategoryTypeLabels, expensePaymentMethodLabels, label } from '@/utils/labels'
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 import { PAGE_SIZE_OPTIONS, useServerPage } from '../composables/useServerPage'
+import { methodOptions, methodsFor, usePaymentMethods } from '../composables/usePaymentMethods'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
 const isReadOnly = useReadOnly()
+// An expense is not one of the documents that restrict methods: every active one.
+const { ready: methodsReady } = usePaymentMethods({ fresh: true })
+const defaultMethod = () => methodsFor()[0]?.key ?? 'cash'
 
 const tab = ref('expenses')
 const loadingCategorias = ref(false)
@@ -562,7 +577,8 @@ const loadResumen = async () => {
   }
 }
 
-const openExpenseDialog = (expense?: Expense) => {
+const openExpenseDialog = async (expense?: Expense) => {
+  await methodsReady()
   editingExpense.value = expense || null
   if (expense) {
     expenseFormData.value = { ...expense }
@@ -572,6 +588,7 @@ const openExpenseDialog = (expense?: Expense) => {
       concept: '',
       amount: 0,
       expense_date: toIsoDate(new Date()),
+      payment_method: defaultMethod(),
       invoice_number: '',
       supplier_name: '',
       notes: '',

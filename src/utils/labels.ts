@@ -145,7 +145,11 @@ export const expenseCategoryTypeLabels: Record<string, string> = {
   taxes: 'Impuestos',
 }
 
-/** Cómo paga una mesa (mismo orden y nombres que OrderPayment::METHODS). */
+/**
+ * The legacy names of the seven built-in methods (OrderPayment::METHODS),
+ * which the waiter app still offers. Each company now has its own list
+ * (`usePaymentMethods`): this map only names a key the company no longer has.
+ */
 export const orderPaymentMethodLabels: Record<string, string> = {
   cash: 'Efectivo',
   credit_card: 'Tarjeta crédito',
@@ -157,13 +161,22 @@ export const orderPaymentMethodLabels: Record<string, string> = {
 }
 
 /**
- * How a sale was charged: the methods money comes in by, plus "A crédito"
- * (OrderPayment::CREDIT), which brings none. Only for reading a sale; the
- * selects where money is received keep `orderPaymentMethodLabels`.
+ * How a sale was charged: the legacy methods plus "A crédito"
+ * (OrderPayment::CREDIT), which brings no money and is never a method of the
+ * company. The fallback of `paymentMethodLabel()`; the selects where money is
+ * received offer the company's methods.
  */
 export const saleMethodLabels: Record<string, string> = {
   ...orderPaymentMethodLabels,
   credit: 'A crédito',
+}
+
+/** Where a company's payment method can be used (`documents`; web only: the waiter app keeps its list). */
+export const paymentDocumentLabels: Record<string, string> = {
+  sale: 'Ventas',
+  receipt: 'Recibos de caja',
+  order_abono: 'Abonos a pedidos',
+  financial_movement: 'Movimientos financieros',
 }
 
 /** The documents asked when a customer is created while charging (Customer::DOCUMENT_TYPES takes more). */

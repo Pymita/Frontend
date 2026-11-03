@@ -2,10 +2,50 @@ import api from './api'
 
 import { orderPaymentMethodLabels, saleMethodLabels } from '../utils/labels'
 
-export type PaymentMethod = 'cash' | 'credit_card' | 'debit_card' | 'transfer' | 'nequi' | 'daviplata' | 'other'
+/**
+ * The key of one of the company's payment methods. The seven built-ins keep
+ * their legacy keys (`cash`, `transfer`…); a method the company creates gets
+ * a slug of its name (`bancolombia`), and payments store the key.
+ */
+export type PaymentMethod = string
 
-/** How a sale was charged: a way money comes in, or on credit (it goes to Cartera). */
-export type SaleMethod = PaymentMethod | 'credit'
+/** How a sale was charged: a way money comes in, or on credit (`credit`: it goes to Cartera). */
+export type SaleMethod = PaymentMethod
+
+/** Where a method can be used (`documents`); Gastos is not one: it offers every active method. */
+export type PaymentDocument = 'sale' | 'receipt' | 'order_abono' | 'financial_movement'
+
+/** A payment method of the company, as `GET /payment-methods` lists it. */
+export interface PaymentMethodRow {
+  id: number
+  key: PaymentMethod
+  name: string
+  /** Goes into the cash drawer like Efectivo: the close adds it to the cash to deliver. */
+  is_cash: boolean
+  /** "Bancolombia ahorros 123-456": printed on facturas, recibos and cuentas de cobro. */
+  bank_account: string | null
+  documents: PaymentDocument[]
+  active: boolean
+  position: number
+  /** Only with `all=1`: some record uses it, so it can be deactivated but not deleted. */
+  in_use?: boolean
+}
+
+export interface PaymentMethodPayload {
+  name: string
+  is_cash: boolean
+  bank_account: string | null
+  documents: PaymentDocument[]
+  active: boolean
+  position?: number
+}
+
+/** A method of a printed document with its current name and bank account (`payment_methods_detail`). */
+export interface PaymentMethodDetail {
+  key: PaymentMethod
+  name: string
+  bank_account: string | null
+}
 
 /** An order charged at the POS, or an automatic-billing document issued. */
 export type SaleOrigin = 'order' | 'recurring'
@@ -108,6 +148,7 @@ export interface TableSalesReport {
 
 export type SalesView = 'sales' | 'products' | 'tables' | 'cash'
 
+/** The legacy names, for a key the company no longer has: `paymentMethodLabel()` reads the company's first. */
 export const PAYMENT_METHOD_LABELS = orderPaymentMethodLabels as Record<PaymentMethod, string>
 export const SALE_METHOD_LABELS = saleMethodLabels as Record<SaleMethod, string>
 
@@ -181,6 +222,10 @@ export interface CashSession {
   summary: {
     by_method: Record<PaymentMethod, { count: number; amount: number; tips: number }>
     recurring_by_method: Partial<Record<PaymentMethod, number>>
+    /** The name of each method as the close froze it (the open shift: as it reads now). */
+    method_labels?: Record<PaymentMethod, string>
+    /** The methods that go into the drawer (`is_cash`): what `cash_sales`, `cash_recurring` and `cash_expenses` add. */
+    cash_methods?: PaymentMethod[]
     cash_sales: number
     cash_recurring: number
     cash_expenses: number
@@ -219,6 +264,9 @@ export interface CashPeriodTotals {
   order_abonos: number | null
   by_method: Record<string, { count: number; amount: number; tips: number }>
   recurring_by_method: Partial<Record<PaymentMethod, number>>
+  /** Each method named as the newest close of the period froze it. */
+  method_labels?: Record<PaymentMethod, string>
+  cash_methods?: PaymentMethod[]
   cash_sales: number
   cash_recurring: number
   cash_expenses: number
@@ -239,6 +287,37 @@ export interface CloseCashPayload {
 }
 
 class SalesService {
+  /**
+   * The company's payment methods in their order: the active ones allowed
+   * for `document`, every active one without it, and with `all` (admin)
+   * the inactive ones too, with `in_use`.
+   */
+  async paymentMethods(
+    params: { document?: PaymentDocument; all?: boolean } = {},
+  ): Promise<{ methods: PaymentMethodRow[]; labels: Record<PaymentMethod, string> }> {
+    const response = await api.get('/payment-methods', {
+      params: { ...(params.document ? { document: params.document } : {}), ...(params.all ? { all: 1 } : {}) },
+    })
+    return { methods: response.data.data, labels: response.data.labels ?? {} }
+  }
+
+  async createPaymentMethod(payload: PaymentMethodPayload): Promise<{ method: PaymentMethodRow; message: string }> {
+    const response = await api.post('/payment-methods', payload)
+    return { method: response.data.data, message: response.data.message }
+  }
+
+  /** Only what is sent changes (a reorder sends `position` alone). */
+  async updatePaymentMethod(id: number, payload: Partial<PaymentMethodPayload>): Promise<{ method: PaymentMethodRow; message: string }> {
+    const response = await api.put(`/payment-methods/${id}`, payload)
+    return { method: response.data.data, message: response.data.message }
+  }
+
+  /** A method some record uses answers 422 with what to do instead (deactivate it). */
+  async deletePaymentMethod(id: number): Promise<string> {
+    const response = await api.delete(`/payment-methods/${id}`)
+    return response.data.message
+  }
+
   async currentCashSession(): Promise<CashSession> {
     const response = await api.get('/cash-register/current')
     return response.data.data

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, field, loginUI } from './helpers'
+import { ADMIN, API, apiLogin, createCompany, field, loginUI } from './helpers'
 
 /**
  * Gastos: lo que sale de caja. Un gasto es solo dinero; las unidades de una
@@ -67,6 +67,53 @@ test('una compra de inventario registra el dinero, remite al kardex y borrarla n
   expect(Number(stock.data.current_stock)).toBe(10)
   const kardex = await (await request.get(`${API}/kardex?product_id=${productId}`, { headers: auth })).json()
   expect(kardex.data.movements.filter((m: any) => m.document_code === 'FC')).toHaveLength(0)
+})
+
+/**
+ * An expense is not one of the documents that limit the methods: it offers
+ * every active method of the business (one used only for financial
+ * movements too), never an inactive one, and keeps the one chosen.
+ */
+test('el gasto ofrece todas las formas de pago activas y guarda la elegida', async ({ page, request }) => {
+  const company = await createCompany(request, `gastos-formas-${Date.now()}`, {
+    business_type: 'restaurant',
+    modules: ['orders', 'menu', 'inventory', 'customers', 'expenses', 'reports'],
+  })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const pettyCash = await request.post(`${API}/payment-methods`, {
+    headers: auth,
+    data: { name: 'Caja chica', is_cash: true, documents: ['financial_movement'], active: true },
+  })
+  expect(pettyCash.status(), await pettyCash.text()).toBe(201)
+  const pettyCashKey = (await pettyCash.json()).data.key
+  const old = await request.post(`${API}/payment-methods`, {
+    headers: auth,
+    data: { name: 'Cheque viejo', is_cash: false, documents: ['sale'], active: false },
+  })
+  expect(old.status(), await old.text()).toBe(201)
+  const categoryName = `Arriendo ${Date.now()}`
+  const category = await request.post(`${API}/expense-categories`, { headers: auth, data: { name: categoryName, type: 'fixed_expense' } })
+  expect(category.status(), await category.text()).toBe(201)
+
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/gastos')
+  await page.getByRole('button', { name: 'Registrar gasto' }).click()
+  const dialog = page.getByRole('dialog')
+  await field(page, 'Categoría *').click()
+  await page.getByRole('option', { name: new RegExp(categoryName) }).click()
+  await field(page, 'Monto *').locator('input').pressSequentially('80.000')
+  const concept = `Arriendo local ${Date.now()}`
+  await dialog.getByLabel('Concepto / Descripción').fill(concept)
+  await expect(field(page, 'Forma de pago')).toContainText('Efectivo')
+  await field(page, 'Forma de pago').click()
+  await expect(page.getByRole('option', { name: 'Nequi' })).toBeVisible()
+  await expect(page.getByRole('option', { name: 'Cheque viejo' })).toHaveCount(0)
+  await page.getByRole('option', { name: 'Caja chica' }).click()
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.locator('tbody tr', { hasText: concept })).toContainText('$80.000')
+
+  const expenses = (await (await request.get(`${API}/expenses`, { headers: auth })).json()).data
+  expect(expenses.find((expense: { concept: string }) => expense.concept === concept)?.payment_method).toBe(pettyCashKey)
 })
 
 /** La tabla sigue las fechas del resumen y busca en el servidor por concepto o proveedor. */

@@ -167,3 +167,18 @@ export const accountProblem = (value: string | null | undefined, name: string): 
 }
 
 export const accountRule = (name: string) => (v: string | null) => accountProblem(v, name) ?? true
+
+/** A payment method of the company (PaymentMethodController, same messages): name 1–40, bank account up to 100, one document at least. */
+export const PAYMENT_METHOD_NAME_MAX_LENGTH = 40
+export const BANK_ACCOUNT_MAX_LENGTH = 100
+export const PAYMENT_METHOD_DOCUMENTS_MESSAGE =
+  'Elige al menos un documento donde se use la forma de pago: ventas, recibos de caja, abonos a pedidos o movimientos financieros.'
+
+export const paymentMethodNameRules = [
+  (v: string | null) => !!(v ?? '').trim() || 'Escribe el nombre de la forma de pago.',
+  (v: string | null) =>
+    (v ?? '').trim().length <= PAYMENT_METHOD_NAME_MAX_LENGTH || 'El nombre de la forma de pago puede tener máximo 40 caracteres.',
+]
+
+export const bankAccountRule = (v: string | null) =>
+  (v ?? '').trim().length <= BANK_ACCOUNT_MAX_LENGTH || 'La cuenta bancaria puede tener máximo 100 caracteres.'

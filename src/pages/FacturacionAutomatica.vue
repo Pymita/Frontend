@@ -829,7 +829,7 @@ const printInvoices = async (ids: number[]) => {
   try {
     const docs = await Promise.all(ids.map(id => billingService.getInvoiceDocument(id)))
     const title = docs.length === 1 ? docs[0]!.invoice.document_number : `${docs.length} documentos de ${periodLabel.value}`
-    fillDocumentWindow(win, title, docs.map(d => invoiceHtml(d.business, d.invoice, d.resolution)).join(''))
+    fillDocumentWindow(win, title, docs.map(d => invoiceHtml(d.business, d.invoice, d.resolution, d.pay_to)).join(''))
   } catch (error) {
     win.close()
     notify(errorMessage(error, 'No se pudo generar el documento para imprimir'), 'error')

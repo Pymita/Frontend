@@ -137,6 +137,8 @@
           label="Medio de pago"
           density="compact"
           class="mt-2"
+          :hint="paymentMethodOptions.length ? undefined : noMethodsText"
+          persistent-hint
         />
       </v-card-text>
       <v-card-actions>
@@ -145,7 +147,7 @@
         <v-btn
           color="primary"
           :loading="saving"
-          :disabled="paymentMode === 'items' ? selectionCount === 0 : !paymentAmount"
+          :disabled="!paymentMethod || (paymentMode === 'items' ? selectionCount === 0 : !paymentAmount)"
           @click="registrarPago"
         >
           Cobrar{{ paymentMode === 'items' && selectionCount > 0 ? ` ${money(selectionEstimate)}` : '' }}
@@ -164,10 +166,10 @@ import {
   type OrderPaymentMethod,
   type PartialPaymentPayload,
 } from '@/services/ordersService'
-import { orderPaymentMethodLabels, options } from '@/utils/labels'
 import { money } from '@/utils/money'
 import { formatTime } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors'
+import { methodOptions, paymentMethodLabel, usePaymentMethods } from '@/composables/usePaymentMethods'
 import MoneyField from './MoneyField.vue'
 
 /**
@@ -185,14 +187,23 @@ const emit = defineEmits<{
 const saving = ref(false)
 const paymentAmount = ref(0)
 const paymentMode = ref<'items' | 'amount'>('items')
-const paymentMethod = ref<OrderPaymentMethod>('cash')
+const paymentMethod = ref<OrderPaymentMethod>('')
 // order_item_id → unidades seleccionadas para cobrar
 const paymentSelection = ref<Record<number, number>>({})
 
-const paymentMethodOptions = options(orderPaymentMethodLabels)
+// Paying products is a sale; an amount is an abono to the open order: each
+// offers the methods the company allows for it (Pedidos already asked for them).
+const { loadError } = usePaymentMethods()
+const paymentMethodOptions = computed(() => methodOptions(paymentMode.value === 'items' ? 'sale' : 'order_abono'))
+const noMethodsText = computed(() =>
+  loadError.value ||
+  `No tienes formas de pago activas para ${paymentMode.value === 'items' ? 'ventas' : 'abonos a pedidos'}. Actívalas en Configuración › Formas de pago.`,
+)
 
-const paymentMethodLabel = (method?: string | null) =>
-  (method ? orderPaymentMethodLabels[method as OrderPaymentMethod] : undefined) ?? method ?? ''
+// A method the other mode does not allow gives way to the first one this mode does.
+watch(paymentMethodOptions, items => {
+  if (!items.some(item => item.value === paymentMethod.value)) paymentMethod.value = items[0]?.value ?? ''
+})
 
 // Cada vez que se abre arranca limpio, con todo el saldo sugerido.
 watch(
@@ -201,7 +212,7 @@ watch(
     if (!open || !props.order) return
     paymentAmount.value = props.order.pending_balance
     paymentMode.value = props.order.items.length > 0 ? 'items' : 'amount'
-    paymentMethod.value = 'cash'
+    paymentMethod.value = paymentMethodOptions.value[0]?.value ?? ''
     paymentSelection.value = {}
   },
 )

@@ -5,6 +5,7 @@ import {
   API,
   PLATFORM,
   apiLogin,
+  buildXlsx,
   chooseReport,
   createCompany,
   displayDate,
@@ -842,4 +843,94 @@ test('contabilidad: un período que necesita una cuenta en blanco lo explica y a
   await expect(await previewCell(page, previewRow(page, '143505'), 'Débito')).toHaveText('$2.000')
   await expect(figure(page, 'Total débito')).toContainText('$2.000')
   await expect(figure(page, 'Total crédito')).toContainText('$2.000')
+})
+
+/**
+ * A payment method can post to an account of its own on one document (the
+ * sale), and the accounting software's sample file becomes a template: its
+ * headers in order, each with the datum the owner picked, the API's guess
+ * preselected.
+ */
+test('contabilidad: la cuenta de una forma de pago en la venta llega al movimiento y la plantilla subida del programa contable ordena el Excel como su archivo', async ({ page, request }) => {
+  test.setTimeout(120_000)
+  const shop = await createRestaurant(request, `contable-plantilla-${Date.now()}`)
+  const stamp = Date.now() % 1_000_000
+  const productId = await createProduct(request, shop.auth, `Arepa Contable ${stamp}`, 8000)
+  const at = await chargeOrder(request, shop.auth, productId, 1, { payment_method: 'transfer' })
+  const day = new Date(at).toLocaleDateString('en-CA')
+
+  await freezeTime(page, at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, shop.credentials.email, shop.credentials.password, shop.slug)
+  await page.goto('/informes')
+  await chooseReport(page, 'Movimiento contable')
+
+  // Transferencia keeps its account and gets its own on the sale; the recibo de caja keeps the method's.
+  await page.getByRole('button', { name: 'Configurar contabilidad' }).click()
+  const dialog = accountingDialog(page)
+  await expect(dialog.getByLabel('Cuenta de Transferencia', { exact: true })).toHaveValue('111005001')
+  const onSale = dialog.getByLabel('Cuenta de Transferencia · Venta', { exact: true })
+  const onReceipt = dialog.getByLabel('Cuenta de Transferencia · Recibo de caja', { exact: true })
+  await expect(onSale).toHaveValue('')
+  await onSale.fill('1110 banco')
+  await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(dialog.getByText('La cuenta de Transferencia · Venta debe tener solo números (p. ej., 110505).').first()).toBeVisible()
+  await onSale.fill('11100599')
+  await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Contabilidad guardada.')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cerrar', exact: true }).click()
+  await page.reload()
+  await page.getByRole('button', { name: 'Configurar contabilidad' }).click()
+  await expect(onSale).toHaveValue('11100599')
+  await expect(onReceipt).toHaveValue('')
+
+  // The sample file of the accounting software, as it comes: headers on the first row and an example line.
+  const headers = ['Tipo de comprobante', 'Cuenta contable', 'Fecha elaboración', 'Nit', 'Débito', 'Crédito', 'Sucursal']
+  await dialog.getByRole('tab', { name: 'Plantillas' }).click()
+  const choosing = page.waitForEvent('filechooser')
+  await dialog.getByRole('button', { name: 'Subir plantilla del programa contable' }).click()
+  await (await choosing).setFiles({
+    name: `Siigo ${stamp}.xlsx`,
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: buildXlsx([headers, ['F-1', '110505', '01/11/2026', '900123456', '8000', '0', '01']]),
+  })
+  const editor = templateEditor(page)
+  await expect(editor.getByLabel('Nombre', { exact: true })).toHaveValue(`Siigo ${stamp}`)
+  const datum = (header: string) => editor.getByRole('group', { name: `Columna ${header}`, exact: true }).locator('.v-select__selection-text')
+  const expected: [string, string][] = [
+    ['Tipo de comprobante', 'Comprobante'],
+    ['Cuenta contable', 'Cuenta'],
+    ['Fecha elaboración', 'Fecha'],
+    ['Nit', 'NIT tercero'],
+    ['Débito', 'Débito'],
+    ['Crédito', 'Crédito'],
+    ['Sucursal', 'Columna fija'],
+  ]
+  for (const [header, label] of expected) await expect(datum(header), header).toHaveText(label)
+  await editor.getByRole('group', { name: 'Columna Sucursal', exact: true }).getByLabel('Valor (opcional)').fill('01')
+  await expect(editor.getByRole('table', { name: 'Encabezados de la plantilla' }).locator('tbody td')).toHaveText(headers)
+  await editor.getByRole('button', { name: 'Guardar plantilla' }).click()
+  await expect(page.getByText(`Plantilla «Siigo ${stamp}» guardada.`)).toBeVisible()
+  await expect(editor).toBeHidden()
+  await dialog.getByRole('button', { name: 'Cerrar', exact: true }).click()
+
+  // The movement in that template: the sale's transfer debits its own account.
+  await field(page, 'Plantilla').click()
+  await pickOption(page, `Siigo ${stamp}`)
+  await page.getByRole('button', { name: 'Ver movimiento' }).click()
+  await expect(preview(page).locator('thead th')).toHaveText(headers)
+  const transferLine = previewRow(page, '11100599')
+  await expect(transferLine).toHaveCount(1)
+  await expect(await previewCell(page, transferLine, 'Débito')).toHaveText('$8.000')
+  await expect(await previewCell(page, transferLine, 'Sucursal')).toHaveText('01')
+
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Descargar Excel' }).click()
+  const rows = xlsxRows(readFileSync(await (await downloading).path())).filter(row => row.some(cell => cell !== ''))
+  expect(rows[0]).toEqual(headers)
+  const line = rows.find(row => row[headers.indexOf('Cuenta contable')] === '11100599')
+  expect(line, 'la línea de la transferencia').toBeTruthy()
+  expect(Number(line![headers.indexOf('Débito')])).toBe(8000)
+  expect(line![headers.indexOf('Fecha elaboración')]).toBe(displayDate(day))
+  expect(line![headers.indexOf('Sucursal')]).toBe('01')
 })

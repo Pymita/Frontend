@@ -381,6 +381,13 @@ const catalogError = ref('')
 const reportKey = ref('')
 const definition = computed(() => catalog.value.reports.find(report => report.key === reportKey.value) ?? null)
 
+// An enum the company names itself (its payment methods) reads by those names first.
+const enumMap = (name: string | undefined): Record<string, string> | undefined => {
+  if (!name) return undefined
+  const own = catalog.value.enum_labels?.[name]
+  return own ? { ...enumLabels[name], ...own } : enumLabels[name]
+}
+
 /** Movimiento contable is not a report definition: it has its own endpoints and the "Contabilidad" grant. */
 const ACCOUNTING_KEY = 'accounting_movement'
 const ACCOUNTING_QUESTION = 'Los asientos de cada documento del período, para importarlos en tu programa contable'
@@ -564,7 +571,7 @@ const filterWidth = (filter: ReportFilter): string | number => {
 
 const filterOptions = (filter: ReportFilter) => {
   if (filter.options) return filter.options
-  const labels = filter.enum ? enumLabels[filter.enum] : undefined
+  const labels = enumMap(filter.enum)
   return labels ? options(labels) : []
 }
 
@@ -745,7 +752,7 @@ const cell = (column: ReportColumn, value: CellValue): string => {
     case 'hour':
       return `${String(value).padStart(2, '0')}:00`
     case 'enum': {
-      const labels = column.enum ? enumLabels[column.enum] : undefined
+      const labels = enumMap(column.enum)
       return labels ? label(labels, String(value)) : String(value)
     }
     default:

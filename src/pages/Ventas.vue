@@ -676,9 +676,6 @@ import DateField from '../components/DateField.vue'
 import LockableButton from '../components/LockableButton.vue'
 import MoneyField from '../components/MoneyField.vue'
 import salesService, {
-  PAYMENT_METHOD_LABELS,
-  SALE_METHOD_LABELS,
-  type PaymentMethod,
   type SaleMethod,
   type ProductSalesReport,
   type Sale,
@@ -695,6 +692,13 @@ import { downloadCashClosesPdf } from '@/utils/abonosPdf'
 import { errorMessage } from '@/utils/errors'
 import { useAuthStore } from '@/stores/auth'
 import { useReadOnly } from '@/composables/useReadOnly'
+import {
+  closeMethodLabel,
+  compareMethodKeys,
+  paymentMethodLabel,
+  paymentMethodsLabel,
+  usePaymentMethods,
+} from '@/composables/usePaymentMethods'
 import { effectiveFeatures } from '@/types/auth'
 import {
   customerLabel,
@@ -821,11 +825,11 @@ const abonosOf = (session: CashSession): number =>
 const collectedByMethod = (session: CashSession) => {
   const charged = session.summary.by_method as Partial<Record<string, { amount: number }>>
   const abonos = (session.summary.recurring_by_method ?? {}) as Partial<Record<string, number>>
-  const methods = new Set([...Object.keys(PAYMENT_METHOD_LABELS), ...Object.keys(charged), ...Object.keys(abonos)])
-  return [...methods]
+  return [...new Set([...Object.keys(charged), ...Object.keys(abonos)])]
+    .sort(compareMethodKeys)
     .map(method => ({
       method,
-      label: PAYMENT_METHOD_LABELS[method as PaymentMethod] ?? method,
+      label: closeMethodLabel(session.summary, method),
       amount: (charged[method]?.amount ?? 0) + (abonos[method] ?? 0),
     }))
     .filter(entry => entry.amount > 0)
@@ -1054,7 +1058,12 @@ const headers = computed(() => [
   { title: '', key: 'actions', align: 'end' as const, sortable: false },
 ])
 
-const methodOptions = Object.entries(SALE_METHOD_LABELS).map(([value, title]) => ({ value, title }))
+// Every method the company has, inactive ones too (their sales still filter), and "A crédito".
+const { methods: companyMethods } = usePaymentMethods({ fresh: true })
+const methodOptions = computed(() => [
+  ...companyMethods.value.map(method => ({ value: method.key, title: method.name })),
+  { value: 'credit', title: paymentMethodLabel('credit') },
+])
 
 // Los vendedores del filtro salen de las ventas cargadas: sin llamados extra
 // y sin exigir permisos de administración de empleados.
@@ -1082,15 +1091,15 @@ const originBreakdown = computed(() => {
 const methodBreakdown = computed(() =>
   Object.entries(report.value?.summary.by_payment_method ?? {})
     .filter(([, amount]) => (amount ?? 0) > 0)
+    .sort(([a], [b]) => compareMethodKeys(a, b))
     .map(([method, amount]) => ({
       method,
-      label: SALE_METHOD_LABELS[method as SaleMethod] ?? method,
+      label: paymentMethodLabel(method),
       amount: amount ?? 0,
     })),
 )
 
-const methodsLabel = (methods: SaleMethod[]): string =>
-  methods.map(m => SALE_METHOD_LABELS[m] ?? m).join(' + ') || '—'
+const methodsLabel = (methods: SaleMethod[]): string => paymentMethodsLabel(methods) || '—'
 
 
 // Cada vista consulta lo suyo; los totales de arriba siempre son del listado,

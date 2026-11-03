@@ -2,7 +2,7 @@ import api from './api'
 import type { PageQuery, PaginatedResponse } from '@/types/api'
 import type { ImportFormat, ImportRowError } from './productImportService'
 import type { PaymentMethod } from './salesService'
-import type { DocumentBusiness, DocumentResolution, PrintableReceipt } from '../utils/printDocuments'
+import type { DocumentBusiness, DocumentResolution, PayToAccount, PrintableReceipt } from '../utils/printDocuments'
 
 export type PersonType = 'natural' | 'legal'
 
@@ -245,6 +245,15 @@ export interface PaymentHistoryPage {
 
 /** Datos del negocio editables (encabezado de facturas y recibos) */
 export type BusinessForm = Omit<DocumentBusiness, 'complete'>
+
+/** A monthly document as it prints. */
+export interface InvoiceDocument {
+  business: DocumentBusiness
+  resolution: DocumentResolution | null
+  invoice: RecurringInvoice
+  /** The active methods allowed for recibos de caja that have a bank account. */
+  pay_to?: PayToAccount[]
+}
 
 /** Una fila del Excel de clientes: se crea, se creó, se salta (ya existe) o tiene un error. */
 export interface CustomerImportRow {
@@ -507,10 +516,9 @@ export const billingService = {
     return response.data.data
   },
 
-  async getInvoiceDocument(invoiceId: number): Promise<{ business: DocumentBusiness; resolution: DocumentResolution | null; invoice: RecurringInvoice }> {
-    const response = await api.get<ApiResponse<{ business: DocumentBusiness; resolution: DocumentResolution | null; invoice: RecurringInvoice }>>(
-      `/recurring-billing/invoices/${invoiceId}/document`,
-    )
+  /** `pay_to`: where the customer can pay (the "PUEDES PAGAR EN" box); empty without bank accounts. */
+  async getInvoiceDocument(invoiceId: number): Promise<InvoiceDocument> {
+    const response = await api.get<ApiResponse<InvoiceDocument>>(`/recurring-billing/invoices/${invoiceId}/document`)
     return response.data.data
   },
 

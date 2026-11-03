@@ -1395,6 +1395,18 @@ test('la cuenta de cobro sale con el encabezado del negocio y el valor en letras
     monthly_fee: 70000,
     billing_concept: 'Asistencia técnica sistema Visión',
   })
+  // Where to pay: the methods for recibos de caja that have a bank account, in their order; not one for sales only.
+  const methods = (await (await request.get(`${API}/payment-methods?all=1`, { headers: auth })).json()).data
+  const nequi = methods.find((method: { key: string }) => method.key === 'nequi')
+  const nequiAccount = await request.put(`${API}/payment-methods/${nequi.id}`, { headers: auth, data: { bank_account: 'Nequi 300 123 4567' } })
+  expect(nequiAccount.ok(), await nequiAccount.text()).toBeTruthy()
+  for (const [name, documents] of [['Bancolombia', ['sale', 'receipt']], ['Davivienda', ['sale']]] as const) {
+    const created = await request.post(`${API}/payment-methods`, {
+      headers: auth,
+      data: { name, is_cash: false, bank_account: `${name} ahorros 123-456`, documents, active: true },
+    })
+    expect(created.status(), await created.text()).toBe(201)
+  }
   await request.post(`${API}/recurring-billing/invoices/generate`, {
     headers: auth,
     data: { period: PERIOD, items: [{ customer_id: client }] },
@@ -1424,6 +1436,8 @@ test('la cuenta de cobro sale con el encabezado del negocio y el valor en letras
   await expect(body).toContainText('SON: SETENTA MIL PESOS M/CTE')
   await expect(body).toContainText('Favor consignar en Cta ahorros 37342931449 Bancolombia')
   await expect(body).toContainText('FIRMA VENDEDOR')
+  await expect(popup.locator('.pay-to .label')).toHaveText('PUEDES PAGAR EN:')
+  await expect(popup.locator('.pay-to-account')).toHaveText(['Nequi · Nequi 300 123 4567', 'Bancolombia · Bancolombia ahorros 123-456'])
   await popup.setViewportSize({ width: 900, height: 1100 })
   await popup.screenshot({ path: '../screenshots/cuenta-de-cobro.png', fullPage: true })
 
@@ -1618,6 +1632,8 @@ test('la factura de venta lleva el número tal cual y la resolución en el encab
     return !!resolution && !!items && !!(resolution.compareDocumentPosition(items) & Node.DOCUMENT_POSITION_FOLLOWING)
   })
   expect(resolutionBeforeItems).toBe(true)
+  // No method has a bank account: there is no "PUEDES PAGAR EN" box.
+  await expect(popup.locator('.pay-to')).toHaveCount(0)
   // El pie conserva lo suyo y ya no repite la resolución.
   await expect(popup.locator('.notes')).toContainText('Consignar en Cta corriente 123 Davivienda')
   await expect(popup.locator('.notes')).not.toContainText('Resolución')

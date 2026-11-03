@@ -41,20 +41,44 @@
           <v-form ref="accountsForm" @submit.prevent="save">
             <v-tabs-window v-model="tab">
               <v-tabs-window-item value="payment_methods" eager>
-                <p class="text-body-2 text-medium-emphasis mb-3">
+                <p class="text-body-2 text-medium-emphasis mb-1">
                   La cuenta que recibe el dinero de cada forma de pago; lo que se vende a crédito va a la cuenta de Cartera.
                 </p>
-                <v-row dense>
-                  <v-col v-for="method in draft.payment_methods" :key="method.method" cols="12" sm="6" md="4">
-                    <v-text-field
-                      v-model="method.account"
-                      :label="method.label"
-                      :aria-label="`Cuenta de ${method.label}`"
-                      v-bind="accountProps(method.account, method.label)"
-                      hide-details="auto"
-                    />
-                  </v-col>
-                </v-row>
+                <p class="text-body-2 text-medium-emphasis mb-3">
+                  Si en la venta o en el recibo de caja va a otra cuenta, escríbela al lado; en blanco usa la de la forma de pago.
+                  Las formas de pago se crean en Configuración.
+                </p>
+                <template v-for="(method, index) in draft.payment_methods" :key="method.method">
+                  <v-divider v-if="index" />
+                  <div role="group" :aria-label="method.label" class="py-3">
+                    <div class="d-flex align-center flex-wrap ga-2 mb-2">
+                      <span class="text-subtitle-2">{{ method.label }}</span>
+                      <v-chip v-if="method.active === false" size="x-small" variant="tonal" color="secondary">Inactiva</v-chip>
+                    </div>
+                    <v-row dense>
+                      <v-col cols="12" sm="4">
+                        <v-text-field
+                          v-model="method.account"
+                          label="Cuenta"
+                          :aria-label="`Cuenta de ${method.label}`"
+                          v-bind="accountProps(method.account, method.label)"
+                          hide-details="auto"
+                        />
+                      </v-col>
+                      <template v-if="method.accounts_by_document">
+                        <v-col v-for="document in METHOD_DOCUMENTS" :key="document.key" cols="6" sm="4">
+                          <v-text-field
+                            v-model="method.accounts_by_document[document.key]"
+                            :label="document.label"
+                            :aria-label="`Cuenta de ${documentAccountName(method, document.key)}`"
+                            v-bind="documentAccountProps(documentAccountName(method, document.key))"
+                            hide-details="auto"
+                          />
+                        </v-col>
+                      </template>
+                    </v-row>
+                  </div>
+                </template>
               </v-tabs-window-item>
 
               <v-tabs-window-item value="taxes" eager>
@@ -146,11 +170,24 @@
                 <div class="d-flex align-center flex-wrap ga-3 mb-3">
                   <p class="text-body-2 text-medium-emphasis flex-1-1">
                     Cada plantilla arma el Excel como lo pide tu programa contable: qué columnas, con qué encabezado y en
-                    qué orden.
+                    qué orden. Si tu programa te da un archivo de ejemplo, súbelo y eliges qué dato va en cada columna.
                   </p>
-                  <LockableButton icon="mdi-plus" color="primary" variant="tonal" @click="openEditor()">
-                    Nueva plantilla
-                  </LockableButton>
+                  <div class="d-flex flex-wrap ga-2">
+                    <LockableButton icon="mdi-upload" color="primary" variant="tonal" :loading="uploading" @click="pickTemplateFile">
+                      Subir plantilla del programa contable
+                    </LockableButton>
+                    <LockableButton icon="mdi-plus" color="primary" variant="tonal" @click="openEditor()">
+                      Nueva plantilla
+                    </LockableButton>
+                  </div>
+                  <input
+                    ref="templateFileInput"
+                    type="file"
+                    accept=".xlsx,.csv"
+                    class="d-none"
+                    aria-label="Archivo de ejemplo del programa contable"
+                    @change="readTemplateFile"
+                  >
                 </div>
                 <v-list lines="two" class="border rounded py-0">
                   <template v-for="(template, index) in templates" :key="template.id">
@@ -226,23 +263,23 @@
           </v-row>
 
           <div class="text-subtitle-2 mt-2">Columnas</div>
-          <p class="text-body-2 text-medium-emphasis mb-3">
-            Quedan en el Excel en este orden. Cambia el encabezado para que diga lo mismo que tu programa contable.
-          </p>
-          <div
-            v-for="(column, index) in editor.columns"
-            :key="column.uid"
-            role="group"
-            :aria-label="`Columna ${columnName(column)}`"
-            class="d-flex align-start ga-1 mb-1"
-          >
-            <div class="flex-grow-1">
+          <template v-if="editor.fromFile">
+            <p class="text-body-2 text-medium-emphasis mb-3">
+              Los encabezados de tu archivo, en su orden. Elige qué dato va en cada uno; los que tu programa espera pero
+              Servify no tiene quedan como columna fija, vacía o con el valor que escribas.
+            </p>
+            <div
+              v-for="(column, index) in editor.columns"
+              :key="column.uid"
+              role="group"
+              :aria-label="`Columna ${column.fileHeader || excelColumn(index)}`"
+              class="mb-2"
+            >
               <v-row dense>
-                <v-col cols="12" :sm="column.key === FIXED ? 6 : 12">
+                <v-col cols="12" sm="4">
                   <v-text-field
                     v-model="column.label"
-                    :label="column.key === FIXED ? 'Columna fija' : sourceName(column.key)"
-                    :aria-label="`Encabezado de ${fieldName(column, index)}`"
+                    label="Encabezado"
                     :rules="headerRules"
                     maxlength="60"
                     density="compact"
@@ -253,80 +290,132 @@
                     </template>
                   </v-text-field>
                 </v-col>
-                <v-col v-if="column.key === FIXED" cols="12" sm="6">
+                <v-col cols="12" :sm="column.key === FIXED ? 4 : 8">
+                  <v-select
+                    v-model="column.key"
+                    :items="settings?.columns ?? []"
+                    item-title="label"
+                    item-value="key"
+                    label="Dato"
+                    density="compact"
+                    hide-details
+                  />
+                </v-col>
+                <v-col v-if="column.key === FIXED" cols="12" sm="4">
                   <v-text-field
                     v-model="column.value"
-                    label="Valor"
-                    :aria-label="`Valor de ${fieldName(column, index)}`"
-                    hint="El mismo en todas las filas"
-                    persistent-hint
+                    label="Valor (opcional)"
                     maxlength="100"
                     density="compact"
+                    hide-details
                   />
                 </v-col>
               </v-row>
             </div>
-            <div class="d-flex pt-1">
-              <v-btn
-                icon="mdi-arrow-up"
-                variant="text"
-                size="small"
-                :disabled="index === 0"
-                :aria-label="`Subir la columna ${columnName(column)}`"
-                @click="moveColumn(index, -1)"
-              />
-              <v-btn
-                icon="mdi-arrow-down"
-                variant="text"
-                size="small"
-                :disabled="index === editor.columns.length - 1"
-                :aria-label="`Bajar la columna ${columnName(column)}`"
-                @click="moveColumn(index, 1)"
-              />
-              <v-btn
-                icon="mdi-close"
-                variant="text"
-                size="small"
-                :disabled="editor.columns.length === 1"
-                :aria-label="`Quitar la columna ${columnName(column)}`"
-                @click="editor.columns.splice(index, 1)"
-              />
-            </div>
-          </div>
-
-          <div class="d-flex flex-wrap align-center ga-2 mt-2">
-            <v-menu location="bottom start" max-height="360">
-              <template #activator="{ props: menu }">
-                <v-btn
-                  v-bind="menu"
-                  variant="tonal"
-                  color="primary"
-                  prepend-icon="mdi-plus"
-                  :disabled="editor.columns.length >= MAX_COLUMNS || !addableColumns.length"
-                >
-                  Agregar columna
-                </v-btn>
-              </template>
-              <v-list density="compact">
-                <v-list-item
-                  v-for="column in addableColumns"
-                  :key="column.key"
-                  :title="column.label"
-                  @click="addColumn(column.key)"
-                />
-              </v-list>
-            </v-menu>
-            <v-btn
-              variant="tonal"
-              color="secondary"
-              prepend-icon="mdi-format-text"
-              :disabled="editor.columns.length >= MAX_COLUMNS"
-              @click="addColumn(FIXED)"
+          </template>
+          <template v-else>
+            <p class="text-body-2 text-medium-emphasis mb-3">
+              Quedan en el Excel en este orden. Cambia el encabezado para que diga lo mismo que tu programa contable.
+            </p>
+            <div
+              v-for="(column, index) in editor.columns"
+              :key="column.uid"
+              role="group"
+              :aria-label="`Columna ${columnName(column)}`"
+              class="d-flex align-start ga-1 mb-1"
             >
-              Columna fija
-            </v-btn>
-            <span class="text-caption text-medium-emphasis">{{ editor.columns.length }} de {{ MAX_COLUMNS }} columnas</span>
-          </div>
+              <div class="flex-grow-1">
+                <v-row dense>
+                  <v-col cols="12" :sm="column.key === FIXED ? 6 : 12">
+                    <v-text-field
+                      v-model="column.label"
+                      :label="column.key === FIXED ? 'Columna fija' : sourceName(column.key)"
+                      :aria-label="`Encabezado de ${fieldName(column, index)}`"
+                      :rules="headerRules"
+                      maxlength="60"
+                      density="compact"
+                      hide-details="auto"
+                    >
+                      <template #prepend-inner>
+                        <span class="text-caption text-medium-emphasis">{{ excelColumn(index) }}</span>
+                      </template>
+                    </v-text-field>
+                  </v-col>
+                  <v-col v-if="column.key === FIXED" cols="12" sm="6">
+                    <v-text-field
+                      v-model="column.value"
+                      label="Valor"
+                      :aria-label="`Valor de ${fieldName(column, index)}`"
+                      hint="El mismo en todas las filas"
+                      persistent-hint
+                      maxlength="100"
+                      density="compact"
+                    />
+                  </v-col>
+                </v-row>
+              </div>
+              <div class="d-flex pt-1">
+                <v-btn
+                  icon="mdi-arrow-up"
+                  variant="text"
+                  size="small"
+                  :disabled="index === 0"
+                  :aria-label="`Subir la columna ${columnName(column)}`"
+                  @click="moveColumn(index, -1)"
+                />
+                <v-btn
+                  icon="mdi-arrow-down"
+                  variant="text"
+                  size="small"
+                  :disabled="index === editor.columns.length - 1"
+                  :aria-label="`Bajar la columna ${columnName(column)}`"
+                  @click="moveColumn(index, 1)"
+                />
+                <v-btn
+                  icon="mdi-close"
+                  variant="text"
+                  size="small"
+                  :disabled="editor.columns.length === 1"
+                  :aria-label="`Quitar la columna ${columnName(column)}`"
+                  @click="editor.columns.splice(index, 1)"
+                />
+              </div>
+            </div>
+
+            <div class="d-flex flex-wrap align-center ga-2 mt-2">
+              <v-menu location="bottom start" max-height="360">
+                <template #activator="{ props: menu }">
+                  <v-btn
+                    v-bind="menu"
+                    variant="tonal"
+                    color="primary"
+                    prepend-icon="mdi-plus"
+                    :disabled="editor.columns.length >= MAX_COLUMNS || !addableColumns.length"
+                  >
+                    Agregar columna
+                  </v-btn>
+                </template>
+                <v-list density="compact">
+                  <v-list-item
+                    v-for="column in addableColumns"
+                    :key="column.key"
+                    :title="column.label"
+                    @click="addColumn(column.key)"
+                  />
+                </v-list>
+              </v-menu>
+              <v-btn
+                variant="tonal"
+                color="secondary"
+                prepend-icon="mdi-format-text"
+                :disabled="editor.columns.length >= MAX_COLUMNS"
+                @click="addColumn(FIXED)"
+              >
+                Columna fija
+              </v-btn>
+              <span class="text-caption text-medium-emphasis">{{ editor.columns.length }} de {{ MAX_COLUMNS }} columnas</span>
+            </div>
+          </template>
 
           <div class="text-subtitle-2 mt-5 mb-1">Así queda la primera fila del Excel</div>
           <v-table density="compact" class="border rounded">
@@ -368,12 +457,15 @@ import { useReadOnly } from '@/composables/useReadOnly'
 import reportsService, {
   type AccountingDateFormat,
   type AccountingDocument,
+  type AccountingMethodDocument,
+  type AccountingPaymentMethod,
   type AccountingRole,
   type AccountingSettings,
   type AccountingSettingsUpdate,
   type AccountingTax,
   type AccountingTemplate,
   type AccountingTemplateColumn,
+  type AccountingTemplateHeaders,
 } from '@/services/reportsService'
 import { errorMessage } from '@/utils/errors'
 import { accountingDateFormatLabels, accountingNatureLabels, label, options } from '@/utils/labels'
@@ -438,6 +530,23 @@ const accountProps = (value: string | null, name: string) => ({
   baseColor: (value ?? '').trim() ? undefined : 'warning',
 })
 
+/** A method's own account in one document: blank is the usual case (it posts to the method's account). */
+const METHOD_DOCUMENTS: { key: AccountingMethodDocument; label: string }[] = [
+  { key: 'sale', label: 'Venta' },
+  { key: 'cash_receipt', label: 'Recibo de caja' },
+]
+/** As the API names it in its messages: "Efectivo · Recibo de caja". */
+const documentAccountName = (method: AccountingPaymentMethod, document: AccountingMethodDocument): string =>
+  `${method.label} · ${METHOD_DOCUMENTS.find(entry => entry.key === document)?.label ?? document}`
+const documentAccountProps = (name: string) => ({
+  rules: [accountRule(name)],
+  maxlength: ACCOUNT_MAX_LENGTH,
+  inputmode: 'numeric',
+  density: 'compact' as const,
+  placeholder: 'La misma',
+  persistentPlaceholder: true,
+})
+
 interface AccountField {
   tab: AccountingTab
   name: string
@@ -449,7 +558,16 @@ const accountFields = computed((): AccountField[] => {
   const current = draft.value
   if (!current) return []
   return [
-    ...current.payment_methods.map(method => ({ tab: 'payment_methods' as const, name: method.label, value: method.account })),
+    ...current.payment_methods.flatMap(method => [
+      { tab: 'payment_methods' as const, name: method.label, value: method.account },
+      ...(method.accounts_by_document
+        ? METHOD_DOCUMENTS.map(document => ({
+            tab: 'payment_methods' as const,
+            name: documentAccountName(method, document.key),
+            value: method.accounts_by_document?.[document.key] ?? null,
+          }))
+        : []),
+    ]),
     ...current.taxes.flatMap(tax => [
       { tab: 'taxes' as const, name: taxName(tax, 'sales'), value: tax.sales_account },
       { tab: 'taxes' as const, name: taxName(tax, 'purchases'), value: tax.purchase_account },
@@ -465,7 +583,18 @@ const missing = computed(() => settings.value?.missing ?? [])
 const blankToNull = (value: string | null | undefined): string | null => (value ?? '').trim() || null
 
 const updateFrom = (from: AccountingSettings): AccountingSettingsUpdate => ({
-  payment_methods: from.payment_methods.map(method => ({ method: method.method, account: blankToNull(method.account) })),
+  payment_methods: from.payment_methods.map(method => ({
+    method: method.method,
+    account: blankToNull(method.account),
+    ...(method.accounts_by_document
+      ? {
+          accounts_by_document: {
+            sale: blankToNull(method.accounts_by_document.sale),
+            cash_receipt: blankToNull(method.accounts_by_document.cash_receipt),
+          },
+        }
+      : {}),
+  })),
   taxes: from.taxes.map(tax => ({
     id: tax.id,
     sales_account: blankToNull(tax.sales_account),
@@ -576,6 +705,8 @@ const templateSummary = (template: AccountingTemplate): string => {
 
 interface EditorColumn extends AccountingTemplateColumn {
   uid: number
+  /** The header as the uploaded file wrote it: names the column while its header is edited. */
+  fileHeader?: string
 }
 
 let columnUid = 0
@@ -586,6 +717,8 @@ const editor = reactive({
   name: '',
   date_format: 'd/m/Y' as AccountingDateFormat,
   columns: [] as EditorColumn[],
+  /** Built from the accounting software's file: its headers stay in their order, each picks its datum. */
+  fromFile: false,
 })
 const editorForm = ref()
 const editorSaving = ref(false)
@@ -607,6 +740,7 @@ const editorColumn = (column: AccountingTemplateColumn): EditorColumn => ({
 
 const openEditor = (template?: AccountingTemplate, copy = false) => {
   editorError.value = ''
+  editor.fromFile = false
   editor.id = template && !copy ? template.id : null
   editor.title = template && !copy ? `Editar la plantilla ${template.name}` : 'Nueva plantilla'
   editor.name = template ? (copy ? `${template.name} (copia)` : template.name) : ''
@@ -615,6 +749,50 @@ const openEditor = (template?: AccountingTemplate, copy = false) => {
   const columns = template?.columns ?? GENERIC_COLUMNS.filter(key => known.has(key)).map(key => ({ key, label: sourceName(key) }))
   editor.columns = columns.map(editorColumn)
   editor.open = true
+}
+
+// --- A template from the accounting software's own file ---
+const templateFileInput = ref<HTMLInputElement | null>(null)
+const uploading = ref(false)
+
+const pickTemplateFile = () => templateFileInput.value?.click()
+
+/**
+ * Each header of the file, in order, with the datum the API suggests for it;
+ * one it could not match stays a fixed column, empty until a value is typed.
+ */
+const openEditorFromFile = (fileName: string, { headers, suggestions }: AccountingTemplateHeaders) => {
+  const known = new Set(settings.value?.columns.map(column => column.key))
+  editorError.value = ''
+  editor.fromFile = true
+  editor.id = null
+  editor.title = `Nueva plantilla desde ${fileName}`
+  editor.name = fileName.replace(/\.(xlsx|csv)$/i, '').trim().slice(0, 60)
+  editor.date_format = 'd/m/Y'
+  editor.columns = headers.map((header, index) => {
+    const suggested = (suggestions[index]?.label === header ? suggestions[index] : suggestions.find(entry => entry.label === header))?.key
+    const key = suggested && known.has(suggested) ? suggested : FIXED
+    // A value is kept for every column: its datum may still be switched to "Columna fija".
+    return { ...editorColumn({ key, label: header }), value: '', fileHeader: header }
+  })
+  editor.open = true
+}
+
+const readTemplateFile = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  // Choosing the same file again is another upload.
+  input.value = ''
+  if (!file) return
+  error.value = ''
+  uploading.value = true
+  try {
+    openEditorFromFile(file.name, await reportsService.accountingTemplateHeaders(file))
+  } catch (failure) {
+    error.value = errorMessage(failure, 'No fue posible leer el archivo. Sube el Excel (.xlsx) o CSV de ejemplo de tu programa contable.')
+  } finally {
+    uploading.value = false
+  }
 }
 
 /** Its header as typed, or what it carries while the header is empty. */

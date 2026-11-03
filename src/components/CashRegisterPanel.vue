@@ -229,13 +229,13 @@
                 <span>+ Base</span><span class="tabular-nums">{{ money(shown.opening_amount) }}</span>
               </div>
               <div v-if="showSales" class="d-flex justify-space-between">
-                <span>+ Cobros en efectivo (con propinas)</span><span class="tabular-nums">{{ money(shown.summary.cash_sales) }}</span>
+                <span>+ Cobros {{ drawer }} (con propinas)</span><span class="tabular-nums">{{ money(shown.summary.cash_sales) }}</span>
               </div>
               <div v-if="showAbonos" class="d-flex justify-space-between">
-                <span>+ Abonos de cuotas en efectivo</span><span class="tabular-nums">{{ money(shown.summary.cash_recurring) }}</span>
+                <span>+ Abonos de cuotas {{ drawer }}</span><span class="tabular-nums">{{ money(shown.summary.cash_recurring) }}</span>
               </div>
               <div v-if="shown.summary.cash_expenses" class="d-flex justify-space-between">
-                <span>− Gastos pagados en efectivo</span><span class="tabular-nums">{{ money(shown.summary.cash_expenses) }}</span>
+                <span>− Gastos pagados {{ drawer }}</span><span class="tabular-nums">{{ money(shown.summary.cash_expenses) }}</span>
               </div>
               <div v-if="shownWithdrawals.total" class="d-flex justify-space-between">
                 <span>− Retiros de caja</span><span class="tabular-nums" data-testid="cash-withdrawn">{{ money(shownWithdrawals.total) }}</span>
@@ -332,13 +332,9 @@ import { formatDateTime, formatMomentDay, formatRecent } from '@/utils/dates'
 import { computed, onMounted, ref } from 'vue'
 import LockableButton from './LockableButton.vue'
 import MoneyField from './MoneyField.vue'
-import salesService, {
-  PAYMENT_METHOD_LABELS,
-  type CashSession,
-  type CashWithdrawal,
-  type PaymentMethod,
-} from '../services/salesService'
+import salesService, { type CashSession, type CashWithdrawal } from '../services/salesService'
 import { billingService } from '../services/billingService'
+import { closeMethodLabel, compareMethodKeys, drawerText, usePaymentMethods } from '../composables/usePaymentMethods'
 import {
   cashCloseHtml,
   cashWithdrawalHtml,
@@ -351,12 +347,13 @@ import { useAuthStore } from '../stores/auth'
 
 // The printed summary lists up to 20.
 const PRODUCTS_SHOWN = 5
-const METHOD_ORDER = Object.keys(PAYMENT_METHOD_LABELS)
 const NO_WITHDRAWALS: CashSession['summary']['cash_withdrawals'] = { count: 0, total: 0, list: [] }
 
 interface MessageAction { text: string; run: () => void }
 
 const authStore = useAuthStore()
+// The page that holds the panel already asked for them: their names label the methods.
+usePaymentMethods()
 
 const session = ref<CashSession | null>(null)
 const closed = ref<CashSession | null>(null)
@@ -412,9 +409,10 @@ const invoiceRange = computed(() => {
 const methodRows = computed(() =>
   Object.entries(shown.value?.summary.by_method ?? {})
     .filter(([, totals]) => totals.count > 0)
+    .sort(([a], [b]) => compareMethodKeys(a, b))
     .map(([method, totals]) => ({
       method,
-      label: PAYMENT_METHOD_LABELS[method as PaymentMethod] ?? method,
+      label: closeMethodLabel(shown.value?.summary, method),
       count: totals.count,
       tips: totals.tips,
       amount: totals.amount,
@@ -425,14 +423,16 @@ const methodRows = computed(() =>
 const abonoRows = computed(() =>
   Object.entries(shown.value?.summary.recurring_by_method ?? {})
     .filter(([, amount]) => (amount ?? 0) > 0)
-    .sort(([a], [b]) => METHOD_ORDER.indexOf(a) - METHOD_ORDER.indexOf(b))
+    .sort(([a], [b]) => compareMethodKeys(a, b))
     .map(([method, amount]) => ({
       method,
-      label: PAYMENT_METHOD_LABELS[method as PaymentMethod] ?? method,
+      label: closeMethodLabel(shown.value?.summary, method),
       amount: amount ?? 0,
     })),
 )
 const abonosTotal = computed(() => abonoRows.value.reduce((sum, entry) => sum + entry.amount, 0))
+// The cash block adds what came in by the methods that go into the drawer, as the API names them.
+const drawer = computed(() => drawerText(shown.value?.summary))
 
 // The shift is the company's drawer, whoever closes it, so the close follows
 // the company's modules; money that came in always shows. A session stored

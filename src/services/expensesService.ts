@@ -9,7 +9,8 @@ export type ExpenseCategoryType =
   | 'payroll'
   | 'taxes'
 
-export type ExpensePaymentMethod = 'cash' | 'transfer' | 'card' | 'check' | 'credit'
+/** A key of the company's payment methods; expenses before them may carry `card`, `check` or `credit`. */
+export type ExpensePaymentMethod = string
 export type ExpensePaymentStatus = 'pending' | 'paid' | 'partial'
 
 export interface ExpenseCategory {

@@ -1,6 +1,6 @@
 import api from './api';
 import type { PageQuery, PaginatedResponse } from '@/types/api';
-import type { PaymentMethod, SaleMethod } from './salesService';
+import type { PaymentMethod, PaymentMethodDetail, SaleMethod } from './salesService';
 
 export type PaymentStatus = 'pending' | 'paid' | 'partial';
 export type OrderItemStatus = 'pending' | 'preparing' | 'ready' | 'delivered';
@@ -168,6 +168,8 @@ export interface OrderReceipt {
   included_vat: number
   total: number
   payment_methods: string[]
+  /** Each method of `payment_methods` with its current name and bank account, for the "FORMA DE PAGO" line. */
+  payment_methods_detail?: PaymentMethodDetail[]
   time_amount: number | null
   /** How the time line reads; null when its amount is not one product (a slice prorated by products). */
   time_detail?: ReceiptTimeDetail | null

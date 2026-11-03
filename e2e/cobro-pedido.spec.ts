@@ -1825,3 +1825,141 @@ const dayLabel = (iso: string): string => {
   const [year = 0, month = 1, day = 1] = iso.split('-').map(Number)
   return new Date(year, month - 1, day).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
 }
+
+/** The card of Configuración › Formas de pago and the cell of one of its rows under a header. */
+const methodsCard = (page: Page) => page.locator('.v-card').filter({ has: page.getByRole('heading', { name: 'Formas de pago' }) })
+async function methodCell(page: Page, name: string, header: string) {
+  const card = methodsCard(page)
+  const headers = (await card.locator('thead th').allInnerTexts()).map(text => text.trim())
+  const index = headers.indexOf(header)
+  expect(index, `columna «${header}»`).toBeGreaterThanOrEqual(0)
+  return card.locator('tbody tr').filter({ has: page.locator('td:first-child', { hasText: new RegExp(`^\\s*${name}\\s*$`) }) }).locator('td').nth(index)
+}
+
+/**
+ * Each business names its own payment methods: one created in Configuración
+ * (not in the drawer, with its bank account, for sales and recibos de caja)
+ * is renamed and moved, charges a sale in Pedidos, prints its bank account
+ * on the factura and the ticket, reads by its name in Ventas, and once used
+ * it can only be turned off, never deleted.
+ */
+test('una forma de pago propia se crea en Configuración, cobra una venta con su cuenta bancaria y con movimientos no se borra', async ({ page, request }) => {
+  test.setTimeout(120_000)
+  const { credentials, auth } = await createRestaurant(request, `formas-pago-${Date.now()}`)
+  const productId = await seedSimpleProduct(request, auth, 'Bandeja Bancolombia', 31500)
+  const order = await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: productId, quantity: 1 }] } })
+  expect(order.status(), await order.text()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, credentials.email, credentials.password)
+  await page.goto('/configuracion')
+  const card = methodsCard(page)
+  // The seven a business starts with: only Efectivo goes into the drawer.
+  await expect(card.locator('tbody tr td:first-child')).toHaveText(['Efectivo', 'Tarjeta crédito', 'Tarjeta débito', 'Transferencia', 'Nequi', 'Daviplata', 'Otro'])
+  await expect(await methodCell(page, 'Efectivo', 'Entra al cajón')).toHaveText('Sí')
+  await expect(await methodCell(page, 'Nequi', 'Entra al cajón')).toHaveText('No')
+
+  await card.getByRole('button', { name: 'Nueva forma de pago' }).click()
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Nueva forma de pago' })
+  await dialog.getByLabel('Nombre').fill('Bancolombia')
+  await expect(dialog.getByLabel('Entra al cajón')).not.toBeChecked()
+  await expect(dialog.getByText('Como el efectivo: suma en el efectivo a entregar del cierre')).toBeVisible()
+  await dialog.getByLabel('Cuenta bancaria (opcional)').fill('Bancolombia ahorros 123-456')
+  await expect(dialog.getByText('Ej: Bancolombia ahorros 123-456. Sale en facturas y recibos')).toBeVisible()
+  await dialog.getByLabel('Abonos a pedidos').uncheck()
+  await dialog.getByLabel('Movimientos financieros').uncheck()
+  await expect(dialog.getByLabel('Ventas')).toBeChecked()
+  await expect(dialog.getByLabel('Recibos de caja')).toBeChecked()
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Forma de pago «Bancolombia» guardada.')).toBeVisible()
+  await expect(dialog).toBeHidden()
+  await expect(await methodCell(page, 'Bancolombia', 'Cuenta bancaria')).toHaveText('Bancolombia ahorros 123-456')
+  await expect(await methodCell(page, 'Bancolombia', 'Dónde se puede usar')).toHaveText('Ventas, Recibos de caja')
+  await expect(await methodCell(page, 'Bancolombia', 'Entra al cajón')).toHaveText('No')
+  await expect(await methodCell(page, 'Bancolombia', 'Estado')).toHaveText('Activa')
+
+  // Renamed, and moved above Otro: the pickers follow this order.
+  await card.getByRole('button', { name: 'Editar la forma de pago Bancolombia' }).click()
+  const edit = page.getByRole('dialog').filter({ hasText: 'Editar Bancolombia' })
+  await expect(edit.getByLabel('Cuenta bancaria (opcional)')).toHaveValue('Bancolombia ahorros 123-456')
+  await edit.getByLabel('Nombre').fill('Bancolombia Ahorros')
+  await edit.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Forma de pago «Bancolombia Ahorros» guardada.')).toBeVisible()
+  await card.getByRole('button', { name: 'Subir la forma de pago Bancolombia Ahorros' }).click()
+  await expect(card.locator('tbody tr td:first-child')).toHaveText([
+    'Efectivo', 'Tarjeta crédito', 'Tarjeta débito', 'Transferencia', 'Nequi', 'Daviplata', 'Bancolombia Ahorros', 'Otro',
+  ])
+  await expect(card.getByRole('button', { name: 'Subir la forma de pago Efectivo' })).toBeDisabled()
+  await expect(card.getByRole('button', { name: 'Bajar la forma de pago Otro' })).toBeDisabled()
+
+  // Pedidos offers it for the sale, in that order, and charges with it.
+  await page.goto('/pedidos')
+  await page.locator('tr', { hasText: '$31.500' }).first().getByRole('button', { name: 'Cobrar' }).click()
+  const pay = page.getByRole('dialog')
+  await expect(field(page, 'Método de pago')).toContainText('Efectivo')
+  await field(page, 'Método de pago').click()
+  const options = await page.getByRole('option').allInnerTexts()
+  expect(options.indexOf('Bancolombia Ahorros')).toBe(options.indexOf('Otro') - 1)
+  await page.getByRole('option', { name: 'Bancolombia Ahorros' }).click()
+  await pay.getByRole('button', { name: 'Confirmar cobro' }).click()
+  await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
+
+  const [invoice] = await Promise.all([page.waitForEvent('popup'), page.getByRole('button', { name: 'Generar factura' }).click()])
+  await expect(invoice.locator('.party')).toContainText('FORMA DE PAGO: Bancolombia Ahorros · Bancolombia ahorros 123-456')
+  await invoice.close()
+  await page.getByRole('button', { name: 'Pagados' }).click()
+  const [ticket] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.locator('tbody tr', { hasText: '$31.500' }).getByRole('button', { name: 'Tirilla' }).click(),
+  ])
+  await expect(ticket.locator('body')).toContainText('FORMA DE PAGO')
+  const ticketText = await ticket.locator('body').innerText()
+  expect(ticketText.replace(/\s+/g, ' ')).toContain('FORMA DE PAGO: Bancolombia Ahorros · Bancolombia ahorros 123-456')
+  // Wrapped to the ticket's width: no line runs off the paper.
+  expect(Math.max(...ticketText.split('\n').map(line => line.length))).toBeLessThanOrEqual(38)
+  await ticket.close()
+
+  // Ventas reads the sale by the method's name, and its filter offers it.
+  await page.goto('/ventas')
+  await expect(page.locator('tbody tr', { hasText: '$31.500' })).toContainText('Bancolombia Ahorros')
+  await field(page, 'Método de pago').click()
+  await page.getByRole('option', { name: 'Bancolombia Ahorros' }).click()
+  await expect(page.locator('tbody tr', { hasText: '$31.500' })).toBeVisible()
+
+  // Used, it is not deleted: the API says to turn it off. One never used is deleted.
+  await page.goto('/configuracion')
+  page.once('dialog', confirmation => confirmation.accept())
+  await card.getByRole('button', { name: 'Eliminar la forma de pago Bancolombia Ahorros' }).click()
+  await expect(page.getByText('La forma de pago «Bancolombia Ahorros» ya tiene movimientos: desactívala en vez de borrarla.')).toBeVisible()
+  await expect(card.locator('tbody tr', { hasText: 'Bancolombia Ahorros' })).toBeVisible()
+  page.once('dialog', confirmation => {
+    expect(confirmation.message()).toBe('¿Seguro que quieres eliminar la forma de pago «Daviplata»?')
+    confirmation.accept()
+  })
+  await card.getByRole('button', { name: 'Eliminar la forma de pago Daviplata' }).click()
+  await expect(page.getByText('Forma de pago «Daviplata» eliminada.')).toBeVisible()
+  await expect(card.locator('tbody tr', { hasText: 'Daviplata' })).toHaveCount(0)
+})
+
+/** A method of the business's own marked "Entra al cajón" is cash of the close, as Efectivo is. */
+test('una forma de pago propia que entra al cajón suma al efectivo a entregar del cierre', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `cajon-${Date.now()}`)
+  const created = await request.post(`${API}/payment-methods`, {
+    headers: auth,
+    data: { name: 'Caja menor', is_cash: true, documents: ['sale'], active: true },
+  })
+  expect(created.status(), await created.text()).toBe(201)
+  const drawerKey = (await created.json()).data.key
+  const productId = await seedSimpleProduct(request, auth, 'Jugo Cajón', 7000)
+  for (const method of ['cash', drawerKey, 'nequi']) await chargeOrder(request, auth, productId, method)
+
+  await loginUI(page, credentials.email, credentials.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Cerrar caja' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.locator('tr', { hasText: 'Caja menor' })).toContainText('$7.000')
+  await expect(dialog.locator('tr', { hasText: 'Nequi' })).toContainText('$7.000')
+  // Efectivo and Caja menor are the drawer; Nequi never reaches it.
+  await expect(dialog.getByText('+ Cobros en Efectivo y Caja menor (con propinas)').locator('..')).toContainText('$14.000')
+  await expect(dialog.getByTestId('cash-expected')).toHaveText('$14.000')
+})

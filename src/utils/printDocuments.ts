@@ -8,12 +8,13 @@ import { money } from './money'
  * Datos del negocio), así que cada negocio imprime con su nombre, NIT,
  * régimen, dirección, teléfonos y observaciones.
  */
-import { FINAL_CONSUMER, customerLabel, documentKindLabels, durationLabel, playersLabel, saleMethodLabels, taxRegimeLabels } from './labels'
+import { FINAL_CONSUMER, customerLabel, documentKindLabels, durationLabel, playersLabel, taxRegimeLabels } from './labels'
 import { APP_NAME } from './branding'
 import { formatFullDateTime, formatIsoDate, toIsoDate } from './dates'
 import { resolveImageUrl } from './images'
 import { documentBase, verificationDigit } from './validation'
-import type { CashSession, CashWithdrawal } from '../services/salesService'
+import { closeMethodLabel, compareMethodKeys, drawerText, paymentMethodLabel } from '../composables/usePaymentMethods'
+import type { CashSession, CashWithdrawal, PaymentMethodDetail } from '../services/salesService'
 import type { OrderReceipt, ReceiptTimeDetail } from '../services/ordersService'
 
 export interface DocumentBusiness {
@@ -79,6 +80,8 @@ export interface PrintableReceipt {
   /** When the abono was keyed in. */
   registered_at?: string | null
   payment_method: string | null
+  /** The method with its current name and bank account (`/recurring-billing/receipts/{n}`). */
+  payment_methods_detail?: PaymentMethodDetail[]
   notes: string | null
   received_by: string | null
   customer: {
@@ -102,7 +105,25 @@ export interface PrintableReceipt {
   }[]
 }
 
-const METHOD_LABELS = saleMethodLabels
+/** Where a customer can pay a monthly document (`pay_to`). */
+export interface PayToAccount {
+  name: string
+  bank_account: string
+}
+
+/**
+ * "Transferencia · Bancolombia ahorros 123-456": each method with the account
+ * the money goes to, so the customer knows where it was paid. A key the API
+ * sent no detail for (a sale on credit) reads by its name alone.
+ */
+export const paymentMethodsText = (keys: string[], detail: PaymentMethodDetail[] = []): string =>
+  (keys.length ? keys : detail.map(method => method.key))
+    .map(key => {
+      const found = detail.find(method => method.key === key)
+      const name = found?.name ?? paymentMethodLabel(key)
+      return found?.bank_account ? `${name} · ${found.bank_account}` : name
+    })
+    .join(' + ')
 
 // ===== Valor en letras =====
 
@@ -246,10 +267,32 @@ const footer = (left: string, right: string) => `
   </div>
   <div class="printed-by">Documento impreso por computador · ${escape(APP_NAME)} · <span class="printed-at">${escape(printedAtText())}</span></div>`
 
+/**
+ * The observations, and beside them where the customer can pay: side by
+ * side, the box uses the height the observations already take, so a
+ * one-line document still fits half a letter page.
+ */
+const notesAndPayTo = (notes: string, payTo: PayToAccount[]): string => {
+  const notesBox = `
+    <div class="box notes">
+      <div class="label">OBSERVACIONES:</div>
+      <div>${notes || '&nbsp;'}</div>
+    </div>`
+  if (!payTo.length) return notesBox
+  return `
+    <div class="pay-notes">
+      <div class="box pay-to">
+        <div class="label">PUEDES PAGAR EN:</div>
+        ${payTo.map(account => `<div class="pay-to-account">${escape(account.name)} · ${escape(account.bank_account)}</div>`).join('')}
+      </div>${notesBox}
+    </div>`
+}
+
 export const invoiceHtml = (
   business: DocumentBusiness,
   invoice: PrintableInvoice,
   resolution: DocumentResolution | null,
+  payTo: PayToAccount[] = [],
 ): string => {
   const isInvoice = invoice.document_kind === 'invoice'
   const kind = isInvoice ? 'FACTURA DE VENTA' : 'CUENTA DE COBRO'
@@ -300,10 +343,7 @@ export const invoiceHtml = (
       </div>
     </div>
     <div class="son"><span class="label">SON:</span> ${escape(amountInWords(invoice.total))}</div>
-    <div class="box notes">
-      <div class="label">OBSERVACIONES:</div>
-      <div>${notes || '&nbsp;'}</div>
-    </div>
+    ${notesAndPayTo(notes, payTo)}
     ${footer('RECIBIDO / CLIENTE', 'FIRMA VENDEDOR')}
   </section>`
 }
@@ -339,7 +379,7 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
     const name = detail ? `Tiempo de mesa: ${detail}` : 'Tiempo de mesa'
     lines.push({ quantity: 1, name, unit_price: sale.time_amount, total: sale.time_amount, tax_rate: 0, tax: '—' })
   }
-  const methods = sale.payment_methods.map(method => METHOD_LABELS[method] ?? method).join(' + ')
+  const methods = paymentMethodsText(sale.payment_methods, sale.payment_methods_detail)
   const notes = [business.document_notes].filter(Boolean).map(escape).join('<br>')
 
   return `
@@ -431,7 +471,7 @@ export const receiptHtml = (business: DocumentBusiness, receipt: PrintableReceip
           ${partyRows([
             ...receiptDates(receipt),
             ['CIUDAD', receipt.customer.city],
-            ['FORMA DE PAGO', METHOD_LABELS[receipt.payment_method ?? ''] ?? receipt.payment_method],
+            ['FORMA DE PAGO', paymentMethodsText(receipt.payment_method ? [receipt.payment_method] : [], receipt.payment_methods_detail)],
           ])}
         </div>
       </div>
@@ -545,8 +585,9 @@ export const cashCloseHtml = (
   { orders = true }: { orders?: boolean } = {},
 ): string => {
   const summary = session.summary
-  const methods = Object.entries(summary.by_method).filter(([, totals]) => totals.count > 0)
-  const recurring = Object.entries(summary.recurring_by_method).filter(([, amount]) => (amount ?? 0) > 0)
+  const drawer = drawerText(summary)
+  const methods = Object.entries(summary.by_method).filter(([, totals]) => totals.count > 0).sort(([a], [b]) => compareMethodKeys(a, b))
+  const recurring = Object.entries(summary.recurring_by_method).filter(([, amount]) => (amount ?? 0) > 0).sort(([a], [b]) => compareMethodKeys(a, b))
   const recurringTotal = recurring.reduce((sum, [, amount]) => sum + (amount ?? 0), 0)
   // Order charges that came in print whatever the modules say.
   const sales = orders || methods.length > 0
@@ -598,14 +639,14 @@ export const cashCloseHtml = (
         <tbody>
           ${methods.map(([method, totals]) => `
           <tr>
-            <td class="left">${escape(METHOD_LABELS[method] ?? method)}</td>
+            <td class="left">${escape(closeMethodLabel(summary, method))}</td>
             <td class="right">${totals.count}</td>
             <td class="right">${money(totals.tips)}</td>
             <td class="right">${money(totals.amount)}</td>
           </tr>`).join('')}
           ${recurring.map(([method, amount]) => `
           <tr>
-            <td class="left">Abonos de cuotas · ${escape(METHOD_LABELS[method] ?? method)}</td>
+            <td class="left">Abonos de cuotas · ${escape(closeMethodLabel(summary, method))}</td>
             ${sales ? '<td class="right"></td><td class="right"></td>' : ''}
             <td class="right">${money(amount ?? 0)}</td>
           </tr>`).join('')}
@@ -635,11 +676,11 @@ export const cashCloseHtml = (
           <tbody>
             ${amountRows([
               ...(session.opening_amount > 0 ? [['+ Base', session.opening_amount] as [string, number]] : []),
-              ...(sales ? [['+ Cobros en efectivo (con propinas)', summary.cash_sales] as [string, number]] : []),
+              ...(sales ? [[`+ Cobros ${drawer} (con propinas)`, summary.cash_sales] as [string, number]] : []),
               ...(summary.cash_recurring > 0 || !sales
-                ? [['+ Abonos de cuotas en efectivo', summary.cash_recurring] as [string, number]]
+                ? [[`+ Abonos de cuotas ${drawer}`, summary.cash_recurring] as [string, number]]
                 : []),
-              ['− Gastos pagados en efectivo', summary.cash_expenses],
+              [`− Gastos pagados ${drawer}`, summary.cash_expenses],
               ...(withdrawn > 0 ? [['− Retiros de caja', withdrawn] as [string, number]] : []),
               ['EFECTIVO A ENTREGAR', session.expected_cash, true],
               ...(session.counted_cash !== null ? [['Efectivo contado', session.counted_cash] as [string, number]] : []),
@@ -701,6 +742,8 @@ const STYLES = `
   .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; align-items: start; margin-top: 8px; }
   .compact td { padding: 3px 4px; }
   .notes { min-height: 22mm; }
+  .pay-notes { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+  .pay-to-account { margin-top: 2px; }
   .resolution { margin-top: 4px; font-size: 11px; }
   .resolution span { display: inline-block; }
   .signatures { display: flex; justify-content: space-between; gap: 40px; margin-top: 36px; }
