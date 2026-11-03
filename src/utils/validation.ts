@@ -26,6 +26,11 @@ export const confirmPasswordRules = (password: () => string) => [
   (v: string) => (v ?? '') === (password() ?? '') || 'Las contraseñas no coinciden.',
 ]
 
+/** The one the platform dictated is known by someone else (AuthController::changePassword, same message). */
+export const differentFromTemporaryRules = (temporary: () => string) => [
+  (v: string) => !v || v !== temporary() || 'Elige una contraseña distinta de la temporal que te dieron.',
+]
+
 /*
  * Número de documento: espejo de Customer::normalizeDocument() y
  * Customer::documentProblem() del backend, con los mismos mensajes.

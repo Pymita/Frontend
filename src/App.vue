@@ -201,7 +201,7 @@ import { useAuthStore } from './stores/auth'
 import { effectiveFeatures, type Feature } from './types/auth'
 import { APP_ICON, APP_NAME } from './utils/branding'
 import { errorMessage } from './utils/errors'
-import { SUBSCRIPTION_BLOCKED_EVENT, TWO_FACTOR_REQUIRED_EVENT } from './services/api'
+import { PASSWORD_CHANGE_REQUIRED_EVENT, SUBSCRIPTION_BLOCKED_EVENT, TWO_FACTOR_REQUIRED_EVENT } from './services/api'
 import { PAGE_LOAD_FAILED_EVENT } from './router'
 import type { MenuItem } from './types'
 
@@ -269,6 +269,13 @@ const reloadPage = () => window.location.reload()
 const onTwoFactorRequired = async () => {
   await authStore.getCurrentUser()
   router.push('/plataforma/seguridad')
+}
+
+// A session whose stored user predates the temporary password: /auth/me
+// brings the flag, and the router keeps it on the step that changes it.
+const onPasswordChangeRequired = async () => {
+  await authStore.getCurrentUser()
+  router.push('/cambiar-contrasena')
 }
 
 const MENU_GROUPS = ['Operación', 'Catálogo', 'Administración', 'Plataforma']
@@ -419,7 +426,7 @@ let resolutionCheckedAt = 0
 const RESOLUTION_CHECK_INTERVAL_MS = 10 * 60 * 1000
 
 const checkResolutionStatus = async (force = false) => {
-  if (!authStore.isAuthenticated || authStore.user?.role === 'super_admin') return
+  if (!authStore.isAuthenticated || authStore.user?.role === 'super_admin' || authStore.mustChangePassword) return
   if (!force && Date.now() - resolutionCheckedAt < RESOLUTION_CHECK_INTERVAL_MS) return
   resolutionCheckedAt = Date.now()
   try {
@@ -440,6 +447,7 @@ onMounted(() => {
   authStore.initializeAuth()
   window.addEventListener(SUBSCRIPTION_BLOCKED_EVENT, onSubscriptionBlocked)
   window.addEventListener(TWO_FACTOR_REQUIRED_EVENT, onTwoFactorRequired)
+  window.addEventListener(PASSWORD_CHANGE_REQUIRED_EVENT, onPasswordChangeRequired)
   window.addEventListener(PAGE_LOAD_FAILED_EVENT, onPageLoadFailed)
   checkResolutionStatus()
 })
@@ -447,6 +455,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener(SUBSCRIPTION_BLOCKED_EVENT, onSubscriptionBlocked)
   window.removeEventListener(TWO_FACTOR_REQUIRED_EVENT, onTwoFactorRequired)
+  window.removeEventListener(PASSWORD_CHANGE_REQUIRED_EVENT, onPasswordChangeRequired)
   window.removeEventListener(PAGE_LOAD_FAILED_EVENT, onPageLoadFailed)
 })
 </script>

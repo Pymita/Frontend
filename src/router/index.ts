@@ -23,6 +23,14 @@ const Informes = () => import('../pages/Informes.vue')
 const Configuracion = () => import('../pages/Configuracion.vue')
 const Privacidad = () => import('../pages/Privacidad.vue')
 
+const storedUser = (): { must_change_password?: boolean } | null => {
+  try {
+    return JSON.parse(localStorage.getItem('user_data') ?? 'null')
+  } catch {
+    return null
+  }
+}
+
 export const routes: RouteRecordRaw[] = [
   {
     path: '/',
@@ -50,6 +58,27 @@ export const routes: RouteRecordRaw[] = [
     name: 'ResetPassword',
     component: Login,
     meta: { requiresAuth: false },
+  },
+  {
+    // Signed in with the temporary password the platform dictated: the login
+    // card in its "Cambia tu contraseña" step, without the app around it (the
+    // API answers 403 to everything else). Right after signing in the same
+    // step shows on /login, which still holds the password just typed; this
+    // route is where a reload or any other page lands.
+    path: '/cambiar-contrasena',
+    name: 'ChangePassword',
+    component: Login,
+    meta: { requiresAuth: false },
+    beforeEnter: (_to, _from, next) => {
+      const user = storedUser()
+      if (!localStorage.getItem('auth_token') || !user) {
+        next('/login')
+      } else if (!user.must_change_password) {
+        next('/dashboard')
+      } else {
+        next()
+      }
+    },
   },
   {
     // Public on purpose: Google Play and Ley 1581 require the policy at a URL
@@ -217,6 +246,7 @@ export const setupRouterGuards = (router: any) => {
     let isAdmin = false
     let isSuperAdmin = false
     let mustSetUpTwoFactor = false
+    let mustChangePassword = false
     let features: string[] = []
     if (userStr) {
       try {
@@ -224,6 +254,7 @@ export const setupRouterGuards = (router: any) => {
         isAdmin = user.role === 'admin'
         isSuperAdmin = user.role === 'super_admin'
         mustSetUpTwoFactor = !!user.two_factor?.setup_required
+        mustChangePassword = !!user.must_change_password
         features = effectiveFeatures(user)
       } catch (error) {
       }
@@ -231,6 +262,9 @@ export const setupRouterGuards = (router: any) => {
 
     if (requiresAuth && !isAuthenticated) {
       next('/login')
+    } else if (requiresAuth && isAuthenticated && mustChangePassword) {
+      // Every page would only get 403 until the temporary password is replaced.
+      next('/cambiar-contrasena')
     } else if (requiresAuth && isAuthenticated && mustSetUpTwoFactor && to.path !== '/plataforma/seguridad') {
       // La cuenta de plataforma sin segundo factor solo puede configurarlo.
       next('/plataforma/seguridad')

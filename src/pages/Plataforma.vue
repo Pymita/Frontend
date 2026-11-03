@@ -382,7 +382,7 @@
     </v-dialog>
 
     <!-- Dialog: detalle y edición de empresa -->
-    <v-dialog v-model="detailDialog" max-width="760">
+    <v-dialog v-model="detailDialog" max-width="860">
       <v-card>
         <v-card-title class="d-flex align-center">
           <span>{{ detail?.name || 'Empresa' }}</span>
@@ -538,6 +538,7 @@
                   <th>Rol</th>
                   <th>Estado</th>
                   <th>Último ingreso</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -546,11 +547,32 @@
                   <td>{{ user.email }}</td>
                   <td>{{ user.role === 'admin' ? 'Admin' : 'Empleado' }}</td>
                   <td>
-                    <v-chip :color="user.active ? 'success' : 'secondary'" size="x-small">
-                      {{ user.active ? 'Activo' : 'Inactivo' }}
-                    </v-chip>
+                    <div class="d-flex flex-column align-start ga-1">
+                      <v-chip :color="user.active ? 'success' : 'secondary'" size="x-small">
+                        {{ user.active ? 'Activo' : 'Inactivo' }}
+                      </v-chip>
+                      <v-chip v-if="user.must_change_password" color="warning" variant="tonal" size="x-small">
+                        Contraseña temporal
+                      </v-chip>
+                    </div>
                   </td>
                   <td>{{ user.last_login_at ? formatMomentDay(user.last_login_at) : 'Nunca' }}</td>
+                  <td class="text-right">
+                    <v-tooltip v-if="user.role === 'admin'" text="Restablecer contraseña">
+                      <template #activator="{ props }">
+                        <v-btn
+                          v-bind="props"
+                          icon
+                          size="small"
+                          variant="text"
+                          :aria-label="`Restablecer la contraseña de ${user.name}`"
+                          @click="openTemporaryPasswordDialog(user)"
+                        >
+                          <v-icon size="small">mdi-lock-reset</v-icon>
+                        </v-btn>
+                      </template>
+                    </v-tooltip>
+                  </td>
                 </tr>
               </tbody>
             </v-table>
@@ -585,6 +607,49 @@
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="detailDialog = false">Cerrar</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Dialog: contraseña temporal para el admin que no logra usar el enlace del correo -->
+    <v-dialog v-model="temporaryPasswordDialog" max-width="480" persistent>
+      <v-card v-if="temporaryPasswordTarget">
+        <v-card-title class="text-wrap">Restablecer contraseña</v-card-title>
+        <v-card-subtitle class="text-wrap">
+          {{ temporaryPasswordTarget.name }} · {{ temporaryPasswordTarget.email }}
+        </v-card-subtitle>
+        <v-card-text>
+          <p class="text-body-2 mb-1">Díctasela al dueño: al entrar, el sistema le pedirá cambiarla.</p>
+          <p class="text-caption text-medium-emphasis mb-4">Se cierran las sesiones que tenga abiertas, también la de la app.</p>
+          <v-form ref="temporaryPasswordForm" @submit.prevent="saveTemporaryPassword">
+            <PasswordField
+              v-model="temporaryPasswordData.password"
+              :rules="passwordRules"
+              :hint="PASSWORD_HINT"
+              persistent-hint
+              autocomplete="new-password"
+              class="mb-2"
+            >
+              <template #label>Contraseña temporal <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+            </PasswordField>
+            <PasswordField
+              v-model="temporaryPasswordData.password_confirmation"
+              :rules="confirmPasswordRules(() => temporaryPasswordData.password)"
+              autocomplete="new-password"
+            >
+              <template #label>Confirmar contraseña <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+            </PasswordField>
+          </v-form>
+          <v-alert v-if="temporaryPasswordError" type="error" variant="tonal" density="compact" class="mt-3">
+            {{ temporaryPasswordError }}
+          </v-alert>
+        </v-card-text>
+        <v-card-actions class="flex-wrap">
+          <v-spacer />
+          <v-btn variant="text" :disabled="savingTemporaryPassword" @click="temporaryPasswordDialog = false">Cancelar</v-btn>
+          <v-btn color="primary" variant="flat" :loading="savingTemporaryPassword" @click="saveTemporaryPassword">
+            Guardar contraseña temporal
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -857,6 +922,7 @@ import type {
   CompanyDeletionPlan,
   PlatformCompany,
   PlatformCompanyDetail,
+  PlatformCompanyUser,
   PlatformSeller,
   SellerStats,
 } from '../types/platform'
@@ -1115,6 +1181,51 @@ const saveDetail = async () => {
     notify(errorMessage(error, 'No fue posible actualizar la empresa. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
+  }
+}
+
+// --- Contraseña temporal de un admin (se la dictan por teléfono) ---
+const temporaryPasswordDialog = ref(false)
+const temporaryPasswordTarget = ref<PlatformCompanyUser | null>(null)
+const temporaryPasswordForm = ref()
+const temporaryPasswordData = ref({ password: '', password_confirmation: '' })
+const temporaryPasswordError = ref('')
+const savingTemporaryPassword = ref(false)
+
+const openTemporaryPasswordDialog = (user: PlatformCompanyUser) => {
+  temporaryPasswordTarget.value = user
+  temporaryPasswordData.value = { password: '', password_confirmation: '' }
+  temporaryPasswordError.value = ''
+  temporaryPasswordDialog.value = true
+}
+
+const saveTemporaryPassword = async () => {
+  if (!detail.value || !temporaryPasswordTarget.value) return
+  const { valid } = await temporaryPasswordForm.value.validate()
+  if (!valid) return
+
+  const companyId = detail.value.id
+  savingTemporaryPassword.value = true
+  temporaryPasswordError.value = ''
+  try {
+    const message = await platformService.setTemporaryPassword(
+      companyId,
+      temporaryPasswordTarget.value.id,
+      temporaryPasswordData.value,
+    )
+    temporaryPasswordDialog.value = false
+    notify(message)
+  } catch (error) {
+    temporaryPasswordError.value = errorMessage(error, 'No fue posible guardar la contraseña temporal. Inténtalo de nuevo.')
+    return
+  } finally {
+    savingTemporaryPassword.value = false
+  }
+
+  try {
+    detail.value = await platformService.getCompany(companyId)
+  } catch {
+    // Only the "Contraseña temporal" chip waits for the next opening: the password is saved.
   }
 }
 

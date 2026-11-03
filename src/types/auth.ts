@@ -88,6 +88,8 @@ export interface User {
   can_use_accounting?: boolean
   /** Verificación en dos pasos (solo la cuenta de plataforma la usa). */
   two_factor?: { enabled: boolean; setup_required: boolean }
+  /** Signed in with a temporary password the platform dictated: the API answers 403 until it is changed. */
+  must_change_password?: boolean
   /** Privacy policy in force and whether this user accepted it (missing in sessions older than the field). */
   privacy?: PrivacyStatus
 }

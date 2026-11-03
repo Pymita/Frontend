@@ -11,6 +11,7 @@ import type {
   RegisterPaymentPayload,
   SaveSubscriptionPayload,
   SellerStats,
+  TemporaryPasswordPayload,
 } from '../types/platform'
 
 interface ApiEnvelope<T> {
@@ -45,6 +46,12 @@ class PlatformService {
   async toggleActive(id: number): Promise<PlatformCompany> {
     const response = await api.post<ApiEnvelope<PlatformCompany>>(`/platform/companies/${id}/toggle-active`)
     return response.data.data
+  }
+
+  /** Temporary password for an admin of the company; returns the API's message, which names them. */
+  async setTemporaryPassword(companyId: number, userId: number, payload: TemporaryPasswordPayload): Promise<string> {
+    const response = await api.put<{ message: string }>(`/platform/companies/${companyId}/users/${userId}/password`, payload)
+    return response.data.message
   }
 
   /** Descarga la copia completa de la empresa (el mismo archivo de tenant:export). */
