@@ -1,8 +1,22 @@
 import api from './api'
 import type { PageMeta, PageQuery, PaginatedResponse } from '@/types/api'
 
-/** How a cell reads: week is its Monday (AAAA-MM-DD), month AAAA-MM, hour 0–23. */
-export type ReportColumnType = 'text' | 'enum' | 'integer' | 'quantity' | 'money' | 'percent' | 'date' | 'week' | 'month' | 'hour'
+/**
+ * How a cell reads: week is its Monday (AAAA-MM-DD), month AAAA-MM, hour 0–23,
+ * datetime "AAAA-MM-DD HH:MM" in Bogotá time (a day alone for the kardex's opening row).
+ */
+export type ReportColumnType =
+  | 'text'
+  | 'enum'
+  | 'integer'
+  | 'quantity'
+  | 'money'
+  | 'percent'
+  | 'date'
+  | 'datetime'
+  | 'week'
+  | 'month'
+  | 'hour'
 
 export interface ReportColumn {
   key: string
@@ -45,7 +59,10 @@ export interface ReportDefinition {
   question: string
   /** `default`: today, or month (from the 1st to today). */
   period: { type: ReportPeriodType; max_days?: number; default?: 'today' | 'month' }
+  /** `max` 0: one row per record (a kardex movement), nothing to group by; each row then carries its `id`. */
   group_by: { default: string[]; max: number }
+  /** Raised when the report's defaults change on purpose: a choice remembered under another version is dropped. */
+  defaults_version?: number
   columns: ReportColumn[]
   filters: ReportFilter[]
   default_sort?: { by: string; dir: 'asc' | 'desc' }
@@ -61,6 +78,8 @@ export interface ReportArea {
 export interface ReportCatalog {
   reports: ReportDefinition[]
   areas: ReportArea[]
+  /** The company's names for the keys of some enums (its payment methods), over `enumLabels`. */
+  enum_labels?: Record<string, Record<string, string>>
 }
 
 export type ReportFilterValue = string | number | boolean | (string | number)[] | null | undefined
@@ -96,10 +115,17 @@ export interface ReportPage extends PaginatedResponse<ReportRow> {
 /** The side a role posts on in the normal entry; null when it depends on the movement (an adjustment's inventory). */
 export type AccountingNature = 'debit' | 'credit'
 
+/** The documents where a payment method can post to an account of its own. */
+export type AccountingMethodDocument = 'sale' | 'cash_receipt'
+
 export interface AccountingPaymentMethod {
   method: string
   label: string
   account: string | null
+  /** Another account for the method in one document; null uses `account`. Null on `credit`: Cartera everywhere. */
+  accounts_by_document?: Record<AccountingMethodDocument, string | null> | null
+  /** The company's inactive methods are listed too, marked. */
+  active?: boolean
 }
 
 export interface AccountingTax {
@@ -148,6 +174,15 @@ export interface AccountingTemplate {
 
 export type AccountingTemplatePayload = Omit<AccountingTemplate, 'id'>
 
+/**
+ * The header row of the accounting software's sample file, in order, and the
+ * column key each header seems to ask for (null: none, it stays fixed).
+ */
+export interface AccountingTemplateHeaders {
+  headers: string[]
+  suggestions: { label: string; key: string | null }[]
+}
+
 export interface AccountingSettings {
   payment_methods: AccountingPaymentMethod[]
   taxes: AccountingTax[]
@@ -162,7 +197,11 @@ export interface AccountingSettings {
 
 /** Every key optional: only what is sent changes. */
 export interface AccountingSettingsUpdate {
-  payment_methods?: { method: string; account: string | null }[]
+  payment_methods?: {
+    method: string
+    account: string | null
+    accounts_by_document?: Partial<Record<AccountingMethodDocument, string | null>>
+  }[]
   taxes?: { id: number; sales_account: string | null; purchase_account: string | null }[]
   documents?: { key: string; voucher_code: string | null; accounts: { role: string; account: string | null }[] }[]
 }
@@ -229,7 +268,7 @@ const params = (request: ReportRequest): Record<string, unknown> => {
 class ReportsService {
   async definitions(): Promise<ReportCatalog> {
     const response = await api.get('/reports/definitions')
-    return { reports: response.data.data, areas: response.data.areas }
+    return { reports: response.data.data, areas: response.data.areas, enum_labels: response.data.enum_labels ?? {} }
   }
 
   async page(request: ReportRequest, query: PageQuery): Promise<ReportPage> {
@@ -264,6 +303,16 @@ class ReportsService {
   async updateAccountingTemplate(id: string, payload: AccountingTemplatePayload): Promise<{ template: AccountingTemplate; message: string }> {
     const response = await api.put(`/accounting/templates/${id}`, payload)
     return { template: response.data.data, message: response.data.message }
+  }
+
+  /** Reads the headers of an .xlsx or .csv; a file without a header row answers 422 with what to fix. */
+  async accountingTemplateHeaders(file: File): Promise<AccountingTemplateHeaders> {
+    const form = new FormData()
+    form.append('file', file)
+    const response = await api.post('/accounting/templates/headers', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data.data
   }
 
   async deleteAccountingTemplate(id: string): Promise<string> {

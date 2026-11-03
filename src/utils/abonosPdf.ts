@@ -8,8 +8,9 @@ import type { CellDef, RowInput } from 'jspdf-autotable'
 import { formatFullDateTime, formatIsoDate } from './dates'
 import { resolveImageUrl } from './images'
 import { money } from './money'
-import { PAYMENT_METHOD_LABELS, type CashPeriodTotals, type CashSession } from '../services/salesService'
+import type { CashPeriodTotals, CashSession } from '../services/salesService'
 import type { CashReceipt } from '../services/billingService'
+import { closeMethodLabel, compareMethodKeys, drawerText, paymentMethodLabel } from '../composables/usePaymentMethods'
 import { differenceText, printedAtText, type DocumentBusiness } from './printDocuments'
 
 export interface AbonosPdfFilters {
@@ -27,10 +28,7 @@ const slug = (value: string): string =>
     .replace(/^-|-$/g, '')
     .slice(0, 40) || 'empresa'
 
-const methodLabel = (method: string | null | undefined): string => {
-  if (!method) return '—'
-  return (PAYMENT_METHOD_LABELS as Record<string, string>)[method] ?? method
-}
+const methodLabel = (method: string | null | undefined): string => (method ? paymentMethodLabel(method) : '—')
 
 const dmy = (value: string | null | undefined): string =>
   value ? formatIsoDate(value.slice(0, 10)) : '—'
@@ -223,9 +221,14 @@ interface CloseFigures {
   counted_cash: number | null
   difference: number | null
   total_collected: number
+  /** The name each method froze with, and the methods that go into the drawer. */
+  method_labels?: Record<string, string>
+  cash_methods?: string[]
 }
 
 const closeFigures = (close: CashSession): CloseFigures => ({
+  method_labels: close.summary.method_labels,
+  cash_methods: close.summary.cash_methods,
   sales_total: close.summary.sales_total,
   sales_count: close.summary.sales_count,
   credit_sales: close.summary.credit_sales?.total ?? null,
@@ -244,23 +247,17 @@ const closeFigures = (close: CashSession): CloseFigures => ({
 const instant = (iso: string | null): string => plainSpaces(formatFullDateTime(iso))
 const moneyOrDash = (value: number | null): string => (value === null ? '—' : money(value))
 
-const METHOD_ORDER = Object.keys(PAYMENT_METHOD_LABELS)
-const byListOrder = (a: string, b: string): number => {
-  const rank = (method: string) => (METHOD_ORDER.includes(method) ? METHOD_ORDER.indexOf(method) : METHOD_ORDER.length)
-  return rank(a) - rank(b)
-}
-
 const bold = (content: string): CellDef => ({ content, styles: { fontStyle: 'bold' } })
 
 /**
- * Two columns per row: what came in (cash always, it is the drawer, then
- * each method that brought money) and what the drawer should hold, after the
+ * Two columns per row: what came in (the drawer's methods always, then each
+ * method that brought money) and what the drawer should hold, after the
  * expenses and the withdrawals (only when there were) that left it.
  */
 const figureRows = (figures: CloseFigures, countedLabel: string): RowInput[] => {
-  const charged = Object.keys(figures.by_method)
-    .filter(method => method === 'cash' || (figures.by_method[method]?.amount ?? 0) > 0)
-  if (!charged.includes('cash')) charged.push('cash')
+  const drawerMethods = figures.cash_methods?.length ? figures.cash_methods : ['cash']
+  const charged = [...new Set([...drawerMethods, ...Object.keys(figures.by_method)])]
+    .filter(method => drawerMethods.includes(method) || (figures.by_method[method]?.amount ?? 0) > 0)
   const abonos = Object.keys(figures.recurring_by_method).filter(method => (figures.recurring_by_method[method] ?? 0) > 0)
 
   const received: [string, CellDef | string][] = [
@@ -268,15 +265,15 @@ const figureRows = (figures: CloseFigures, countedLabel: string): RowInput[] => 
     ['N.º de ventas', figures.sales_count === null ? '—' : String(figures.sales_count)],
     ...(figures.credit_sales ? [['Ventas a crédito (en Cartera)', money(figures.credit_sales)] as [string, string]] : []),
     ['Propinas', moneyOrDash(figures.tips_total)],
-    ...charged.sort(byListOrder).map(method =>
-      [`Cobros · ${methodLabel(method)}`, money(figures.by_method[method]?.amount ?? 0)] as [string, string]),
-    ...abonos.sort(byListOrder).map(method =>
-      [`Abonos de cuotas · ${methodLabel(method)}`, money(figures.recurring_by_method[method] ?? 0)] as [string, string]),
+    ...charged.sort(compareMethodKeys).map(method =>
+      [`Cobros · ${closeMethodLabel(figures, method)}`, money(figures.by_method[method]?.amount ?? 0)] as [string, string]),
+    ...abonos.sort(compareMethodKeys).map(method =>
+      [`Abonos de cuotas · ${closeMethodLabel(figures, method)}`, money(figures.recurring_by_method[method] ?? 0)] as [string, string]),
     ['Total recibido', bold(money(figures.total_collected))],
   ]
   const drawer: [string, CellDef | string][] = [
     ...(figures.opening_amount > 0 ? [['Base', money(figures.opening_amount)] as [string, string]] : []),
-    ['Gastos en efectivo', money(figures.cash_expenses)],
+    [`Gastos ${drawerText(figures)}`, money(figures.cash_expenses)],
     ...(figures.cash_withdrawals > 0 ? [['Retiros de caja', money(figures.cash_withdrawals)] as [string, string]] : []),
     ['Efectivo a entregar', bold(money(figures.expected_cash))],
     [countedLabel, moneyOrDash(figures.counted_cash)],

@@ -262,6 +262,7 @@ test('un producto con saldo inicial 0 se crea, se vende y el kardex queda en neg
 /**
  * Prices are typed as pesos: "18.500" is eighteen thousand five hundred, not
  * 18,5. The menu price follows the sale price until it is changed by hand.
+ * The whole form, every section on, fits a 1440×900 laptop without scrolling.
  */
 test('el costo, el precio de venta y el del menú se escriben en pesos', async ({ page, request }) => {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
@@ -271,6 +272,7 @@ test('el costo, el precio de venta y el del menú se escriben en pesos', async (
   await request.post(`${API}/categories`, { headers: auth, data: { name: `Precios ${stamp}` } })
   await request.post(`${API}/taxes`, { headers: auth, data: { name: `IVA Precios ${stamp}`, rate: 19 } })
 
+  await page.setViewportSize({ width: 1440, height: 900 })
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/productos-base')
   await page.getByRole('button', { name: 'Nuevo producto' }).click()
@@ -289,6 +291,12 @@ test('el costo, el precio de venta y el del menú se escriben en pesos', async (
   await menu.fill('19.000')
   await field(page, 'Impuesto *').locator('.v-field').click()
   await page.getByRole('option', { name: new RegExp(`IVA Precios ${stamp}`) }).click()
+  await expect(dialog.getByLabel('Saldo inicial', { exact: true })).toBeVisible()
+  const card = page.locator('.v-dialog > .v-overlay__content > .v-card')
+  expect(await card.evaluate(el => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(0)
+  for (const control of [field(page, 'Nombre del producto *'), dialog.getByLabel('Stock mínimo (alerta)'), menu, dialog.getByRole('button', { name: 'Guardar', exact: true })]) {
+    await expect(control).toBeInViewport({ ratio: 1 })
+  }
   await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
   await expect(page.getByText('Producto creado')).toBeVisible()
 

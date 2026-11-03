@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
-import { API, PLATFORM, apiLogin, field, loginUI, sidebarItem } from './helpers'
+import { API, PLATFORM, acceptPrivacyPolicy, apiLogin, field, loginUI, sidebarItem } from './helpers'
 
 /**
  * Capa comercial de la plataforma: vendedores, precio acordado en la
@@ -260,4 +260,119 @@ test('eliminar una empresa desactivada después de descargar su copia', async ({
   })
   expect(login.status()).toBe(422)
   expect((await login.json()).message).toBe('Correo, usuario o contraseña incorrectos.')
+})
+
+/**
+ * La dueña no se maneja con el enlace del correo: desde Plataforma le ponen
+ * una contraseña temporal y se la dictan por teléfono. Al entrar con ella la
+ * web no la deja hacer nada más que cambiarla; después sigue a Inicio y la
+ * temporal ya no sirve.
+ */
+test('la plataforma le dicta una contraseña temporal a una dueña y al entrar debe cambiarla', async ({ page, request }) => {
+  const token = await apiLogin(request, PLATFORM.email, PLATFORM.password)
+  const stamp = Date.now()
+  const owner = `Dueña Temporal ${stamp}`
+  const email = `temporal.${stamp}@e2e.test`
+  // The list pages by 10 ordered by name: this one sorts before every other company.
+  const companyName = `Abarrotes E2E ${stamp}`
+  const created = await request.post(`${API}/platform/companies`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name: companyName, admin: { name: owner, email, password: 'inicial2026' } },
+  })
+  expect(created.status()).toBe(201)
+  // She accepted the policy with her first password, so its dialog does not cover the step under test.
+  await acceptPrivacyPolicy(request, email, 'inicial2026')
+  const ownerToken = await apiLogin(request, email, 'inicial2026')
+  const employee = await request.post(`${API}/users`, {
+    headers: { Authorization: `Bearer ${ownerToken}` },
+    data: { name: `Cajero ${stamp}`, username: `cajero${stamp}`, password: 'cajero2026', role: 'employee' },
+  })
+  expect(employee.status()).toBe(201)
+
+  await loginUI(page, PLATFORM.email, PLATFORM.password)
+  await page.getByRole('button', { name: `Ver detalle de ${companyName}` }).click()
+  const detail = page.getByRole('dialog').filter({ hasText: 'Historial de pagos' })
+  await expect(detail.locator('tr', { hasText: `Cajero ${stamp}` })).toBeVisible()
+  // Only an admin gets the action: an employee's password is the admin's, in Empleados.
+  await expect(page.getByRole('button', { name: `Restablecer la contraseña de Cajero ${stamp}` })).toHaveCount(0)
+  await page.getByRole('button', { name: `Restablecer la contraseña de ${owner}` }).click()
+
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Restablecer contraseña' })
+  await expect(dialog.getByText(`${owner} · ${email}`)).toBeVisible()
+  await expect(dialog.getByText('Díctasela al dueño: al entrar, el sistema le pedirá cambiarla.')).toBeVisible()
+  const temporary = dialog.getByLabel('Contraseña temporal *')
+  const confirmation = dialog.getByLabel('Confirmar contraseña *')
+  await temporary.fill('Temporal2026')
+  await confirmation.fill('Temporal2062')
+  await expect(temporary).toHaveAttribute('type', 'password')
+  await field(page, 'Contraseña temporal *').getByRole('button', { name: 'Mostrar contraseña' }).click()
+  await expect(temporary).toHaveAttribute('type', 'text')
+  await expect(temporary).toHaveValue('Temporal2026')
+  await expect(confirmation).toHaveAttribute('type', 'password')
+  await dialog.getByRole('button', { name: 'Guardar contraseña temporal' }).click()
+  await expect(dialog.getByText('Las contraseñas no coinciden.')).toBeVisible()
+  await expect(dialog).toBeVisible()
+
+  await confirmation.fill('Temporal2026')
+  await dialog.getByRole('button', { name: 'Guardar contraseña temporal' }).click()
+  await expect(
+    page.getByText(`Guardamos la contraseña temporal de ${owner}. Al entrar con ella, el sistema le pedirá cambiarla.`),
+  ).toBeVisible()
+  await expect(dialog).toHaveCount(0)
+  await expect(detail.locator('tr', { hasText: owner }).getByText('Contraseña temporal', { exact: true })).toBeVisible()
+  // Her first password stopped working the moment it was saved.
+  const first = await request.post(`${API}/auth/login`, { headers: { Accept: 'application/json' }, data: { email, password: 'inicial2026' } })
+  expect(first.status()).toBe(422)
+
+  const signIn = async (password: string) => {
+    await page.goto('/login')
+    await page.getByLabel('Correo o usuario').fill(email)
+    await page.getByLabel('Contraseña', { exact: true }).fill(password)
+    await page.getByRole('button', { name: 'Iniciar sesión' }).click()
+  }
+  await detail.getByRole('button', { name: 'Cerrar' }).click()
+  await sidebarItem(page, 'Cerrar sesión').click()
+  await page.waitForURL(/\/login/)
+
+  // Right after signing in: only the new password is asked, with nothing of the app around it.
+  await signIn('Temporal2026')
+  await expect(page.getByText('Cambia tu contraseña', { exact: true })).toBeVisible()
+  await expect(page.getByText('Entraste con una contraseña temporal. Elige una nueva que solo tú conozcas para seguir usando Servify POS.')).toBeVisible()
+  await expect(page.getByLabel('Contraseña temporal')).toHaveCount(0)
+  await expect(page.locator('.v-navigation-drawer')).toHaveCount(0)
+  await page.getByLabel('Contraseña nueva').fill('Temporal2026')
+  await page.getByLabel('Confirmar contraseña').fill('Temporal2026')
+  await page.getByRole('button', { name: 'Guardar y continuar' }).click()
+  await expect(page.getByText('Elige una contraseña distinta de la temporal que te dieron.')).toBeVisible()
+
+  // Any other page lands back on the step, which now asks for the temporary password too.
+  await page.goto('/pedidos')
+  await expect(page).toHaveURL(/\/cambiar-contrasena$/)
+  await expect(page.getByText('Cambia tu contraseña', { exact: true })).toBeVisible()
+  await expect(page.locator('.v-navigation-drawer')).toHaveCount(0)
+  await page.getByLabel('Contraseña temporal').fill('Temporal2062')
+  await page.getByLabel('Contraseña nueva').fill('MiNegocio2026')
+  await page.getByLabel('Confirmar contraseña').fill('MiNegocio2026')
+  await page.getByRole('button', { name: 'Guardar y continuar' }).click()
+  await expect(page.getByText('La contraseña temporal no es correcta.')).toBeVisible()
+  await page.getByRole('button', { name: 'Cerrar sesión' }).click()
+  await expect(page).toHaveURL(/\/login$/)
+
+  await signIn('Temporal2026')
+  await page.getByLabel('Contraseña nueva').fill('MiNegocio2026')
+  await page.getByLabel('Confirmar contraseña').fill('MiNegocio2026')
+  await page.getByRole('button', { name: 'Guardar y continuar' }).click()
+  await page.waitForURL(/\/dashboard/)
+  await expect(page.locator('.v-app-bar-title')).toHaveText('Inicio')
+  await expect(sidebarItem(page, 'Pedidos')).toBeVisible()
+
+  // The temporary one is gone; hers works.
+  await sidebarItem(page, 'Cerrar sesión').click()
+  await page.waitForURL(/\/login/)
+  await signIn('Temporal2026')
+  await expect(page.getByText('Correo, usuario o contraseña incorrectos.')).toBeVisible()
+  await expect(page).toHaveURL(/\/login$/)
+  await signIn('MiNegocio2026')
+  await page.waitForURL(/\/dashboard/)
+  await expect(page.locator('.v-app-bar-title')).toHaveText('Inicio')
 })

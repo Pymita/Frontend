@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, PLATFORM, apiLogin, field, loginUI, raisePlanLimits } from './helpers'
+import { ADMIN, API, PLATFORM, apiLogin, loginUI, raisePlanLimits } from './helpers'
 
 /**
  * Mesas y plano del salón: el admin crea, edita y borra mesas (una o
@@ -94,10 +94,12 @@ test('una mesa nueva aparece en el plano y se le cambia la forma y la zona', asy
 })
 
 /**
- * A pool hall types its hourly rate as pesos: "12.000" is twelve thousand an
- * hour, not twelve. Its own company, since the seeded one has no time billing.
+ * Any table can bill by time (billiards, cards, a garita): the form names the
+ * capability, "Cobra por tiempo", and the rate is typed as pesos: "12.000" is
+ * twelve thousand an hour, not twelve. Its own company, since the seeded one
+ * has no time billing.
  */
-test('la tarifa por hora de una mesa de billar se escribe en pesos', async ({ page, request }) => {
+test('una mesa cobra por tiempo con su tarifa por hora escrita en pesos', async ({ page, request }) => {
   const slug = `billar-tarifa-${Date.now()}`
   const credentials = { email: `admin.${slug}@e2e.test`, password: 'negocio2026' }
   const superToken = await apiLogin(request, PLATFORM.email, PLATFORM.password)
@@ -107,27 +109,46 @@ test('la tarifa por hora de una mesa de billar se escribe en pesos', async ({ pa
   })
   expect(created.status()).toBe(201)
 
+  const nickname = `Garita ${Date.now()}`
   await loginUI(page, credentials.email, credentials.password)
   await page.goto('/mesas')
 
   await page.getByRole('button', { name: 'Nueva mesa' }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Número de mesa').fill('1')
-  await field(page, 'Tipo de mesa').click()
-  await page.getByRole('option', { name: 'Mesa de billar (cobro por tiempo)' }).click()
+  await dialog.getByLabel('Nombre personalizado (opcional)').fill(nickname)
+  await expect(dialog.getByText('Tipo de mesa')).toHaveCount(0)
+  await expect(dialog.getByText('Billar', { exact: true })).toHaveCount(0)
+  await expect(dialog.getByLabel('Tarifa por hora')).toHaveCount(0)
+  await dialog.getByLabel('Cobra por tiempo').check()
+  await expect(dialog.getByText('Billar, cartas, garitas: la mesa se abre con el reloj y se cobra su tarifa por hora')).toBeVisible()
   const rate = dialog.getByLabel('Tarifa por hora')
   await expect(rate).not.toHaveAttribute('type', 'number')
   await rate.fill('12.000')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(page.getByText('Mesa creada')).toBeVisible()
-  await expect(page.locator('.v-card', { hasText: '$12.000/hora' })).toHaveCount(1)
+  const garita = page.locator('.v-card', { hasText: nickname })
+  await expect(garita).toContainText('Cobra por tiempo')
+  await expect(garita).toContainText('$12.000/hora')
+
+  // Editing it reads the capability back, not a table type.
+  await garita.getByRole('button', { name: 'Editar la mesa 1' }).click()
+  await expect(dialog.getByLabel('Cobra por tiempo')).toBeChecked()
+  await expect(dialog.getByLabel('Tarifa por hora')).toHaveValue('12.000')
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
 
   await page.getByRole('button', { name: 'Crear varias' }).click()
   await dialog.getByLabel('¿Cuántas mesas?').fill('2')
-  await field(page, 'Tipo de mesa').click()
-  await page.getByRole('option', { name: 'Mesas de billar (cobro por tiempo)' }).click()
+  await dialog.getByLabel('Cobran por tiempo').check()
   await dialog.getByLabel('Tarifa por hora').fill('9.500')
   await dialog.getByRole('button', { name: 'Crear 2 mesas' }).click()
   await expect(page.getByText('2 mesas creadas')).toBeVisible()
-  await expect(page.locator('.v-card', { hasText: '$9.500/hora' })).toHaveCount(2)
+  await expect(page.locator('.v-card', { hasText: 'Cobra por tiempo' }).filter({ hasText: '$9.500/hora' })).toHaveCount(2)
+
+  // The floor plan names the capability in its legend and the rate on each table.
+  await page.goto('/plano')
+  await expect(page.locator('.v-chip', { hasText: 'Cobra por tiempo' })).toBeVisible()
+  const node = page.locator('svg g.table-node').filter({ has: page.locator('title', { hasText: nickname }) })
+  await expect(node.locator('text.table-number')).toHaveText('⏱1')
+  await expect(page.locator('svg text.table-name', { hasText: '$9.500/h' })).toHaveCount(2)
 })

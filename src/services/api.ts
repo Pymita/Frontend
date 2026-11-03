@@ -33,6 +33,7 @@ api.interceptors.request.use(
 // Evento global para que la app muestre el bloqueo por suscripción.
 export const SUBSCRIPTION_BLOCKED_EVENT = 'subscription-blocked'
 export const TWO_FACTOR_REQUIRED_EVENT = 'two-factor-required'
+export const PASSWORD_CHANGE_REQUIRED_EVENT = 'password-change-required'
 
 api.interceptors.response.use(
   (response) => response,
@@ -71,6 +72,11 @@ api.interceptors.response.use(
     // La cuenta de plataforma sin segundo factor: solo puede configurarlo.
     if (error.response?.status === 403 && error.response.data?.two_factor_setup_required) {
       window.dispatchEvent(new CustomEvent(TWO_FACTOR_REQUIRED_EVENT))
+    }
+
+    // La sesión entró con una contraseña temporal que la plataforma dictó.
+    if (error.response?.status === 403 && error.response.data?.password_change_required) {
+      window.dispatchEvent(new CustomEvent(PASSWORD_CHANGE_REQUIRED_EVENT))
     }
     return Promise.reject(error)
   }

@@ -110,10 +110,13 @@ class AuthService {
   }
 
   /**
-   * Cambiar contraseña del usuario actual
+   * Cambiar contraseña del usuario actual. Devuelve el usuario ya sin el paso
+   * de la contraseña temporal, y así queda en la sesión guardada.
    */
-  async changePassword(passwordData: ChangePasswordData): Promise<void> {
-    await api.post('/auth/change-password', passwordData)
+  async changePassword(passwordData: ChangePasswordData): Promise<User> {
+    const response = await api.post<{ message: string; user: User }>('/auth/change-password', passwordData)
+    localStorage.setItem('user_data', JSON.stringify(response.data.user))
+    return response.data.user
   }
 
   /**

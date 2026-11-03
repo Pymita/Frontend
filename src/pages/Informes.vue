@@ -51,7 +51,7 @@
             persistent-hint
           />
         </v-col>
-        <v-col v-if="definition" cols="12" sm="8" md="4">
+        <v-col v-if="definition && groupable" cols="12" sm="8" md="4">
           <v-select
             v-model="groupBy"
             :items="groupOptions"
@@ -75,7 +75,7 @@
             </template>
             <v-card min-width="280" max-width="360">
               <v-card-text class="pa-2">
-                <div class="text-caption text-medium-emphasis px-2 pb-1">
+                <div v-if="groupable" class="text-caption text-medium-emphasis px-2 pb-1">
                   Lo que agrupas siempre se muestra.
                   <template v-if="hiddenColumns">Agrupa de otra forma para ver más columnas.</template>
                 </div>
@@ -182,7 +182,9 @@
           :items-per-page-options="PAGE_SIZE_OPTIONS"
           :item-value="rowKey"
           :loading="loading"
-          density="comfortable"
+          :density="groupable ? 'comfortable' : 'compact'"
+          :cell-props="cellPadding"
+          :header-props="cellPadding"
           class="elevation-0"
         >
           <template v-for="column in tableColumns" #[`item.${column.key}`]="{ item }">
@@ -203,7 +205,7 @@
                 <td
                   v-for="(column, index) in tableColumns"
                   :key="column.key"
-                  :class="[isNumeric(column) ? 'text-end' : '', ...cellClass(column, totals[column.key])]"
+                  :class="[isNumeric(column) ? 'text-end' : '', cellPadding?.class ?? '', ...cellClass(column, totals[column.key])]"
                 >
                   {{ totalCell(column, index) }}
                 </td>
@@ -365,7 +367,7 @@ import reportsService, {
 } from '@/services/reportsService'
 import { useAuthStore } from '@/stores/auth'
 import type { PageQuery } from '@/types/api'
-import { formatDay, formatIsoMonth, toIsoDate, todayIso } from '@/utils/dates'
+import { formatDateTime, formatDay, formatIsoMonth, toIsoDate, todayIso } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors'
 import { enumColors, enumLabels, label, options } from '@/utils/labels'
 import { money, percent, preciseMoney, quantity } from '@/utils/money'
@@ -378,6 +380,13 @@ const catalogError = ref('')
 
 const reportKey = ref('')
 const definition = computed(() => catalog.value.reports.find(report => report.key === reportKey.value) ?? null)
+
+// An enum the company names itself (its payment methods) reads by those names first.
+const enumMap = (name: string | undefined): Record<string, string> | undefined => {
+  if (!name) return undefined
+  const own = catalog.value.enum_labels?.[name]
+  return own ? { ...enumLabels[name], ...own } : enumLabels[name]
+}
 
 /** Movimiento contable is not a report definition: it has its own endpoints and the "Contabilidad" grant. */
 const ACCOUNTING_KEY = 'accounting_movement'
@@ -422,6 +431,9 @@ const reportItems = computed(() => {
     ...accounting,
   ]
 })
+
+/** A report of one row per record (the kardex's movements) has nothing to group by. */
+const groupable = computed(() => (definition.value?.group_by.max ?? 0) > 0)
 
 const groupOptions = computed(() => {
   const report = definition.value
@@ -485,6 +497,8 @@ const STORAGE_KEY = 'pos.reports'
 interface ReportChoice {
   columns?: unknown
   group_by?: unknown
+  /** The report's `defaults_version` when this was chosen; none stored means 1. */
+  version?: unknown
   /** Movimiento contable: the template last used. */
   template?: unknown
 }
@@ -514,7 +528,7 @@ const saveChoices = () => {
   stored[userId] = {
     ...readChoices(),
     last: report.key,
-    [report.key]: { columns: chosenColumns.value, group_by: groupBy.value },
+    [report.key]: { columns: chosenColumns.value, group_by: groupBy.value, version: report.defaults_version ?? 1 },
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stored))
 }
@@ -522,10 +536,15 @@ const saveChoices = () => {
 const knownKeys = (value: unknown, allowed: Set<string>): string[] =>
   Array.isArray(value) ? [...new Set(value.filter((key): key is string => typeof key === 'string' && allowed.has(key)))] : []
 
-/** A remembered choice keeps only what the report still has; nothing left means its defaults. */
+/**
+ * A remembered choice keeps only what the report still has; nothing left means its defaults,
+ * and so does a choice made under other defaults (`defaults_version`), which would otherwise
+ * keep showing the old ones to whoever had opened the report.
+ */
 const rememberedChoice = (report: ReportDefinition): { columns: string[]; group_by: string[] } => {
   const saved = readChoices()[report.key]
-  const choice: ReportChoice = saved && typeof saved === 'object' ? saved : {}
+  const stored: ReportChoice = saved && typeof saved === 'object' ? saved : {}
+  const choice = (stored.version ?? 1) === (report.defaults_version ?? 1) ? stored : {}
   const columnKeys = new Set(report.columns.map(column => column.key))
   const dimensionKeys = new Set(report.columns.filter(column => column.dimension).map(column => column.key))
   const columns = knownKeys(choice.columns, columnKeys)
@@ -543,15 +562,16 @@ const startValue = (filter: ReportFilter): ReportFilterValue => {
   return null
 }
 
-// Two columns of twelve fit "Vendedor" but cut "Método de pago" short.
+// Two columns of twelve fit "Vendedor" but cut "Método de pago" short, and a product picked by its name.
 const filterWidth = (filter: ReportFilter): string | number => {
   if (filter.type === 'boolean') return 'auto'
-  return filter.type === 'multiselect' || filter.label.length > 10 ? 3 : 2
+  const productPicker = filter.type === 'select' && filter.key === 'product'
+  return filter.type === 'multiselect' || filter.label.length > 10 || productPicker ? 3 : 2
 }
 
 const filterOptions = (filter: ReportFilter) => {
   if (filter.options) return filter.options
-  const labels = filter.enum ? enumLabels[filter.enum] : undefined
+  const labels = enumMap(filter.enum)
   return labels ? options(labels) : []
 }
 
@@ -666,32 +686,56 @@ const tableColumns = computed((): ReportColumn[] => {
 const NUMERIC_TYPES = new Set(['integer', 'quantity', 'money', 'percent'])
 const isNumeric = (column: ReportColumn): boolean => NUMERIC_TYPES.has(column.type)
 // On a phone "23 de oct de 2026" took three lines per row: figures and dates scroll sideways instead.
-const keepsOneLine = (column: ReportColumn): boolean => isNumeric(column) || ['date', 'week', 'month', 'hour'].includes(column.type)
+const keepsOneLine = (column: ReportColumn): boolean =>
+  isNumeric(column) || ['date', 'datetime', 'week', 'month', 'hour'].includes(column.type)
+
+// A row-level report has as many columns as the Kardex: its cells take the Kardex's padding and its
+// headers wrap ("Saldo costo unit." in two lines), so the balances fit beside the movement.
+const cellPadding = computed(() => (groupable.value ? undefined : { class: 'px-2' }))
 
 const headers = computed(() =>
   tableColumns.value.map(column => ({
     title: column.label,
     key: column.key,
     align: isNumeric(column) ? ('end' as const) : ('start' as const),
-    nowrap: keepsOneLine(column),
+    nowrap: groupable.value && keepsOneLine(column),
   })),
 )
 
 const notes = computed(() => applied.value?.notes ?? definition.value?.notes ?? [])
 
-const rowKey = (row: ReportRow): string => JSON.stringify(row)
+// A row-level report's rows carry their record's id: two movements can read alike in every column.
+const rowKey = (row: ReportRow): string => (row.id !== undefined && row.id !== null ? String(row.id) : JSON.stringify(row))
 
 type CellValue = ReportRow[string] | undefined
 
-// The API types every amount as money, but a unit cost carries cents ("$3,45" a gram), as in Kardex.
-const UNIT_COSTS = new Set(['average_cost', 'average_unit_cost', 'closing_average', 'last_purchase_cost'])
+// The API types every amount as money, but a unit cost carries cents ("$3,45" a gram), as in Kardex,
+// and the kardex's movements read every amount as the Kardex page does.
+const PRECISE_AMOUNTS = new Set([
+  'average_cost',
+  'average_unit_cost',
+  'closing_average',
+  'last_purchase_cost',
+  'unit_cost',
+  'total_cost',
+  'tax_amount',
+  'net_total',
+  'balance_unit_cost',
+  'balance_total_cost',
+  'in_cost',
+  'out_cost',
+])
+
+/** "05 oct, 14:30" as the Kardex lists a movement; a day alone (its opening row) as a day. */
+const dateTimeCell = (value: string): string =>
+  value.length > 10 ? formatDateTime(value.replace(' ', 'T')) : formatDay(value)
 
 const cell = (column: ReportColumn, value: CellValue): string => {
   // A document has no payment method or table: the Excel writes the same words.
   if (value === null || value === undefined || value === '') return column.enum && column.dimension ? 'Sin asignar' : '—'
   switch (column.type) {
     case 'money':
-      return UNIT_COSTS.has(column.key) ? preciseMoney(Number(value)) : money(Number(value))
+      return PRECISE_AMOUNTS.has(column.key) ? preciseMoney(Number(value)) : money(Number(value))
     case 'quantity':
     case 'integer':
       return quantity(Number(value))
@@ -699,6 +743,8 @@ const cell = (column: ReportColumn, value: CellValue): string => {
       return percent(Number(value))
     case 'date':
       return formatDay(String(value))
+    case 'datetime':
+      return dateTimeCell(String(value))
     case 'week':
       return `Semana del ${formatDay(String(value))}`
     case 'month':
@@ -706,7 +752,7 @@ const cell = (column: ReportColumn, value: CellValue): string => {
     case 'hour':
       return `${String(value).padStart(2, '0')}:00`
     case 'enum': {
-      const labels = column.enum ? enumLabels[column.enum] : undefined
+      const labels = enumMap(column.enum)
       return labels ? label(labels, String(value)) : String(value)
     }
     default:

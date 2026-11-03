@@ -105,6 +105,13 @@ test('una empresa vencida ve el motivo y las acciones apagadas, no escondidas', 
   await page.goto('/finanzas')
   await expect(page.getByRole('button', { name: 'Registrar movimiento' })).toBeDisabled()
 
+  // Its payment methods are listed, but none is created, edited, moved or deleted.
+  await page.goto('/configuracion')
+  await expect(page.getByRole('button', { name: 'Nueva forma de pago' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Editar la forma de pago Efectivo' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Bajar la forma de pago Efectivo' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Eliminar la forma de pago Efectivo' })).toBeDisabled()
+
   // La contabilidad se consulta, pero sus cuentas y plantillas no se guardan.
   await page.goto('/informes')
   await chooseReport(page, 'Movimiento contable')
@@ -114,6 +121,7 @@ test('una empresa vencida ve el motivo y las acciones apagadas, no escondidas', 
   await expect(accounting.getByRole('button', { name: 'Guardar', exact: true })).toBeDisabled()
   await accounting.getByRole('tab', { name: 'Plantillas' }).click()
   await expect(accounting.getByRole('button', { name: 'Nueva plantilla' })).toBeDisabled()
+  await expect(accounting.getByRole('button', { name: 'Subir plantilla del programa contable' })).toBeDisabled()
   await expect(accounting.getByRole('button', { name: 'Eliminar la plantilla Genérica' })).toBeDisabled()
   await accounting.getByRole('button', { name: 'Cerrar', exact: true }).click()
 
@@ -162,6 +170,10 @@ test('la misma empresa al día sí ofrece esas acciones', async ({ page, request
 
   await page.goto('/finanzas')
   await expect(page.getByRole('button', { name: 'Registrar movimiento' })).toBeEnabled()
+
+  await page.goto('/configuracion')
+  await expect(page.getByRole('button', { name: 'Nueva forma de pago' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Editar la forma de pago Efectivo' })).toBeEnabled()
 
   // Y el formulario sí abre.
   await page.goto('/mesas')

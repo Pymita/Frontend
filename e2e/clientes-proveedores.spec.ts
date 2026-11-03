@@ -1,5 +1,11 @@
-import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, field, loginUI } from './helpers'
+import { readFileSync } from 'node:fs'
+import { expect, test, type Page } from '@playwright/test'
+import { ADMIN, API, apiLogin, buildXlsx, createCompany, field, loginUI, xlsxRows } from './helpers'
+
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+/** A customer's row in the Clientes list; its cells read Tipo doc, Documento, DV, Nombre… */
+const customerRow = (page: Page, name: string) => page.locator('tbody tr', { hasText: name })
 
 /**
  * El tipo de persona y "cliente frecuente" se guardan: antes el backend los
@@ -157,4 +163,170 @@ test('los clientes se ven por páginas y el buscador encuentra los de otra pági
   await page.getByRole('textbox', { name: 'Buscar cliente' }).fill(`${prefix} 01`)
   await expect(page.getByText('1-1 de 1')).toBeVisible()
   await expect(rows).toHaveText([new RegExp(`${prefix} 01`)])
+})
+
+/**
+ * Valentina: "en la tab de clientes añadir la de importar clientes desde
+ * Excel". A restaurant imports from Clientes with the same dialog as
+ * Facturación automática, without the monthly fee: the tutorial and the
+ * template leave those columns out, and a file that carries them sees them
+ * ignored. A house of the same person keeps its letter; a NIT is stored
+ * without its digit, and a wrong digit says the right one.
+ */
+test('importa clientes desde Clientes con la plantilla de un restaurante, sin las columnas de la cuota', async ({ page, request }) => {
+  const company = await createCompany(request, 'importar-clientes', { business_type: 'restaurant' })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const existing = await request.post(`${API}/customers`, { headers: auth, data: { document_type: 'CC', document_number: '5001', name: 'Dora Existente' } })
+  expect(existing.status()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/clientes')
+  await page.getByRole('button', { name: 'Importar clientes desde Excel' }).click()
+
+  const dialog = page.getByRole('dialog')
+  const tutorial = dialog.locator('table').first()
+  await expect(tutorial.getByRole('row', { name: /^numero_documento / })).toContainText('Obligatoria')
+  await expect(tutorial.getByRole('row', { name: /^nombre / })).toContainText('Obligatoria')
+  await expect(tutorial.getByRole('row', { name: /^cuota_mensual / })).toHaveCount(0)
+  await expect(dialog).not.toContainText('facturación automática')
+  await expect(dialog).toContainText('1000000001-A, 1000000001-B')
+
+  // The template carries exactly the tutorial's columns, none of the fee.
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    dialog.getByRole('button', { name: 'Descargar plantilla' }).click(),
+  ])
+  expect(download.suggestedFilename()).toBe('plantilla_clientes.xlsx')
+  const headers = xlsxRows(readFileSync(await download.path()))[0]!
+  expect(headers).toEqual(await tutorial.locator('tbody tr td:first-child').allInnerTexts())
+  expect(headers).not.toContain('cuota_mensual')
+
+  // Its headers plus a condominium's fee column.
+  const fileHeaders = [...headers, 'cuota_mensual']
+  const fileRow = (cells: Record<string, string>) => fileHeaders.map(header => cells[header] ?? '')
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'clientes.xlsx',
+    mimeType: XLSX,
+    buffer: buildXlsx([
+      fileHeaders,
+      fileRow({ nombre: 'Ana Importada', numero_documento: '1001', cuota_mensual: '250.000' }),
+      fileRow({ nombre: 'Ana Casa B', numero_documento: '1001-b' }),
+      fileRow({ nombre: 'Bancolombia Importado', tipo_documento: 'NIT', numero_documento: '890.903.938-8' }),
+      fileRow({ nombre: 'Davivienda Mal Escrito', tipo_documento: 'NIT', numero_documento: '860.034.313-1' }),
+      fileRow({ nombre: 'Dora Cambiada', numero_documento: '5001' }),
+    ]),
+  })
+  await dialog.getByRole('button', { name: 'Revisar archivo' }).click()
+  await expect(dialog).toContainText('3 clientes se pueden crear. 1 fila se salta. 1 fila tiene errores y no se importa.')
+  await expect(dialog).toContainText('Tu negocio no tiene facturación automática: no usamos las columnas de la cuota (cuota_mensual). Los clientes se crean sin cuota.')
+  await expect(dialog).not.toContainText('No usamos estas columnas porque no las reconocimos')
+  await expect(dialog.getByRole('columnheader', { name: 'Cuota' })).toHaveCount(0)
+  const resultRow = (text: string) => dialog.locator('tbody tr', { hasText: text })
+  await expect(resultRow('Davivienda Mal Escrito')).toContainText('El dígito de verificación del NIT 860034313 es 7, no 1: revisa el número o escríbelo sin el dígito, que lo calcula el sistema.')
+  await expect(resultRow('Ana Casa B')).toContainText('El documento «1001-b» queda como 1001-B.')
+  await expect(resultRow('Bancolombia Importado')).toContainText('El documento «890.903.938-8» queda como 890903938.')
+  await expect(resultRow('Dora Cambiada')).toContainText('Ya existe: Dora Existente tiene el documento 5001. No se modificó.')
+
+  await dialog.getByRole('button', { name: 'Importar 3 clientes' }).click()
+  await expect(dialog.locator('.v-alert').first()).toContainText('Se crearon 3 clientes. 1 fila se salta. 1 fila tiene errores y no se importa.')
+  await dialog.getByRole('button', { name: 'Cerrar' }).click()
+
+  // In the list: the number as stored, the computed DV next to it, and the house with its letter.
+  await expect(customerRow(page, 'Bancolombia Importado').locator('td').nth(1)).toHaveText('890903938')
+  await expect(customerRow(page, 'Bancolombia Importado').locator('td').nth(2)).toHaveText('8')
+  await expect(customerRow(page, 'Ana Casa B').locator('td').nth(1)).toHaveText('1001-B')
+  await expect(customerRow(page, 'Ana Casa B').locator('td').nth(2)).toHaveText('2')
+  await expect(customerRow(page, 'Dora Cambiada')).toHaveCount(0)
+  const customers = await (await request.get(`${API}/customers`, { headers: auth })).json()
+  expect(customers.data.find((c: { name: string }) => c.name === 'Ana Importada')).toMatchObject({ recurring_active: false, monthly_fee: null })
+})
+
+/**
+ * "Todos los RUT tienen el NIT y un dígito de verificación": the form shows
+ * it live, read-only, for a NIT and a cédula (the system computes it, DIAN
+ * algorithm); a digit typed wrong says the right one, and the list shows it.
+ */
+test('el DV se calcula mientras se escribe el NIT o la cédula y un DV equivocado dice el correcto', async ({ page, request }) => {
+  const company = await createCompany(request, 'dv-clientes', { business_type: 'restaurant' })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/clientes')
+
+  const dialog = page.getByRole('dialog')
+  const documento = field(page, 'Número de documento *').locator('input')
+  const digit = field(page, 'DV').locator('input')
+  await page.getByRole('button', { name: /Nuevo cliente/ }).click()
+  await field(page, 'Tipo de documento *').click()
+  await page.getByRole('option', { name: 'NIT' }).click()
+
+  // Bancolombia's NIT 890903938 has the digit 8.
+  await documento.fill('890.903.938')
+  await expect(digit).toHaveValue('8')
+  await expect(digit).toHaveAttribute('readonly')
+
+  await documento.fill('860.034.313-1')
+  await documento.blur()
+  await expect(dialog).toContainText('El dígito de verificación del NIT 860034313 es 7, no 1: revisa el número o escríbelo sin el dígito, que lo calcula el sistema.')
+  await expect(digit).toHaveValue('7')
+  await documento.fill('860.034.313-7')
+  await documento.blur()
+  await expect(documento).toHaveValue('860034313')
+  await expect(digit).toHaveValue('7')
+  await field(page, 'Nombre / Razón social *').locator('input').fill('Davivienda SA')
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Cliente creado exitosamente')).toBeVisible()
+  await expect(customerRow(page, 'Davivienda SA').locator('td').nth(1)).toHaveText('860034313')
+  await expect(customerRow(page, 'Davivienda SA').locator('td').nth(2)).toHaveText('7')
+
+  // A cédula has its digit too (a natural person's RUT); a CE has none.
+  await page.getByRole('button', { name: /Nuevo cliente/ }).click()
+  await documento.fill('1.002.655.357')
+  await expect(digit).toHaveValue('3')
+  await field(page, 'Tipo de documento *').click()
+  await page.getByRole('option', { name: 'Cédula de extranjería (CE)' }).click()
+  await expect(field(page, 'DV')).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+})
+
+/**
+ * Valentina: "se puede guardar el número de documento del cliente con el
+ * número y guion A, B, C": one person with two houses is two customers. The
+ * list tells them apart by the letter, the number finds both, and an exact
+ * repeat is refused saying which letter is free.
+ */
+test('dos clientes con el mismo documento se distinguen con -A y -B, y el repetido sugiere la letra que sigue', async ({ page, request }) => {
+  const company = await createCompany(request, 'casas-clientes', { business_type: 'restaurant' })
+  const created = await request.post(`${API}/customers`, {
+    headers: { Authorization: `Bearer ${company.token}` },
+    data: { document_type: 'CC', document_number: '1002655357-A', name: 'Ana Casa Norte' },
+  })
+  expect(created.status()).toBe(201)
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/clientes')
+
+  const dialog = page.getByRole('dialog')
+  const documento = field(page, 'Número de documento *').locator('input')
+  await page.getByRole('button', { name: /Nuevo cliente/ }).click()
+  await documento.fill('1.002.655.357-b')
+  await documento.blur()
+  await expect(documento).toHaveValue('1002655357-B')
+  await expect(field(page, 'DV').locator('input')).toHaveValue('3')
+  await field(page, 'Nombre / Razón social *').locator('input').fill('Ana Casa Sur')
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Cliente creado exitosamente')).toBeVisible()
+
+  await expect(customerRow(page, 'Ana Casa Norte').locator('td').nth(1)).toHaveText('1002655357-A')
+  await expect(customerRow(page, 'Ana Casa Sur').locator('td').nth(1)).toHaveText('1002655357-B')
+
+  await page.getByRole('button', { name: /Nuevo cliente/ }).click()
+  await documento.fill('1002655357-a')
+  await field(page, 'Nombre / Razón social *').locator('input').fill('Ana repetida')
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText(
+    'Ya existe un cliente con el documento 1002655357-A: Ana Casa Norte. Búscalo en la lista en lugar de crearlo de nuevo. Si es otro cliente con el mismo documento (otra casa, otro local), agrega un guion y una letra al final: 1002655357-C, 1002655357-D…',
+  )).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+
+  await page.getByRole('textbox', { name: 'Buscar cliente' }).fill('1.002.655.357')
+  await expect(page.getByText('1-2 de 2')).toBeVisible()
 })

@@ -53,7 +53,8 @@
             </v-chip>
             <div class="text-caption mt-1">
               <template v-if="table.table_type === 'billiard'">
-                🎱 {{ money(table.hourly_rate) }}/hora
+                <div>⏱ Cobra por tiempo</div>
+                <div class="tabular-nums">{{ money(table.hourly_rate) }}/hora</div>
               </template>
               <template v-else>👥 {{ table.capacity }} personas</template>
             </div>
@@ -114,17 +115,16 @@
               label="Nombre personalizado (opcional)"
               hint="Ej: Terraza 1, VIP, Barra"
             />
-            <v-select
+            <v-switch
               v-if="hasTimeBilling"
               v-model="formData.table_type"
-              :items="[
-                { value: 'dining', title: 'Mesa normal' },
-                { value: 'billiard', title: 'Mesa de billar (cobro por tiempo)' },
-              ]"
-              item-title="title"
-              item-value="value"
-              label="Tipo de mesa"
-              class="mt-2"
+              true-value="billiard"
+              false-value="dining"
+              label="Cobra por tiempo"
+              hint="Billar, cartas, garitas: la mesa se abre con el reloj y se cobra su tarifa por hora"
+              persistent-hint
+              color="primary"
+              class="mt-2 mb-2"
             />
             <v-row v-if="hasTimeBilling && formData.table_type === 'billiard'" dense>
               <v-col cols="6">
@@ -211,16 +211,15 @@
               />
             </v-col>
           </v-row>
-          <v-select
+          <v-switch
             v-if="hasTimeBilling"
             v-model="bulkData.table_type"
-            :items="[
-              { value: 'dining', title: 'Mesas normales' },
-              { value: 'billiard', title: 'Mesas de billar (cobro por tiempo)' },
-            ]"
-            item-title="title"
-            item-value="value"
-            label="Tipo de mesa"
+            true-value="billiard"
+            false-value="dining"
+            label="Cobran por tiempo"
+            color="primary"
+            hide-details
+            class="mb-2"
           />
           <v-row v-if="hasTimeBilling && bulkData.table_type === 'billiard'" dense>
             <v-col cols="6">
@@ -275,7 +274,8 @@ import { useReadOnly } from '../composables/useReadOnly'
 // Suscripción vencida: las acciones que escriben quedan en gris.
 const isReadOnly = useReadOnly()
 
-// El cobro por tiempo es un módulo: un restaurante no ofrece mesas de billar.
+// El cobro por tiempo es un módulo: un restaurante no ofrece mesas que cobran por tiempo.
+// `table_type: 'billiard'` is how the API stores that capability (the installed app reads it).
 const authStore = useAuthStore();
 const hasTimeBilling = computed(() => effectiveFeatures(authStore.user).includes('time_billing'));
 // Crear, editar, borrar o crear varias mesas es del administrador.

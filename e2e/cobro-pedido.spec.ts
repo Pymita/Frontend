@@ -1169,7 +1169,9 @@ test('la venta se imprime en hoja como factura de venta, desde Pedidos y desde V
   await expect(rows).toHaveCount(2)
   await expect(rows.nth(0).locator('td')).toHaveText(['Cerveza Club', '2', '$6.500', '—', '$13.000'])
   await expect(rows.nth(1).locator('td')).toHaveText(['Empanada de pipián', '3', '$3.000', '8%', '$9.000'])
-  await expect(invoice.locator('.totals')).toContainText('IMPUESTO (INCLUIDO): $667')
+  // The subtotal is the value before the tax: 21.333 + 667 = 22.000.
+  await expect(invoice.locator('.totals')).toContainText('SUBTOTAL: $21.333')
+  await expect(invoice.locator('.totals')).toContainText('IMPUESTO: $667')
   await expect(invoice.locator('.totals')).toContainText('TOTAL: $22.000')
   await expect(invoice.locator('.totals')).not.toContainText('PROPINA')
   // Nobody identified the buyer: the consumidor final with the DIAN's NIT, never the table.
@@ -1226,6 +1228,132 @@ test('la venta se imprime en hoja como factura de venta, desde Pedidos y desde V
   await expect(again.locator('.doc-number .number')).toHaveText('FE1')
   await expect(again.locator('.items tbody tr')).toHaveCount(2)
   await expect(again.locator('.totals')).toContainText('TOTAL: $22.000')
+})
+
+/** A paid order, arranged through the API, with products whose prices include the tax named. */
+async function paidOrderWithTaxes(
+  request: APIRequestContext,
+  auth: Auth,
+  lines: { name: string; price: number; rate?: number; quantity: number }[],
+  charge: { discountPercent?: number; tip?: number; table?: number } = {},
+) {
+  const categoryId = (await (await request.post(`${API}/categories`, { headers: auth, data: { name: `Bebidas ${Date.now()}` } })).json()).data.id
+  const items = []
+  for (const line of lines) {
+    const tax = line.rate
+      ? (await (await request.post(`${API}/taxes`, { headers: auth, data: { name: `Impuesto ${line.rate}% ${Date.now()}`, rate: line.rate } })).json()).data
+      : null
+    const product = await request.post(`${API}/products`, {
+      headers: auth,
+      data: { name: line.name, type: 'final', unit: 'und', sale_price: line.price, tracks_stock: false, category_id: categoryId, ...(tax ? { tax_id: tax.id } : {}) },
+    })
+    expect(product.status(), await product.text()).toBe(201)
+    items.push({ product_id: (await product.json()).data.id, quantity: line.quantity })
+  }
+  const table = charge.table
+    ? (await (await request.post(`${API}/tables`, { headers: auth, data: { number: charge.table, capacity: 4 } })).json()).data
+    : null
+  const order = (await (await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { items, ...(table ? { dining_table_id: table.id, customer_name: table.display_name } : {}) },
+  })).json()).data
+  if (charge.discountPercent) {
+    const discount = await request.post(`${API}/orders/${order.id}/discount`, { headers: auth, data: { type: 'percentage', value: charge.discountPercent } })
+    expect(discount.ok()).toBeTruthy()
+  }
+  const paid = await request.post(`${API}/orders/${order.id}/pay`, { headers: auth, data: { payment_method: 'cash', tip: charge.tip ?? 0 } })
+  expect(paid.ok(), await paid.text()).toBeTruthy()
+  return order
+}
+
+/** The paid order's ticket ("Tirilla") and its letter document ("Generar factura" in the row menu), from Pedidos. */
+async function printPaidOrder(page: Page, rowTotal: string): Promise<{ ticket: string; letter: Page }> {
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Pedidos del día' }).click()
+  const paidRow = page.locator('tbody tr', { hasText: rowTotal })
+  const [ticketWindow] = await Promise.all([
+    page.waitForEvent('popup'),
+    paidRow.getByRole('button', { name: 'Tirilla' }).click(),
+  ])
+  await expect(ticketWindow.locator('body')).toContainText('GRACIAS POR SU COMPRA')
+  const ticket = await ticketWindow.locator('body').innerText()
+  await ticketWindow.close()
+  await paidRow.getByRole('button', { name: 'Más acciones del pedido' }).click()
+  const [letter] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('listitem').filter({ hasText: 'Generar factura' }).click(),
+  ])
+  await expect(letter.locator('.totals')).toBeVisible()
+  return { ticket, letter }
+}
+
+/** `SUBTOTAL                    $20.168`: a ticket line with its label and its amount. */
+const ticketLine = (label: string, amount: string) => new RegExp(`^${label} +${amount.replace(/[$.]/g, '\\$&')}$`, 'm')
+
+/**
+ * The owner's photo: 4 × Corona at $6.000 with IVA 19 % included printed
+ * SUBTOTAL $24.000, IMPUESTO $3.832 and TOTAL $24.000, a subtotal that already
+ * carried the tax. The printed subtotal is the value before taxes, so the
+ * letter comprobante and the ticket add up: 20.168 + 3.832 = 24.000.
+ */
+test('el subtotal impreso es el valor antes de impuestos y suma el total con el impuesto', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `subtotal-foto-${Date.now()}`)
+  const order = await paidOrderWithTaxes(request, auth, [{ name: 'CERVEZA CORONA x 330ML', price: 6000, rate: 19, quantity: 4 }], { table: 1 })
+
+  await freezeTime(page, order.created_at)
+  await loginUI(page, credentials.email, credentials.password)
+  const { ticket, letter } = await printPaidOrder(page, '$24.000')
+
+  expect(ticket).toMatch(ticketLine('SUBTOTAL', '$20.168'))
+  expect(ticket).toMatch(ticketLine('IMPUESTO', '$3.832'))
+  expect(ticket).toMatch(ticketLine('TOTAL', '$24.000'))
+  expect(ticket).not.toContain('IVA INCL.')
+
+  await expect(letter.locator('.doc-number')).toContainText('COMPROBANTE DE VENTA')
+  await expect(letter.locator('.items tbody tr td')).toHaveText(['CERVEZA CORONA x 330ML', '4', '$6.000', '19%', '$24.000'])
+  await expect(letter.locator('.totals > div')).toHaveText(['SUBTOTAL: $20.168', 'IMPUESTO: $3.832', 'TOTAL: $24.000'])
+  await expect(letter.locator('.son')).toHaveText('SON: VEINTICUATRO MIL PESOS M/CTE')
+})
+
+/**
+ * With a discount, two tax rates and a tip every printed line still adds up:
+ * subtotal before taxes − discount + taxes = total, and the tip on top is the
+ * total paid. The taxes are the accounting movement's, computed on the lines
+ * before the discount: $12.000 of beer with 19 % and $9.000 of empanadas with
+ * 8 % carry $2.583.
+ */
+test('con descuento, dos impuestos y propina las cifras impresas suman el total', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `subtotal-descuento-${Date.now()}`)
+  const order = await paidOrderWithTaxes(request, auth, [
+    { name: 'Cerveza Descuento', price: 6000, rate: 19, quantity: 2 },
+    { name: 'Empanada Descuento', price: 3000, rate: 8, quantity: 3 },
+  ], { discountPercent: 10, tip: 2000 })
+
+  await freezeTime(page, order.created_at)
+  await loginUI(page, credentials.email, credentials.password)
+  const { ticket, letter } = await printPaidOrder(page, '$20.900')
+
+  // 18.417 − 2.100 + 2.583 = 18.900, and 2.000 of tip make 20.900.
+  for (const [label, amount] of [
+    ['SUBTOTAL', '$18.417'],
+    ['DESCUENTO', '-$2.100'],
+    ['IMPUESTO', '$2.583'],
+    ['TOTAL SIN PROPINA', '$18.900'],
+    ['PROPINA VOLUNTARIA', '$2.000'],
+    ['TOTAL PAGADO', '$20.900'],
+  ]) {
+    expect(ticket).toMatch(ticketLine(label!, amount!))
+  }
+
+  await expect(letter.locator('.totals > div')).toHaveText([
+    'SUBTOTAL: $18.417',
+    'DESCUENTO: -$2.100',
+    'IMPUESTO: $2.583',
+    'TOTAL: $18.900',
+    'PROPINA VOLUNTARIA: $2.000',
+    'TOTAL PAGADO: $20.900',
+  ])
+  await expect(letter.locator('.son')).toHaveText('SON: DIECIOCHO MIL NOVECIENTOS PESOS M/CTE')
 })
 
 /**
@@ -1327,9 +1455,53 @@ test('una venta a un cliente registrado imprime su nombre y su documento', async
   ])
   const party = comprobante.locator('.party')
   await expect(party).toContainText('CLIENTE: Ana Registrada')
+  // A cédula prints without its verification digit.
   await expect(party).toContainText('CC: 1002655357')
+  await expect(party).not.toContainText('1002655357-')
   await expect(party).toContainText('DIRECCIÓN: Calle 1 # 2-3')
   await expect(party).not.toContainText(/Consumidor final|222222222222/)
+  await comprobante.close()
+
+  // A NIT prints with the digit the DIAN computes (Bancolombia, 890903938-8)
+  // and never the letter that tells its sedes apart in the lists.
+  const sede = await request.post(`${API}/customers`, {
+    headers: auth,
+    data: { document_type: 'NIT', document_number: '890.903.938-a', name: 'Bancolombia Sede A' },
+  })
+  expect(sede.status(), await sede.text()).toBe(201)
+  expect((await sede.json()).data).toMatchObject({ document_number: '890903938-A', verification_digit: '8' })
+  const nitOrder = (await (await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { customer_name: 'Mesa 3', items: [{ product_id: arepa, quantity: 2 }] },
+  })).json()).data
+  expect((await request.post(`${API}/orders/${nitOrder.id}/pay`, {
+    headers: auth,
+    data: { payment_method: 'cash', customer_id: (await sede.json()).data.id },
+  })).ok()).toBeTruthy()
+  const nitSale = (await (await request.get(`${API}/orders/${nitOrder.id}`, { headers: auth })).json()).data.payments[0]
+
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Pedidos del día' }).click()
+  const [nitTicket] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.locator('tbody tr', { hasText: '$10.600' }).getByRole('button', { name: 'Tirilla' }).click(),
+  ])
+  await expect(nitTicket.locator('body')).toContainText('COMPROBANTE DE VENTA')
+  const nitTicketText = await nitTicket.locator('body').innerText()
+  expect(nitTicketText).toContain('CLIENTE : Bancolombia Sede A')
+  expect(nitTicketText).toContain('NIT     : 890903938-8')
+  expect(nitTicketText).not.toContain('890903938-A')
+  await nitTicket.close()
+
+  await page.goto('/ventas')
+  const nitRow = page.locator('tbody tr', { hasText: '$10.600' })
+  const [nitComprobante] = await Promise.all([
+    page.waitForEvent('popup'),
+    nitRow.getByRole('button', { name: `Imprimir el comprobante ${nitSale.reference}` }).click(),
+  ])
+  await expect(nitComprobante.locator('.party')).toContainText('CLIENTE: Bancolombia Sede A')
+  await expect(nitComprobante.locator('.party')).toContainText('NIT: 890903938-8')
+  await expect(nitComprobante.locator('.party')).not.toContainText('890903938-A')
 })
 
 /**
@@ -1653,3 +1825,141 @@ const dayLabel = (iso: string): string => {
   const [year = 0, month = 1, day = 1] = iso.split('-').map(Number)
   return new Date(year, month - 1, day).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
 }
+
+/** The card of Configuración › Formas de pago and the cell of one of its rows under a header. */
+const methodsCard = (page: Page) => page.locator('.v-card').filter({ has: page.getByRole('heading', { name: 'Formas de pago' }) })
+async function methodCell(page: Page, name: string, header: string) {
+  const card = methodsCard(page)
+  const headers = (await card.locator('thead th').allInnerTexts()).map(text => text.trim())
+  const index = headers.indexOf(header)
+  expect(index, `columna «${header}»`).toBeGreaterThanOrEqual(0)
+  return card.locator('tbody tr').filter({ has: page.locator('td:first-child', { hasText: new RegExp(`^\\s*${name}\\s*$`) }) }).locator('td').nth(index)
+}
+
+/**
+ * Each business names its own payment methods: one created in Configuración
+ * (not in the drawer, with its bank account, for sales and recibos de caja)
+ * is renamed and moved, charges a sale in Pedidos, prints its bank account
+ * on the factura and the ticket, reads by its name in Ventas, and once used
+ * it can only be turned off, never deleted.
+ */
+test('una forma de pago propia se crea en Configuración, cobra una venta con su cuenta bancaria y con movimientos no se borra', async ({ page, request }) => {
+  test.setTimeout(120_000)
+  const { credentials, auth } = await createRestaurant(request, `formas-pago-${Date.now()}`)
+  const productId = await seedSimpleProduct(request, auth, 'Bandeja Bancolombia', 31500)
+  const order = await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: productId, quantity: 1 }] } })
+  expect(order.status(), await order.text()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, credentials.email, credentials.password)
+  await page.goto('/configuracion')
+  const card = methodsCard(page)
+  // The seven a business starts with: only Efectivo goes into the drawer.
+  await expect(card.locator('tbody tr td:first-child')).toHaveText(['Efectivo', 'Tarjeta crédito', 'Tarjeta débito', 'Transferencia', 'Nequi', 'Daviplata', 'Otro'])
+  await expect(await methodCell(page, 'Efectivo', 'Entra al cajón')).toHaveText('Sí')
+  await expect(await methodCell(page, 'Nequi', 'Entra al cajón')).toHaveText('No')
+
+  await card.getByRole('button', { name: 'Nueva forma de pago' }).click()
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Nueva forma de pago' })
+  await dialog.getByLabel('Nombre').fill('Bancolombia')
+  await expect(dialog.getByLabel('Entra al cajón')).not.toBeChecked()
+  await expect(dialog.getByText('Como el efectivo: suma en el efectivo a entregar del cierre')).toBeVisible()
+  await dialog.getByLabel('Cuenta bancaria (opcional)').fill('Bancolombia ahorros 123-456')
+  await expect(dialog.getByText('Ej: Bancolombia ahorros 123-456. Sale en facturas y recibos')).toBeVisible()
+  await dialog.getByLabel('Abonos a pedidos').uncheck()
+  await dialog.getByLabel('Movimientos financieros').uncheck()
+  await expect(dialog.getByLabel('Ventas')).toBeChecked()
+  await expect(dialog.getByLabel('Recibos de caja')).toBeChecked()
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Forma de pago «Bancolombia» guardada.')).toBeVisible()
+  await expect(dialog).toBeHidden()
+  await expect(await methodCell(page, 'Bancolombia', 'Cuenta bancaria')).toHaveText('Bancolombia ahorros 123-456')
+  await expect(await methodCell(page, 'Bancolombia', 'Dónde se puede usar')).toHaveText('Ventas, Recibos de caja')
+  await expect(await methodCell(page, 'Bancolombia', 'Entra al cajón')).toHaveText('No')
+  await expect(await methodCell(page, 'Bancolombia', 'Estado')).toHaveText('Activa')
+
+  // Renamed, and moved above Otro: the pickers follow this order.
+  await card.getByRole('button', { name: 'Editar la forma de pago Bancolombia' }).click()
+  const edit = page.getByRole('dialog').filter({ hasText: 'Editar Bancolombia' })
+  await expect(edit.getByLabel('Cuenta bancaria (opcional)')).toHaveValue('Bancolombia ahorros 123-456')
+  await edit.getByLabel('Nombre').fill('Bancolombia Ahorros')
+  await edit.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Forma de pago «Bancolombia Ahorros» guardada.')).toBeVisible()
+  await card.getByRole('button', { name: 'Subir la forma de pago Bancolombia Ahorros' }).click()
+  await expect(card.locator('tbody tr td:first-child')).toHaveText([
+    'Efectivo', 'Tarjeta crédito', 'Tarjeta débito', 'Transferencia', 'Nequi', 'Daviplata', 'Bancolombia Ahorros', 'Otro',
+  ])
+  await expect(card.getByRole('button', { name: 'Subir la forma de pago Efectivo' })).toBeDisabled()
+  await expect(card.getByRole('button', { name: 'Bajar la forma de pago Otro' })).toBeDisabled()
+
+  // Pedidos offers it for the sale, in that order, and charges with it.
+  await page.goto('/pedidos')
+  await page.locator('tr', { hasText: '$31.500' }).first().getByRole('button', { name: 'Cobrar' }).click()
+  const pay = page.getByRole('dialog')
+  await expect(field(page, 'Método de pago')).toContainText('Efectivo')
+  await field(page, 'Método de pago').click()
+  const options = await page.getByRole('option').allInnerTexts()
+  expect(options.indexOf('Bancolombia Ahorros')).toBe(options.indexOf('Otro') - 1)
+  await page.getByRole('option', { name: 'Bancolombia Ahorros' }).click()
+  await pay.getByRole('button', { name: 'Confirmar cobro' }).click()
+  await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
+
+  const [invoice] = await Promise.all([page.waitForEvent('popup'), page.getByRole('button', { name: 'Generar factura' }).click()])
+  await expect(invoice.locator('.party')).toContainText('FORMA DE PAGO: Bancolombia Ahorros · Bancolombia ahorros 123-456')
+  await invoice.close()
+  await page.getByRole('button', { name: 'Pagados' }).click()
+  const [ticket] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.locator('tbody tr', { hasText: '$31.500' }).getByRole('button', { name: 'Tirilla' }).click(),
+  ])
+  await expect(ticket.locator('body')).toContainText('FORMA DE PAGO')
+  const ticketText = await ticket.locator('body').innerText()
+  expect(ticketText.replace(/\s+/g, ' ')).toContain('FORMA DE PAGO: Bancolombia Ahorros · Bancolombia ahorros 123-456')
+  // Wrapped to the ticket's width: no line runs off the paper.
+  expect(Math.max(...ticketText.split('\n').map(line => line.length))).toBeLessThanOrEqual(38)
+  await ticket.close()
+
+  // Ventas reads the sale by the method's name, and its filter offers it.
+  await page.goto('/ventas')
+  await expect(page.locator('tbody tr', { hasText: '$31.500' })).toContainText('Bancolombia Ahorros')
+  await field(page, 'Método de pago').click()
+  await page.getByRole('option', { name: 'Bancolombia Ahorros' }).click()
+  await expect(page.locator('tbody tr', { hasText: '$31.500' })).toBeVisible()
+
+  // Used, it is not deleted: the API says to turn it off. One never used is deleted.
+  await page.goto('/configuracion')
+  page.once('dialog', confirmation => confirmation.accept())
+  await card.getByRole('button', { name: 'Eliminar la forma de pago Bancolombia Ahorros' }).click()
+  await expect(page.getByText('La forma de pago «Bancolombia Ahorros» ya tiene movimientos: desactívala en vez de borrarla.')).toBeVisible()
+  await expect(card.locator('tbody tr', { hasText: 'Bancolombia Ahorros' })).toBeVisible()
+  page.once('dialog', confirmation => {
+    expect(confirmation.message()).toBe('¿Seguro que quieres eliminar la forma de pago «Daviplata»?')
+    confirmation.accept()
+  })
+  await card.getByRole('button', { name: 'Eliminar la forma de pago Daviplata' }).click()
+  await expect(page.getByText('Forma de pago «Daviplata» eliminada.')).toBeVisible()
+  await expect(card.locator('tbody tr', { hasText: 'Daviplata' })).toHaveCount(0)
+})
+
+/** A method of the business's own marked "Entra al cajón" is cash of the close, as Efectivo is. */
+test('una forma de pago propia que entra al cajón suma al efectivo a entregar del cierre', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `cajon-${Date.now()}`)
+  const created = await request.post(`${API}/payment-methods`, {
+    headers: auth,
+    data: { name: 'Caja menor', is_cash: true, documents: ['sale'], active: true },
+  })
+  expect(created.status(), await created.text()).toBe(201)
+  const drawerKey = (await created.json()).data.key
+  const productId = await seedSimpleProduct(request, auth, 'Jugo Cajón', 7000)
+  for (const method of ['cash', drawerKey, 'nequi']) await chargeOrder(request, auth, productId, method)
+
+  await loginUI(page, credentials.email, credentials.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Cerrar caja' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.locator('tr', { hasText: 'Caja menor' })).toContainText('$7.000')
+  await expect(dialog.locator('tr', { hasText: 'Nequi' })).toContainText('$7.000')
+  // Efectivo and Caja menor are the drawer; Nequi never reaches it.
+  await expect(dialog.getByText('+ Cobros en Efectivo y Caja menor (con propinas)').locator('..')).toContainText('$14.000')
+  await expect(dialog.getByTestId('cash-expected')).toHaveText('$14.000')
+})

@@ -259,15 +259,10 @@
           </v-row>
           <v-select
             v-model="movementForm.payment_method"
-            :items="[
-              { value: 'cash', title: 'Efectivo' },
-              { value: 'transfer', title: 'Transferencia' },
-              { value: 'card', title: 'Tarjeta' },
-              { value: 'other', title: 'Otro' },
-            ]"
-            item-title="title"
-            item-value="value"
+            :items="methodOptions('financial_movement', editingMovement?.payment_method)"
             label="Medio de pago"
+            :hint="methodsFor('financial_movement').length ? undefined : 'No tienes formas de pago para movimientos financieros: actívalas en Configuración › Formas de pago.'"
+            persistent-hint
           />
           <v-textarea v-model="movementForm.notes" label="Notas (opcional)" rows="2" />
         </v-card-text>
@@ -297,27 +292,34 @@ import kardexService, {
   type MovementKind,
   type MovementKindOption,
 } from '../services/kardexService'
-import type { PaymentMethod } from '../services/salesService'
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
+import {
+  compareMethodKeys,
+  methodOptions,
+  methodsFor,
+  paymentMethodLabel,
+  usePaymentMethods,
+} from '../composables/usePaymentMethods'
 import { useAuthStore } from '@/stores/auth'
-import { orderPaymentMethodLabels } from '@/utils/labels'
 
 // Suscripción vencida: las acciones que escriben quedan en gris.
 const isReadOnly = useReadOnly()
+const { ready: methodsReady } = usePaymentMethods({ fresh: true })
 
 const loadingIncome = ref(false)
 const income = ref<IncomeStatement | null>(null)
 const balance = ref<BalanceReport | null>(null)
 
-// "Efectivo $100.000 · Transferencia $50.000", in the order of the method list.
+// "Efectivo $100.000 · Transferencia $50.000", in the company's order of its methods.
 const billingAbonosByMethod = computed(() => {
   const byMethod = balance.value?.assets.billing_abonos?.by_method ?? {}
-  return (Object.keys(orderPaymentMethodLabels) as PaymentMethod[])
+  return Object.keys(byMethod)
     .filter(method => (byMethod[method] ?? 0) > 0)
-    .map(method => `${orderPaymentMethodLabels[method]} ${money(byMethod[method])}`)
+    .sort(compareMethodKeys)
+    .map(method => `${paymentMethodLabel(method)} ${money(byMethod[method])}`)
     .join(' · ')
 })
 
@@ -368,7 +370,7 @@ const emptyMovement = () => ({
   concept: '',
   amount: 0,
   occurred_at: todayIso(),
-  payment_method: 'cash',
+  payment_method: methodsFor('financial_movement')[0]?.key ?? '',
   notes: '',
 })
 const movementForm = ref(emptyMovement())
@@ -406,7 +408,8 @@ const loadMovements = async () => {
   }
 }
 
-const openMovementDialog = (movement?: FinancialMovement) => {
+const openMovementDialog = async (movement?: FinancialMovement) => {
+  await methodsReady()
   editingMovement.value = movement ?? null
   movementForm.value = movement
     ? {

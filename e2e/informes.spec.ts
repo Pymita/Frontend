@@ -5,6 +5,7 @@ import {
   API,
   PLATFORM,
   apiLogin,
+  buildXlsx,
   chooseReport,
   createCompany,
   displayDate,
@@ -274,7 +275,7 @@ test('un conjunto ve sus informes, no los de pedidos ni kardex, y más de 366 d�
   for (const title of ['Ventas por fecha y vendedor', 'Clientes con saldo', 'Documentos de facturación automática por período']) {
     expect(titles).toContain(title)
   }
-  for (const title of ['Propinas por mesero', 'Movimientos del kardex por producto', 'Productos con saldo']) {
+  for (const title of ['Propinas por mesero', 'Resumen movimiento por transacciones', 'Movimientos del kardex', 'Productos con saldo']) {
     expect(titles).not.toContain(title)
   }
 
@@ -286,6 +287,298 @@ test('un conjunto ve sus informes, no los de pedidos ni kardex, y más de 366 d�
   await field(page, 'Desde').locator('input').press('Enter')
   await expect(page.getByRole('alert').filter({ hasText: 'El rango puede ser de máximo 366 días. Elige un periodo más corto.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Descargar Excel' })).toBeDisabled()
+})
+
+// --- Productos e inventario: compras por factura, el resumen del kardex y sus movimientos ---
+
+/** Today in Bogotá (AAAA-MM-DD): the day the API dates what the test registers. */
+const bogotaToday = (): string => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+
+/** The texts of one column of the report, top to bottom. */
+async function columnTexts(page: Page, header: string): Promise<string[]> {
+  const index = (await headerTexts(page)).indexOf(header)
+  expect(index, `columna «${header}»`).toBeGreaterThanOrEqual(0)
+  return (await table(page).locator(`tbody tr td:nth-child(${index + 1})`).allInnerTexts()).map(text => text.trim())
+}
+
+/**
+ * A restaurant's purchases of the day: Molinos' first invoice (two products
+ * with IVA) and its second, and an invoice of Dulces typed without a number.
+ */
+async function arrangePurchases(request: APIRequestContext) {
+  const shop = await createRestaurant(request, `compras-${Date.now()}`)
+  const stamp = Date.now() % 1_000_000
+  const iva = await taxNamed(request, shop.auth, 'IVA 19%', 19)
+  const flour = await createStockedProduct(request, shop.auth, `Harina Compras ${stamp}`, 3000)
+  const sugar = await createStockedProduct(request, shop.auth, `Azúcar Compras ${stamp}`, 2000)
+  const suppliers = { mill: `Molinos ${stamp}`, sweets: `Dulces ${stamp}` }
+  const invoices = { first: `F1-${stamp}`, second: `F2-${stamp}` }
+  await registerKardex(request, shop.auth, 'FC', {
+    movement_type: 'in',
+    counterparty: suppliers.mill,
+    reference: invoices.first,
+    items: [
+      { product_id: flour, quantity: 10, unit_cost: 2000, tax_id: iva },
+      { product_id: sugar, quantity: 5, unit_cost: 1000, tax_id: iva },
+    ],
+  })
+  await registerKardex(request, shop.auth, 'FC', {
+    movement_type: 'in',
+    counterparty: suppliers.mill,
+    reference: invoices.second,
+    items: [{ product_id: flour, quantity: 5, unit_cost: 2200, tax_id: iva }],
+  })
+  await registerKardex(request, shop.auth, 'FC', {
+    movement_type: 'in',
+    counterparty: suppliers.sweets,
+    items: [{ product_id: sugar, quantity: 2, unit_cost: 1000 }],
+  })
+  return { ...shop, suppliers, invoices }
+}
+
+test('compras por proveedor: cada factura del proveedor con su valor bruto, IVA y neto, la que no tiene número con su fecha, y el Excel igual', async ({ page, request }) => {
+  const shop = await arrangePurchases(request)
+  const today = bogotaToday()
+  await freezeTime(page, new Date().toISOString())
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, shop.credentials.email, shop.credentials.password, shop.slug)
+
+  // She had opened it when it grouped by supplier alone: it now opens per invoice anyway.
+  await page.evaluate(() => {
+    const user = JSON.parse(localStorage.getItem('user_data') ?? '{}')
+    const before = { columns: ['supplier', 'invoices_count', 'gross', 'tax', 'net'], group_by: ['supplier'] }
+    localStorage.setItem('pos.reports', JSON.stringify({ [user.id]: { last: 'purchases_by_supplier', purchases_by_supplier: before } }))
+  })
+  await page.goto('/informes')
+  await expect(field(page, 'Informe')).toContainText('Compras por proveedor')
+  await expect(field(page, 'Agrupar por')).toContainText('Proveedor')
+  await expect(field(page, 'Agrupar por')).toContainText('Factura')
+  await expect(page.getByRole('alert').filter({ hasText: 'la que se registró sin número dice «Sin número» y su fecha' })).toBeVisible()
+
+  const noNumber = `Sin número (${displayDate(today)})`
+  await expect(bodyRow(page, shop.invoices.first)).toHaveCount(1)
+  expect(await headerTexts(page)).toEqual(['Proveedor', 'Factura', 'Fecha', 'Valor bruto', 'IVA', 'Valor neto', 'Unidades'])
+  const expected: [string, string, string, string, string, string][] = [
+    [shop.suppliers.sweets, noNumber, '$2.000', '$0', '$2.000', '2'],
+    [shop.suppliers.mill, shop.invoices.first, '$25.000', '$4.750', '$29.750', '15'],
+    [shop.suppliers.mill, shop.invoices.second, '$11.000', '$2.090', '$13.090', '5'],
+  ]
+  for (const [supplier, invoice, gross, tax, net, units] of expected) {
+    const row = bodyRow(page, invoice)
+    await expect(await cellUnder(page, row, 'Proveedor')).toHaveText(supplier)
+    await expect(await cellUnder(page, row, 'Fecha')).toContainText(today.slice(0, 4))
+    await expect(await cellUnder(page, row, 'Valor bruto')).toHaveText(gross)
+    await expect(await cellUnder(page, row, 'IVA')).toHaveText(tax)
+    await expect(await cellUnder(page, row, 'Valor neto')).toHaveText(net)
+    await expect(await cellUnder(page, row, 'Unidades')).toHaveText(units)
+  }
+  // Each supplier, then its invoices in the order they came.
+  expect(await columnTexts(page, 'Factura')).toEqual(expected.map(line => line[1]))
+  await expect(totalRow(page).locator('td').first()).toHaveText('Total')
+  await expect(await cellUnder(page, totalRow(page), 'Valor bruto')).toHaveText('$38.000')
+  await expect(await cellUnder(page, totalRow(page), 'IVA')).toHaveText('$6.840')
+  await expect(await cellUnder(page, totalRow(page), 'Valor neto')).toHaveText('$44.840')
+  await expect(await cellUnder(page, totalRow(page), 'Unidades')).toHaveText('22')
+
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Descargar Excel' }).click()
+  const download = await downloading
+  expect(download.suggestedFilename()).toMatch(/^informe-compras-por-proveedor-.*\.xlsx$/)
+  const file = readFileSync(await download.path())
+  const rows = xlsxRows(file).filter(row => row.some(cell => cell !== ''))
+  expect(rows[0]).toEqual(['Proveedor', 'Factura', 'Fecha', 'Valor bruto', 'IVA', 'Valor neto', 'Unidades'])
+  expect(rows[1]).toEqual([shop.suppliers.sweets, noNumber, today, '2000', '0', '2000', '2'])
+  expect(rows[2]).toEqual([shop.suppliers.mill, shop.invoices.first, today, '25000', '4750', '29750', '15'])
+  expect(rows[3]).toEqual([shop.suppliers.mill, shop.invoices.second, today, '11000', '2090', '13090', '5'])
+  expect(rows.at(-1)).toEqual(['Total', '', '', '38000', '6840', '44840', '22'])
+  const filters = xlsxRows(file, 2)
+  expect(filters).toContainEqual(['Informe', 'Compras por proveedor'])
+  expect(filters).toContainEqual(['Agrupado por', 'Proveedor y Factura'])
+})
+
+/**
+ * A product opened 40 days ago with 3 at $1.800, bought today (10 at $2.000
+ * plus IVA, from a supplier of its own) and sold once.
+ */
+async function arrangeKardex(request: APIRequestContext) {
+  const shop = await createRestaurant(request, `kardex-informe-${Date.now()}`)
+  const stamp = Date.now() % 1_000_000
+  const iva = await taxNamed(request, shop.auth, 'IVA 19%', 19)
+  const name = `Cerveza Kardex ${stamp}`
+  const productId = await createStockedProduct(request, shop.auth, name, 11900, iva, { stock: 3, cost: 1800 })
+  const supplier = `Distribuidora Kardex ${stamp}`
+  const reference = `FC-${stamp}`
+  await registerKardex(request, shop.auth, 'FC', {
+    movement_type: 'in',
+    counterparty: supplier,
+    reference,
+    notes: 'Llegó completa',
+    items: [{ product_id: productId, quantity: 10, unit_cost: 2000, tax_id: iva }],
+  })
+  const at = await chargeOrder(request, shop.auth, productId, 1, { payment_method: 'cash' })
+  return { ...shop, name, supplier, reference, at }
+}
+
+test('resumen movimiento por transacciones: el informe renombrado cuadra saldo inicial, entradas, salidas y saldo final', async ({ page, request }) => {
+  const shop = await arrangeKardex(request)
+  await freezeTime(page, shop.at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, shop.credentials.email, shop.credentials.password, shop.slug)
+  await page.goto('/informes')
+
+  const titles = await reportTitles(page)
+  expect(titles).toContain('Resumen movimiento por transacciones')
+  expect(titles).toContain('Movimientos del kardex')
+  expect(titles).not.toContain('Movimientos del kardex por producto')
+  await chooseReport(page, 'Resumen movimiento por transacciones')
+  await expect(field(page, 'Informe')).toContainText('¿Con qué saldo abrió y cerró cada producto, y cuánto entró y salió por cada tipo de transacción?')
+
+  const row = bodyRow(page, shop.name)
+  await expect(row).toHaveCount(1)
+  await expect(await cellUnder(page, row, 'Saldo inicial')).toHaveText('3')
+  await expect(await cellUnder(page, row, 'Entradas')).toHaveText('10')
+  await expect(await cellUnder(page, row, 'Salidas')).toHaveText('1')
+  await expect(await cellUnder(page, row, 'Saldo final')).toHaveText('12')
+  await expect(await cellUnder(page, row, 'Valor final')).toHaveText('$23.446')
+
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Descargar Excel' }).click()
+  const download = await downloading
+  expect(download.suggestedFilename()).toMatch(/^informe-resumen-movimiento-por-transacciones-.*\.xlsx$/)
+  const file = readFileSync(await download.path())
+  const rows = xlsxRows(file).filter(line => line.some(cell => cell !== ''))
+  const headers = rows[0]!
+  const product = rows.find(line => line.includes(shop.name))!
+  expect(product[headers.indexOf('Saldo inicial')]).toBe('3')
+  expect(product[headers.indexOf('Saldo final')]).toBe('12')
+  expect(xlsxRows(file, 2)).toContainEqual(['Informe', 'Resumen movimiento por transacciones'])
+})
+
+test('movimientos del kardex: las filas y cifras de la página Kardex, columnas que se eligen y el Excel', async ({ page, request }) => {
+  test.setTimeout(90_000)
+  const shop = await arrangeKardex(request)
+  const from = `${bogotaToday().slice(0, 8)}01`
+  await freezeTime(page, shop.at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, shop.credentials.email, shop.credentials.password, shop.slug)
+
+  // What the Kardex page reads for the product this month.
+  await page.goto('/kardex')
+  await page.getByRole('combobox', { name: 'Producto' }).click()
+  await page.getByRole('option', { name: shop.name }).click()
+  await expect(page.getByText('Existencia actual')).toBeVisible()
+  await field(page, 'Desde').locator('input').fill(displayDate(from))
+  await field(page, 'Desde').locator('input').press('Enter')
+  const kardexOpening = page.locator('tbody tr', { hasText: 'SALDO ANTERIOR' })
+  await expect(kardexOpening).toHaveCount(1)
+  await expect(page.locator('tbody tr', { hasText: shop.reference })).toHaveCount(1)
+  const kardexHeaders = (await page.locator('table thead th').allInnerTexts()).map(text => text.trim())
+  const kardexCell = (text: string, header: string) =>
+    page.locator('tbody tr', { hasText: text }).locator('td').nth(kardexHeaders.indexOf(header))
+  // The opening row spans the movement columns: after its label come the balance, its cost and its total.
+  const openingCells = (await kardexOpening.locator('td').allInnerTexts()).map(text => text.trim())
+  const [openingBalance, , openingTotal] = openingCells.slice(openingCells.indexOf('SALDO ANTERIOR') + 1).filter(Boolean)
+  const kardex = {
+    opening: { balance: openingBalance, total: openingTotal },
+    purchase: {
+      cost: await kardexCell(shop.reference, 'Costo unit.').innerText(),
+      gross: await kardexCell(shop.reference, 'Valor bruto').innerText(),
+      net: await kardexCell(shop.reference, 'Valor neto').innerText(),
+      balance: await kardexCell(shop.reference, 'Saldo cant.').innerText(),
+      average: await kardexCell(shop.reference, 'Saldo costo').innerText(),
+      total: await kardexCell(shop.reference, 'Saldo total').innerText(),
+    },
+    sale: { balance: await kardexCell('FV', 'Saldo cant.').innerText(), total: await kardexCell('FV', 'Saldo total').innerText() },
+  }
+  expect(kardex.opening).toEqual({ balance: '3', total: '$5.400' })
+  expect(kardex.purchase.balance).toBe('13')
+
+  await page.goto('/informes')
+  await chooseReport(page, 'Movimientos del kardex')
+  // One row per movement: nothing to group by.
+  await expect(field(page, 'Agrupar por')).toHaveCount(0)
+  await expect(field(page, 'Desde').locator('input')).toHaveValue(displayDate(from))
+  await page.getByRole('combobox', { name: 'Producto' }).click()
+  await page.getByRole('combobox', { name: 'Producto' }).fill(shop.name)
+  await page.getByRole('option', { name: shop.name }).click()
+
+  const opening = bodyRow(page, 'SALDO ANTERIOR')
+  await expect(opening).toHaveCount(1)
+  await expect(table(page).locator('tbody tr')).toHaveCount(3)
+  await expect(await cellUnder(page, opening, 'Saldo cantidad')).toHaveText(kardex.opening.balance)
+  await expect(await cellUnder(page, opening, 'Saldo total')).toHaveText(kardex.opening.total)
+  // On by default, the Kardex page's own columns.
+  expect(await headerTexts(page)).toEqual([
+    'Fecha', 'Documento', 'Referencia', 'Producto', 'Cant. entrada', 'Cant. salida', 'Costo unitario', 'Valor bruto',
+    'Valor IVA', 'Valor neto', 'Saldo cantidad', 'Saldo costo unit.', 'Saldo total', 'Usuario',
+  ])
+  const purchase = bodyRow(page, shop.reference)
+  await expect(await cellUnder(page, purchase, 'Documento')).toHaveText('FC')
+  await expect(await cellUnder(page, purchase, 'Producto')).toHaveText(shop.name)
+  await expect(await cellUnder(page, purchase, 'Cant. entrada')).toHaveText('10')
+  await expect(await cellUnder(page, purchase, 'Costo unitario')).toHaveText(kardex.purchase.cost)
+  await expect(await cellUnder(page, purchase, 'Valor bruto')).toHaveText(kardex.purchase.gross)
+  await expect(await cellUnder(page, purchase, 'Valor IVA')).toHaveText('$3.800')
+  await expect(await cellUnder(page, purchase, 'Valor neto')).toHaveText(kardex.purchase.net)
+  await expect(await cellUnder(page, purchase, 'Saldo cantidad')).toHaveText(kardex.purchase.balance)
+  await expect(await cellUnder(page, purchase, 'Saldo costo unit.')).toHaveText(kardex.purchase.average)
+  await expect(await cellUnder(page, purchase, 'Saldo total')).toHaveText(kardex.purchase.total)
+  await expect(await cellUnder(page, purchase, 'Usuario')).toHaveText('Dueña Informes')
+  const sale = bodyRow(page, 'FV')
+  await expect(await cellUnder(page, sale, 'Cant. salida')).toHaveText('1')
+  await expect(await cellUnder(page, sale, 'Valor neto')).toHaveText('—')
+  await expect(await cellUnder(page, sale, 'Saldo cantidad')).toHaveText(kardex.sale.balance)
+  await expect(await cellUnder(page, sale, 'Saldo total')).toHaveText(kardex.sale.total)
+  await expect(await cellUnder(page, totalRow(page), 'Cant. entrada')).toHaveText('10')
+  await expect(await cellUnder(page, totalRow(page), 'Cant. salida')).toHaveText('1')
+  await expect(await cellUnder(page, totalRow(page), 'Valor IVA')).toHaveText('$3.800')
+  await expect(await cellUnder(page, totalRow(page), 'Valor neto')).toHaveText('$23.800')
+  await expect(await cellUnder(page, totalRow(page), 'Valor bruto')).toHaveText('')
+
+  // The supplier, the IVA rate, the direction and the notes on (the Kardex Excel's columns), the user off.
+  const menu = await openColumns(page)
+  await expect(menu.getByText('Lo que agrupas siempre se muestra.')).toHaveCount(0)
+  for (const label of ['Cliente/Proveedor', 'IVA %', 'Tipo', 'Notas']) await menu.getByLabel(label, { exact: true }).check()
+  await menu.getByLabel('Usuario', { exact: true }).uncheck()
+  await page.keyboard.press('Escape')
+  await expect(table(page).getByRole('columnheader', { name: 'Notas' })).toBeVisible()
+  await expect(table(page).getByRole('columnheader', { name: 'Usuario' })).toHaveCount(0)
+  await expect(await cellUnder(page, purchase, 'Cliente/Proveedor')).toHaveText(shop.supplier)
+  await expect(await cellUnder(page, purchase, 'IVA %')).toHaveText('19 %')
+  await expect(await cellUnder(page, purchase, 'Tipo')).toHaveText('Entrada')
+  await expect(await cellUnder(page, purchase, 'Notas')).toHaveText('Llegó completa')
+  await expect(await cellUnder(page, sale, 'Tipo')).toHaveText('Salida')
+  const visible = await headerTexts(page)
+
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Descargar Excel' }).click()
+  const download = await downloading
+  expect(download.suggestedFilename()).toMatch(/^informe-movimientos-del-kardex-.*\.xlsx$/)
+  const file = readFileSync(await download.path())
+  const rows = xlsxRows(file).filter(line => line.some(cell => cell !== ''))
+  expect(rows[0]).toEqual(visible)
+  const col = (header: string) => visible.indexOf(header)
+  expect(rows[1]![col('Fecha')]).toBe(from)
+  expect(rows[1]![col('Referencia')]).toBe('SALDO ANTERIOR')
+  expect(rows[1]![col('Saldo cantidad')]).toBe('3')
+  expect(rows[1]![col('Saldo total')]).toBe('5400')
+  const sheetPurchase = rows.find(line => line.includes(shop.reference))!
+  expect(sheetPurchase[col('Tipo')]).toBe('Entrada')
+  expect(sheetPurchase[col('Cant. entrada')]).toBe('10')
+  expect(sheetPurchase[col('Valor bruto')]).toBe('20000')
+  expect(sheetPurchase[col('IVA %')]).toBe('19')
+  expect(sheetPurchase[col('Valor IVA')]).toBe('3800')
+  expect(sheetPurchase[col('Valor neto')]).toBe('23800')
+  expect(sheetPurchase[col('Saldo cantidad')]).toBe('13')
+  expect(sheetPurchase[col('Notas')]).toBe('Llegó completa')
+  const total = rows.at(-1)!
+  expect(total[0]).toBe('Total')
+  expect(total[col('Cant. entrada')]).toBe('10')
+  expect(total[col('Cant. salida')]).toBe('1')
+  expect(total[col('Valor neto')]).toBe('23800')
+  const filters = xlsxRows(file, 2)
+  expect(filters).toContainEqual(['Informe', 'Movimientos del kardex'])
+  expect(filters).toContainEqual(['Producto', shop.name])
 })
 
 // --- Contabilidad: Movimiento contable and Configurar contabilidad ---
@@ -301,15 +594,23 @@ async function taxNamed(request: APIRequestContext, auth: Auth, name: string, ra
 }
 
 /**
- * A product that manages stock. Its opening balance (SI, $0) is dated 40 days
- * back, before any month: the period holds only what the test registers.
+ * A product that manages stock. Its opening balance (SI, $0 unless `opening`
+ * says otherwise) is dated 40 days back, before any month: the period holds
+ * only what the test registers.
  */
-async function createStockedProduct(request: APIRequestContext, auth: Auth, name: string, price: number, taxId?: number): Promise<number> {
+async function createStockedProduct(
+  request: APIRequestContext,
+  auth: Auth,
+  name: string,
+  price: number,
+  taxId?: number,
+  opening: { stock: number; cost: number } = { stock: 0, cost: 0 },
+): Promise<number> {
   const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `${name} Cat` } })
   const product = await request.post(`${API}/products`, {
     headers: auth,
     data: {
-      name, type: 'final', unit: 'und', sale_price: price, unit_cost: 0, current_stock: 0, tracks_stock: true,
+      name, type: 'final', unit: 'und', sale_price: price, unit_cost: opening.cost, current_stock: opening.stock, tracks_stock: true,
       initial_stock_date: new Date(Date.now() - 40 * 86_400_000).toLocaleDateString('en-CA'),
       category_id: (await category.json()).data.id,
       ...(taxId ? { tax_id: taxId } : {}),
@@ -542,4 +843,94 @@ test('contabilidad: un período que necesita una cuenta en blanco lo explica y a
   await expect(await previewCell(page, previewRow(page, '143505'), 'Débito')).toHaveText('$2.000')
   await expect(figure(page, 'Total débito')).toContainText('$2.000')
   await expect(figure(page, 'Total crédito')).toContainText('$2.000')
+})
+
+/**
+ * A payment method can post to an account of its own on one document (the
+ * sale), and the accounting software's sample file becomes a template: its
+ * headers in order, each with the datum the owner picked, the API's guess
+ * preselected.
+ */
+test('contabilidad: la cuenta de una forma de pago en la venta llega al movimiento y la plantilla subida del programa contable ordena el Excel como su archivo', async ({ page, request }) => {
+  test.setTimeout(120_000)
+  const shop = await createRestaurant(request, `contable-plantilla-${Date.now()}`)
+  const stamp = Date.now() % 1_000_000
+  const productId = await createProduct(request, shop.auth, `Arepa Contable ${stamp}`, 8000)
+  const at = await chargeOrder(request, shop.auth, productId, 1, { payment_method: 'transfer' })
+  const day = new Date(at).toLocaleDateString('en-CA')
+
+  await freezeTime(page, at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, shop.credentials.email, shop.credentials.password, shop.slug)
+  await page.goto('/informes')
+  await chooseReport(page, 'Movimiento contable')
+
+  // Transferencia keeps its account and gets its own on the sale; the recibo de caja keeps the method's.
+  await page.getByRole('button', { name: 'Configurar contabilidad' }).click()
+  const dialog = accountingDialog(page)
+  await expect(dialog.getByLabel('Cuenta de Transferencia', { exact: true })).toHaveValue('111005001')
+  const onSale = dialog.getByLabel('Cuenta de Transferencia · Venta', { exact: true })
+  const onReceipt = dialog.getByLabel('Cuenta de Transferencia · Recibo de caja', { exact: true })
+  await expect(onSale).toHaveValue('')
+  await onSale.fill('1110 banco')
+  await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(dialog.getByText('La cuenta de Transferencia · Venta debe tener solo números (p. ej., 110505).').first()).toBeVisible()
+  await onSale.fill('11100599')
+  await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Contabilidad guardada.')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cerrar', exact: true }).click()
+  await page.reload()
+  await page.getByRole('button', { name: 'Configurar contabilidad' }).click()
+  await expect(onSale).toHaveValue('11100599')
+  await expect(onReceipt).toHaveValue('')
+
+  // The sample file of the accounting software, as it comes: headers on the first row and an example line.
+  const headers = ['Tipo de comprobante', 'Cuenta contable', 'Fecha elaboración', 'Nit', 'Débito', 'Crédito', 'Sucursal']
+  await dialog.getByRole('tab', { name: 'Plantillas' }).click()
+  const choosing = page.waitForEvent('filechooser')
+  await dialog.getByRole('button', { name: 'Subir plantilla del programa contable' }).click()
+  await (await choosing).setFiles({
+    name: `Siigo ${stamp}.xlsx`,
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: buildXlsx([headers, ['F-1', '110505', '01/11/2026', '900123456', '8000', '0', '01']]),
+  })
+  const editor = templateEditor(page)
+  await expect(editor.getByLabel('Nombre', { exact: true })).toHaveValue(`Siigo ${stamp}`)
+  const datum = (header: string) => editor.getByRole('group', { name: `Columna ${header}`, exact: true }).locator('.v-select__selection-text')
+  const expected: [string, string][] = [
+    ['Tipo de comprobante', 'Comprobante'],
+    ['Cuenta contable', 'Cuenta'],
+    ['Fecha elaboración', 'Fecha'],
+    ['Nit', 'NIT tercero'],
+    ['Débito', 'Débito'],
+    ['Crédito', 'Crédito'],
+    ['Sucursal', 'Columna fija'],
+  ]
+  for (const [header, label] of expected) await expect(datum(header), header).toHaveText(label)
+  await editor.getByRole('group', { name: 'Columna Sucursal', exact: true }).getByLabel('Valor (opcional)').fill('01')
+  await expect(editor.getByRole('table', { name: 'Encabezados de la plantilla' }).locator('tbody td')).toHaveText(headers)
+  await editor.getByRole('button', { name: 'Guardar plantilla' }).click()
+  await expect(page.getByText(`Plantilla «Siigo ${stamp}» guardada.`)).toBeVisible()
+  await expect(editor).toBeHidden()
+  await dialog.getByRole('button', { name: 'Cerrar', exact: true }).click()
+
+  // The movement in that template: the sale's transfer debits its own account.
+  await field(page, 'Plantilla').click()
+  await pickOption(page, `Siigo ${stamp}`)
+  await page.getByRole('button', { name: 'Ver movimiento' }).click()
+  await expect(preview(page).locator('thead th')).toHaveText(headers)
+  const transferLine = previewRow(page, '11100599')
+  await expect(transferLine).toHaveCount(1)
+  await expect(await previewCell(page, transferLine, 'Débito')).toHaveText('$8.000')
+  await expect(await previewCell(page, transferLine, 'Sucursal')).toHaveText('01')
+
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Descargar Excel' }).click()
+  const rows = xlsxRows(readFileSync(await (await downloading).path())).filter(row => row.some(cell => cell !== ''))
+  expect(rows[0]).toEqual(headers)
+  const line = rows.find(row => row[headers.indexOf('Cuenta contable')] === '11100599')
+  expect(line, 'la línea de la transferencia').toBeTruthy()
+  expect(Number(line![headers.indexOf('Débito')])).toBe(8000)
+  expect(line![headers.indexOf('Fecha elaboración')]).toBe(displayDate(day))
+  expect(line![headers.indexOf('Sucursal')]).toBe('01')
 })

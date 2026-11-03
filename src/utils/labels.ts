@@ -37,6 +37,23 @@ export const orderStatusColors: Record<string, string> = {
   cancelled: 'error',
 }
 
+/** Who pays a table's time (same texts as TIME_BILLING_LABELS in mobile/src/utils/labels.ts). */
+export const timeBillingLabels: Record<string, string> = {
+  table: 'Por mesa',
+  person: 'Por persona',
+}
+
+/** "1 h", "1 h 30 min", "45 min": the minutes of a printed time line. */
+export const durationLabel = (minutes: number): string => {
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  if (!hours) return `${rest} min`
+  return rest ? `${hours} h ${rest} min` : `${hours} h`
+}
+
+/** "5 personas", "1 persona" (same as `playersLabel()` in mobile/src/utils/labels.ts). */
+export const playersLabel = (players: number): string => `${players} ${players === 1 ? 'persona' : 'personas'}`
+
 export const itemStatusLabels: Record<string, string> = {
   pending: 'Pendiente',
   preparing: 'Preparando',
@@ -128,7 +145,11 @@ export const expenseCategoryTypeLabels: Record<string, string> = {
   taxes: 'Impuestos',
 }
 
-/** Cómo paga una mesa (mismo orden y nombres que OrderPayment::METHODS). */
+/**
+ * The legacy names of the seven built-in methods (OrderPayment::METHODS),
+ * which the waiter app still offers. Each company now has its own list
+ * (`usePaymentMethods`): this map only names a key the company no longer has.
+ */
 export const orderPaymentMethodLabels: Record<string, string> = {
   cash: 'Efectivo',
   credit_card: 'Tarjeta crédito',
@@ -140,13 +161,22 @@ export const orderPaymentMethodLabels: Record<string, string> = {
 }
 
 /**
- * How a sale was charged: the methods money comes in by, plus "A crédito"
- * (OrderPayment::CREDIT), which brings none. Only for reading a sale; the
- * selects where money is received keep `orderPaymentMethodLabels`.
+ * How a sale was charged: the legacy methods plus "A crédito"
+ * (OrderPayment::CREDIT), which brings no money and is never a method of the
+ * company. The fallback of `paymentMethodLabel()`; the selects where money is
+ * received offer the company's methods.
  */
 export const saleMethodLabels: Record<string, string> = {
   ...orderPaymentMethodLabels,
   credit: 'A crédito',
+}
+
+/** Where a company's payment method can be used (`documents`; web only: the waiter app keeps its list). */
+export const paymentDocumentLabels: Record<string, string> = {
+  sale: 'Ventas',
+  receipt: 'Recibos de caja',
+  order_abono: 'Abonos a pedidos',
+  financial_movement: 'Movimientos financieros',
 }
 
 /** The documents asked when a customer is created while charging (Customer::DOCUMENT_TYPES takes more). */
@@ -208,6 +238,18 @@ export const yesNoLabels: Record<string, string> = {
   no: 'No',
 }
 
+/** The direction of a kardex movement, as the Kardex Excel writes its "Tipo". */
+export const movementTypeLabels: Record<string, string> = {
+  in: 'Entrada',
+  out: 'Salida',
+}
+
+/** Green in, red out: the Kardex's own colors for a movement. */
+export const movementTypeColors: Record<string, string> = {
+  in: 'success',
+  out: 'error',
+}
+
 // ===== Contabilidad =====
 /** The side an account posts on in the normal entry (`nature` in /accounting/settings). */
 export const accountingNatureLabels: Record<string, string> = {
@@ -240,13 +282,15 @@ export const enumLabels: Record<string, Record<string, string>> = {
   expense_type: expenseCategoryTypeLabels,
   expense_payment_method: expensePaymentMethodLabels,
   payment_status: paymentStatusLabels,
+  movement_type: movementTypeLabels,
 }
 
-/** Enums that are states: their cells read as a chip of the state's role. */
+/** Enums that are states (or a kardex direction): their cells read as a chip of its role. */
 export const enumColors: Record<string, Record<string, string>> = {
   stock_status: stockStatusColors,
   document_status: recurringInvoiceStatusColors,
   payment_status: paymentStatusColors,
+  movement_type: movementTypeColors,
 }
 
 /** Opciones de un v-select a partir de un mapa de etiquetas, en su orden. */

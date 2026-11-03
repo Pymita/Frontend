@@ -1,5 +1,16 @@
 import { expect, test, type Page } from '@playwright/test'
-import { ADMIN, API, apiLogin, field, loginUI, raisePlanLimits, watchPrinting } from './helpers'
+import {
+  ADMIN,
+  API,
+  apiLogin,
+  createCompany,
+  field,
+  freezeTime,
+  loginUI,
+  pickOption,
+  raisePlanLimits,
+  watchPrinting,
+} from './helpers'
 
 /**
  * Cuentas separadas: varias personas en la misma mesa, cada una con lo
@@ -323,6 +334,147 @@ test('el diálogo de cobro se puede cerrar con la X', async ({ page, request }) 
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
   await expect(dialog).toHaveCount(0)
+})
+
+/** "2026-11-02 21:00:00" in Bogotá, the form the API stores (an ISO "Z" would be read as local time). */
+const apiDateTime = (ms: number): string => {
+  const date = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+/**
+ * A card table charged per person: the owner's example, $1.000 an hour and
+ * five players, so the hour costs $5.000 and each player pays $1.000. Its own
+ * company, since the seeded restaurant does not bill by time.
+ */
+test('una mesa que cobra por tiempo se abre por persona y cada jugador paga su hora', async ({ page, request }) => {
+  const stamp = Date.now()
+  const company = await createCompany(request, `cartas-${stamp}`, { business_type: 'billiard' })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const nickname = `Cartas ${stamp}`
+  const table = await request.post(`${API}/tables`, {
+    headers: auth,
+    data: { number: 1, nickname, table_type: 'billiard', hourly_rate: 1000, billing_increment_minutes: 15 },
+  })
+  expect(table.status()).toBe(201)
+
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  const printing = await watchPrinting(page)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  const newOrder = page.getByRole('dialog')
+  await field(page, 'Mesa (opcional)').click()
+  await pickOption(page, nickname)
+
+  // The table opens with its clock alone: who pays the time is asked here.
+  await expect(newOrder.getByText('Cobro del tiempo · $1.000/h')).toBeVisible()
+  await expect(newOrder.getByText('La mesa paga $1.000 por hora, sin importar cuántos jueguen.')).toBeVisible()
+  await newOrder.getByRole('button', { name: 'Por persona' }).click()
+  await expect(newOrder.getByRole('button', { name: 'Abrir mesa' })).toBeDisabled()
+  await newOrder.getByLabel('Jugadores').fill('5')
+  await expect(newOrder.getByText('Cada jugador paga $1.000 por hora: con 5 personas la mesa suma $5.000 por hora.')).toBeVisible()
+  await newOrder.getByRole('button', { name: 'Abrir mesa' }).click()
+  await expect(page.getByText('Mesa abierta: el tiempo empezó a contar')).toBeVisible()
+
+  const open = (await (await request.get(`${API}/orders?open=1`, { headers: auth })).json()).data
+    .find((o: any) => o.dining_table?.display_name === nickname)
+  expect([open.time.billing, open.time.players]).toEqual(['person', 5])
+
+  // An hour later. The API's clock cannot be moved from here: the admin's
+  // correction puts the start an hour back and the page adopts that hour.
+  const openedAt = new Date(open.time.started_at).getTime()
+  const hourBefore = apiDateTime(openedAt - 60 * 60_000)
+  expect((await request.put(`${API}/orders/${open.id}/time`, { headers: auth, data: { time_started_at: hourBefore } })).ok()).toBeTruthy()
+  await freezeTime(page, open.time.started_at)
+
+  const summaryOf = async () => {
+    await page.goto('/pedidos')
+    await page.getByRole('textbox', { name: 'Buscar mesa o pedido' }).fill(nickname)
+    const row = page.locator('tbody tr', { hasText: nickname })
+    await expect(row).toHaveCount(1)
+    await row.locator('.v-data-table__td--expanded-row').getByRole('button').click()
+    return { row, card: page.locator('tr', { hasText: 'Productos del pedido' }) }
+  }
+  let { card } = await summaryOf()
+  // Running, the time reads live: five players for an hour.
+  await expect(card.getByText('Por persona · 5 personas · $1.000/h')).toBeVisible()
+  await expect(card.locator('.v-card-text > div', { hasText: 'Tiempo' }).first()).toContainText('$5.000')
+
+  // Stopped at the hour, the table's total is $5.000.
+  expect((await request.put(`${API}/orders/${open.id}/time`, {
+    headers: auth,
+    data: { time_started_at: hourBefore, time_ended_at: apiDateTime(openedAt) },
+  })).ok()).toBeTruthy()
+  let row
+  ;({ row, card } = await summaryOf())
+  await expect(card).toContainText('(60 min)')
+  await expect(card.locator('.d-flex', { hasText: 'Total:' }).last()).toContainText('$5.000')
+  await expect(row).toContainText('$5.000')
+
+  // Charging opens on the players, each with their hour.
+  await row.getByRole('button', { name: 'Cobrar' }).click()
+  const dialog = page.getByRole('dialog')
+  const players = dialog.locator('.v-list-item')
+  await expect(players).toHaveCount(5)
+  for (const n of [1, 2, 3, 4, 5]) {
+    await expect(players.nth(n - 1)).toContainText(`Persona ${n}`)
+    await expect(players.nth(n - 1)).toContainText('tiempo $1.000')
+  }
+  const first = dialog.locator('.v-list-item', { hasText: 'Persona 1' })
+  await first.getByRole('button', { name: 'Cobrar', exact: true }).click()
+  await expect(page.getByText('Persona 1 pagó $1.000')).toBeVisible()
+  await expect(first).toContainText('Pagado')
+  await expect(first).toContainText('tiempo pagado')
+
+  // Persona 1's slip carries their one share of the time.
+  const [slip] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('button', { name: 'Imprimir tirilla' }).click(),
+  ])
+  await expect(slip.locator('body')).toContainText('COMPROBANTE DE PAGO')
+  const slipText = await slip.locator('body').innerText()
+  expect(slipText).toContain('PERSONA 1')
+  expect(slipText).toMatch(/Tiempo de mesa\s+\$1\.000/)
+  expect(slipText).toContain('1 h × 1 persona × $1.000/h')
+  expect(slipText).toMatch(/TOTAL\s+\$1\.000/)
+  await slip.close()
+
+  // The other four pay together: the close takes their four hours.
+  await dialog.getByRole('button', { name: 'Todos juntos' }).click()
+  await expect(dialog.locator('.d-flex', { hasText: 'Total sin propina:' })).toContainText('$4.000')
+  await dialog.getByRole('button', { name: 'Confirmar cobro' }).click()
+  await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
+
+  // The table's ticket: one time line for the five players, adding up.
+  const [ticket] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('button', { name: 'Imprimir tirilla' }).click(),
+  ])
+  await expect(ticket.locator('body')).toContainText('COMPROBANTE DE VENTA')
+  const ticketText = await ticket.locator('body').innerText()
+  expect(ticketText).toMatch(/Tiempo de mesa\s+\$5\.000/)
+  expect(ticketText).toContain('1 h × 5 personas × $1.000/h')
+  expect(ticketText).toMatch(/SUBTOTAL\s+\$5\.000/)
+  expect(ticketText).toMatch(/TOTAL\s+\$5\.000/)
+  await ticket.close()
+
+  const paid = (await (await request.get(`${API}/orders/${open.id}`, { headers: auth })).json()).data
+  expect(paid.payment_status).toBe('paid')
+  expect(paid.payments.map((p: any) => [p.guest_number, p.time_shares, p.sale_amount])).toEqual([[1, 1, 1000], [null, 4, 4000]])
+
+  // Each sale's factura names its own shares.
+  await page.getByRole('button', { name: 'Pagados' }).click()
+  const paidRow = page.locator('tbody tr', { hasText: nickname })
+  await paidRow.getByRole('button', { name: 'Más acciones del pedido' }).click()
+  const [facturas] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('listitem').filter({ hasText: 'Generar factura' }).click(),
+  ])
+  await expect(facturas.locator('body')).toContainText('Tiempo de mesa: 1 h × 1 persona × $1.000/h')
+  await expect(facturas.locator('body')).toContainText('Tiempo de mesa: 1 h × 4 personas × $1.000/h')
+  await facturas.close()
+  expect((await printing()).opened).toBe(3)
 })
 
 test('la mesa que separó la cuenta también puede pagar todo junto', async ({ page, request }) => {

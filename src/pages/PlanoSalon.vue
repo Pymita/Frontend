@@ -19,6 +19,9 @@
           >
             {{ label(tableStatusLabels, status) }}
           </v-chip>
+          <v-chip v-if="tables.some(t => t.table_type === 'billiard')" size="small" variant="outlined">
+            ⏱ Cobra por tiempo
+          </v-chip>
         </template>
         <v-btn
           v-if="editMode"
@@ -116,9 +119,9 @@
               :style="shapeStyle(table)"
               stroke-width="3"
             />
-            <text text-anchor="middle" dy="-2" class="table-number">{{ table.table_type === 'billiard' ? '🎱' + table.number : table.number }}</text>
+            <text text-anchor="middle" dy="-2" class="table-number">{{ table.table_type === 'billiard' ? '⏱' + table.number : table.number }}</text>
             <text text-anchor="middle" dy="16" class="table-name">
-              {{ billiardTimerLabel(table) || shortName(table) || (table.table_type === 'billiard' ? 'Billar' : `${table.capacity} pers.`) }}
+              {{ billiardTimerLabel(table) || shortName(table) || (table.table_type === 'billiard' ? `${money(table.hourly_rate)}/h` : `${table.capacity} pers.`) }}
             </text>
             <title>{{ displayName(table) }}</title>
           </g>
@@ -214,6 +217,7 @@ import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'v
 import { tablesService } from '@/services/tablesService';
 import type { DiningTable, DiningTableShape, DiningTableStatus } from '@/services/tablesService';
 import { label, tableStatusColors, tableStatusLabels } from '@/utils/labels';
+import { money } from '@/utils/money';
 import { useAuthStore } from '@/stores/auth';
 import Pedidos from './Pedidos.vue';
 

@@ -95,6 +95,43 @@ test('las ventas pagadas aparecen con su total y el filtro de método funciona',
 })
 
 /**
+ * A sale reads by the current name of its method; a close froze the names it
+ * had, so renaming a method never rewrites a closed shift.
+ */
+test('renombrar una forma de pago cambia cómo se lee la venta, no el cierre de caja ya hecho', async ({ page, request }) => {
+  const company = await createCompany(request, `ventas-formas-${Date.now()}`, { business_type: 'restaurant' })
+  const auth = { Authorization: `Bearer ${company.token}`, Accept: 'application/json' }
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: 'Bebidas' } })
+  const product = await request.post(`${API}/products`, {
+    headers: auth,
+    data: { name: 'Limonada Nequi', type: 'final', unit: 'und', sale_price: 6300, tracks_stock: false, category_id: (await category.json()).data.id },
+  })
+  const order = await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: (await product.json()).data.id, quantity: 1 }] } })
+  const paid = await request.post(`${API}/orders/${(await order.json()).data.id}/pay`, { headers: auth, data: { payment_method: 'nequi' } })
+  expect(paid.ok(), await paid.text()).toBeTruthy()
+  // A payment in the close's own second belongs to the next shift.
+  await new Promise(resolve => setTimeout(resolve, 1000))
+  const shift = (await (await request.get(`${API}/cash-register/current`, { headers: auth })).json()).data
+  expect((await request.post(`${API}/cash-register/${shift.id}/close`, { headers: auth, data: {} })).ok()).toBeTruthy()
+  const methods = (await (await request.get(`${API}/payment-methods?all=1`, { headers: auth })).json()).data
+  const nequi = methods.find((method: { key: string }) => method.key === 'nequi')
+  const renamed = await request.put(`${API}/payment-methods/${nequi.id}`, { headers: auth, data: { name: 'Nequi del negocio' } })
+  expect(renamed.ok(), await renamed.text()).toBeTruthy()
+
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/ventas')
+  const sale = page.locator('tbody tr', { hasText: '$6.300' })
+  await expect(sale).toBeVisible()
+  await expect(await cellUnder(page, sale, 'Método')).toHaveText('Nequi del negocio')
+  await expect(page.getByText('Nequi del negocio: $6.300')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Cierres de caja' }).click()
+  const close = page.locator('.v-data-table tbody tr').filter({ has: page.locator('td:first-child', { hasText: new RegExp(`^\\s*${shift.number}\\s*$`) }) })
+  await expect(close).toContainText('Nequi: $6.300')
+  await expect(close).not.toContainText('Nequi del negocio')
+})
+
+/**
  * A sale nobody identified is the consumidor final's, whatever its order is
  * called: "Cliente" when nobody gave a name, or the table's name, which the
  * waiter app sends as the order's customer. The table reads under Mesa.

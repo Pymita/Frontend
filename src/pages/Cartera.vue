@@ -304,7 +304,7 @@
             </div>
           </template>
           <template #item.payment_method="{ item }">
-            {{ (item.payment_method && PAYMENT_METHOD_LABELS[item.payment_method as PaymentMethod]) || item.payment_method || '—' }}
+            {{ paymentMethodLabel(item.payment_method) || '—' }}
           </template>
           <template #item.total="{ item }">
             <span class="tabular-nums font-weight-medium">{{ money(item.total) }}</span>
@@ -370,7 +370,7 @@
                   </v-btn>
                 </td>
                 <td>{{ formatDay(payment.paid_at) }}</td>
-                <td>{{ PAYMENT_METHOD_LABELS[payment.payment_method] ?? payment.payment_method }}</td>
+                <td>{{ paymentMethodLabel(payment.payment_method) }}</td>
                 <td class="text-end tabular-nums">{{ money(payment.amount) }}</td>
                 <td v-if="isAdmin" class="text-end">
                   <v-btn
@@ -400,6 +400,7 @@
                 <v-select
                   v-model="paymentForm.payment_method"
                   :items="methodOptions"
+                  :rules="[noMethodRule]"
                   label="Método de pago"
                   density="comfortable" />
               </v-col>
@@ -455,6 +456,7 @@
                   <v-select
                     v-model="customerPaymentForm.payment_method"
                     :items="methodOptions"
+                    :rules="[noMethodRule]"
                     label="Método de pago"
                     density="comfortable" />
                 </v-col>
@@ -907,7 +909,8 @@ import {
   type DocumentBusiness,
 } from '../utils/printDocuments'
 import { ordersService } from '../services/ordersService'
-import { PAYMENT_METHOD_LABELS, type PaymentMethod } from '../services/salesService'
+import type { PaymentMethod } from '../services/salesService'
+import { methodOptions as offeredMethods, methodsFor, paymentMethodLabel, usePaymentMethods } from '../composables/usePaymentMethods'
 import { useAuthStore } from '../stores/auth'
 import { effectiveFeatures } from '../types/auth'
 import { errorMessage } from '../utils/errors'
@@ -962,7 +965,11 @@ const periodName = (value: string): string => {
 // The default date of an abono and the latest one the picker allows. Set
 // when each dialog opens: a tab left open overnight would record yesterday.
 const today = ref(localDate())
-const methodOptions = Object.entries(PAYMENT_METHOD_LABELS).map(([value, title]) => ({ value, title }))
+// An abono is a recibo de caja: the methods the company allows for it.
+const { ready: methodsReady } = usePaymentMethods({ fresh: true })
+const methodOptions = computed(() => offeredMethods('receipt'))
+const defaultMethod = (): PaymentMethod => methodsFor('receipt')[0]?.key ?? ''
+const noMethodRule = (method: string) => !!method || 'Elige el método de pago. Si no aparece ninguno, actívalo en Configuración › Formas de pago.'
 const positiveAmount = (amount: number | null) => (amount ?? 0) > 0 || 'Escribe el valor del abono'
 
 // --- Impresión (cuenta de cobro / factura y recibo de caja) ---
@@ -991,7 +998,7 @@ const printInvoice = async (receivable: ReceivableDocument) => {
       return
     }
     const doc = await billingService.getInvoiceDocument(receivable.id)
-    fillDocumentWindow(win, doc.invoice.document_number, invoiceHtml(doc.business, doc.invoice, doc.resolution))
+    fillDocumentWindow(win, doc.invoice.document_number, invoiceHtml(doc.business, doc.invoice, doc.resolution, doc.pay_to))
   } catch (error) {
     win.close()
     notify(errorMessage(error, 'No se pudo generar el documento para imprimir'), 'error')
@@ -1163,10 +1170,10 @@ const paymentDialog = ref(false)
 const paymentInvoice = ref<RecurringInvoice | null>(null)
 const paymentFormRef = ref<any>(null)
 const savingPayment = ref(false)
-const paymentForm = ref({ amount: 0, payment_method: 'cash' as PaymentMethod, paid_at: today.value })
+const paymentForm = ref({ amount: 0, payment_method: '' as PaymentMethod, paid_at: today.value })
 
 const resetPaymentForm = (invoice: RecurringInvoice) => {
-  paymentForm.value = { amount: invoice.balance, payment_method: 'cash', paid_at: today.value }
+  paymentForm.value = { amount: invoice.balance, payment_method: defaultMethod(), paid_at: today.value }
 }
 
 // El recibo del abono recién registrado, para imprimirlo con un clic.
@@ -1174,7 +1181,8 @@ const lastReceiptNumber = ref<number | null>(null)
 
 const openPaymentDialog = async (invoiceId: number) => {
   try {
-    paymentInvoice.value = await billingService.getRecurringInvoice(invoiceId)
+    const [invoice] = await Promise.all([billingService.getRecurringInvoice(invoiceId), methodsReady()])
+    paymentInvoice.value = invoice
     today.value = localDate()
     resetPaymentForm(paymentInvoice.value)
     lastReceiptNumber.value = null
@@ -1210,14 +1218,18 @@ const customerPaymentTarget = ref<ReceivableCustomer | null>(null)
 const customerPaymentFormRef = ref<any>(null)
 const savingCustomerPayment = ref(false)
 const customerReceipt = ref<CashReceipt | null>(null)
-const customerPaymentForm = ref({ amount: 0, payment_method: 'cash' as PaymentMethod, paid_at: today.value, notes: '' })
+const customerPaymentForm = ref({ amount: 0, payment_method: '' as PaymentMethod, paid_at: today.value, notes: '' })
 
-const openCustomerPayment = (customer: ReceivableCustomer) => {
+const openCustomerPayment = async (customer: ReceivableCustomer) => {
   customerPaymentTarget.value = customer
   customerReceipt.value = null
   today.value = localDate()
-  customerPaymentForm.value = { amount: customer.balance, payment_method: 'cash', paid_at: today.value, notes: '' }
+  customerPaymentForm.value = { amount: customer.balance, payment_method: defaultMethod(), paid_at: today.value, notes: '' }
   customerPaymentDialog.value = true
+  if (!customerPaymentForm.value.payment_method) {
+    await methodsReady()
+    customerPaymentForm.value.payment_method = defaultMethod()
+  }
 }
 
 /** Cómo se repartiría el abono: primero lo más viejo (igual que el servidor). */

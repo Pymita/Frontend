@@ -162,13 +162,29 @@
             </div>
           </v-form>
 
-          <!-- 4. Nueva contraseña (llega desde el enlace del correo) -->
-          <v-form v-else ref="resetForm" @submit.prevent="saveNewPassword">
+          <!-- 4. Nueva contraseña: desde el enlace del correo ('reset') o al
+               entrar con la contraseña temporal que dictó la plataforma
+               ('change'), que no deja seguir sin cambiarla. -->
+          <v-form v-else ref="resetForm" @submit.prevent="step === 'change' ? saveChangedPassword() : saveNewPassword()">
+            <p v-if="step === 'change'" class="text-body-2 mb-4">
+              Entraste con una contraseña temporal. Elige una nueva que solo tú conozcas para seguir usando {{ APP_NAME }}.
+            </p>
+            <!-- Asked again only when the page no longer holds the one just typed (a reload). -->
+            <PasswordField
+              v-if="step === 'change' && !temporaryPasswordKnown"
+              v-model="temporaryPassword"
+              label="Contraseña temporal"
+              prepend-inner-icon="mdi-lock-clock"
+              :rules="[(v: string) => !!v || 'Escribe la contraseña temporal que te dieron']"
+              autocomplete="current-password"
+              variant="outlined"
+              class="mb-3"
+            />
             <PasswordField
               v-model="newPassword"
               label="Contraseña nueva"
               prepend-inner-icon="mdi-lock"
-              :rules="passwordRules"
+              :rules="step === 'change' ? [...passwordRules, ...differentFromTemporaryRules(() => temporaryPassword)] : passwordRules"
               :hint="PASSWORD_HINT"
               persistent-hint
               autocomplete="new-password"
@@ -185,10 +201,13 @@
               class="mb-3"
             />
             <v-btn type="submit" color="primary" size="large" block :loading="loading" class="mb-3">
-              Guardar contraseña
+              {{ step === 'change' ? 'Guardar y continuar' : 'Guardar contraseña' }}
             </v-btn>
             <div class="text-center">
-              <v-btn variant="text" size="small" @click="goTo('login')">Volver a iniciar sesión</v-btn>
+              <v-btn v-if="step === 'change'" variant="text" size="small" :disabled="loading" @click="signOutFromChange">
+                Cerrar sesión
+              </v-btn>
+              <v-btn v-else variant="text" size="small" @click="goTo('login')">Volver a iniciar sesión</v-btn>
             </div>
           </v-form>
 
@@ -229,11 +248,11 @@ import { z } from 'zod'
 import { useAuthStore } from '../stores/auth'
 import authService from '../services/authService'
 import { errorMessage } from '../utils/errors'
-import { PASSWORD_HINT, confirmPasswordRules, passwordRules } from '../utils/validation'
+import { PASSWORD_HINT, confirmPasswordRules, differentFromTemporaryRules, passwordRules } from '../utils/validation'
 import PasswordField from '../components/PasswordField.vue'
 import type { LoginCredentials } from '../types'
 
-type Step = 'login' | 'two_factor' | 'forgot' | 'reset'
+type Step = 'login' | 'two_factor' | 'forgot' | 'reset' | 'change'
 
 const router = useRouter()
 const route = useRoute()
@@ -254,13 +273,17 @@ const STEP_SUBTITLES: Record<Step, string> = {
   two_factor: 'Escribe el código de 6 dígitos de tu app de autenticación',
   forgot: 'Te enviamos un enlace para que elijas una contraseña nueva',
   reset: 'Elige tu contraseña nueva',
+  change: 'Cambia tu contraseña',
 }
 
 const year = new Date().getFullYear()
 const privacyHref = router.resolve('/privacidad').href
 
-// El enlace del correo abre /restablecer-contrasena con el token.
-const step = ref<Step>(route.name === 'ResetPassword' ? 'reset' : 'login')
+// El enlace del correo abre /restablecer-contrasena con el token; una sesión
+// con contraseña temporal que recarga o pide otra página cae en /cambiar-contrasena.
+const step = ref<Step>(
+  route.name === 'ResetPassword' ? 'reset' : route.name === 'ChangePassword' ? 'change' : 'login',
+)
 
 // Schema de validación con Zod: correo (admins) o usuario del negocio
 // (empleados); el usuario interno necesita además el código del negocio.
@@ -283,7 +306,7 @@ const loginSchema = toTypedSchema(
   )
 )
 
-const { handleSubmit, defineField, errors } = useForm({
+const { handleSubmit, defineField, errors, resetForm: resetLoginForm } = useForm({
   validationSchema: loginSchema,
   initialValues: {
     login: '',
@@ -313,6 +336,8 @@ const resetEmail = ref('')
 const resetForm = ref<any>(null)
 const newPassword = ref('')
 const newPasswordConfirmation = ref('')
+const temporaryPassword = ref('')
+const temporaryPasswordKnown = ref(false)
 
 const isFormValid = computed((): boolean => {
   const hasNoErrors = Object.keys(errors.value).length === 0
@@ -336,6 +361,18 @@ const goTo = (next: Step): void => {
 }
 
 const enterApp = (): void => {
+  // The password just typed is the temporary one: it stays in memory as the
+  // current password, so the step only asks for the new one.
+  if (authStore.mustChangePassword) {
+    temporaryPassword.value = password.value ?? ''
+    temporaryPasswordKnown.value = true
+    newPassword.value = ''
+    newPasswordConfirmation.value = ''
+    clearMessages()
+    step.value = 'change'
+    return
+  }
+
   const userName = authStore.user?.name || 'Usuario'
   successMessage.value = `¡Bienvenido ${userName}!`
   // La cuenta de plataforma sin segundo factor solo puede configurarlo.
@@ -425,12 +462,44 @@ const saveNewPassword = async (): Promise<void> => {
   }
 }
 
+const saveChangedPassword = async (): Promise<void> => {
+  const { valid } = await resetForm.value.validate()
+  if (!valid) return
+
+  loading.value = true
+  clearMessages()
+  try {
+    await authStore.changePassword({
+      current_password: temporaryPassword.value,
+      password: newPassword.value,
+      password_confirmation: newPasswordConfirmation.value,
+    })
+    enterApp()
+  } catch (err) {
+    error.value = errorMessage(err, 'No pudimos cambiar la contraseña. Inténtalo de nuevo.')
+  } finally {
+    loading.value = false
+  }
+}
+
+const signOutFromChange = async (): Promise<void> => {
+  await authStore.logout()
+  temporaryPassword.value = ''
+  temporaryPasswordKnown.value = false
+  if (route.name === 'ChangePassword') {
+    await router.replace('/login')
+  } else {
+    resetLoginForm({ values: { login: loginId.value ?? '', company: company.value ?? '', password: '' } })
+    goTo('login')
+  }
+}
+
 if (route.query.restablecida) {
   successMessage.value = 'Tu contraseña quedó cambiada. Ya puedes iniciar sesión.'
   loginId.value = String(route.query.email ?? '')
 }
 
-if (authStore.isAuthenticated) {
+if (authStore.isAuthenticated && step.value !== 'change') {
   router.push('/dashboard')
 }
 </script>

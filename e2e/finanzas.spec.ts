@@ -127,6 +127,53 @@ test('el estado de resultados suma los documentos emitidos a las ventas, sin con
 })
 
 /**
+ * Each document offers the methods the business allows for it: a bank
+ * account taken for sales and recibos de caja is offered by Cartera's abono,
+ * prints on its recibo with the account, and is not a way to register a
+ * financial movement.
+ */
+test('una forma de pago para ventas y recibos de caja sale en el abono de la Cartera y no en los movimientos de Finanzas', async ({ page, request }) => {
+  const company = await createCompany(request, 'finanzas-formas', { business_type: 'recurring', modules: SHOP_WITH_FEES })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const created = await request.post(`${API}/payment-methods`, {
+    headers: auth,
+    data: { name: 'Bancolombia', is_cash: false, bank_account: 'Bancolombia ahorros 123-456', documents: ['sale', 'receipt'], active: true },
+  })
+  expect(created.status(), await created.text()).toBe(201)
+  const [ana] = await issueDocuments(request, company.token, [{ name: 'Ana Formas 101', document_number: '5101', monthly_fee: 90000 }])
+
+  await freezeTime(page, ana!.issued_at)
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/finanzas')
+  await page.getByRole('button', { name: 'Registrar movimiento' }).click()
+  const movement = page.getByRole('dialog')
+  await expect(field(page, 'Medio de pago')).toContainText('Efectivo')
+  await field(page, 'Medio de pago').click()
+  await expect(page.getByRole('option', { name: 'Transferencia' })).toBeVisible()
+  await expect(page.getByRole('option', { name: 'Bancolombia' })).toHaveCount(0)
+  await page.getByRole('option', { name: 'Transferencia' }).click()
+  await movement.getByRole('button', { name: 'Cancelar' }).click()
+
+  await page.goto('/cartera')
+  const panel = page.locator('.v-expansion-panel', { hasText: 'Ana Formas 101' })
+  await panel.locator('.v-expansion-panel-title').click()
+  await panel.locator('tbody tr', { hasText: 'CC-1' }).getByRole('button', { name: 'Abonar' }).click()
+  const abono = page.getByRole('dialog')
+  await field(page, 'Método de pago').click()
+  await page.getByRole('option', { name: 'Bancolombia' }).click()
+  await abono.getByRole('button', { name: 'Registrar abono' }).click()
+  await expect(page.getByText('Abono registrado: el documento quedó pagado')).toBeVisible()
+  await expect(abono.locator('tbody tr', { hasText: 'RC-1' })).toContainText('Bancolombia')
+
+  const [receipt] = await Promise.all([page.waitForEvent('popup'), abono.getByRole('button', { name: 'Imprimir recibo RC-1' }).click()])
+  await expect(receipt.locator('.party')).toContainText('FORMA DE PAGO: Bancolombia · Bancolombia ahorros 123-456')
+  await receipt.close()
+  await abono.getByRole('button', { name: 'Cerrar' }).click()
+  // The histórico de abonos names it too.
+  await expect(page.locator('tr.v-data-table__tr', { hasText: 'RC-1' })).toContainText('Bancolombia')
+})
+
+/**
  * The balance holds what automatic billing collected (in Caja, by method) and
  * what it is still owed (the cartera); a charged and reverted sale costs nothing.
  */

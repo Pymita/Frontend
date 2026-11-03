@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import authService from '../services/authService'
-import type { User, LoginCredentials } from '../types'
+import type { User, LoginCredentials, ChangePasswordData } from '../types'
 
 export const useAuthStore = defineStore('auth', () => {
   // Estado
@@ -45,6 +45,14 @@ export const useAuthStore = defineStore('auth', () => {
   const mustAcceptPrivacy = computed((): boolean => {
     return !!user.value && user.value.privacy?.accepted !== true
   })
+
+  // Signed in with a temporary password the platform dictated: the API
+  // answers 403 to everything but changing it, so nothing else is offered.
+  const mustChangePassword = computed((): boolean => user.value?.must_change_password === true)
+
+  const changePassword = async (data: ChangePasswordData): Promise<void> => {
+    user.value = await authService.changePassword(data)
+  }
 
   const acceptPrivacy = async (): Promise<void> => {
     const privacy = await authService.acceptPrivacy()
@@ -151,10 +159,12 @@ export const useAuthStore = defineStore('auth', () => {
     isReadOnly,
     readOnlyMessage,
     mustAcceptPrivacy,
+    mustChangePassword,
     
     // Actions
     login,
     acceptPrivacy,
+    changePassword,
     completeTwoFactor,
     logout,
     getCurrentUser,

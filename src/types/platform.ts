@@ -85,6 +85,13 @@ export interface PlatformCompanyUser {
   role: string
   active: boolean
   last_login_at: string | null
+  /** Still on the temporary password the platform dictated */
+  must_change_password: boolean
+}
+
+export interface TemporaryPasswordPayload {
+  password: string
+  password_confirmation: string
 }
 
 export interface PlatformPayment {
