@@ -446,7 +446,7 @@ import { OWNER, PUBLIC_SITE as SITE } from '@/utils/branding'
  */
 const TERMS = {
   version: '1.0',
-  effectiveDate: '4 de noviembre de 2026',
+  effectiveDate: '5 de noviembre de 2026',
   trialDays: 15,
   graceDays: 7,
   readOnlyDaysBeforeTermination: 90,

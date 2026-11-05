@@ -114,7 +114,7 @@ test('los términos del servicio se leen sin iniciar sesión, se enlazan desde e
   await expect(page.getByRole('heading', { level: 1, name: 'Términos del servicio', exact: true })).toBeVisible()
   await expect(page).toHaveTitle('Términos del servicio · Servify POS')
   await expect(page.locator('.v-navigation-drawer')).toHaveCount(0)
-  await expect(page.getByText('Versión 1.0. Fecha de entrada en vigencia: 4 de noviembre de 2026.')).toBeVisible()
+  await expect(page.getByText('Versión 1.0. Fecha de entrada en vigencia: 5 de noviembre de 2026.')).toBeVisible()
   // Google Play asks for terms that apply to this app specifically.
   await expect(page.getByText('la aplicación Android para meseros "Servify POS" (paquete com.servifypos.app), distribuida en Google Play;')).toBeVisible()
   // The same provider details the policy publishes, without the ID number.
