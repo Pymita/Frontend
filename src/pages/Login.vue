@@ -227,9 +227,12 @@
             :text="successMessage"
           />
 
-          <div class="text-center mt-6">
+          <div class="d-flex justify-center flex-wrap ga-4 mt-6">
             <a :href="privacyHref" target="_blank" rel="noopener" class="text-caption text-medium-emphasis">
               Política de privacidad
+            </a>
+            <a :href="termsHref" target="_blank" rel="noopener" class="text-caption text-medium-emphasis">
+              Términos del servicio
             </a>
           </div>
         </v-card>
@@ -278,6 +281,7 @@ const STEP_SUBTITLES: Record<Step, string> = {
 
 const year = new Date().getFullYear()
 const privacyHref = router.resolve('/privacidad').href
+const termsHref = router.resolve('/terminos').href
 
 // El enlace del correo abre /restablecer-contrasena con el token; una sesión
 // con contraseña temporal que recarga o pide otra página cae en /cambiar-contrasena.

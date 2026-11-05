@@ -2,9 +2,10 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { ADMIN, API, COMPANY_SLUG, PLATFORM, apiLogin, e2eSql, loginUI, raisePlanLimits, sidebarItem } from './helpers'
 
 /**
- * Política de privacidad: la página es pública (Google Play y la Ley 1581
- * piden una URL que cualquiera abra) y cada usuario la acepta antes de usar
- * la web; el backend guarda la prueba de cada versión aceptada.
+ * Política de privacidad y términos del servicio: las dos páginas son públicas
+ * (Google Play y la Ley 1581 piden una URL que cualquiera abra) y cada usuario
+ * acepta la política antes de usar la web; el backend guarda la prueba de cada
+ * versión aceptada.
  */
 
 const CONSENT = 'Leí y acepto la política de privacidad y tratamiento de datos personales'
@@ -18,9 +19,9 @@ async function horizontalOverflow(page: Page): Promise<number> {
 /** The responsible party's details, as section 1 lists them. */
 const responsibleBlock = (page: Page) => page.locator('#responsable + ul')
 
-/** Screenshots the page from the top down to the end of the responsible party's details. */
-async function screenshotTop(page: Page, path: string): Promise<void> {
-  const box = await responsibleBlock(page).boundingBox()
+/** Screenshots the page from the top down to the end of `block` (the responsible party's details by default). */
+async function screenshotTop(page: Page, path: string, block: Locator = responsibleBlock(page)): Promise<void> {
+  const box = await block.boundingBox()
   const width = page.viewportSize()!.width
   const scrollY = await page.evaluate(() => window.scrollY)
   await page.screenshot({ path, fullPage: true, clip: { x: 0, y: 0, width, height: scrollY + box!.y + box!.height + 24 } })
@@ -92,6 +93,68 @@ test('la política se lee sin iniciar sesión, se enlaza desde el login y abre e
   await expect(page.getByRole('heading', { name: '13. Eliminación de la cuenta y de los datos' })).toBeInViewport()
   await expect(page.getByText('con el asunto "Eliminar mi cuenta de Servify POS"')).toBeVisible()
   await page.screenshot({ path: '../screenshots/politica-privacidad-eliminacion-390.png' })
+})
+
+test('los términos del servicio se leen sin iniciar sesión, se enlazan desde el login y la política, y llevan a cada sección de la política', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+
+  await page.goto('/login')
+  const loginLink = page.getByRole('link', { name: 'Términos del servicio' })
+  await expect(loginLink).toHaveAttribute('href', /\/terminos$/)
+  await expect(loginLink).toHaveAttribute('target', '_blank')
+  await page.screenshot({ path: '../screenshots/terminos-login-1440.png', fullPage: true })
+
+  // The policy links the terms where it relies on them (sections 2 and 8).
+  await page.goto('/privacidad')
+  const policyLinks = page.getByRole('link', { name: 'términos del servicio', exact: true })
+  await expect(policyLinks).toHaveCount(2)
+  await policyLinks.first().click()
+
+  await expect(page).toHaveURL(/\/terminos$/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Términos del servicio', exact: true })).toBeVisible()
+  await expect(page).toHaveTitle('Términos del servicio · Servify POS')
+  await expect(page.locator('.v-navigation-drawer')).toHaveCount(0)
+  await expect(page.getByText('Versión 1.0. Fecha de entrada en vigencia: 4 de noviembre de 2026.')).toBeVisible()
+  // Google Play asks for terms that apply to this app specifically.
+  await expect(page.getByText('la aplicación Android para meseros "Servify POS" (paquete com.servifypos.app), distribuida en Google Play;')).toBeVisible()
+  // The same provider details the policy publishes, without the ID number.
+  const provider = page.locator('#prestador + ul')
+  await expect(provider.getByText('Nombre: Valentina Morales Sanchez, persona natural,')).toBeVisible()
+  await expect(provider.getByText('Dirección: Carrera 20 # 25-59, Manizales.')).toBeVisible()
+  await expect(provider.getByText('Teléfono: 3205607590.')).toBeVisible()
+  await expect(provider.getByRole('link', { name: 'soporte@servifypos.com' })).toHaveAttribute('href', 'mailto:soporte@servifypos.com')
+  await expect(provider).not.toContainText(/cédula|identificad/i)
+  // The subscription periods the backend applies by default, and the agreed limits.
+  await expect(page.getByText('sin costo durante 15 días, o el plazo que se acuerde')).toBeVisible()
+  await expect(page.getByText('el negocio tiene 7 días de gracia, o los que se acuerden, con el servicio completo')).toBeVisible()
+  await expect(page.getByText('Si la cuenta sigue en solo lectura durante 90 días')).toBeVisible()
+  await expect(page.getByText('en los 3 meses anteriores al hecho que la origina')).toBeVisible()
+  await expect(page.getByText('Servify POS no es proveedor tecnológico de facturación electrónica')).toBeVisible()
+  await expect(page.getByText('Esta sección es el contrato de transmisión de datos personales entre los dos')).toBeVisible()
+  // Nothing written for the owner of the draft reaches the public page.
+  await expect(page.getByText(/Nota para Valentina|Decisiones que te tocan|Fuentes consultadas/)).toHaveCount(0)
+  expect(await page.locator('article').innerHTML()).not.toMatch(/\[[^\]]*\]/)
+  await expect(page.getByRole('link', { name: 'política de privacidad y de tratamiento de datos personales' })).toHaveAttribute('href', /\/privacidad$/)
+  await screenshotTop(page, '../screenshots/terminos-pagina-1440.png', provider)
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByRole('heading', { level: 1, name: 'Términos del servicio', exact: true })).toBeVisible()
+  expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0)
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await screenshotTop(page, '../screenshots/terminos-pagina-390.png', provider)
+  await page.locator('#informacion-y-datos + ul').screenshot({ path: '../screenshots/terminos-encargado-390.png' })
+
+  // Every reference to a section of the policy points to one that exists.
+  const sections = await page.locator('article a[href*="/privacidad#"]').evaluateAll(links =>
+    [...new Set(links.map(link => new URL((link as HTMLAnchorElement).href).hash))],
+  )
+  expect(sections.length).toBeGreaterThan(5)
+  await page.getByRole('link', { name: 'sección 12 de la política de privacidad' }).click()
+  await expect(page).toHaveURL(/\/privacidad#conservacion$/)
+  await expect(page.getByRole('heading', { name: '12. Conservación' })).toBeInViewport()
+  for (const section of sections) {
+    await expect(page.locator(`article h2${section}`)).toHaveCount(1)
+  }
 })
 
 test('quien no ha aceptado la política no usa la web hasta aceptarla, y una versión nueva la vuelve a pedir', async ({ page, request }) => {

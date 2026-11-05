@@ -223,7 +223,7 @@ watch(() => route.fullPath, () => {
 // Usar computed del store directamente
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const currentUser = computed(() => authStore.user)
-// Public pages (login, reset password, the privacy policy) render bare.
+// Public pages (login, reset password, the privacy policy, the terms) render bare.
 const showShell = computed(() => isAuthenticated.value && route.meta.requiresAuth === true)
 const isAdmin = computed(() => authStore.isAdmin)
 const isSuperAdmin = computed(() => currentUser.value?.role === 'super_admin')
