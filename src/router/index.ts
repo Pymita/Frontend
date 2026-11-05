@@ -22,6 +22,7 @@ const Finanzas = () => import('../pages/Finanzas.vue')
 const Informes = () => import('../pages/Informes.vue')
 const Configuracion = () => import('../pages/Configuracion.vue')
 const Privacidad = () => import('../pages/Privacidad.vue')
+const Terminos = () => import('../pages/Terminos.vue')
 
 const storedUser = (): { must_change_password?: boolean } | null => {
   try {
@@ -86,6 +87,14 @@ export const routes: RouteRecordRaw[] = [
     path: '/privacidad',
     name: 'Privacidad',
     component: Privacidad,
+    meta: { requiresAuth: false },
+  },
+  {
+    // Public too: Google Play shows this URL to anyone, and a business reads
+    // the terms before it has an account.
+    path: '/terminos',
+    name: 'Terminos',
+    component: Terminos,
     meta: { requiresAuth: false },
   },
   {

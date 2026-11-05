@@ -13,3 +13,19 @@ export const APP_TAGLINE = import.meta.env.VITE_APP_TAGLINE || 'Sistema de gesti
  * Resolved against BASE_URL because staging is served under /Frontend/.
  */
 export const APP_ICON = `${import.meta.env.BASE_URL}servify-pos-icon.png`
+
+/**
+ * Who provides Servify POS, as the privacy policy and the terms of service
+ * publish it: change it here and nowhere else. The ID number is left out on
+ * purpose (the law does not require it).
+ */
+export const OWNER = {
+  name: 'Valentina Morales Sanchez',
+  city: 'Manizales',
+  address: 'Carrera 20 # 25-59, Manizales',
+  phone: '3205607590',
+  email: 'soporte@servifypos.com',
+}
+
+/** The production panel, as the legal pages print it whatever host serves them (staging too). */
+export const PUBLIC_SITE = 'https://app.servifypos.com'
