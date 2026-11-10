@@ -121,7 +121,7 @@
             />
             <text text-anchor="middle" dy="-2" class="table-number">{{ table.table_type === 'billiard' ? '⏱' + table.number : table.number }}</text>
             <text text-anchor="middle" dy="16" class="table-name">
-              {{ billiardTimerLabel(table) || shortName(table) || (table.table_type === 'billiard' ? `${money(table.hourly_rate)}/h` : `${table.capacity} pers.`) }}
+              {{ reservedLabel(table) || billiardTimerLabel(table) || shortName(table) || (table.table_type === 'billiard' ? `${money(table.hourly_rate)}/h` : `${table.capacity} pers.`) }}
             </text>
             <title>{{ displayName(table) }}</title>
           </g>
@@ -199,7 +199,17 @@
           <v-btn icon="mdi-close" variant="text" size="small" aria-label="Cerrar" @click="detailOpen = false" />
         </v-card-title>
         <v-divider />
-        <v-card-text>
+        <!-- A reserved table takes no orders: what it waits for, and the way to open it. -->
+        <v-card-text v-if="detailTable.status === 'reserved'">
+          <p class="text-body-1 mb-1">{{ reservationSentence(detailTable) }}</p>
+          <p class="text-body-2 text-medium-emphasis mb-4">
+            No se pueden tomar pedidos en esta mesa hasta que quites la reserva.
+          </p>
+          <LockableButton color="primary" icon="mdi-lock-open-variant-outline" :loading="unreserving" @click="unreserve(detailTable)">
+            Quitar reserva
+          </LockableButton>
+        </v-card-text>
+        <v-card-text v-else>
           <Pedidos :table-id="detailTable.id" embedded @changed="load" />
         </v-card-text>
       </v-card>
@@ -216,10 +226,12 @@ import { errorMessage } from '@/utils/errors'
 import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue';
 import { tablesService } from '@/services/tablesService';
 import type { DiningTable, DiningTableShape, DiningTableStatus } from '@/services/tablesService';
-import { label, tableStatusColors, tableStatusLabels } from '@/utils/labels';
+import { label, reservationSentence, tableStatusColors, tableStatusLabels } from '@/utils/labels';
+import { formatTime } from '@/utils/dates';
 import { money } from '@/utils/money';
 import { useAuthStore } from '@/stores/auth';
 import Pedidos from './Pedidos.vue';
+import LockableButton from '../components/LockableButton.vue';
 
 const GRID = 20;
 const BOUNDS = { minX: 70, maxX: 930, minY: 60, maxY: 560 };
@@ -273,6 +285,15 @@ const billiardTimerLabel = (table: DiningTable): string | null => {
   const hours = Math.floor(minutes / 60);
   return `⏱ ${hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`}`;
 };
+// A reserved table shows when its guests arrive, or who they are without a time.
+const reservedLabel = (table: DiningTable): string | null => {
+  if (table.status !== 'reserved') return null;
+  if (table.reserved_at) return formatTime(table.reserved_at);
+  const name = table.reserved_for?.trim();
+  if (!name) return null;
+  return name.length > PLAN_LABEL_MAX ? `${name.slice(0, PLAN_LABEL_MAX - 1)}…` : name;
+};
+
 const shapeWidth = (table: DiningTable) => (table.shape === 'rect' ? 132 : 84);
 const shapeHeight = (table: DiningTable) => (table.shape === 'rect' ? 76 : 84);
 
@@ -441,6 +462,23 @@ const onTableClick = (table: DiningTable) => {
   if (editMode.value) return;
   detailTable.value = table;
   detailOpen.value = true;
+};
+
+// Once the reservation is gone the same dialog offers "Nuevo pedido en esta mesa"
+// (also when someone else removed it first and the API says so).
+const unreserving = ref(false);
+const unreserve = async (table: DiningTable) => {
+  unreserving.value = true;
+  try {
+    const { message } = await tablesService.unreserve(table.id);
+    notify(message, 'success');
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible quitar la reserva. Inténtalo de nuevo.'), 'error');
+  } finally {
+    await load();
+    detailTable.value = tables.value.find((t) => t.id === table.id) ?? detailTable.value;
+    unreserving.value = false;
+  }
 };
 
 const notify = (text: string, color: string) => {

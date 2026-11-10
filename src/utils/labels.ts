@@ -128,6 +128,24 @@ export const tableStatusColors: Record<string, string> = {
   reserved: 'warning',
 }
 
+type ReservedTable = { reserved_for?: string | null; reserved_at?: string | null }
+
+/** "Ana · 08:00 p. m.": who and when a reserved table waits for, only the parts it has (same in mobile/src/utils/labels.ts). */
+export const tableReservation = (table: ReservedTable): string =>
+  [table.reserved_for, table.reserved_at ? formatTime(table.reserved_at) : null].filter(Boolean).join(' · ')
+
+/** "Reservada · Ana · 08:00 p. m.": a reserved table where it cannot be picked. */
+export const reservedTableLabel = (table: ReservedTable): string =>
+  [tableStatusLabels.reserved, tableReservation(table)].filter(Boolean).join(' · ')
+
+/** "Reservada a nombre de Ana para las 08:00 p. m.", with the parts it has (same in mobile/src/utils/labels.ts). */
+export const reservationSentence = (table: ReservedTable): string => {
+  const name = table.reserved_for ? ` a nombre de ${table.reserved_for}` : ''
+  const time = table.reserved_at ? ` para las ${formatTime(table.reserved_at)}` : ''
+  const sentence = `Reservada${name}${time}`
+  return sentence.endsWith('.') ? sentence : `${sentence}.`
+}
+
 // ===== Productos =====
 export const productTypeLabels: Record<string, string> = {
   raw_material: 'Materia prima',

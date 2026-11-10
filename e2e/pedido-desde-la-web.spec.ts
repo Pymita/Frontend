@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, displayDate, freezeTime, loginUI, raisePlanLimits, watchPrinting } from './helpers'
+import { ADMIN, API, apiLogin, displayDate, field, freezeTime, loginUI, raisePlanLimits, scrollToOption, watchPrinting } from './helpers'
 
 /**
  * La web crea pedidos con productos reales (antes solo existía el pedido
@@ -72,6 +72,61 @@ test('crear un pedido con productos desde la web', async ({ page, request }) => 
   expect(created).toBeTruthy()
   expect(created.items).toHaveLength(1)
   expect(Number(created.total)).toBe(7300)
+})
+
+/**
+ * A reserved table takes no orders: "Nuevo pedido" lists it greyed out with
+ * who and when it waits for, and the API refuses an order sent anyway (the
+ * waiter app already installed does not know about reservations).
+ */
+test('una mesa reservada no se puede elegir para un pedido y el API la rechaza', async ({ page, request }) => {
+  await raisePlanLimits(request, { max_tables: 60 })
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const nickname = `Reservada ${stamp}`
+  const created = await request.post(`${API}/tables`, {
+    headers: auth,
+    data: { number: 100 + ((stamp + 600) % 800), nickname, capacity: 4 },
+  })
+  expect(created.status()).toBe(201)
+  const tableId = (await created.json()).data.id
+  const reserved = await request.post(`${API}/tables/${tableId}/reserve`, {
+    headers: auth,
+    data: { reserved_for: 'Ana', reserved_time: '20:00' },
+  })
+  expect(reserved.status()).toBe(200)
+  const { productId } = await seedMenuItem(request, auth, `Limonada Reservada ${stamp}`, 5000)
+
+  const refused = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { dining_table_id: tableId, items: [{ product_id: productId, quantity: 1 }] },
+  })
+  expect(refused.status()).toBe(422)
+  const body = await refused.json()
+  expect(body.table_reserved).toBe(true)
+  expect(body.message).toBe(
+    `La mesa ${nickname} está reservada a nombre de Ana para las 08:00 p. m. Quita la reserva cuando lleguen para tomar el pedido.`,
+  )
+  const orders = (await (await request.get(`${API}/orders?dining_table_id=${tableId}`, { headers: auth })).json()).data
+  expect(orders).toHaveLength(0)
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  await field(page, 'Mesa (opcional)').click()
+  const option = await scrollToOption(page, new RegExp(nickname))
+  await expect(option).toContainText('Reservada · Ana · 08:00 p. m.')
+  await expect(option).toHaveClass(/v-list-item--disabled/)
+
+  // Without the reservation it is a table like any other.
+  await request.post(`${API}/tables/${tableId}/unreserve`, { headers: auth })
+  const accepted = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { dining_table_id: tableId, items: [{ product_id: productId, quantity: 1 }] },
+  })
+  expect(accepted.status()).toBe(201)
+  await request.post(`${API}/orders/${(await accepted.json()).data.id}/cancel`, { headers: auth })
 })
 
 /**

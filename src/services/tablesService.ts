@@ -17,6 +17,9 @@ export interface DiningTable {
   pos_y: number | null;
   shape: DiningTableShape;
   zone: string | null;
+  /** Only while reserved, both optional: who it is for and when they arrive (ISO instant). */
+  reserved_for?: string | null;
+  reserved_at?: string | null;
   latest_active_order?: {
     id: number;
     total: string | number;
@@ -97,5 +100,16 @@ export const tablesService = {
   async release(id: number): Promise<DiningTable> {
     const response = await api.post<ApiResponse<DiningTable>>(`/tables/${id}/release`);
     return response.data.data;
+  },
+
+  /** Reserva una mesa libre; `reserved_time` es "HH:MM" y el API lo vuelve la próxima vez que llega esa hora. */
+  async reserve(id: number, data: { reserved_for?: string | null; reserved_time?: string | null }): Promise<ApiResponse<DiningTable>> {
+    const response = await api.post<ApiResponse<DiningTable>>(`/tables/${id}/reserve`, data);
+    return response.data;
+  },
+
+  async unreserve(id: number): Promise<ApiResponse<DiningTable>> {
+    const response = await api.post<ApiResponse<DiningTable>>(`/tables/${id}/unreserve`);
+    return response.data;
   },
 };

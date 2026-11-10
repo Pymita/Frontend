@@ -33,7 +33,7 @@
         <v-card
           :color="getCardColor(table)"
           :variant="table.status === 'available' ? undefined : 'flat'"
-          class="text-center pa-4"
+          class="text-center pa-4 h-100 d-flex flex-column"
           @click="canEditTables && openDialog(table)"
         >
           <v-card-text>
@@ -51,6 +51,9 @@
             >
               {{ getStatusLabel(table.status) }}
             </v-chip>
+            <div v-if="table.status === 'reserved' && tableReservation(table)" class="text-body-2 font-weight-medium mt-1">
+              {{ tableReservation(table) }}
+            </div>
             <div class="text-caption mt-1">
               <template v-if="table.table_type === 'billiard'">
                 <div>⏱ Cobra por tiempo</div>
@@ -59,7 +62,9 @@
               <template v-else>👥 {{ table.capacity }} personas</template>
             </div>
           </v-card-text>
-          <v-card-actions class="justify-center">
+          <!-- Reservar y quitar la reserva no abren la edición de la mesa; en una
+               tarjeta angosta bajan a otra línea y la fila sigue pareja. -->
+          <v-card-actions class="justify-center flex-wrap mt-auto" @click.stop>
             <v-btn
               v-if="table.status === 'occupied'"
               size="small"
@@ -68,6 +73,12 @@
             >
               Liberar
             </v-btn>
+            <LockableButton v-if="table.status === 'available'" size="small" variant="text" @click="openReserveDialog(table)">
+              Reservar
+            </LockableButton>
+            <LockableButton v-if="table.status === 'reserved'" size="small" variant="text" @click="unreserveTable(table)">
+              Quitar reserva
+            </LockableButton>
             <v-btn
               v-if="isAdmin"
               icon
@@ -252,6 +263,37 @@
       </v-card>
     </v-dialog>
 
+    <!-- Reservar: no recibe pedidos hasta que alguien quite la reserva. -->
+    <v-dialog v-model="reserveDialog" max-width="440">
+      <v-card v-if="reservingTable">
+        <v-card-title>Reservar {{ reservingTable.nickname || `la mesa ${reservingTable.number}` }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 text-medium-emphasis mb-4">
+            Mientras esté reservada no se pueden tomar pedidos en ella, ni en la web ni en la app.
+          </p>
+          <v-form @submit.prevent="saveReservation">
+            <v-text-field v-model="reserveForm.name" label="A nombre de (opcional)" maxlength="60" autofocus />
+            <!-- Text, not type="time": a native time input follows the browser's language (see utils/dates). -->
+            <v-text-field
+              v-model="reserveForm.time"
+              label="Hora (opcional)"
+              placeholder="20:00"
+              hint="Formato 24 horas, o 8:00 p. m."
+              persistent-hint
+              :error-messages="reserveTimeError"
+            />
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="reserveDialog = false">Cancelar</v-btn>
+          <LockableButton color="primary" variant="flat" :loading="saving" :disabled="!!reserveTimeError" @click="saveReservation">
+            Reservar
+          </LockableButton>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="snackbarColor === 'error' ? 9000 : 3000" closable>
       {{ snackbarText }}
     </v-snackbar>
@@ -264,7 +306,8 @@ import { errorMessage } from '@/utils/errors';
 import { computed, ref, onMounted } from 'vue';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
 import { tablesService, type DiningTable, type DiningTableStatus } from '@/services/tablesService';
-import { tableStatusColors, tableStatusLabels, label } from '@/utils/labels';
+import { tableReservation, tableStatusColors, tableStatusLabels, label } from '@/utils/labels';
+import { parseTimeText } from '@/utils/dates';
 import { useAuthStore } from '@/stores/auth';
 import { effectiveFeatures } from '@/types/auth';
 import LockableButton from '../components/LockableButton.vue'
@@ -433,6 +476,50 @@ const releaseTable = async (table: DiningTable) => {
     loadTables();
   } catch (error) {
     showMessage(errorMessage(error, 'No fue posible liberar la mesa. Inténtalo de nuevo.'), 'error');
+  }
+};
+
+// Reservar es de quien toma pedidos, no solo del admin. Solo se pide la hora:
+// el API la vuelve la próxima vez que llega (las 01:00 escritas de noche son de mañana).
+const reserveDialog = ref(false);
+const reservingTable = ref<DiningTable | null>(null);
+const reserveForm = ref({ name: '', time: '' });
+const reserveTimeError = computed(() =>
+  reserveForm.value.time.trim() && !parseTimeText(reserveForm.value.time) ? 'Escribe la hora como 20:00 o 8:00 p. m.' : undefined,
+);
+
+const openReserveDialog = (table: DiningTable) => {
+  reservingTable.value = table;
+  reserveForm.value = { name: '', time: '' };
+  reserveDialog.value = true;
+};
+
+const saveReservation = async () => {
+  if (!reservingTable.value || reserveTimeError.value) return;
+  saving.value = true;
+  try {
+    const { message } = await tablesService.reserve(reservingTable.value.id, {
+      reserved_for: reserveForm.value.name.trim() || null,
+      reserved_time: parseTimeText(reserveForm.value.time),
+    });
+    showMessage(message);
+    reserveDialog.value = false;
+    loadTables();
+  } catch (error) {
+    showMessage(errorMessage(error, 'No fue posible reservar la mesa. Inténtalo de nuevo.'), 'error');
+  } finally {
+    saving.value = false;
+  }
+};
+
+const unreserveTable = async (table: DiningTable) => {
+  try {
+    const { message } = await tablesService.unreserve(table.id);
+    showMessage(message);
+    loadTables();
+  } catch (error) {
+    showMessage(errorMessage(error, 'No fue posible quitar la reserva. Inténtalo de nuevo.'), 'error');
+    loadTables();
   }
 };
 

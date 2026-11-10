@@ -94,6 +94,67 @@ test('una mesa nueva aparece en el plano y se le cambia la forma y la zona', asy
 })
 
 /**
+ * A reserved table takes no orders until someone removes the reservation.
+ * Mesas reserves it with an optional name and time (a text field: a native
+ * time input follows the browser's language), the card and the floor plan
+ * show them, and the plan offers "Quitar reserva" instead of a new order.
+ */
+test('una mesa se reserva a nombre de alguien y a una hora, y desde el plano se quita la reserva', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const number = 100 + ((stamp + 200) % 800)
+  const nickname = `Reserva ${stamp}`
+  const guest = `Ana ${stamp}`
+  const created = await request.post(`${API}/tables`, { headers: auth, data: { number, nickname, capacity: 4 } })
+  expect(created.status()).toBe(201)
+  const tableId = (await created.json()).data.id
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/mesas')
+  const card = page.locator('.v-card', { hasText: nickname })
+  await card.getByRole('button', { name: 'Reservar' }).click()
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText(`Reservar ${nickname}`)
+  await dialog.getByLabel('A nombre de (opcional)').fill(guest)
+  const time = dialog.getByLabel('Hora (opcional)')
+  await expect(time).not.toHaveAttribute('type', 'time')
+  await time.fill('25:00')
+  await expect(dialog.getByText('Escribe la hora como 20:00 o 8:00 p. m.')).toBeVisible()
+  await time.fill('8:00 p. m.')
+  await dialog.getByRole('button', { name: 'Reservar' }).click()
+  await expect(page.getByText(`La mesa ${nickname} quedó reservada a nombre de ${guest} para las 08:00 p. m.`)).toBeVisible()
+
+  // Clicking the card's actions does not open the admin's edit dialog.
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(card).toContainText('Reservada')
+  await expect(card).toContainText(`${guest} · 08:00 p. m.`)
+  await expect(card.getByRole('button', { name: 'Reservar' })).toHaveCount(0)
+  await expect(card.getByRole('button', { name: 'Quitar reserva' })).toBeVisible()
+
+  // The plan: the time on the table; its dialog says why no order is taken.
+  await page.goto('/plano')
+  const node = page.locator('svg g.table-node').filter({ has: page.locator('title', { hasText: nickname }) })
+  await expect(node.locator('text.table-name')).toHaveText('08:00 p. m.')
+  await node.click()
+  const planDialog = page.getByRole('dialog').filter({ hasText: nickname })
+  await expect(planDialog).toContainText(`Reservada a nombre de ${guest} para las 08:00 p. m.`)
+  await expect(planDialog).toContainText('No se pueden tomar pedidos en esta mesa hasta que quites la reserva.')
+  await expect(planDialog.getByRole('button', { name: 'Nuevo pedido en esta mesa' })).toHaveCount(0)
+
+  // The guests arrived: the same dialog opens the order.
+  await planDialog.getByRole('button', { name: 'Quitar reserva' }).click()
+  await expect(page.getByText(`Quitaste la reserva de la mesa ${nickname}: ya puedes tomar pedidos en ella.`)).toBeVisible()
+  await expect(planDialog.getByRole('button', { name: 'Nuevo pedido en esta mesa' })).toBeVisible()
+
+  const table = (await (await request.get(`${API}/tables/${tableId}`, { headers: auth })).json()).data
+  expect(table.status).toBe('available')
+  expect(table.reserved_for).toBeNull()
+  expect(table.reserved_at).toBeNull()
+})
+
+/**
  * Any table can bill by time (billiards, cards, a garita): the form names the
  * capability, "Cobra por tiempo", and the rate is typed as pesos: "12.000" is
  * twelve thousand an hour, not twelve. Its own company, since the seeded one
