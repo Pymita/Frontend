@@ -58,7 +58,7 @@
               <v-col cols="12" md="3">
                 <v-select
                   v-model="filterCategoria"
-                  :items="categorias"
+                  :items="categoryOptions"
                   :item-title="(c: any) => c.path || c.name"
                   item-value="id"
                   label="Categoría"
@@ -170,14 +170,30 @@
               </span>
               <span v-else class="text-medium-emphasis">-</span>
             </template>
+            <template #item.name="{ item }">
+              {{ item.name }}
+              <v-chip v-if="item.active === false" size="x-small" variant="tonal" class="ml-1">Inactivo</v-chip>
+            </template>
             <template #item.category="{ item }">
               <v-chip v-if="item.category" size="small" variant="tonal">
                 {{ item.category.name }}
               </v-chip>
+              <v-tooltip v-else :text="NO_CATEGORY_WARNING">
+                <template #activator="{ props }">
+                  <v-chip v-bind="props" size="small" color="warning" variant="tonal" prepend-icon="mdi-alert-outline">
+                    Sin categoría
+                  </v-chip>
+                </template>
+              </v-tooltip>
             </template>
             <template #item.in_menu="{ item }">
+              <v-tooltip v-if="item.in_menu && item.menu_item && !item.category" :text="NO_CATEGORY_WARNING">
+                <template #activator="{ props }">
+                  <v-chip v-bind="props" color="secondary" size="small">Fuera del menú</v-chip>
+                </template>
+              </v-tooltip>
               <v-tooltip
-                v-if="item.in_menu && item.menu_item"
+                v-else-if="item.in_menu && item.menu_item"
                 :text="item.menu_item.available ? 'Clic para ocultarlo del menú' : 'Clic para mostrarlo en el menú'"
               >
                 <template #activator="{ props }">
@@ -292,14 +308,18 @@
                   <v-col cols="12" :md="hasRecipes ? 4 : 6">
                     <v-select
                       v-model="formData.category_id"
-                      :items="categorias"
+                      :items="categoryOptions"
                       :item-title="(c: any) => c.path || c.name"
                       item-value="id"
-                      :rules="[v => !!v || 'Categoría requerida']"
+                      :rules="[v => v !== null || 'Elige una categoría o «Sin categoría»']"
+                      :messages="formData.category_id === NO_CATEGORY ? NO_CATEGORY_WARNING : undefined"
                       required
                     >
                       <template #label>
                         Categoría <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                      </template>
+                      <template #message="{ message }">
+                        <span :class="{ 'text-warning': formData.category_id === NO_CATEGORY }">{{ message }}</span>
                       </template>
                     </v-select>
                   </v-col>
@@ -592,6 +612,30 @@
       </v-card>
     </v-dialog>
 
+    <!-- Eliminar: con historial el backend se niega y ofrece desactivar. -->
+    <v-dialog v-model="deleteDialog" max-width="520">
+      <v-card v-if="deleteTarget">
+        <v-card-title class="text-wrap">Eliminar {{ deleteTarget.name }}</v-card-title>
+        <v-card-text>
+          <v-alert v-if="deleteRefusal" type="warning" variant="tonal" density="compact">
+            {{ deleteRefusal }}
+          </v-alert>
+          <p v-else>¿Seguro que quieres eliminar «{{ deleteTarget.name }}»?</p>
+          <p v-if="canDeactivate" class="mt-3">
+            Desactivado sale del menú y deja de ofrecerse; su kardex y sus ventas se conservan.
+          </p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="deleteDialog = false">Cancelar</v-btn>
+          <v-btn v-if="canDeactivate" color="primary" variant="flat" :loading="removing" @click="deactivateProduct">
+            Desactivar
+          </v-btn>
+          <v-btn v-else-if="!deleteRefusal" color="error" :loading="removing" @click="confirmDeleteProduct">Eliminar</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <ProductImportDialog v-model="importDialog" @imported="onImported" />
 
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="snackbarColor === 'error' ? 9000 : 3000" closable>
@@ -639,10 +683,19 @@ const isReadOnly = useReadOnly()
 
 const router = useRouter();
 
+// A product may have no category when the owner chooses so; the waiter app
+// navigates by category, so it stays off the app's menu until it gets one.
+const NO_CATEGORY = 'none' as const;
+const NO_CATEGORY_WARNING = 'Sin categoría no sale en el menú de la app hasta que le asignes una.';
+
 const categorias = ref<Category[]>([]);
 const saving = ref(false);
 const tipoFilter = ref('');
-const filterCategoria = ref<number | null>(null);
+const filterCategoria = ref<number | typeof NO_CATEGORY | null>(null);
+const categoryOptions = computed(() => [
+  { id: NO_CATEGORY, name: 'Sin categoría', path: 'Sin categoría' },
+  ...categorias.value,
+]);
 const menuFilter = ref<'in_menu' | 'not_in_menu' | null>(null);
 
 const menuFilterOptions = [
@@ -705,7 +758,8 @@ const formData = ref({
   unit_cost: 0,
   sale_price: null as number | null,
   tax_id: null as number | null,
-  category_id: null as number | null,
+  /** null until chosen: a category, or NO_CATEGORY on purpose */
+  category_id: null as number | typeof NO_CATEGORY | null,
   current_stock: 0 as string | number | null,
   initial_stock_date: today,
   minimum_stock: null as string | number | null,
@@ -968,7 +1022,7 @@ const openDialog = (product?: Product, forceMenu = false) => {
         unit_cost: product.unit_cost || 0,
         sale_price: product.sale_price || null,
         tax_id: product.tax_id ?? null,
-        category_id: product.category_id || null,
+        category_id: product.category_id ?? NO_CATEGORY,
         current_stock: product.current_stock || null,
         initial_stock_date: today,
         minimum_stock: product.minimum_stock || null,
@@ -1014,14 +1068,20 @@ const save = async () => {
     return;
   }
 
+  if (formData.value.category_id === null) {
+    showMessage('Elige la categoría del producto, o «Sin categoría» si no lleva', 'error');
+    return;
+  }
+
   saving.value = true;
   try {
     // Preparar datos: convertir comas a puntos y parsear.
     // current_stock sale del spread: como texto no es parte del payload y
     // en edición ni siquiera debe viajar (el stock lo gobierna el kardex).
-    const { current_stock: _rawStock, ...formRest } = formData.value;
+    const { current_stock: _rawStock, category_id: categoryId, ...formRest } = formData.value;
     const dataToSend: ProductPayload = {
       ...formRest,
+      category_id: categoryId === NO_CATEGORY ? null : categoryId,
       // Publicación en el menú (solo productos finales, opcional)
       ...(formData.value.type === 'final' && publishToMenu.value
         ? {
@@ -1089,14 +1149,52 @@ const save = async () => {
   }
 };
 
-const deleteProduct = async (product: Product) => {
-  if (!confirm(`¿Eliminar "${product.name}"?`)) return;
+const deleteDialog = ref(false);
+const deleteTarget = ref<Product | null>(null);
+// The backend's reason when the product has history (kardex, sales, recipes).
+const deleteRefusal = ref<string | null>(null);
+const canDeactivate = ref(false);
+const removing = ref(false);
+
+const deleteProduct = (product: Product) => {
+  deleteTarget.value = product;
+  deleteRefusal.value = null;
+  canDeactivate.value = false;
+  deleteDialog.value = true;
+};
+
+const confirmDeleteProduct = async () => {
+  if (!deleteTarget.value) return;
+  removing.value = true;
   try {
-    await productsService.delete(product.id);
+    await productsService.delete(deleteTarget.value.id);
     showMessage('Producto eliminado');
+    deleteDialog.value = false;
+    loadProducts();
+  } catch (error: any) {
+    if (error?.response?.status === 422) {
+      deleteRefusal.value = errorMessage(error, 'Este producto no se puede eliminar.');
+      canDeactivate.value = !!error.response.data?.can_deactivate && deleteTarget.value.active !== false;
+    } else {
+      showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
+    }
+  } finally {
+    removing.value = false;
+  }
+};
+
+const deactivateProduct = async () => {
+  if (!deleteTarget.value) return;
+  removing.value = true;
+  try {
+    await productsService.update(deleteTarget.value.id, { active: false });
+    showMessage(`«${deleteTarget.value.name}» quedó desactivado y fuera del menú`);
+    deleteDialog.value = false;
     loadProducts();
   } catch (error) {
-    showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
+    showMessage(errorMessage(error, 'No fue posible desactivar el producto. Inténtalo de nuevo.'), 'error');
+  } finally {
+    removing.value = false;
   }
 };
 
