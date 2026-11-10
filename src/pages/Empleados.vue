@@ -74,6 +74,9 @@
                 </template>
               </template>
             </template>
+            <template #item.hired_at="{ item }">
+              {{ item.hired_at ? formatIsoDate(item.hired_at) : '—' }}
+            </template>
             <template #item.last_login_at="{ item }">
               {{ item.last_login_at ? formatMomentDay(item.last_login_at) : 'Nunca' }}
             </template>
@@ -162,6 +165,9 @@
                   :disabled="isSelf"
                 />
               </v-col>
+              <v-col cols="12" sm="8">
+                <DateField v-model="formData.hired_at" label="Fecha de ingreso a la empresa (opcional)" clearable />
+              </v-col>
             </v-row>
 
             <template v-if="formData.role === 'employee'">
@@ -237,13 +243,14 @@
 </template>
 
 <script setup lang="ts">
-import { formatMomentDay } from '@/utils/dates'
+import { formatIsoDate, formatMomentDay } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref } from 'vue'
 import usersService, { type CompanyUser } from '../services/usersService'
 import { ALL_FEATURES, type Feature } from '../types/auth'
 import { useAuthStore } from '../stores/auth'
 import { PASSWORD_HINT, confirmPasswordRules, optionalPasswordRules, passwordRules } from '../utils/validation'
+import DateField from '../components/DateField.vue'
 import LockableButton from '../components/LockableButton.vue'
 import PasswordField from '../components/PasswordField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
@@ -274,7 +281,9 @@ const headers = [
   { title: 'Rol', key: 'role' },
   { title: 'Estado', key: 'active' },
   { title: 'Funciones', key: 'features', sortable: false },
-  { title: 'Último ingreso', key: 'last_login_at' },
+  { title: 'Ingreso a la empresa', key: 'hired_at' },
+  // When they last signed in, not the hire date.
+  { title: 'Última sesión', key: 'last_login_at' },
   { title: 'Acciones', key: 'actions', sortable: false },
 ]
 
@@ -323,6 +332,7 @@ const formData = ref({
   username: '',
   password: '',
   phone: '',
+  hired_at: '',
   role: 'employee' as 'admin' | 'employee',
   active: true,
   permissions: [] as Feature[],
@@ -370,6 +380,7 @@ const openDialog = (user?: CompanyUser) => {
         username: user.username || '',
         password: '',
         phone: user.phone || '',
+        hired_at: user.hired_at ?? '',
         role: user.role as 'admin' | 'employee',
         active: user.active,
         permissions: [...user.features],
@@ -383,6 +394,7 @@ const openDialog = (user?: CompanyUser) => {
         username: '',
         password: '',
         phone: '',
+        hired_at: '',
         role: 'employee',
         active: true,
         permissions: allFeatures.value.filter(f => f !== 'expenses'),
@@ -404,6 +416,7 @@ const save = async () => {
       email: formData.value.email || undefined,
       username: formData.value.role === 'employee' ? formData.value.username : undefined,
       phone: formData.value.phone || undefined,
+      hired_at: formData.value.hired_at || null,
       role: formData.value.role,
       permissions: formData.value.role === 'employee' ? formData.value.permissions : undefined,
       can_charge_orders: formData.value.role === 'employee' ? chargeOrders.value : undefined,

@@ -13,6 +13,7 @@ import {
   pageRule,
   pdfPageSize,
   pdfPages,
+  pickOptions,
   sidebarItem,
   xlsxRows,
   type CompanySession,
@@ -41,7 +42,7 @@ const createRecurringCompany = (request: APIRequestContext, slug: string): Promi
 async function createResident(
   request: APIRequestContext,
   token: string,
-  data: { name: string; document_number: string; monthly_fee?: number; billing_concept?: string; billing_day?: number },
+  data: { name: string; document_number: string; monthly_fee?: number; billing_concept?: string; billing_day?: number; segment_ids?: number[] },
 ): Promise<number> {
   const response = await request.post(`${API}/customers`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -528,6 +529,93 @@ test('la cartera muestra el saldo por cliente y registra abonos hasta pagar', as
 
   await page.getByLabel('Incluir documentos pagados').check()
   await expect(page.locator('.v-expansion-panel', { hasText: 'Ana Apto 101' })).toContainText('Saldo $0')
+})
+
+/**
+ * Valentina bills and collects by segment: Facturar shows only the
+ * segment's payers and ticks them all; the Cartera, its cards and its Excel
+ * add up only the segment ("Colegio San José" and "Grado 5" together: that
+ * grade). Facturación automática's customer form carries the join date and
+ * the segments too.
+ */
+test('factura a un segmento y la cartera con su Excel suma solo los clientes que tienen todos los segmentos elegidos', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'segmentos-facturar')
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const segment = async (name: string): Promise<number> => {
+    const created = await request.post(`${API}/customer-segments`, { headers: auth, data: { name } })
+    expect(created.status(), await created.text()).toBe(201)
+    return (await created.json()).data.id
+  }
+  const school = await segment('Colegio San José')
+  const grade = await segment('Grado 5')
+  await createResident(request, company.token, { name: 'Ana Grado 5', document_number: '8001', monthly_fee: 300000, segment_ids: [school, grade] })
+  await createResident(request, company.token, { name: 'Beto Grado 4', document_number: '8002', monthly_fee: 200000, segment_ids: [school] })
+  const carla = await createResident(request, company.token, { name: 'Carla Otro Colegio', document_number: '8003', monthly_fee: 100000, segment_ids: [grade] })
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await openPeriod(page, PERIOD)
+  await expect(row(page, 'Carla Otro Colegio')).toBeVisible()
+
+  await pickOptions(page, 'Facturar a un segmento', ['Colegio San José'])
+  await expect(row(page, 'Carla Otro Colegio')).toHaveCount(0)
+  await expect(row(page, 'Ana Grado 5')).toBeVisible()
+  await expect(row(page, 'Beto Grado 4')).toBeVisible()
+  await expect(row(page, 'Ana Grado 5').locator('input[type="checkbox"]')).toBeChecked()
+  await expect(row(page, 'Beto Grado 4').locator('input[type="checkbox"]')).toBeChecked()
+  await expect(page.getByText('Quedaron marcados los 2 clientes del segmento que faltan por facturar en enero de 2025.')).toBeVisible()
+  await expect(page.locator('.v-card', { hasText: 'Valor por facturar' })).toContainText('$500.000')
+  await page.getByRole('button', { name: 'Facturar seleccionados (2)' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Se van a generar 2 documentos por $500.000')
+  await page.getByRole('dialog').getByRole('button', { name: 'Generar' }).click()
+  await expect(page.getByText('Se generaron 2 documentos')).toBeVisible()
+  await expect(row(page, 'Ana Grado 5')).toContainText('· Por pagar')
+
+  // Carla is not in the segment: she was not billed.
+  const invoices = await (await request.get(`${API}/recurring-billing/invoices?period=${PERIOD}`, { headers: auth })).json()
+  expect(invoices.data.invoices.map((i: IssuedDocument) => i.customer_name).sort()).toEqual(['Ana Grado 5', 'Beto Grado 4'])
+  const carlaBilled = await request.post(`${API}/recurring-billing/invoices/generate`, {
+    headers: auth,
+    data: { period: PERIOD, items: [{ customer_id: carla }] },
+  })
+  expect(carlaBilled.status()).toBe(201)
+
+  await sidebarItem(page, 'Cartera').click()
+  await expect(page.locator('.v-card', { hasText: 'Saldo por cobrar' })).toContainText('$600.000')
+  await pickOptions(page, 'Filtrar por segmentos', ['Grado 5'])
+  await expect(page.locator('.v-expansion-panel', { hasText: 'Beto Grado 4' })).toHaveCount(0)
+  await expect(page.locator('.v-expansion-panel', { hasText: 'Ana Grado 5' })).toContainText('Saldo $300.000')
+  await expect(page.locator('.v-expansion-panel', { hasText: 'Carla Otro Colegio' })).toContainText('Saldo $100.000')
+  await expect(page.locator('.v-card', { hasText: 'Saldo por cobrar' })).toContainText('$400.000')
+  await expect(page.locator('.v-card', { hasText: 'Clientes con saldo' })).toContainText('2')
+  await pickOptions(page, 'Filtrar por segmentos', ['Colegio San José'])
+  await expect(page.locator('.v-expansion-panel', { hasText: 'Carla Otro Colegio' })).toHaveCount(0)
+  await expect(page.locator('.v-card', { hasText: 'Saldo por cobrar' })).toContainText('$300.000')
+
+  // The Excel carries the same filter.
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Descargar Excel' }).click(),
+  ])
+  const sheet = xlsxRows(readFileSync(await download.path()))
+  expect(sheet[0]).toEqual(['NIT / Documento', 'Cliente', 'Fecha', 'Tipo', 'Documento', 'Período', 'Vence', 'Valor', 'Abonos', 'Saldo'])
+  expect(sheet.slice(1).map(cells => [cells[0], cells[1], cells[9]])).toEqual([['8001', 'Ana Grado 5', '300000']])
+
+  // The customer form of Facturación automática: the join date and the segments.
+  await sidebarItem(page, 'Facturación automática').click()
+  await page.getByRole('tab', { name: /Clientes/ }).click()
+  await page.getByRole('button', { name: 'Editar a Carla Otro Colegio' }).click()
+  const joined = field(page, 'Fecha de ingreso *').locator('input')
+  await expect(joined).toHaveValue(displayDate(new Date().toLocaleDateString('en-CA')))
+  await expect(field(page, 'Segmentos').locator('.v-chip')).toHaveText(['Grado 5'])
+  await joined.fill('05/03/2025')
+  await joined.press('Tab')
+  await pickOptions(page, 'Segmentos', ['Colegio San José'])
+  await page.getByRole('dialog').getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Cliente actualizado exitosamente')).toBeVisible()
+  const saved = (await (await request.get(`${API}/customers/${carla}`, { headers: auth })).json()).data
+  expect(saved.joined_at).toBe('2025-03-05')
+  expect(saved.segments.map((s: { name: string }) => s.name)).toEqual(['Colegio San José', 'Grado 5'])
 })
 
 /**

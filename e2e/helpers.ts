@@ -273,6 +273,18 @@ export async function pickOption(page: Page, name: string): Promise<void> {
 }
 
 /**
+ * Ticks options of a multiple autocomplete (segments, a report's multiselect)
+ * by their names and closes its menu, which stays open after each pick.
+ */
+export async function pickOptions(page: Page, label: string, names: string[]): Promise<void> {
+  await field(page, label).click()
+  for (const name of names) {
+    await page.locator('.v-overlay--active').getByRole('option', { name, exact: true }).click()
+  }
+  await page.keyboard.press('Escape')
+}
+
+/**
  * El código de 6 dígitos que mostraría una app de autenticación para esta
  * clave (RFC 6238, el mismo cálculo que hace el backend).
  */

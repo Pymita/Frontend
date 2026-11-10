@@ -54,6 +54,10 @@ test('el admin crea un empleado con sus funciones y, al desactivarlo, ya no entr
   await page.setViewportSize({ width: 1280, height: 720 })
 
   await confirmation.fill('clave123')
+  // The hire date is optional; the last sign-in is another column.
+  const hired = field(page, 'Fecha de ingreso a la empresa (opcional)').locator('input')
+  await hired.fill('01/02/2024')
+  await hired.press('Tab')
   await dialog.getByRole('button', { name: 'Crear empleado' }).click()
   await expect(page.getByText('Empleado creado exitosamente')).toBeVisible()
 
@@ -62,10 +66,14 @@ test('el admin crea un empleado con sus funciones y, al desactivarlo, ya no entr
   await expect(row).toContainText('Empleado')
   await expect(row).toContainText('Activo')
   await expect(row).toContainText('Gastos')
-  await expect(row).toContainText('Nunca')
+  const headers = (await page.locator('thead th').allInnerTexts()).map(text => text.trim())
+  await expect(row.locator('td').nth(headers.indexOf('Ingreso a la empresa'))).toHaveText('01/02/2024')
+  await expect(row.locator('td').nth(headers.indexOf('Última sesión'))).toHaveText('Nunca')
+  expect(headers).not.toContain('Último ingreso')
 
   // Desactivar la cuenta.
   await row.getByRole('button', { name: 'Editar a Cajera E2E' }).click()
+  await expect(hired).toHaveValue('01/02/2024')
   await dialog.getByLabel('Cuenta activa').uncheck()
   await dialog.getByRole('button', { name: 'Guardar cambios' }).click()
   await expect(page.getByText('Empleado actualizado exitosamente')).toBeVisible()

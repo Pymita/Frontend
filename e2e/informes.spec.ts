@@ -15,6 +15,7 @@ import {
   loginUI,
   openSidebarGroup,
   pickOption,
+  pickOptions,
   reportTitles,
   sidebarItem,
   xlsxRows,
@@ -287,6 +288,48 @@ test('un conjunto ve sus informes, no los de pedidos ni kardex, y más de 366 d�
   await field(page, 'Desde').locator('input').press('Enter')
   await expect(page.getByRole('alert').filter({ hasText: 'El rango puede ser de máximo 366 días. Elige un periodo más corto.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Descargar Excel' })).toBeDisabled()
+})
+
+/**
+ * "Clientes con saldo" filters by segments as Cartera does: several leave
+ * whoever has all of them, and the report's note says so.
+ */
+test('clientes con saldo: el filtro de segmentos deja solo a quien tiene todos los elegidos', async ({ page, request }) => {
+  const company = await createCompany(request, 'informes-segmentos', { business_type: 'recurring' })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const documents = await issueDocuments(request, company.token, [
+    { name: 'Ana Grado 5', document_number: '7201', monthly_fee: 300000 },
+    { name: 'Beto Grado 4', document_number: '7202', monthly_fee: 200000 },
+    { name: 'Carla Otro Colegio', document_number: '7203', monthly_fee: 100000 },
+  ])
+  const customerOf = async (document: string): Promise<number> =>
+    (await (await request.get(`${API}/customers?q=${document}`, { headers: auth })).json()).data[0].id
+  const [ana, beto, carla] = [await customerOf('7201'), await customerOf('7202'), await customerOf('7203')]
+  for (const [name, members] of [['Colegio San José', [ana, beto]], ['Grado 5', [ana, carla]]] as const) {
+    const created = await request.post(`${API}/customer-segments`, { headers: auth, data: { name } })
+    expect(created.status()).toBe(201)
+    const added = await request.post(`${API}/customer-segments/${(await created.json()).data.id}/customers`, { headers: auth, data: { customer_ids: members } })
+    expect(added.ok(), await added.text()).toBeTruthy()
+  }
+
+  await freezeTime(page, documents[0]!.issued_at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await openInformesFromSidebar(page)
+  await chooseReport(page, 'Clientes con saldo')
+  await expect(await cellUnder(page, totalRow(page), 'Saldo')).toHaveText('$600.000')
+  await expect(page.getByText('Con varios segmentos ves los clientes que los tienen todos: «Colegio San José» y «Grado 5» es ese grado de ese colegio.')).toBeVisible()
+
+  await pickOptions(page, 'Segmentos', ['Grado 5'])
+  await expect(bodyRow(page, 'Beto Grado 4')).toHaveCount(0)
+  await expect(await cellUnder(page, bodyRow(page, 'Ana Grado 5'), 'Saldo')).toHaveText('$300.000')
+  await expect(await cellUnder(page, bodyRow(page, 'Carla Otro Colegio'), 'Saldo')).toHaveText('$100.000')
+  await expect(await cellUnder(page, totalRow(page), 'Saldo')).toHaveText('$400.000')
+
+  await pickOptions(page, 'Segmentos', ['Colegio San José'])
+  await expect(bodyRow(page, 'Carla Otro Colegio')).toHaveCount(0)
+  await expect(bodyRow(page, 'Ana Grado 5')).toHaveCount(1)
+  await expect(await cellUnder(page, totalRow(page), 'Saldo')).toHaveText('$300.000')
 })
 
 // --- Productos e inventario: compras por factura, el resumen del kardex y sus movimientos ---

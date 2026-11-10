@@ -65,6 +65,17 @@
                   hint="Se usa para quienes no tienen un concepto propio"
                   persistent-hint />
               </v-col>
+              <!-- Bill a group: the list shows the segment and ticks everyone in it still to bill. -->
+              <v-col v-if="segments.length" cols="12" md="6">
+                <CustomerSegmentPicker
+                  v-model="segmentFilter"
+                  :segments="segments"
+                  label="Facturar a un segmento"
+                  density="compact"
+                  hint="Marca a todos sus clientes por facturar. Si eliges varios, solo a quien los tiene todos."
+                  persistent-hint
+                  clearable />
+              </v-col>
             </v-row>
             <v-alert
               v-if="billsAnotherMonth"
@@ -111,8 +122,14 @@
           type="info"
           variant="tonal"
           class="mb-4">
-          Aún no hay clientes con cobro automático. Agrégalos en la pestaña Clientes con su cuota y día de corte,
-          uno por uno o importándolos desde Excel.
+          <template v-if="segmentFilter.length">
+            Ningún cliente con cobro automático tiene {{ segmentFilter.length === 1 ? 'ese segmento' : 'todos esos segmentos' }}.
+            Quita el filtro o agrégale el segmento a tus clientes en la pestaña Clientes.
+          </template>
+          <template v-else>
+            Aún no hay clientes con cobro automático. Agrégalos en la pestaña Clientes con su cuota y día de corte,
+            uno por uno o importándolos desde Excel.
+          </template>
         </v-alert>
 
         <v-card>
@@ -489,6 +506,26 @@
               <v-col cols="12" md="6">
                 <v-text-field v-model="customerForm.email" label="Correo" type="email" density="comfortable" />
               </v-col>
+              <v-col cols="12" md="4">
+                <DateField
+                  v-model="customerForm.joined_at"
+                  density="comfortable"
+                  hint="El día en que llegó como cliente"
+                  persistent-hint
+                  :rules="[rules.required]">
+                  <template #label>
+                    Fecha de ingreso <span class="text-error font-weight-bold">*</span>
+                  </template>
+                </DateField>
+              </v-col>
+              <v-col cols="12" md="8">
+                <CustomerSegmentPicker
+                  v-model="customerForm.segment_ids"
+                  :segments="segments"
+                  density="comfortable"
+                  creatable
+                  @created="onSegmentCreated" />
+              </v-col>
             </v-row>
 
             <p class="text-subtitle-2 mt-2 mb-2">Cobro mensual</p>
@@ -560,16 +597,19 @@
 
 <script setup lang="ts">
 import { money } from '@/utils/money'
-import { formatDay } from '@/utils/dates'
+import { formatDay, todayIso } from '@/utils/dates'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import LockableButton from '../components/LockableButton.vue'
 import CustomerImportDialog from '../components/CustomerImportDialog.vue'
+import CustomerSegmentPicker from '../components/CustomerSegmentPicker.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 import {
   billingService,
   type Customer,
+  type CustomerPayload,
+  type CustomerSegment,
   type GenerateItem,
   type RecurringPreview,
   type RecurringPreviewRow,
@@ -725,6 +765,8 @@ const cutsOnIssueDate = (row: RecurringPreviewRow) => (row.cutoff_date ?? row.du
 // Los que tienen el corte el día a facturar van marcados de entrada: es a
 // quienes les toca hoy.
 const dueOnIssueDate = computed(() => pendingRows.value.filter(cutsOnIssueDate))
+// Billing a segment ticks everyone in it still to bill, whatever their cutoff.
+const preselected = computed(() => (segmentFilter.value.length ? pendingRows.value : dueOnIssueDate.value))
 // Cortan ese día pero ya tienen su documento del mes: no se facturan dos veces.
 const billedOnIssueDate = computed(() => billedRows.value.filter(cutsOnIssueDate))
 // "Seleccionar los del día" vuelve a esta selección después de marcar todos
@@ -736,14 +778,15 @@ const selectionIsDue = computed(() =>
   selected.value.length === dueOnIssueDate.value.length &&
   dueOnIssueDate.value.every(r => selected.value.includes(r.customer_id)),
 )
-// Al cambiar el día o el mes se marcan de nuevo los del día. Si la lista se
-// recarga porque se editó o importó un cliente, solo quien entró o salió de
-// ese día cambia: lo que el usuario marcó a mano se queda como estaba.
+// Al cambiar el día, el mes o el segmento se marcan de nuevo los del día (o
+// los del segmento). Si la lista se recarga porque se editó o importó un
+// cliente, solo quien entró o salió de ese día cambia: lo que el usuario
+// marcó a mano se queda como estaba.
 let dueFor = ''
 let dueIds = new Set<number>()
 const syncDueSelection = () => {
-  const key = `${period.value}|${issueDate.value}`
-  const due = dueOnIssueDate.value.map(r => r.customer_id)
+  const key = `${period.value}|${issueDate.value}|${segmentFilter.value.join(',')}`
+  const due = preselected.value.map(r => r.customer_id)
   if (key !== dueFor) {
     selected.value = due
   } else {
@@ -758,6 +801,17 @@ const cutoffHint = computed(() => {
   const count = dueOnIssueDate.value.length
   const day = formatDay(issueDate.value)
   const month = periodLabel.value
+  if (segmentFilter.value.length) {
+    const pending = pendingRows.value.length
+    const scope = segmentFilter.value.length === 1 ? 'del segmento' : 'con todos esos segmentos'
+    const allTicked = selected.value.length === pending && pendingRows.value.every(r => selected.value.includes(r.customer_id))
+    const dueText = count === 0 ? '' : count === 1 ? ` 1 tiene su corte el ${day}.` : ` ${count} tienen su corte el ${day}.`
+    if (pending === 0) return `Los clientes ${scope} ya tienen su documento de ${month}.`
+    if (!allTicked) return `${pending === 1 ? '1 cliente' : `${pending} clientes`} ${scope} ${pending === 1 ? 'falta' : 'faltan'} por facturar en ${month}.${dueText}`
+    return pending === 1
+      ? `Quedó marcado el cliente ${scope} que falta por facturar en ${month}.${dueText}`
+      : `Quedaron marcados los ${pending} clientes ${scope} que faltan por facturar en ${month}.${dueText}`
+  }
   const billed = billedOnIssueDate.value
   const [firstBilled] = billed
   if (count === 0) {
@@ -783,7 +837,7 @@ const loadPreview = async () => {
   if (!period.value) return
   loadingPreview.value = true
   try {
-    preview.value = await billingService.getRecurringPreview(period.value, issueDate.value)
+    preview.value = await billingService.getRecurringPreview(period.value, issueDate.value, segmentFilter.value)
     if (!generalConcept.value) generalConcept.value = preview.value.default_concept
     // La selección y las ediciones son de un mes: al cambiar de mes se limpian.
     const billable = new Set(pendingRows.value.map(r => r.customer_id))
@@ -801,6 +855,27 @@ watch(period, () => {
   selected.value = []
   loadPreview()
 })
+
+// ===== Segmentos =====
+const segments = ref<CustomerSegment[]>([])
+const segmentFilter = ref<number[]>([])
+
+const loadSegments = async () => {
+  try {
+    segments.value = await billingService.getSegments()
+  } catch {
+    // Optional: without its list the segment filter simply does not show.
+    segments.value = []
+  }
+}
+
+const onSegmentCreated = (segment: CustomerSegment) => {
+  segments.value = [...segments.value, segment].sort((a, b) =>
+    a.name.localeCompare(b.name, 'es', { numeric: true, sensitivity: 'base' }),
+  )
+}
+
+watch(segmentFilter, () => loadPreview(), { deep: true })
 
 // El mes sigue al día a facturar. Si el mes no cambia se recarga igual: el
 // vencimiento de cada fila depende de la fecha de emisión.
@@ -965,6 +1040,8 @@ interface CustomerForm {
   billing_day: number | null
   billing_concept: string
   billing_tax_id: number | null
+  joined_at: string
+  segment_ids: number[]
 }
 
 const emptyCustomerForm = (): CustomerForm => ({
@@ -980,6 +1057,8 @@ const emptyCustomerForm = (): CustomerForm => ({
   billing_day: null,
   billing_concept: '',
   billing_tax_id: null,
+  joined_at: todayIso(),
+  segment_ids: [],
 })
 
 const customerDialog = ref(false)
@@ -1030,6 +1109,8 @@ const openCustomerDialog = (customer?: Customer) => {
         billing_day: customer.billing_day ?? null,
         billing_concept: customer.billing_concept ?? '',
         billing_tax_id: customer.billing_tax_id ?? null,
+        joined_at: customer.joined_at ?? todayIso(),
+        segment_ids: (customer.segments ?? []).map(segment => segment.id),
       }
     : emptyCustomerForm()
   customerDialog.value = true
@@ -1048,7 +1129,7 @@ const saveCustomer = async () => {
   if (!valid) return
 
   const { id, ...form } = customerForm.value
-  const payload = {
+  const payload: CustomerPayload = {
     ...form,
     document_number: normalizeDocument(form.document_number, form.document_type),
     email: form.email || undefined,
@@ -1060,10 +1141,10 @@ const saveCustomer = async () => {
   savingCustomer.value = true
   try {
     if (id) {
-      await billingService.updateCustomer(id, payload as Partial<Customer>)
+      await billingService.updateCustomer(id, payload)
       notify('Cliente actualizado exitosamente')
     } else {
-      await billingService.createCustomer(payload as Partial<Customer>)
+      await billingService.createCustomer(payload)
       notify('Cliente creado exitosamente')
     }
     customerDialog.value = false
@@ -1093,7 +1174,7 @@ onMounted(async () => {
     taxes.value = []
   }
   billingService.getBusiness().then(b => (business.value = b)).catch(() => {})
-  await Promise.all([loadPreview(), loadCustomers()])
+  await Promise.all([loadPreview(), loadCustomers(), loadSegments()])
 })
 
 onBeforeUnmount(() => document.removeEventListener('visibilitychange', followTodayWhenVisible))
