@@ -1,11 +1,170 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, type Page } from '@playwright/test'
-import { ADMIN, API, apiLogin, buildXlsx, createCompany, field, loginUI, xlsxRows } from './helpers'
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { ADMIN, API, apiLogin, buildXlsx, createCompany, displayDate, field, loginUI, pickOptions, xlsxRows } from './helpers'
 
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
-/** A customer's row in the Clientes list; its cells read Tipo doc, Documento, DV, Nombre… */
+/** A customer's row in the Clientes list; its cells read the selection box, Tipo doc, Documento, DV, Nombre… */
 const customerRow = (page: Page, name: string) => page.locator('tbody tr', { hasText: name })
+
+/** The cell of a Clientes row under `header`. */
+async function cellUnder(page: Page, name: string, header: string) {
+  const headers = (await page.locator('.v-data-table thead th').allInnerTexts()).map(text => text.trim())
+  expect(headers).toContain(header)
+  return customerRow(page, name).locator('td').nth(headers.indexOf(header))
+}
+
+/** Segments and customers of a company of its own, through the API. */
+async function arrangeSegments(request: APIRequestContext, token: string) {
+  const auth = { Authorization: `Bearer ${token}` }
+  const segment = async (name: string): Promise<number> => {
+    const created = await request.post(`${API}/customer-segments`, { headers: auth, data: { name } })
+    expect(created.status(), await created.text()).toBe(201)
+    return (await created.json()).data.id
+  }
+  const school = await segment('Colegio San José')
+  const grade = await segment('Grado 5')
+  const town = await segment('Chinchiná')
+  const customer = async (name: string, document_number: string, segment_ids: number[], joined_at?: string): Promise<number> => {
+    const created = await request.post(`${API}/customers`, {
+      headers: auth,
+      data: { document_type: 'CC', document_number, name, segment_ids, ...(joined_at ? { joined_at } : {}) },
+    })
+    expect(created.status(), await created.text()).toBe(201)
+    return (await created.json()).data.id
+  }
+  await customer('Ana Grado 5', '7001', [school, grade], '2025-02-03')
+  await customer('Beto Grado 4', '7002', [school], '2025-06-20')
+  await customer('Carla Otro Colegio', '7003', [grade], '2025-04-11')
+  return { auth, school, grade, town }
+}
+
+/**
+ * Valentina's segments are tags: a customer shows its own, the filter with
+ * several leaves whoever has all of them ("Colegio San José" and "Grado 5"
+ * is that grade) and "Ingreso" reads dd/mm/aaaa and sorts.
+ */
+test('los segmentos se ven en cada cliente, el filtro con varios deja a quien los tiene todos y el ingreso se ordena', async ({ page, request }) => {
+  const company = await createCompany(request, 'segmentos-lista', { business_type: 'restaurant' })
+  await arrangeSegments(request, company.token)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/clientes')
+
+  const ana = customerRow(page, 'Ana Grado 5')
+  await expect(ana.locator('.v-chip', { hasText: 'Colegio San José' })).toBeVisible()
+  await expect(ana.locator('.v-chip', { hasText: 'Grado 5' })).toBeVisible()
+  await expect(customerRow(page, 'Beto Grado 4').locator('.v-chip', { hasText: 'Grado 5' })).toHaveCount(0)
+  await expect(await cellUnder(page, 'Ana Grado 5', 'Ingreso')).toHaveText('03/02/2025')
+  await expect(await cellUnder(page, 'Beto Grado 4', 'Ingreso')).toHaveText('20/06/2025')
+
+  await expect(page.getByText('Si eliges varios, ves solo a quien los tiene todos: un colegio y un grado muestran ese grado.')).toBeVisible()
+  await pickOptions(page, 'Filtrar por segmentos', ['Colegio San José'])
+  await expect(page.getByText('1-2 de 2')).toBeVisible()
+  await expect(customerRow(page, 'Carla Otro Colegio')).toHaveCount(0)
+  await pickOptions(page, 'Filtrar por segmentos', ['Grado 5'])
+  await expect(page.getByText('1-1 de 1')).toBeVisible()
+  await expect(page.locator('tbody tr')).toHaveText([/Ana Grado 5/])
+
+  // Clearing the filter brings everyone back; the oldest join date goes first.
+  await page.getByRole('button', { name: 'Borrar Filtrar por segmentos' }).click()
+  await expect(page.getByText('1-3 de 3')).toBeVisible()
+  await page.locator('.v-data-table thead th', { hasText: 'Ingreso' }).click()
+  await expect(page.locator('tbody tr')).toHaveText([/Ana Grado 5/, /Carla Otro Colegio/, /Beto Grado 4/])
+})
+
+/**
+ * A customer is born with today's "Fecha de ingreso", which can be changed,
+ * and with segments picked or created right there. Several rows at once get
+ * a segment or lose one, and the "Segmentos" window renames and deletes them
+ * (a deleted segment only takes its tag away).
+ */
+test('crea un cliente con su fecha de ingreso y segmentos, agrega y quita segmentos a varios y los renombra o elimina', async ({ page, request }) => {
+  const company = await createCompany(request, 'segmentos-formulario', { business_type: 'restaurant' })
+  const { auth } = await arrangeSegments(request, company.token)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/clientes')
+
+  const dialog = page.getByRole('dialog')
+  await page.getByRole('button', { name: /Nuevo cliente/ }).click()
+  const joined = field(page, 'Fecha de ingreso *').locator('input')
+  await expect(joined).toHaveValue(displayDate(new Date().toLocaleDateString('en-CA')))
+  await field(page, 'Número de documento *').locator('input').fill('7010')
+  await field(page, 'Nombre / Razón social *').locator('input').fill('Dora Torre Norte')
+  await joined.fill('10/01/2026')
+  await joined.press('Tab')
+  await pickOptions(page, 'Segmentos', ['Grado 5'])
+  await field(page, 'Segmentos').locator('input').fill('Torre Norte')
+  await page.locator('.v-overlay--active').getByText('Crear el segmento «Torre Norte»').click()
+  await page.keyboard.press('Escape')
+  await expect(field(page, 'Segmentos').locator('.v-chip', { hasText: 'Torre Norte' })).toBeVisible()
+  await expect(field(page, 'Segmentos').locator('.v-chip', { hasText: 'Grado 5' })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+
+  await expect(page.getByText('Cliente creado exitosamente')).toBeVisible()
+  const dora = customerRow(page, 'Dora Torre Norte')
+  await expect(dora.locator('.v-chip', { hasText: 'Torre Norte' })).toBeVisible()
+  await expect(dora.locator('.v-chip', { hasText: 'Grado 5' })).toBeVisible()
+  await expect(await cellUnder(page, 'Dora Torre Norte', 'Ingreso')).toHaveText('10/01/2026')
+  const saved = (await (await request.get(`${API}/customers?q=7010`, { headers: auth })).json()).data[0]
+  expect(saved.joined_at).toBe('2026-01-10')
+  expect(saved.segments.map((s: { name: string }) => s.name)).toEqual(['Grado 5', 'Torre Norte'])
+
+  // Editing brings both back.
+  await dora.getByRole('button', { name: 'Editar el cliente Dora Torre Norte' }).click()
+  await expect(joined).toHaveValue('10/01/2026')
+  await expect(field(page, 'Segmentos').locator('.v-chip')).toHaveText(['Grado 5', 'Torre Norte'])
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+
+  // Two rows at once into Chinchiná, then one out.
+  await customerRow(page, 'Beto Grado 4').locator('input[type="checkbox"]').check()
+  await customerRow(page, 'Carla Otro Colegio').locator('input[type="checkbox"]').check()
+  await expect(page.getByText('2 clientes seleccionados')).toBeVisible()
+  await page.getByRole('button', { name: 'Agregar a segmento' }).click()
+  await pickOptions(page, 'Segmentos', ['Chinchiná'])
+  await dialog.getByRole('button', { name: 'Agregar', exact: true }).click()
+  await expect(page.getByText('Se agregaron 2 clientes al segmento «Chinchiná».')).toBeVisible()
+  await expect(customerRow(page, 'Beto Grado 4').locator('.v-chip', { hasText: 'Chinchiná' })).toBeVisible()
+  await expect(customerRow(page, 'Carla Otro Colegio').locator('.v-chip', { hasText: 'Chinchiná' })).toBeVisible()
+  await expect(page.getByText('2 clientes seleccionados')).toHaveCount(0)
+
+  await customerRow(page, 'Beto Grado 4').locator('input[type="checkbox"]').check()
+  await page.getByRole('button', { name: 'Quitar de segmento' }).click()
+  await pickOptions(page, 'Segmentos', ['Chinchiná'])
+  await dialog.getByRole('button', { name: 'Quitar', exact: true }).click()
+  await expect(page.getByText('Se quitó el segmento «Chinchiná» a 1 cliente.')).toBeVisible()
+  await expect(customerRow(page, 'Beto Grado 4').locator('.v-chip', { hasText: 'Chinchiná' })).toHaveCount(0)
+
+  // The window of segments: counts, a repeated name, rename and delete.
+  await page.getByRole('button', { name: 'Segmentos', exact: true }).click()
+  const manager = page.getByRole('dialog').filter({ hasText: 'Eliminar un segmento no elimina a sus clientes.' })
+  await expect(manager.locator('.v-list-item', { hasText: 'Chinchiná' })).toContainText('1 cliente')
+  await expect(manager.locator('.v-list-item', { hasText: 'Grado 5' })).toContainText('3 clientes')
+  await manager.getByLabel('Nuevo segmento').fill('grado 5')
+  await manager.getByRole('button', { name: 'Crear' }).click()
+  await expect(manager).toContainText('Ya tienes el segmento «Grado 5»: elígelo de la lista en lugar de crearlo otra vez.')
+
+  await manager.getByRole('button', { name: 'Renombrar el segmento Chinchiná' }).click()
+  await manager.getByLabel('Nuevo nombre de Chinchiná').fill('Chinchiná Caldas')
+  await manager.getByRole('button', { name: 'Guardar el nombre del segmento Chinchiná' }).click()
+  await expect(page.getByText('Segmento renombrado: ahora se llama «Chinchiná Caldas».')).toBeVisible()
+  await expect(manager.locator('.v-list-item', { hasText: 'Chinchiná Caldas' })).toContainText('1 cliente')
+
+  page.once('dialog', confirm => {
+    expect(confirm.message()).toBe('¿Seguro que quieres eliminar el segmento «Torre Norte»? Lo tiene 1 cliente: sigue en tu lista, solo pierde la etiqueta.')
+    confirm.accept()
+  })
+  await manager.getByRole('button', { name: 'Eliminar el segmento Torre Norte' }).click()
+  await expect(page.getByText('Segmento «Torre Norte» eliminado. El cliente que lo tenía sigue en tu lista.')).toBeVisible()
+  await manager.getByRole('button', { name: 'Cerrar' }).click()
+
+  await expect(customerRow(page, 'Carla Otro Colegio').locator('.v-chip', { hasText: 'Chinchiná Caldas' })).toBeVisible()
+  await expect(dora).toBeVisible()
+  await expect(dora.locator('.v-chip', { hasText: 'Torre Norte' })).toHaveCount(0)
+})
 
 /**
  * El tipo de persona y "cliente frecuente" se guardan: antes el backend los
@@ -233,10 +392,10 @@ test('importa clientes desde Clientes con la plantilla de un restaurante, sin la
   await dialog.getByRole('button', { name: 'Cerrar' }).click()
 
   // In the list: the number as stored, the computed DV next to it, and the house with its letter.
-  await expect(customerRow(page, 'Bancolombia Importado').locator('td').nth(1)).toHaveText('890903938')
-  await expect(customerRow(page, 'Bancolombia Importado').locator('td').nth(2)).toHaveText('8')
-  await expect(customerRow(page, 'Ana Casa B').locator('td').nth(1)).toHaveText('1001-B')
-  await expect(customerRow(page, 'Ana Casa B').locator('td').nth(2)).toHaveText('2')
+  await expect(customerRow(page, 'Bancolombia Importado').locator('td').nth(2)).toHaveText('890903938')
+  await expect(customerRow(page, 'Bancolombia Importado').locator('td').nth(3)).toHaveText('8')
+  await expect(customerRow(page, 'Ana Casa B').locator('td').nth(2)).toHaveText('1001-B')
+  await expect(customerRow(page, 'Ana Casa B').locator('td').nth(3)).toHaveText('2')
   await expect(customerRow(page, 'Dora Cambiada')).toHaveCount(0)
   const customers = await (await request.get(`${API}/customers`, { headers: auth })).json()
   expect(customers.data.find((c: { name: string }) => c.name === 'Ana Importada')).toMatchObject({ recurring_active: false, monthly_fee: null })
@@ -275,8 +434,8 @@ test('el DV se calcula mientras se escribe el NIT o la cédula y un DV equivocad
   await field(page, 'Nombre / Razón social *').locator('input').fill('Davivienda SA')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(page.getByText('Cliente creado exitosamente')).toBeVisible()
-  await expect(customerRow(page, 'Davivienda SA').locator('td').nth(1)).toHaveText('860034313')
-  await expect(customerRow(page, 'Davivienda SA').locator('td').nth(2)).toHaveText('7')
+  await expect(customerRow(page, 'Davivienda SA').locator('td').nth(2)).toHaveText('860034313')
+  await expect(customerRow(page, 'Davivienda SA').locator('td').nth(3)).toHaveText('7')
 
   // A cédula has its digit too (a natural person's RUT); a CE has none.
   await page.getByRole('button', { name: /Nuevo cliente/ }).click()
@@ -315,8 +474,8 @@ test('dos clientes con el mismo documento se distinguen con -A y -B, y el repeti
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(page.getByText('Cliente creado exitosamente')).toBeVisible()
 
-  await expect(customerRow(page, 'Ana Casa Norte').locator('td').nth(1)).toHaveText('1002655357-A')
-  await expect(customerRow(page, 'Ana Casa Sur').locator('td').nth(1)).toHaveText('1002655357-B')
+  await expect(customerRow(page, 'Ana Casa Norte').locator('td').nth(2)).toHaveText('1002655357-A')
+  await expect(customerRow(page, 'Ana Casa Sur').locator('td').nth(2)).toHaveText('1002655357-B')
 
   await page.getByRole('button', { name: /Nuevo cliente/ }).click()
   await documento.fill('1002655357-a')

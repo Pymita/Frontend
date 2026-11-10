@@ -36,9 +36,26 @@ export interface Customer {
   /** Concepto propio; si falta se usa el general al facturar */
   billing_concept?: string | null
   billing_tax_id?: number | null
+  /** "Fecha de ingreso" (AAAA-MM-DD): today when it was created, editable. */
+  joined_at?: string | null
+  /** Its segments, in reading order. */
+  segments?: CustomerSegmentRef[]
   created_at: string
   updated_at: string
 }
+
+/** A tag that groups customers ("Chinchiná", "Grado 5"). */
+export interface CustomerSegmentRef {
+  id: number
+  name: string
+}
+
+export interface CustomerSegment extends CustomerSegmentRef {
+  customers_count: number
+}
+
+/** What the customer forms send: `segment_ids` leaves the customer with exactly those segments. */
+export type CustomerPayload = Partial<Omit<Customer, 'segments'>> & { segment_ids?: number[] }
 
 // ===== Facturación automática =====
 export type RecurringInvoiceStatus = 'pending' | 'partial' | 'paid' | 'cancelled'
@@ -222,6 +239,8 @@ export interface InvoiceFilters {
 export interface ReceivableFilters {
   all?: boolean
   q?: string
+  /** Only the customers carrying every one of these segments. */
+  segment_ids?: number[]
 }
 
 export interface CashReceipt extends PrintableReceipt {
@@ -370,6 +389,15 @@ interface ApiResponse<T> {
   message?: string
 }
 
+/** The cartera's filters as the API reads them; the screen and its Excel send the same. */
+const receivableParams = (filters: ReceivableFilters): Record<string, string | number | number[]> => {
+  const params: Record<string, string | number | number[]> = {}
+  if (filters.all) params.all = 1
+  if (filters.q?.trim()) params.q = filters.q.trim()
+  if (filters.segment_ids?.length) params.segment_ids = filters.segment_ids
+  return params
+}
+
 const downloadFile = async (url: string, filename: string): Promise<void> => {
   const response = await api.get(url, { responseType: 'blob' })
   const link = document.createElement('a')
@@ -388,8 +416,11 @@ export const billingService = {
     return response.data.data
   },
 
-  /** Una página de clientes (búsqueda por nombre, documento, correo o teléfono en `q`). */
-  async getCustomersPage(query: PageQuery): Promise<PaginatedResponse<Customer>> {
+  /**
+   * Una página de clientes (búsqueda por nombre, documento, correo o teléfono en `q`);
+   * `segment_ids`: solo los que tienen todos esos segmentos.
+   */
+  async getCustomersPage(query: PageQuery & { segment_ids?: number[] }): Promise<PaginatedResponse<Customer>> {
     const response = await api.get<PaginatedResponse<Customer>>('/customers', { params: query })
     return response.data
   },
@@ -399,18 +430,52 @@ export const billingService = {
     return response.data.data
   },
 
-  async createCustomer(data: Partial<Customer>): Promise<Customer> {
+  async createCustomer(data: CustomerPayload): Promise<Customer> {
     const response = await api.post<ApiResponse<Customer>>('/customers', data)
     return response.data.data
   },
 
-  async updateCustomer(id: number, data: Partial<Customer>): Promise<Customer> {
+  async updateCustomer(id: number, data: CustomerPayload): Promise<Customer> {
     const response = await api.put<ApiResponse<Customer>>(`/customers/${id}`, data)
     return response.data.data
   },
 
   async deleteCustomer(id: number): Promise<void> {
     await api.delete(`/customers/${id}`)
+  },
+
+  // --- Segmentos: etiquetas para agrupar y filtrar clientes ---
+  async getSegments(): Promise<CustomerSegment[]> {
+    const response = await api.get<ApiResponse<CustomerSegment[]>>('/customer-segments')
+    return response.data.data
+  },
+
+  async createSegment(name: string): Promise<{ data: CustomerSegment; message: string }> {
+    const response = await api.post<ApiResponse<CustomerSegment>>('/customer-segments', { name })
+    return { data: response.data.data, message: response.data.message ?? '' }
+  },
+
+  async renameSegment(id: number, name: string): Promise<{ data: CustomerSegment; message: string }> {
+    const response = await api.put<ApiResponse<CustomerSegment>>(`/customer-segments/${id}`, { name })
+    return { data: response.data.data, message: response.data.message ?? '' }
+  },
+
+  /** Only the tag goes: its customers stay. */
+  async deleteSegment(id: number): Promise<string> {
+    const response = await api.delete<{ message?: string }>(`/customer-segments/${id}`)
+    return response.data.message ?? ''
+  },
+
+  async addCustomersToSegment(id: number, customerIds: number[]): Promise<{ data: CustomerSegment; message: string }> {
+    const response = await api.post<ApiResponse<CustomerSegment>>(`/customer-segments/${id}/customers`, { customer_ids: customerIds })
+    return { data: response.data.data, message: response.data.message ?? '' }
+  },
+
+  async removeCustomersFromSegment(id: number, customerIds: number[]): Promise<{ data: CustomerSegment; message: string }> {
+    const response = await api.delete<ApiResponse<CustomerSegment>>(`/customer-segments/${id}/customers`, {
+      data: { customer_ids: customerIds },
+    })
+    return { data: response.data.data, message: response.data.message ?? '' }
   },
 
   // --- Importar clientes (y su cuota) desde Excel ---
@@ -470,10 +535,13 @@ export const billingService = {
   },
 
   // ===== Facturación automática =====
-  /** Con la fecha de emisión, el vencimiento de cada fila nunca queda antes de ella. */
-  async getRecurringPreview(period: string, issueDate?: string): Promise<RecurringPreview> {
+  /**
+   * Con la fecha de emisión, el vencimiento de cada fila nunca queda antes de ella.
+   * `segmentIds`: solo los clientes que tienen todos esos segmentos.
+   */
+  async getRecurringPreview(period: string, issueDate?: string, segmentIds: number[] = []): Promise<RecurringPreview> {
     const response = await api.get<ApiResponse<RecurringPreview>>('/recurring-billing/preview', {
-      params: { period, issue_date: issueDate || undefined },
+      params: { period, issue_date: issueDate || undefined, segment_ids: segmentIds.length ? segmentIds : undefined },
     })
     return response.data.data
   },
@@ -575,10 +643,7 @@ export const billingService = {
   },
 
   async getReceivables(filters: ReceivableFilters = {}): Promise<Receivables> {
-    const params: Record<string, string | number> = {}
-    if (filters.all) params.all = 1
-    if (filters.q?.trim()) params.q = filters.q.trim()
-    const response = await api.get<ApiResponse<Receivables>>('/recurring-billing/receivables', { params })
+    const response = await api.get<ApiResponse<Receivables>>('/recurring-billing/receivables', { params: receivableParams(filters) })
     return response.data.data
   },
 
@@ -617,9 +682,7 @@ export const billingService = {
 
   /** Descarga la cartera en Excel con los mismos filtros de la pantalla. */
   async exportReceivables(filters: ReceivableFilters = {}): Promise<void> {
-    const params: Record<string, string | number> = { format: 'xlsx' }
-    if (filters.all) params.all = 1
-    if (filters.q?.trim()) params.q = filters.q.trim()
+    const params = { ...receivableParams(filters), format: 'xlsx' }
     const response = await api.get('/recurring-billing/receivables', { params, responseType: 'blob' })
 
     const disposition: string = response.headers['content-disposition'] || ''

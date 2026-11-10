@@ -12,6 +12,15 @@
             </div>
           </div>
           <div class="d-flex flex-wrap ga-2">
+            <v-btn
+              v-if="activeTab === 'clientes'"
+              prepend-icon="mdi-tag-multiple-outline"
+              color="primary"
+              variant="outlined"
+              size="large"
+              @click="openManager">
+              Segmentos
+            </v-btn>
             <LockableButton
               v-if="activeTab === 'clientes'"
               icon="mdi-microsoft-excel"
@@ -46,7 +55,7 @@
             <v-card>
               <v-card-text>
                 <v-row>
-                  <v-col cols="12" md="6">
+                  <v-col cols="12" md="5">
                     <v-text-field
                       v-model="search"
                       prepend-inner-icon="mdi-magnify"
@@ -55,6 +64,16 @@
                       variant="outlined"
                       density="compact"
                       hide-details
+                      clearable />
+                  </v-col>
+                  <v-col cols="12" md="7">
+                    <CustomerSegmentPicker
+                      v-model="segmentFilter"
+                      :segments="segments"
+                      label="Filtrar por segmentos"
+                      variant="outlined"
+                      density="compact"
+                      persistent-hint
                       clearable />
                   </v-col>
                 </v-row>
@@ -66,7 +85,22 @@
         <v-row class="mt-4">
           <v-col cols="12">
             <v-card>
+              <!-- Rows ticked on any page: add them to a segment or take one away at once. -->
+              <v-card-text v-if="selectedIds.length" class="d-flex flex-wrap align-center ga-2 bg-surface-light">
+                <span class="text-body-2 font-weight-medium">
+                  {{ selectedIds.length === 1 ? '1 cliente seleccionado' : `${selectedIds.length} clientes seleccionados` }}
+                </span>
+                <v-spacer />
+                <LockableButton color="primary" variant="tonal" icon="mdi-tag-plus-outline" @click="openBulk('add')">
+                  Agregar a segmento
+                </LockableButton>
+                <LockableButton color="primary" variant="text" icon="mdi-tag-minus-outline" @click="openBulk('remove')">
+                  Quitar de segmento
+                </LockableButton>
+                <v-btn variant="text" @click="selectedIds = []">Quitar selección</v-btn>
+              </v-card-text>
               <v-data-table-server
+                v-model="selectedIds"
                 v-model:page="page"
                 v-model:items-per-page="perPage"
                 v-model:sort-by="sortBy"
@@ -75,7 +109,28 @@
                 :items-length="total"
                 :items-per-page-options="PAGE_SIZE_OPTIONS"
                 :loading="loading"
+                item-value="id"
+                show-select
                 class="elevation-0">
+                <template #item.name="{ item }">
+                  <div>{{ item.name }}</div>
+                  <div v-if="item.segments?.length" class="d-flex flex-wrap ga-1 mt-1 mb-1">
+                    <v-chip
+                      v-for="segment in item.segments"
+                      :key="segment.id"
+                      size="x-small"
+                      color="secondary"
+                      variant="tonal"
+                      prepend-icon="mdi-tag-outline">
+                      {{ segment.name }}
+                    </v-chip>
+                  </div>
+                </template>
+
+                <template #item.joined_at="{ item }">
+                  <span class="text-no-wrap tabular-nums">{{ item.joined_at ? formatIsoDate(item.joined_at) : '—' }}</span>
+                </template>
+
                 <template #item.document_type="{ item }">
                   <v-chip size="small" color="primary" variant="outlined">
                     {{ item.document_type }}
@@ -309,6 +364,31 @@
                   label="Marcar como cliente frecuente"
                   color="success" />
               </v-col>
+
+              <v-col cols="12" md="4">
+                <DateField
+                  v-model="formData.joined_at"
+                  variant="outlined"
+                  density="comfortable"
+                  hint="El día en que llegó como cliente"
+                  persistent-hint
+                  :rules="[rules.required]"
+                >
+                  <template #label>
+                    Fecha de ingreso <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                  </template>
+                </DateField>
+              </v-col>
+
+              <v-col cols="12" md="8">
+                <CustomerSegmentPicker
+                  v-model="formData.segment_ids"
+                  :segments="segments"
+                  variant="outlined"
+                  density="comfortable"
+                  creatable
+                  @created="onSegmentCreated" />
+              </v-col>
             </v-row>
           </v-form>
         </v-card-text>
@@ -398,6 +478,128 @@
       </v-card>
     </v-dialog>
 
+    <!-- Segmentos: crear, renombrar y eliminar las etiquetas -->
+    <v-dialog v-model="managerDialog" max-width="560px">
+      <v-card>
+        <v-card-title class="bg-primary">Segmentos</v-card-title>
+        <v-card-text class="pt-4">
+          <p class="text-body-2 text-medium-emphasis mb-3">
+            Agrupa a tus clientes (Chinchiná, Colegio San José, Grado 5) para filtrarlos en Clientes, Cartera,
+            Facturación automática e Informes. Eliminar un segmento no elimina a sus clientes.
+          </p>
+          <div class="d-flex ga-2 align-start">
+            <v-text-field
+              v-model="newSegmentName"
+              label="Nuevo segmento"
+              variant="outlined"
+              density="compact"
+              :error-messages="newSegmentError || undefined"
+              :disabled="isReadOnly"
+              @keydown.enter.prevent="createFromManager" />
+            <LockableButton color="primary" icon="mdi-plus" :loading="savingSegment" :disabled="!newSegmentName.trim()" @click="createFromManager">
+              Crear
+            </LockableButton>
+          </div>
+
+          <p v-if="!segments.length" class="text-body-2 text-medium-emphasis mt-2">Aún no tienes segmentos.</p>
+          <v-list v-else density="compact" class="py-0">
+            <v-list-item v-for="segment in segments" :key="segment.id" class="px-0">
+              <v-text-field
+                v-if="renaming?.id === segment.id"
+                v-model="renaming.name"
+                :label="`Nuevo nombre de ${segment.name}`"
+                variant="outlined"
+                density="compact"
+                autofocus
+                :error-messages="renameError || undefined"
+                @keydown.enter.prevent="saveRename"
+                @keydown.esc="renaming = null" />
+              <template v-else>
+                <v-list-item-title>
+                  <v-icon size="small" class="mr-1" icon="mdi-tag-outline" />
+                  {{ segment.name }}
+                </v-list-item-title>
+                <v-list-item-subtitle>
+                  {{ segment.customers_count === 1 ? '1 cliente' : `${segment.customers_count} clientes` }}
+                </v-list-item-subtitle>
+              </template>
+              <template #append>
+                <template v-if="renaming?.id === segment.id">
+                  <v-btn
+                    icon="mdi-check"
+                    size="small"
+                    variant="text"
+                    color="primary"
+                    :loading="savingSegment"
+                    :aria-label="`Guardar el nombre del segmento ${segment.name}`"
+                    @click="saveRename" />
+                  <v-btn
+                    icon="mdi-close"
+                    size="small"
+                    variant="text"
+                    :aria-label="`Cancelar el cambio de nombre del segmento ${segment.name}`"
+                    @click="renaming = null" />
+                </template>
+                <template v-else>
+                  <v-btn
+                    icon="mdi-pencil"
+                    size="small"
+                    variant="text"
+                    :disabled="isReadOnly"
+                    :aria-label="`Renombrar el segmento ${segment.name}`"
+                    @click="startRename(segment)" />
+                  <v-btn
+                    icon="mdi-delete"
+                    size="small"
+                    variant="text"
+                    color="error"
+                    :disabled="isReadOnly"
+                    :aria-label="`Eliminar el segmento ${segment.name}`"
+                    @click="removeSegment(segment)" />
+                </template>
+              </template>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="managerDialog = false">Cerrar</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Agregar o quitar un segmento a los clientes seleccionados -->
+    <v-dialog v-model="bulkDialog" max-width="560px">
+      <v-card>
+        <v-card-title class="bg-primary">
+          {{ bulkMode === 'add' ? 'Agregar a segmento' : 'Quitar de segmento' }}
+        </v-card-title>
+        <v-card-text class="pt-4">
+          <p class="text-body-2 mb-3">
+            {{ bulkMode === 'add' ? 'Los' : 'A los' }}
+            <strong>{{ selectedIds.length === 1 ? '1 cliente seleccionado' : `${selectedIds.length} clientes seleccionados` }}</strong>
+            {{ bulkMode === 'add' ? 'quedan en los segmentos que elijas; los que ya tienen siguen igual.' : 'se les quitan los segmentos que elijas.' }}
+          </p>
+          <CustomerSegmentPicker
+            v-model="bulkSegments"
+            :segments="segments"
+            variant="outlined"
+            density="comfortable"
+            :creatable="bulkMode === 'add'"
+            v-bind="bulkMode === 'remove' ? { hint: 'Los clientes siguen en tu lista: solo pierden la etiqueta' } : {}"
+            persistent-hint
+            @created="onSegmentCreated" />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="bulkDialog = false">Cancelar</v-btn>
+          <LockableButton color="primary" :loading="bulkSaving" :disabled="!bulkSegments.length" @click="applyBulk">
+            {{ bulkMode === 'add' ? 'Agregar' : 'Quitar' }}
+          </LockableButton>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <CustomerImportDialog v-model="importDialog" @imported="onCustomersImported" />
 
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="snackbarColor === 'error' ? 9000 : 3000" closable>
@@ -408,6 +610,7 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/errors';
+import { formatIsoDate, todayIso } from '@/utils/dates'
 import {
   VERIFICATION_DIGIT_TYPES,
   customerVerificationDigit,
@@ -416,8 +619,16 @@ import {
   normalizeDocument,
 } from '@/utils/validation'
 import { computed, ref, onMounted } from 'vue'
-import { billingService, type Customer, type PersonType, type Supplier } from '@/services/billingService'
+import {
+  billingService,
+  type Customer,
+  type CustomerSegment,
+  type PersonType,
+  type Supplier,
+} from '@/services/billingService'
 import CustomerImportDialog from '../components/CustomerImportDialog.vue'
+import CustomerSegmentPicker from '../components/CustomerSegmentPicker.vue'
+import DateField from '../components/DateField.vue'
 import LockableButton from '../components/LockableButton.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 import { PAGE_SIZE_OPTIONS, useServerPage } from '../composables/useServerPage'
@@ -438,6 +649,8 @@ interface ClienteForm {
   address?: string
   person_type: PersonType
   frequent_customer: boolean
+  joined_at: string
+  segment_ids: number[]
 }
 
 const dialog = ref(false)
@@ -454,9 +667,11 @@ const headers = [
   { title: 'Tipo doc', key: 'document_type', sortable: true },
   { title: 'Documento', key: 'document_number', sortable: true },
   { title: 'DV', key: 'verification_digit', sortable: false },
-  { title: 'Nombre / Razón social', key: 'name', sortable: true },
+  // Wide enough for two segment chips per line under the name.
+  { title: 'Nombre / Razón social', key: 'name', sortable: true, minWidth: '220px' },
   { title: 'Correo', key: 'email', sortable: false },
   { title: 'Teléfono', key: 'phone', sortable: false },
+  { title: 'Ingreso', key: 'joined_at', sortable: true },
   { title: 'Tipo', key: 'person_type', sortable: true },
   { title: 'Frecuente', key: 'frequent_customer', sortable: true },
   { title: 'Acciones', key: 'actions', sortable: false, align: 'end' as const },
@@ -483,6 +698,8 @@ const emptyForm = (): ClienteForm => ({
   address: '',
   person_type: 'natural',
   frequent_customer: false,
+  joined_at: todayIso(),
+  segment_ids: [],
 })
 
 const formData = ref<ClienteForm>(emptyForm())
@@ -504,6 +721,29 @@ const rules = {
   required: (v: any) => !!v || 'Este campo es requerido',
 }
 
+// ===== Segmentos =====
+const segments = ref<CustomerSegment[]>([])
+// Several mean the customers carrying all of them, as the API filters.
+const segmentFilter = ref<number[]>([])
+const byName = (a: CustomerSegment, b: CustomerSegment) =>
+  a.name.localeCompare(b.name, 'es', { numeric: true, sensitivity: 'base' })
+
+const loadSegments = async () => {
+  try {
+    segments.value = await billingService.getSegments()
+    const existing = new Set(segments.value.map(segment => segment.id))
+    if (segmentFilter.value.some(id => !existing.has(id))) {
+      segmentFilter.value = segmentFilter.value.filter(id => existing.has(id))
+    }
+  } catch (error) {
+    showMessage(errorMessage(error, 'No fue posible cargar los segmentos. Inténtalo de nuevo.'), 'error')
+  }
+}
+
+const onSegmentCreated = (segment: CustomerSegment) => {
+  segments.value = [...segments.value, segment].sort(byName)
+}
+
 const {
   items: clientes,
   total,
@@ -513,10 +753,126 @@ const {
   search,
   loading,
   load: loadClientes,
-} = useServerPage<Customer>(query => billingService.getCustomersPage(query), {
-  onError: error =>
-    showMessage(errorMessage(error, 'No fue posible cargar los clientes. Inténtalo de nuevo.'), 'error'),
-})
+} = useServerPage<Customer>(
+  query => billingService.getCustomersPage(segmentFilter.value.length ? { ...query, segment_ids: segmentFilter.value } : query),
+  {
+    filters: [segmentFilter],
+    onError: error =>
+      showMessage(errorMessage(error, 'No fue posible cargar los clientes. Inténtalo de nuevo.'), 'error'),
+  },
+)
+
+// --- Varios clientes a la vez ---
+const selectedIds = ref<number[]>([])
+const bulkDialog = ref(false)
+const bulkMode = ref<'add' | 'remove'>('add')
+const bulkSegments = ref<number[]>([])
+const bulkSaving = ref(false)
+
+const openBulk = (mode: 'add' | 'remove') => {
+  bulkMode.value = mode
+  bulkSegments.value = []
+  bulkDialog.value = true
+}
+
+const applyBulk = async () => {
+  bulkSaving.value = true
+  try {
+    const messages: string[] = []
+    for (const segmentId of bulkSegments.value) {
+      const { message } = bulkMode.value === 'add'
+        ? await billingService.addCustomersToSegment(segmentId, selectedIds.value)
+        : await billingService.removeCustomersFromSegment(segmentId, selectedIds.value)
+      messages.push(message)
+    }
+    showMessage(messages.join(' '), 'success')
+    bulkDialog.value = false
+    selectedIds.value = []
+    await Promise.all([loadClientes(), loadSegments()])
+  } catch (error) {
+    showMessage(
+      errorMessage(
+        error,
+        bulkMode.value === 'add'
+          ? 'No fue posible agregar los clientes al segmento. Inténtalo de nuevo.'
+          : 'No fue posible quitarles el segmento a los clientes. Inténtalo de nuevo.',
+      ),
+      'error',
+    )
+  } finally {
+    bulkSaving.value = false
+  }
+}
+
+// --- Crear, renombrar y eliminar segmentos ---
+const managerDialog = ref(false)
+const newSegmentName = ref('')
+const newSegmentError = ref('')
+const renaming = ref<{ id: number; name: string } | null>(null)
+const renameError = ref('')
+const savingSegment = ref(false)
+
+const openManager = () => {
+  newSegmentName.value = ''
+  newSegmentError.value = ''
+  renaming.value = null
+  managerDialog.value = true
+  loadSegments()
+}
+
+const createFromManager = async () => {
+  if (!newSegmentName.value.trim() || isReadOnly.value) return
+  savingSegment.value = true
+  newSegmentError.value = ''
+  try {
+    const { data, message } = await billingService.createSegment(newSegmentName.value)
+    onSegmentCreated(data)
+    newSegmentName.value = ''
+    showMessage(message, 'success')
+  } catch (error) {
+    newSegmentError.value = errorMessage(error, 'No fue posible crear el segmento. Inténtalo de nuevo.')
+  } finally {
+    savingSegment.value = false
+  }
+}
+
+const startRename = (segment: CustomerSegment) => {
+  renameError.value = ''
+  renaming.value = { id: segment.id, name: segment.name }
+}
+
+const saveRename = async () => {
+  if (!renaming.value) return
+  savingSegment.value = true
+  renameError.value = ''
+  try {
+    const { message } = await billingService.renameSegment(renaming.value.id, renaming.value.name)
+    renaming.value = null
+    showMessage(message, 'success')
+    await Promise.all([loadSegments(), loadClientes()])
+  } catch (error) {
+    renameError.value = errorMessage(error, 'No fue posible cambiar el nombre del segmento. Inténtalo de nuevo.')
+  } finally {
+    savingSegment.value = false
+  }
+}
+
+const removeSegment = async (segment: CustomerSegment) => {
+  const carriers = segment.customers_count === 1
+    ? 'Lo tiene 1 cliente: sigue en tu lista, solo pierde la etiqueta.'
+    : segment.customers_count > 1
+      ? `Lo tienen ${segment.customers_count} clientes: siguen en tu lista, solo pierden la etiqueta.`
+      : 'Ningún cliente lo tiene.'
+  if (!confirm(`¿Seguro que quieres eliminar el segmento «${segment.name}»? ${carriers}`)) return
+
+  try {
+    showMessage(await billingService.deleteSegment(segment.id), 'success')
+    await loadSegments()
+    loadClientes()
+  } catch (error) {
+    showMessage(errorMessage(error, 'No fue posible eliminar el segmento. Inténtalo de nuevo.'), 'error')
+  }
+}
 
 const openDialog = (cliente?: Customer) => {
   editing.value = cliente || null
@@ -531,6 +887,8 @@ const openDialog = (cliente?: Customer) => {
       address: cliente.address || '',
       person_type: cliente.person_type || 'natural',
       frequent_customer: cliente.frequent_customer ?? false,
+      joined_at: cliente.joined_at ?? todayIso(),
+      segment_ids: (cliente.segments ?? []).map(segment => segment.id),
     }
   } else {
     formData.value = emptyForm()
@@ -565,6 +923,7 @@ const save = async () => {
     }
     dialog.value = false
     loadClientes()
+    loadSegments()
   } catch (error) {
     console.error('[Clientes] Error al guardar:', error)
     showMessage(errorMessage(error, 'No fue posible guardar el cliente. Inténtalo de nuevo.'), 'error')
@@ -579,7 +938,9 @@ const deleteCliente = async (cliente: Customer) => {
   try {
     await billingService.deleteCustomer(cliente.id)
     showMessage('Cliente eliminado exitosamente', 'success')
+    selectedIds.value = selectedIds.value.filter(id => id !== cliente.id)
     loadClientes()
+    loadSegments()
   } catch (error) {
     console.error('[Clientes] Error al eliminar:', error)
     showMessage(errorMessage(error, 'No fue posible eliminar el cliente. Inténtalo de nuevo.'), 'error')
@@ -707,6 +1068,7 @@ const deleteSupplier = async (supplier: Supplier) => {
 
 onMounted(() => {
   loadClientes()
+  loadSegments()
   loadSuppliers()
 })
 </script>

@@ -89,6 +89,16 @@
               Descargar Excel
             </v-btn>
           </v-col>
+          <!-- The cards, the list and the Excel follow the same segments. -->
+          <v-col v-if="segments.length" cols="12" md="7">
+            <CustomerSegmentPicker
+              v-model="receivableFilters.segment_ids"
+              :segments="segments"
+              label="Filtrar por segmentos"
+              density="compact"
+              persistent-hint
+              clearable />
+          </v-col>
         </v-row>
         <!-- What customers owed before Servify: typed by hand or from a spreadsheet. -->
         <div class="d-flex flex-wrap align-center ga-2 mt-3">
@@ -884,6 +894,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 import LockableButton from '../components/LockableButton.vue'
 import CashRegisterPanel from '../components/CashRegisterPanel.vue'
+import CustomerSegmentPicker from '../components/CustomerSegmentPicker.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'
 import { useReadOnly } from '../composables/useReadOnly'
@@ -891,6 +902,7 @@ import {
   billingService,
   type CashReceipt,
   type Customer,
+  type CustomerSegment,
   type OpeningBalanceImportResult,
   type OpeningBalanceLine,
   type ReceivableCustomer,
@@ -1020,8 +1032,18 @@ const printReceipt = async (receiptNumber: number) => {
 // ===== Saldos por cliente =====
 const receivables = ref<Receivables | null>(null)
 const loadingReceivables = ref(false)
-const receivableFilters = ref({ q: '', all: false })
+const receivableFilters = ref<{ q: string; all: boolean; segment_ids: number[] }>({ q: '', all: false, segment_ids: [] })
 const exporting = ref(false)
+
+const segments = ref<CustomerSegment[]>([])
+const loadSegments = async () => {
+  try {
+    segments.value = await billingService.getSegments()
+  } catch {
+    // Optional: without its list the segment filter simply does not show.
+    segments.value = []
+  }
+}
 
 const loadReceivables = async () => {
   loadingReceivables.value = true
@@ -1553,6 +1575,6 @@ const runOpeningImport = async (dryRun: boolean) => {
 
 onMounted(async () => {
   billingService.getBusiness().then(b => (business.value = b)).catch(() => {})
-  await Promise.all([loadReceivables(), loadCustomers(), loadPaymentHistory()])
+  await Promise.all([loadReceivables(), loadCustomers(), loadPaymentHistory(), loadSegments()])
 })
 </script>

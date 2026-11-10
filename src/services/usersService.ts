@@ -19,6 +19,8 @@ export interface CompanyUser {
   can_edit_kardex: boolean
   /** "Contabilidad": a permission inside Informes, granted like can_edit_kardex */
   can_use_accounting: boolean
+  /** "Fecha de ingreso a la empresa" (AAAA-MM-DD), optional; not the last sign-in. */
+  hired_at: string | null
   last_login_at: string | null
 }
 
@@ -29,6 +31,7 @@ export interface CreateUserPayload {
   password: string
   role: 'admin' | 'employee'
   phone?: string
+  hired_at?: string | null
   permissions?: Feature[]
   can_charge_orders?: boolean
   can_edit_kardex?: boolean
@@ -42,6 +45,7 @@ export interface UpdateUserPayload {
   password?: string
   role?: 'admin' | 'employee'
   phone?: string
+  hired_at?: string | null
   active?: boolean
   permissions?: Feature[] | null
   can_charge_orders?: boolean
