@@ -258,7 +258,7 @@
                   class="mt-2"
                   hint="Marca los módulos que necesita; puedes ajustarlos"
                   persistent-hint
-                  @update:model-value="createData.modules = [...presetModules($event)]"
+                  @update:model-value="createData.modules = [...presetModules($event)]; createData.order_mode = presetOrderMode($event)"
                 />
 
                 <p class="text-subtitle-2 mt-4 mb-1">Módulos activos</p>
@@ -273,6 +273,15 @@
                     />
                   </v-col>
                 </v-row>
+                <v-select
+                  v-if="createData.modules.includes('orders')"
+                  v-model="createData.order_mode"
+                  :items="orderModeOptions"
+                  label="Cómo toma los pedidos"
+                  hint="El administrador lo cambia en Configuración"
+                  persistent-hint
+                  class="mt-3"
+                />
                 <v-row dense class="mt-3">
                   <v-col cols="6">
                     <v-text-field v-model="createData.email" label="Correo (opcional)" type="email" />
@@ -466,6 +475,15 @@
                   />
                 </v-col>
               </v-row>
+              <v-select
+                v-if="editData.modules.includes('orders')"
+                v-model="editData.order_mode"
+                :items="orderModeOptions"
+                label="Cómo toma los pedidos"
+                hint="Solo cambia lo que ofrecen las pantallas; el administrador también lo cambia en Configuración"
+                persistent-hint
+                class="mt-3"
+              />
               <div class="d-flex justify-end mt-2">
                 <v-btn variant="text" class="mr-2" @click="editingDetail = false">Cancelar</v-btn>
                 <v-btn color="primary" :loading="saving" @click="saveDetail">Guardar cambios</v-btn>
@@ -497,6 +515,10 @@
                 >
                   {{ featureLabel(feature) }}
                 </v-chip>
+              </v-col>
+              <v-col v-if="detail.modules.includes('orders')" cols="6">
+                <div class="text-caption text-medium-emphasis">Cómo toma los pedidos</div>
+                <div>{{ label(orderModeLabels, detail.order_mode) }}</div>
               </v-col>
               <v-col cols="6">
                 <div class="text-caption text-medium-emphasis">Creada</div>
@@ -926,8 +948,9 @@ import type {
   PlatformSeller,
   SellerStats,
 } from '../types/platform'
-import { ALL_FEATURES, type BusinessType, type Feature, type SubscriptionStatus } from '../types/auth'
+import { ALL_FEATURES, type BusinessType, type Feature, type OrderMode, type SubscriptionStatus } from '../types/auth'
 import { PASSWORD_HINT, confirmPasswordRules, passwordRules } from '../utils/validation'
+import { label, options, orderModeLabels } from '../utils/labels'
 import CopyCatalogDialog from '../components/CopyCatalogDialog.vue'
 import PasswordField from '../components/PasswordField.vue'
 import TwoFactorSetup from '../components/TwoFactorSetup.vue'
@@ -1025,6 +1048,7 @@ const emptyCreateData = () => ({
   phone: '',
   business_type: 'restaurant' as BusinessType,
   modules: [...BUSINESS_TYPE_PRESETS.restaurant] as Feature[],
+  order_mode: 'tables' as OrderMode,
   admin: { name: '', email: '', password: '' },
   trial_days: 15,
   // Acuerdo comercial: precio, qué incluye y quién vendió.
@@ -1068,6 +1092,10 @@ const featureLabels: Record<Feature, string> = {
 }
 
 const featureLabel = (feature: Feature): string => featureLabels[feature] || feature
+
+// Espejo de Company::ORDER_MODE_PRESETS: a store sells from the app by customer, the rest on tables.
+const presetOrderMode = (type: BusinessType): OrderMode => (type === 'store' ? 'customers' : 'tables')
+const orderModeOptions = options(orderModeLabels)
 
 /**
  * Si la selección es idéntica al preset del tipo de negocio, se envía vacío:
@@ -1126,6 +1154,7 @@ const editData = ref({
   phone: '',
   business_type: 'restaurant' as BusinessType,
   modules: [] as Feature[],
+  order_mode: 'tables' as OrderMode,
 })
 
 const openDetailDialog = async (company: PlatformCompany) => {
@@ -1154,6 +1183,7 @@ const startEditDetail = () => {
     // Siempre se muestran los módulos efectivos (antes, si seguían el preset,
     // los checkboxes salían todos vacíos).
     modules: [...detail.value.modules],
+    order_mode: detail.value.order_mode,
   }
   editingDetail.value = true
 }
@@ -1172,6 +1202,7 @@ const saveDetail = async () => {
       phone: editData.value.phone || null,
       business_type: editData.value.business_type,
       modules: modulesToSend(editData.value.business_type, editData.value.modules),
+      order_mode: editData.value.order_mode,
     })
     notify('Empresa actualizada exitosamente')
     editingDetail.value = false

@@ -50,6 +50,20 @@ export const timeBillingLabels: Record<string, string> = {
   person: 'Por persona',
 }
 
+/** How the company takes orders (Company::ORDER_MODES), in Configuración and Plataforma. */
+export const orderModeLabels: Record<string, string> = {
+  tables: 'Con mesas',
+  customers: 'Con clientes',
+  both: 'Con mesas y clientes',
+}
+
+/** What each order mode means for whoever takes the order, one line each. */
+export const orderModeHints: Record<string, string> = {
+  tables: 'Cada pedido va a una mesa: un restaurante, un bar.',
+  customers: 'Cada pedido va a un cliente o al Consumidor final, sin mesas: una tienda, un almacén de ropa.',
+  both: 'Se elige mesa o cliente en cada pedido: un billar que también vende en el mostrador.',
+}
+
 /** "1 h", "1 h 30 min", "45 min": the minutes of a printed time line. */
 export const durationLabel = (minutes: number): string => {
   const hours = Math.floor(minutes / 60)

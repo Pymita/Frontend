@@ -138,13 +138,14 @@
     </v-row>
 
     <!-- Tres lecturas del mismo rango: venta por venta, qué se vendió y qué dejó cada mesa.
-         With orders and automatic billing, the origin narrows every reading but the cash closes. -->
+         With orders and automatic billing, the origin narrows every reading but the cash closes.
+         A shop that takes orders by customer has no tables: every sale would be one "Sin mesa" row. -->
     <v-row dense class="mt-1">
       <v-col cols="12" class="d-flex flex-wrap align-center ga-2">
         <v-btn-toggle v-model="view" mandatory color="primary" density="comfortable">
           <v-btn value="sales" prepend-icon="mdi-receipt-text">Ventas</v-btn>
           <v-btn value="products" prepend-icon="mdi-food">Por producto</v-btn>
-          <v-btn value="tables" prepend-icon="mdi-table-furniture">Por mesa</v-btn>
+          <v-btn v-if="authStore.orderMode !== 'customers'" value="tables" prepend-icon="mdi-table-furniture">Por mesa</v-btn>
           <v-btn value="cash" prepend-icon="mdi-cash-register">Cierres de caja</v-btn>
         </v-btn-toggle>
         <v-spacer />

@@ -95,6 +95,42 @@
       </v-col>
     </v-row>
 
+    <!-- Presentation, not a module: the API takes an order with or without a
+         table in any mode, so switching back loses nothing. -->
+    <v-row v-if="takesOrders">
+      <v-col cols="12">
+        <v-card class="pa-4">
+          <h2 class="text-h6 mb-1">Cómo tomas los pedidos</h2>
+          <p class="text-body-2 text-medium-emphasis mb-2">
+            Lo que eligen tus meseros en la app y tú en Nuevo pedido: la mesa, el cliente o cualquiera de los dos.
+          </p>
+          <v-radio-group v-model="orderModeChoice" :disabled="isReadOnly" hide-details aria-label="Cómo tomas los pedidos">
+            <v-radio v-for="mode in orderModes" :key="mode" :value="mode" color="primary" class="mb-2">
+              <template #label>
+                <div>
+                  <div class="text-body-1 font-weight-medium text-high-emphasis">{{ orderModeLabels[mode] }}</div>
+                  <div class="text-body-2 text-medium-emphasis">{{ orderModeHints[mode] }}</div>
+                </div>
+              </template>
+            </v-radio>
+          </v-radio-group>
+          <p class="text-caption text-medium-emphasis mt-2">
+            Tus mesas no se borran: vuelven a salir si eliges mesas otra vez. La app de los meseros lo toma al abrirla.
+          </p>
+          <div class="d-flex justify-end mt-3">
+            <LockableButton
+              color="primary"
+              :loading="savingOrderMode"
+              :disabled="orderModeChoice === authStore.orderMode"
+              @click="saveOrderMode"
+            >
+              Guardar cómo tomas los pedidos
+            </LockableButton>
+          </div>
+        </v-card>
+      </v-col>
+    </v-row>
+
     <v-row>
       <!-- Tipos de documento -->
       <v-col cols="12" md="6">
@@ -610,7 +646,9 @@ import { usePaymentMethods } from '../composables/usePaymentMethods'
 import { billingService, type BusinessForm } from '../services/billingService'
 import salesService, { type PaymentDocument, type PaymentMethodPayload, type PaymentMethodRow } from '../services/salesService'
 import type { DocumentBusiness } from '../utils/printDocuments'
-import { label, options, paymentDocumentLabels, taxRegimeLabels } from '../utils/labels'
+import { label, options, orderModeHints, orderModeLabels, paymentDocumentLabels, taxRegimeLabels } from '../utils/labels'
+import { useAuthStore } from '../stores/auth'
+import { effectiveFeatures, type OrderMode } from '../types/auth'
 import { toIsoDate } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 import {
@@ -694,6 +732,24 @@ const saveBusiness = async () => {
     notify(errorMessage(error, 'No se pudieron guardar los datos del negocio'), 'error')
   } finally {
     savingBusiness.value = false
+  }
+}
+
+// --- Cómo tomas los pedidos (only for a company that takes orders) ---
+const authStore = useAuthStore()
+const takesOrders = computed(() => effectiveFeatures(authStore.user).includes('orders'))
+const orderModes: OrderMode[] = ['tables', 'customers', 'both']
+const orderModeChoice = ref<OrderMode>(authStore.orderMode)
+const savingOrderMode = ref(false)
+
+const saveOrderMode = async () => {
+  savingOrderMode.value = true
+  try {
+    notify(await authStore.setOrderMode(orderModeChoice.value))
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible guardar cómo tomas los pedidos. Inténtalo de nuevo.'), 'error')
+  } finally {
+    savingOrderMode.value = false
   }
 }
 

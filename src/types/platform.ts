@@ -2,7 +2,7 @@
  * Tipos del panel de plataforma (solo super admins)
  */
 
-import type { BusinessType, Feature, SubscriptionStatus } from './auth'
+import type { BusinessType, Feature, OrderMode, SubscriptionStatus } from './auth'
 
 export interface PlatformSubscription {
   id: number
@@ -29,6 +29,8 @@ export interface PlatformCompany {
   /** Lista efectiva (preset del tipo o personalizada) */
   modules: Feature[]
   modules_customized: boolean
+  /** Tables, customers or both: the type seeds it, the admin changes it in Configuración */
+  order_mode: OrderMode
   email: string | null
   phone: string | null
   active: boolean
@@ -116,6 +118,8 @@ export interface CreateCompanyPayload {
   slug?: string
   business_type?: BusinessType
   modules?: Feature[]
+  /** Without it, the type's preset (a store takes orders by customer) */
+  order_mode?: OrderMode
   email?: string
   phone?: string
   admin: {

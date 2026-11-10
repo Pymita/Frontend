@@ -79,8 +79,8 @@
                 <v-text-field
                   v-model="search"
                   prepend-inner-icon="mdi-magnify"
-                  label="Buscar mesa o pedido"
-                  placeholder="Mesa 3, Terraza o #120"
+                  :label="searchCopy.label"
+                  :placeholder="searchCopy.placeholder"
                   single-line
                   hide-details
                   clearable
@@ -148,13 +148,15 @@
             <template #item.dining_table="{ item }">
               <div class="d-flex align-center text-no-wrap">
                 <v-avatar color="primary" size="32" class="mr-2">
-                  <span class="text-caption">{{ item.dining_table?.number || '?' }}</span>
+                  <span v-if="item.dining_table" class="text-caption">{{ item.dining_table.number }}</span>
+                  <v-icon v-else size="small" icon="mdi-account" />
                 </v-avatar>
                 <div>
-                  <span>{{ item.dining_table?.display_name || 'Sin mesa' }}</span>
+                  <!-- Without a table the order goes to its customer, or to the consumidor final. -->
+                  <span>{{ item.dining_table?.display_name ?? customerLabel(item.customer_name) }}</span>
                   <span v-if="item.number" class="text-caption text-medium-emphasis ml-2">#{{ item.number }}</span>
                   <!-- Only a registered customer: the waiter app writes the table's name in customer_name. -->
-                  <div v-if="item.customer_id" class="text-caption text-medium-emphasis">{{ item.customer_name }}</div>
+                  <div v-if="item.dining_table && item.customer_id" class="text-caption text-medium-emphasis">{{ item.customer_name }}</div>
                 </div>
               </div>
             </template>
@@ -1031,7 +1033,8 @@
         </v-card-title>
         <v-card-text class="pt-4">
           <v-row dense>
-            <v-col cols="12" md="6">
+            <!-- By customer the customer is the first field and there is no table to pick. -->
+            <v-col v-if="newOrderTakesTables" cols="12" md="6">
               <v-select
                 v-model="nuevoPedido.dining_table_id"
                 :items="mesasDisponibles"
@@ -1407,8 +1410,18 @@ const snackbarActions = ref<MessageAction[]>([]);
 const newOrderAlert = ref(false);
 const newOrderCount = ref(0);
 
-const headers = [
-  { title: 'Mesa', key: 'dining_table', sortable: false },
+// Tables, customers or both (Configuración): what this page offers to take an order on.
+const orderMode = computed(() => authStore.orderMode);
+// The floor plan opens it on a table, whatever the mode.
+const newOrderTakesTables = computed(() => !!props.tableId || orderMode.value !== 'customers');
+const searchCopy = computed(() => ({
+  tables: { label: 'Buscar mesa o pedido', placeholder: 'Mesa 3, Terraza o #120' },
+  customers: { label: 'Buscar cliente o pedido', placeholder: 'Ana o #120' },
+  both: { label: 'Buscar mesa, cliente o pedido', placeholder: 'Terraza, Ana o #120' },
+})[orderMode.value]);
+
+const headers = computed(() => [
+  { title: { tables: 'Mesa', customers: 'Cliente', both: 'Mesa o cliente' }[orderMode.value], key: 'dining_table', sortable: false },
   // Quién atiende la mesa es lo operativo; el cliente casi nunca se llena.
   { title: 'Mesero', key: 'waiter', sortable: false },
   { title: 'Estado', key: 'status' },
@@ -1417,7 +1430,7 @@ const headers = [
   // La fecha va compacta para dejarle sitio al botón de cobrar.
   { title: 'Fecha', key: 'created_at', width: 130 },
   { title: '', key: 'actions', sortable: false, align: 'end' as const, width: 200 },
-];
+]);
 
 const showMessage = (text: string, color = 'success', actions: MessageAction[] = []) => {
   snackbarText.value = text;
