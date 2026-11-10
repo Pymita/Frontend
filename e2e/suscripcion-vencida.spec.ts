@@ -16,8 +16,9 @@ const BLOCK_REASON = 'Pago vencido de agosto: comunícate con soporte para react
 
 /**
  * Crea una empresa con su admin y le deja la suscripción suspendida.
+ * Con `withMenu`, publica un producto antes de suspenderla (después ya no puede).
  */
-async function createExpiredCompany(request: any, slug: string) {
+async function createExpiredCompany(request: any, slug: string, withMenu = false) {
   const superToken = await apiLogin(request, PLATFORM.email, PLATFORM.password)
   const headers = { Authorization: `Bearer ${superToken}` }
 
@@ -42,6 +43,21 @@ async function createExpiredCompany(request: any, slug: string) {
     data: { name: 'Panadería' },
   })
   expect(category.status()).toBe(201)
+  if (withMenu) {
+    const product = await request.post(`${API}/products`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: {
+        name: 'Pan de bono',
+        type: 'final',
+        unit: 'unidad',
+        sale_price: 2500,
+        tracks_stock: false,
+        category_id: (await category.json()).data.id,
+        menu: {},
+      },
+    })
+    expect(product.status()).toBe(201)
+  }
 
   // Periodo vencido hace dos meses: la cuenta ya pasó la gracia.
   const expired = await request.put(`${API}/platform/companies/${companyId}/subscription`, {
@@ -134,8 +150,22 @@ test('una empresa vencida ve el motivo y las acciones apagadas, no escondidas', 
   await expect(page.locator('button:has(.mdi-delete)').first()).toBeDisabled()
 })
 
+test('una empresa vencida ve su menú en orden pero no lo puede reordenar', async ({ page, request }) => {
+  const { credentials } = await createExpiredCompany(request, 'menu-vencido', true)
+
+  await loginUI(page, credentials.email, credentials.password)
+  await page.goto('/menu')
+  await expect(page.getByText('Pan de bono')).toBeVisible()
+  const ordenar = page.getByRole('button', { name: 'Ordenar' })
+  await expect(ordenar).toBeDisabled()
+  await ordenar.hover({ force: true })
+  await expect(page.locator('.v-tooltip .v-overlay__content:visible')).toContainText('Tu suscripción está vencida')
+  await ordenar.click({ force: true })
+  await expect(page.getByText('Arrastra las categorías y los productos')).toHaveCount(0)
+})
+
 test('la misma empresa al día sí ofrece esas acciones', async ({ page, request }) => {
-  const { companyId, credentials } = await createExpiredCompany(request, 'al-dia')
+  const { companyId, credentials } = await createExpiredCompany(request, 'al-dia', true)
 
   // La plataforma registra el pago: la suscripción vuelve a estar activa.
   const superToken = await apiLogin(request, PLATFORM.email, PLATFORM.password)
@@ -161,6 +191,9 @@ test('la misma empresa al día sí ofrece esas acciones', async ({ page, request
 
   await page.goto('/categorias')
   await expect(page.getByRole('button', { name: 'Nueva categoría' })).toBeEnabled()
+
+  await page.goto('/menu')
+  await expect(page.getByRole('button', { name: 'Ordenar' })).toBeEnabled()
 
   await page.goto('/pedidos')
   await expect(page.getByRole('button', { name: 'Nuevo pedido' })).toBeEnabled()

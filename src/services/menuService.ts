@@ -123,6 +123,14 @@ export const categoriesService = {
     });
     return response.data.message;
   },
+
+  /**
+   * Menú › Ordenar: las hermanas de un padre (null = las principales) en su
+   * nuevo orden. Las que el menú no muestra (ocultas, vacías) conservan su lugar.
+   */
+  async reorder(parentId: number | null, ids: number[]): Promise<void> {
+    await api.put('/categories/reorder', { parent_id: parentId, ids });
+  },
 };
 
 /** 422 of deleting a category that still holds something. */
@@ -162,5 +170,10 @@ export const menuItemsService = {
   async toggleAvailability(id: number): Promise<MenuItem> {
     const response = await api.post<ApiResponse<MenuItem>>(`/menu-items/${id}/toggle-availability`);
     return response.data.data;
+  },
+
+  /** Menú › Ordenar: los productos de una categoría en su nuevo orden (los agotados conservan su lugar). */
+  async reorder(categoryId: number, ids: number[]): Promise<void> {
+    await api.put('/menu-items/reorder', { category_id: categoryId, ids });
   },
 };
