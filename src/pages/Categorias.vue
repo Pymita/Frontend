@@ -37,7 +37,7 @@
             </template>
             <template #item.products_count="{ item }">
               <v-chip size="small" color="primary" variant="tonal">
-                {{ getProductCount(item) }} productos
+                {{ productsLabel(getProductCount(item)) }}
               </v-chip>
             </template>
             <template #item.visible_in_app="{ item }">
@@ -72,7 +72,7 @@
               <v-btn icon size="small" variant="text" :disabled="isReadOnly" :aria-label="`Editar la categoría ${item.name}`" @click="openDialog(item)">
                 <v-icon size="small">mdi-pencil</v-icon>
               </v-btn>
-              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar la categoría ${item.name}`" @click="deleteCategoria(item)">
+              <v-btn icon size="small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar la categoría ${item.name}`" @click="openDelete(item)">
                 <v-icon size="small">mdi-delete</v-icon>
               </v-btn>
             </template>
@@ -155,6 +155,48 @@
       </v-card>
     </v-dialog>
 
+    <!-- Eliminar: lo que la categoría tiene nunca se borra con ella; se mueve
+         a otra o queda sin categoría, y eso lo decide quien elimina. -->
+    <v-dialog v-model="deleteDialog" max-width="520">
+      <v-card v-if="deleting">
+        <v-card-title class="text-wrap">Eliminar la categoría {{ deleting.name }}</v-card-title>
+        <v-card-text>
+          <v-alert v-if="deletingHasChildren" type="warning" variant="tonal" density="compact">
+            Tiene subcategorías. Muévelas o elimínalas primero.
+          </v-alert>
+          <template v-else-if="heldTotal > 0">
+            <p class="mb-3">
+              Tiene {{ heldLabel }}. Nada se borra con la categoría: elige qué pasa con
+              {{ heldTotal === 1 ? 'él' : 'ellos' }}.
+            </p>
+            <v-radio-group v-model="deleteChoice" hide-details>
+              <v-radio value="move" :label="heldTotal === 1 ? 'Moverlo a otra categoría' : 'Moverlos a otra categoría'" />
+              <v-radio value="none" :label="heldTotal === 1 ? 'Dejarlo sin categoría' : 'Dejarlos sin categoría'" />
+            </v-radio-group>
+            <v-select
+              v-if="deleteChoice === 'move'"
+              v-model="moveTo"
+              :items="moveOptions"
+              item-title="path"
+              item-value="id"
+              label="Mover a"
+              class="mt-3"
+              hide-details
+            />
+            <v-alert v-else-if="deleteChoice === 'none'" type="warning" variant="tonal" density="compact" class="mt-3">
+              Sin categoría no salen en el menú de la app hasta que les asignes una en Productos.
+            </v-alert>
+          </template>
+          <p v-else>¿Seguro que quieres eliminar la categoría {{ deleting.name }}? No tiene productos.</p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="deleteDialog = false">Cancelar</v-btn>
+          <v-btn color="error" :disabled="!canDelete" :loading="removing" @click="confirmDelete">Eliminar</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="snackbarColor === 'error' ? 9000 : 3000" closable>
       {{ snackbarText }}
     </v-snackbar>
@@ -166,7 +208,8 @@ import { errorMessage } from '@/utils/errors';
 import { computed, ref, onMounted } from 'vue';
 import EmojiPicker from '@/components/EmojiPicker.vue';
 import ImageUploader from '@/components/ImageUploader.vue';
-import { categoriesService, menuItemsService, type Category, type MenuItem } from '@/services/menuService';
+import { categoriesService, type Category, type CategoryDeleteRefusal } from '@/services/menuService';
+import { productsService, type Product } from '@/services/productsService';
 import { resolveImageUrl } from '@/utils/images';
 import LockableButton from '../components/LockableButton.vue'
 import { useReadOnly } from '../composables/useReadOnly'
@@ -175,7 +218,7 @@ import { useReadOnly } from '../composables/useReadOnly'
 const isReadOnly = useReadOnly()
 
 const categorias = ref<Category[]>([]);
-const itemsMenu = ref<MenuItem[]>([]);
+const products = ref<Product[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 
@@ -222,21 +265,21 @@ const showMessage = (text: string, color = 'success') => {
   snackbar.value = true;
 };
 
-const getProductCount = (categoria: Category): number => {
-  return itemsMenu.value.filter(item => item.category_id === categoria.id).length;
-};
+// Every product of the category, active or not: all of them block its deletion.
+const getProductCount = (categoria: Category): number =>
+  products.value.filter(product => product.category_id === categoria.id).length;
+
+const productsLabel = (count: number) => (count === 1 ? '1 producto' : `${count} productos`);
 
 const loadData = async () => {
   loading.value = true;
   try {
-    console.log('[Categorias] Cargando datos...');
-    const [categoriasData, itemsData] = await Promise.all([
+    const [categoriasData, productsData] = await Promise.all([
       categoriesService.getAll(),
-      menuItemsService.getAll(),
+      productsService.getAll(),
     ]);
-    console.log('[Categorias] Categorías cargadas:', categoriasData.length);
     categorias.value = categoriasData;
-    itemsMenu.value = itemsData;
+    products.value = productsData;
   } catch (error: any) {
     console.error('[Categorias] Error al cargar datos:', error);
     showMessage(errorMessage(error, 'No fue posible cargar la información. Inténtalo de nuevo.'), 'error');
@@ -298,26 +341,53 @@ const save = async () => {
   }
 };
 
-const deleteCategoria = async (categoria: Category) => {
-  const productCount = getProductCount(categoria);
-  
-  if (productCount > 0) {
-    if (!confirm(`Esta categoría tiene ${productCount} producto(s). ¿Estás seguro de eliminarla? Los productos quedarán sin categoría.`)) {
-      return;
-    }
-  } else {
-    if (!confirm(`¿Eliminar la categoría "${categoria.name}"?`)) {
-      return;
-    }
-  }
-  
+const deleteDialog = ref(false);
+const deleting = ref<Category | null>(null);
+const held = ref({ products: 0, menuItems: 0 });
+const deleteChoice = ref<'move' | 'none' | null>(null);
+const moveTo = ref<number | null>(null);
+const removing = ref(false);
+
+const deletingHasChildren = computed(() =>
+  !!deleting.value && categorias.value.some(c => c.parent_id === deleting.value!.id),
+);
+const heldTotal = computed(() => held.value.products + held.value.menuItems);
+const heldLabel = computed(() => [
+  held.value.products ? productsLabel(held.value.products) : '',
+  held.value.menuItems === 1 ? '1 ítem del menú' : held.value.menuItems ? `${held.value.menuItems} ítems del menú` : '',
+].filter(Boolean).join(' y '));
+const moveOptions = computed(() => categorias.value.filter(c => c.id !== deleting.value?.id));
+const canDelete = computed(() => {
+  if (deletingHasChildren.value) return false;
+  if (heldTotal.value === 0) return true;
+  return deleteChoice.value === 'none' || (deleteChoice.value === 'move' && moveTo.value !== null);
+});
+
+const openDelete = (categoria: Category) => {
+  deleting.value = categoria;
+  held.value = { products: getProductCount(categoria), menuItems: 0 };
+  deleteChoice.value = null;
+  moveTo.value = null;
+  deleteDialog.value = true;
+};
+
+const confirmDelete = async () => {
+  if (!deleting.value) return;
+  removing.value = true;
   try {
-    await categoriesService.delete(categoria.id);
-    showMessage('Categoría eliminada');
+    const choice = heldTotal.value === 0 ? undefined : deleteChoice.value === 'move' ? moveTo.value! : 'none';
+    showMessage(await categoriesService.delete(deleting.value.id, choice));
+    deleteDialog.value = false;
     loadData();
   } catch (error: any) {
-    console.error('[Categorias] Error al eliminar:', error);
+    // It holds more than this page knew (menu items, or products added meanwhile): ask where they go.
+    const refusal = error?.response?.data as Partial<CategoryDeleteRefusal> | undefined;
+    if (error?.response?.status === 422 && refusal?.products_count !== undefined) {
+      held.value = { products: refusal.products_count, menuItems: refusal.menu_items_count ?? 0 };
+    }
     showMessage(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error');
+  } finally {
+    removing.value = false;
   }
 };
 

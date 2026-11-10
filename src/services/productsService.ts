@@ -20,11 +20,12 @@ export interface Product {
   /** Configured tax this product uses; tax_rate is its snapshot */
   tax_id?: number | null;
   tax_rate?: number | null;
+  /** null: without category, so out of the waiter app's menu until it gets one */
   category_id?: number | null;
   category?: {
     id: number;
     name: string;
-  };
+  } | null;
   current_stock?: number | null;
   minimum_stock?: number | null;
   estimated_cost?: number | null;
@@ -84,7 +85,7 @@ class ProductsService {
 
   /** Una página de la tabla de productos (búsqueda por nombre, SKU o código en `q`). */
   async getPage(
-    query: PageQuery & { type?: string; category_id?: number; in_menu?: 0 | 1 },
+    query: PageQuery & { type?: string; category_id?: number | 'none'; in_menu?: 0 | 1 },
   ): Promise<PaginatedResponse<Product>> {
     const response = await api.get<PaginatedResponse<Product>>('/products', { params: query });
     return response.data;

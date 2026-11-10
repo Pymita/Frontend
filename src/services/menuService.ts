@@ -112,10 +112,26 @@ export const categoriesService = {
     return response.data.data;
   },
 
-  async delete(id: number): Promise<void> {
-    await api.delete(`/categories/${id}`);
+  /**
+   * Deletes a category. While it holds products or menu items the API asks
+   * where they go (422 with CategoryDeleteRefusal): another category's id, or
+   * 'none' to leave them without category. Returns the API's message.
+   */
+  async delete(id: number, moveTo?: number | 'none'): Promise<string> {
+    const response = await api.delete<{ message: string }>(`/categories/${id}`, {
+      params: moveTo === undefined ? {} : { move_to: moveTo },
+    });
+    return response.data.message;
   },
 };
+
+/** 422 of deleting a category that still holds something. */
+export interface CategoryDeleteRefusal {
+  message: string;
+  products_count: number;
+  /** Menu items offered in it that are not one of those products */
+  menu_items_count: number;
+}
 
 export const menuItemsService = {
   async getAll(categoryId?: number): Promise<MenuItem[]> {
