@@ -22,11 +22,18 @@ export const paymentStatusColors: Record<string, string> = {
 
 export const orderStatusLabels: Record<string, string> = {
   pending: 'Pendiente',
-  preparing: 'Preparando',
+  preparing: 'En preparación',
   ready: 'Listo',
   delivered: 'Entregado',
   cancelled: 'Cancelado',
 }
+
+/**
+ * The statuses "Cambiar estado de pedidos" moves an order through, in order
+ * (Order::WORKFLOW_STATUSES; ORDER_STATUS_FLOW in mobile/src/utils/labels.ts).
+ * Cancelling is apart: it has its own rule and frees the table.
+ */
+export const orderStatusFlow = ['pending', 'preparing', 'ready', 'delivered'] as const
 
 /** Theme role per order status (same map in mobile/src/utils/labels.ts). */
 export const orderStatusColors: Record<string, string> = {
@@ -56,7 +63,7 @@ export const playersLabel = (players: number): string => `${players} ${players =
 
 export const itemStatusLabels: Record<string, string> = {
   pending: 'Pendiente',
-  preparing: 'Preparando',
+  preparing: 'En preparación',
   ready: 'Listo',
   delivered: 'Entregado',
 }

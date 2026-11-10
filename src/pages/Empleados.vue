@@ -56,6 +56,14 @@
                     Cobrar pedidos
                   </v-chip>
                   <v-chip
+                    v-if="feature === 'orders' && item.can_change_order_status"
+                    size="x-small"
+                    class="mr-1 mb-1"
+                    variant="outlined"
+                  >
+                    Cambiar estado de pedidos
+                  </v-chip>
+                  <v-chip
                     v-if="feature === 'inventory' && item.can_edit_kardex"
                     size="x-small"
                     class="mr-1 mb-1"
@@ -187,13 +195,22 @@
                       hide-details
                     />
                   </v-col>
-                  <!-- Tomar pedidos y recibir la plata son trabajos distintos: cobrar va aparte. -->
+                  <!-- Tomar pedidos y recibir la plata son trabajos distintos: cobrar va aparte,
+                       y también mover el pedido de cocina a la mesa. -->
                   <v-col v-if="feature === 'orders'" cols="6">
                     <v-checkbox
                       v-model="chargeOrders"
                       label="Cobrar pedidos"
                       :disabled="!formData.permissions.includes('orders')"
                       hint="Registra pagos y propinas, también desde la app"
+                      persistent-hint
+                      density="compact"
+                    />
+                    <v-checkbox
+                      v-model="changeOrderStatus"
+                      label="Cambiar estado de pedidos"
+                      :disabled="!formData.permissions.includes('orders')"
+                      hint="En preparación, listo o entregado, también desde la app"
                       persistent-hint
                       density="compact"
                     />
@@ -336,7 +353,8 @@ const formData = ref({
   role: 'employee' as 'admin' | 'employee',
   active: true,
   permissions: [] as Feature[],
-  canChargeOrders: true,
+  canChargeOrders: false,
+  canChangeOrderStatus: true,
   canEditKardex: false,
   canUseAccounting: false,
 })
@@ -346,6 +364,14 @@ const chargeOrders = computed({
   get: () => formData.value.canChargeOrders && formData.value.permissions.includes('orders'),
   set: (value: boolean) => {
     formData.value.canChargeOrders = value
+  },
+})
+
+// So is changing an order's status.
+const changeOrderStatus = computed({
+  get: () => formData.value.canChangeOrderStatus && formData.value.permissions.includes('orders'),
+  set: (value: boolean) => {
+    formData.value.canChangeOrderStatus = value
   },
 })
 
@@ -385,6 +411,8 @@ const openDialog = (user?: CompanyUser) => {
         active: user.active,
         permissions: [...user.features],
         canChargeOrders: user.can_charge_orders,
+        // Without Pedidos the API answers false; ticking Pedidos then starts from the default.
+        canChangeOrderStatus: user.features.includes('orders') ? user.can_change_order_status : true,
         canEditKardex: user.can_edit_kardex,
         canUseAccounting: !!user.can_use_accounting,
       }
@@ -398,7 +426,9 @@ const openDialog = (user?: CompanyUser) => {
         role: 'employee',
         active: true,
         permissions: allFeatures.value.filter(f => f !== 'expenses'),
-        canChargeOrders: true,
+        // A new employee changes statuses but does not charge until the admin decides.
+        canChargeOrders: false,
+        canChangeOrderStatus: true,
         canEditKardex: false,
         canUseAccounting: false,
       }
@@ -420,6 +450,7 @@ const save = async () => {
       role: formData.value.role,
       permissions: formData.value.role === 'employee' ? formData.value.permissions : undefined,
       can_charge_orders: formData.value.role === 'employee' ? chargeOrders.value : undefined,
+      can_change_order_status: formData.value.role === 'employee' ? changeOrderStatus.value : undefined,
       can_edit_kardex: formData.value.role === 'employee' ? editKardex.value : undefined,
       can_use_accounting: formData.value.role === 'employee' ? useAccounting.value : undefined,
     }

@@ -8,15 +8,15 @@ import { ADMIN, API, COMPANY_SLUG, PLATFORM, apiLogin, field, lastResetLink, log
  *
  * Patrón: preparar por API (rápido), verificar por interfaz (lo real).
  */
-/** Crea un empleado con los permisos dados y devuelve sus credenciales. */
-async function createEmployee(request: any, slug: string, permissions: string[]) {
+/** Crea un empleado con los permisos dados (y los de adentro: can_*) y devuelve sus credenciales. */
+async function createEmployee(request: any, slug: string, permissions: string[], grants: Record<string, boolean> = {}) {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
   // Los empleados son del negocio: usuario interno, sin correo personal.
   const credentials = { username: slug, password: 'secreto123' }
 
   const response = await request.post(`${API}/users`, {
     headers: { Authorization: `Bearer ${token}` },
-    data: { name: slug, role: 'employee', permissions, ...credentials },
+    data: { name: slug, role: 'employee', permissions, ...grants, ...credentials },
   })
   expect(response.status()).toBe(201)
 
@@ -199,6 +199,50 @@ test('un cajero no crea mesas ni cancela pedidos con productos', async ({ page, 
   })
   expect(create.status()).toBe(403)
   expect((await create.json()).message).toBe('Las mesas las crea el administrador desde la web')
+})
+
+/**
+ * "Cambiar estado de pedidos" viene puesto; sin él, el estado del pedido se
+ * lee en Pedidos pero no se cambia, y el API frena también el "Entregar" de
+ * la app que ya está instalada (PUT).
+ */
+test('sin el permiso de cambiar estado, el estado del pedido se lee pero no se cambia', async ({ page, request }) => {
+  await raisePlanLimits(request, { max_users: 50 })
+  const stamp = Date.now() % 1_000_000
+  const cashier = await createEmployee(request, `cajero.estado.${stamp}`, ['orders', 'reports'], {
+    can_charge_orders: true,
+    can_change_order_status: false,
+  })
+  const auth = { Authorization: `Bearer ${await apiLogin(request, ADMIN.email, ADMIN.password)}`, Accept: 'application/json' }
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `Estado Permisos ${stamp}` } })
+  const price = 40000 + (stamp % 9000)
+  const product = await request.post(`${API}/products`, {
+    headers: auth,
+    data: { name: `Limonada Estado ${stamp}`, type: 'final', unit: 'vaso', sale_price: price, tracks_stock: false, category_id: (await category.json()).data.id },
+  })
+  const order = await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: (await product.json()).data.id, quantity: 1 }] } })
+  const orderId = (await order.json()).data.id
+
+  await loginUI(page, cashier.username, cashier.password)
+  await page.goto('/pedidos')
+  const row = page.locator('tbody tr', { hasText: `$${Math.floor(price / 1000)}.${String(price % 1000).padStart(3, '0')}` })
+  await expect(row.getByText('Pendiente', { exact: true })).toBeVisible()
+  await expect(row.getByRole('button', { name: /^Cambiar el estado de/ })).toHaveCount(0)
+  // Charging is a different permission: this one has it.
+  await expect(row.getByRole('button', { name: 'Cobrar' })).toBeVisible()
+  await row.getByRole('button', { name: 'Más acciones del pedido' }).click()
+  await expect(page.getByRole('listitem').filter({ hasText: 'Imprimir cuenta' })).toBeVisible()
+  await expect(page.getByRole('listitem').filter({ hasText: 'Marcar entregado' })).toHaveCount(0)
+
+  const cashierAuth = { Authorization: `Bearer ${await apiLogin(request, cashier.username, cashier.password, COMPANY_SLUG)}`, Accept: 'application/json' }
+  const refusal = 'Tu usuario no puede cambiar el estado de los pedidos. Pídele al administrador el permiso Cambiar estado de pedidos.'
+  const fromTheWeb = await request.post(`${API}/orders/${orderId}/status`, { headers: cashierAuth, data: { status: 'ready' } })
+  expect(fromTheWeb.status()).toBe(403)
+  expect((await fromTheWeb.json()).message).toBe(refusal)
+  const fromTheInstalledApp = await request.put(`${API}/orders/${orderId}`, { headers: cashierAuth, data: { status: 'delivered' } })
+  expect(fromTheInstalledApp.status()).toBe(403)
+  expect((await fromTheInstalledApp.json()).message).toBe(refusal)
+  expect((await (await request.get(`${API}/orders/${orderId}`, { headers: auth })).json()).data.status).toBe('pending')
 })
 
 test('admin ve todas las secciones incluidas las administrativas', async ({ page }) => {

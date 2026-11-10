@@ -15,6 +15,8 @@ export interface CompanyUser {
   features: Feature[]
   /** "Cobrar pedidos": a permission inside Pedidos, granted apart from the features */
   can_charge_orders: boolean
+  /** "Cambiar estado de pedidos": inside Pedidos too, granted like can_charge_orders */
+  can_change_order_status: boolean
   /** "Editar movimientos del kardex": a permission inside Inventario, granted like can_charge_orders */
   can_edit_kardex: boolean
   /** "Contabilidad": a permission inside Informes, granted like can_edit_kardex */
@@ -34,6 +36,7 @@ export interface CreateUserPayload {
   hired_at?: string | null
   permissions?: Feature[]
   can_charge_orders?: boolean
+  can_change_order_status?: boolean
   can_edit_kardex?: boolean
   can_use_accounting?: boolean
 }
@@ -49,6 +52,7 @@ export interface UpdateUserPayload {
   active?: boolean
   permissions?: Feature[] | null
   can_charge_orders?: boolean
+  can_change_order_status?: boolean
   can_edit_kardex?: boolean
   can_use_accounting?: boolean
 }
