@@ -17,6 +17,7 @@ import {
   pickOption,
   pickOptions,
   reportTitles,
+  sidebarGroup,
   sidebarItem,
   xlsxRows,
 } from './helpers'
@@ -115,6 +116,13 @@ async function openInformesFromSidebar(page: Page): Promise<void> {
   await sidebarItem(page, 'Informes').click()
   await expect(page).toHaveURL(/\/informes$/)
   await expect(page.getByRole('heading', { name: 'Informes', level: 1 })).toBeVisible()
+}
+
+/** "Contabilidad" sits in Operación, which never folds: one click opens Informes on the movement. */
+async function openAccountingFromSidebar(page: Page): Promise<void> {
+  await sidebarItem(page, 'Contabilidad').click()
+  await expect(page).toHaveURL(/\/informes\?informe=movimiento-contable$/)
+  await expect(field(page, 'Informe')).toContainText('Movimiento contable')
 }
 
 test('ventas por fecha y vendedor: cada vendedor con lo suyo, el total igual a Ventas y la propina aparte', async ({ page, request }) => {
@@ -710,8 +718,12 @@ test('contabilidad: las cuentas y los comprobantes quedan guardados, la plantill
   await freezeTime(page, at)
   await page.setViewportSize({ width: 1440, height: 900 })
   await loginUI(page, shop.credentials.email, shop.credentials.password, shop.slug)
-  await page.goto('/informes')
-  await chooseReport(page, 'Movimiento contable')
+  // Without unfolding anything: the entry is in sight, and it is the one marked while the movement shows.
+  await expect(sidebarGroup(page, 'Administración')).toHaveAttribute('aria-expanded', 'false')
+  await openAccountingFromSidebar(page)
+  const activeItem = page.locator('.v-navigation-drawer .v-list-item--active')
+  await expect(activeItem).toHaveText(['Contabilidad'])
+  await expect(page.locator('.v-app-bar')).toContainText('Contabilidad')
   await expect(field(page, 'Desde').locator('input')).toHaveValue(displayDate(from))
   await expect(field(page, 'Hasta').locator('input')).toHaveValue(displayDate(day))
   // The generic report controls do not apply to it.
@@ -739,7 +751,15 @@ test('contabilidad: las cuentas y los comprobantes quedan guardados, la plantill
   await dialog.getByRole('button', { name: 'Cerrar', exact: true }).click()
   await expect(dialog).toBeHidden()
 
-  // Reloaded, Informes opens on the movement and the configuration kept what was typed.
+  // Informes opens on the reports; picking the movement there marks Contabilidad again.
+  await openInformesFromSidebar(page)
+  await expect(field(page, 'Informe')).not.toContainText('Movimiento contable')
+  await expect(activeItem).toHaveText(['Informes'])
+  await chooseReport(page, 'Movimiento contable')
+  await expect(page).toHaveURL(/\/informes\?informe=movimiento-contable$/)
+  await expect(activeItem).toHaveText(['Contabilidad'])
+
+  // Reloaded, it stays on the movement and the configuration kept what was typed.
   await page.reload()
   await expect(field(page, 'Informe')).toContainText('Movimiento contable')
   await page.getByRole('button', { name: 'Configurar contabilidad' }).click()
@@ -858,8 +878,7 @@ test('contabilidad: un período que necesita una cuenta en blanco lo explica y a
   await freezeTime(page, new Date().toISOString())
   await page.setViewportSize({ width: 1440, height: 900 })
   await loginUI(page, shop.credentials.email, shop.credentials.password, shop.slug)
-  await page.goto('/informes')
-  await chooseReport(page, 'Movimiento contable')
+  await openAccountingFromSidebar(page)
 
   // Downloading says what is missing instead of a file.
   await page.getByRole('button', { name: 'Descargar Excel' }).click()
@@ -905,8 +924,7 @@ test('contabilidad: la cuenta de una forma de pago en la venta llega al movimien
   await freezeTime(page, at)
   await page.setViewportSize({ width: 1440, height: 900 })
   await loginUI(page, shop.credentials.email, shop.credentials.password, shop.slug)
-  await page.goto('/informes')
-  await chooseReport(page, 'Movimiento contable')
+  await openAccountingFromSidebar(page)
 
   // Transferencia keeps its account and gets its own on the sale; the recibo de caja keeps the method's.
   await page.getByRole('button', { name: 'Configurar contabilidad' }).click()

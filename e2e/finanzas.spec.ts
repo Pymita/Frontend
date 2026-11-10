@@ -129,15 +129,17 @@ test('el estado de resultados suma los documentos emitidos a las ventas, sin con
 /**
  * Each document offers the methods the business allows for it: a bank
  * account taken for sales and recibos de caja is offered by Cartera's abono,
- * prints on its recibo with the account, and is not a way to register a
- * financial movement.
+ * prints its name on the recibo and the account it shows as an observation,
+ * and is not a way to register a financial movement.
  */
 test('una forma de pago para ventas y recibos de caja sale en el abono de la Cartera y no en los movimientos de Finanzas', async ({ page, request }) => {
   const company = await createCompany(request, 'finanzas-formas', { business_type: 'recurring', modules: SHOP_WITH_FEES })
   const auth = { Authorization: `Bearer ${company.token}` }
   const created = await request.post(`${API}/payment-methods`, {
     headers: auth,
-    data: { name: 'Bancolombia', is_cash: false, bank_account: 'Bancolombia ahorros 123-456', documents: ['sale', 'receipt'], active: true },
+    data: {
+      name: 'Bancolombia', is_cash: false, bank_account: 'Bancolombia ahorros 123-456', show_bank_account: true, documents: ['sale', 'receipt'], active: true,
+    },
   })
   expect(created.status(), await created.text()).toBe(201)
   const [ana] = await issueDocuments(request, company.token, [{ name: 'Ana Formas 101', document_number: '5101', monthly_fee: 90000 }])
@@ -166,7 +168,8 @@ test('una forma de pago para ventas y recibos de caja sale en el abono de la Car
   await expect(abono.locator('tbody tr', { hasText: 'RC-1' })).toContainText('Bancolombia')
 
   const [receipt] = await Promise.all([page.waitForEvent('popup'), abono.getByRole('button', { name: 'Imprimir recibo RC-1' }).click()])
-  await expect(receipt.locator('.party')).toContainText('FORMA DE PAGO: Bancolombia · Bancolombia ahorros 123-456')
+  await expect(receipt.locator('.party-row', { hasText: 'FORMA DE PAGO' })).toHaveText('FORMA DE PAGO: Bancolombia')
+  await expect(receipt.locator('.notes')).toContainText('Puedes pagar en Bancolombia: Bancolombia ahorros 123-456')
   await receipt.close()
   await abono.getByRole('button', { name: 'Cerrar' }).click()
   // The histórico de abonos names it too.

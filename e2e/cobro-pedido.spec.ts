@@ -1838,10 +1838,12 @@ async function methodCell(page: Page, name: string, header: string) {
 
 /**
  * Each business names its own payment methods: one created in Configuración
- * (not in the drawer, with its bank account, for sales and recibos de caja)
- * is renamed and moved, charges a sale in Pedidos, prints its bank account
- * on the factura and the ticket, reads by its name in Ventas, and once used
- * it can only be turned off, never deleted.
+ * (not in the drawer, with its cuenta contable and its bank account shown as
+ * an observation, for sales and recibos de caja) is renamed and moved,
+ * charges a sale in Pedidos, prints its name under FORMA DE PAGO and its
+ * bank account among the observations of the factura and the ticket, reads
+ * by its name in Ventas, and once used it can only be turned off, never
+ * deleted. Its cuenta contable is the one Configurar contabilidad edits.
  */
 test('una forma de pago propia se crea en Configuración, cobra una venta con su cuenta bancaria y con movimientos no se borra', async ({ page, request }) => {
   test.setTimeout(120_000)
@@ -1854,18 +1856,36 @@ test('una forma de pago propia se crea en Configuración, cobra una venta con su
   await loginUI(page, credentials.email, credentials.password)
   await page.goto('/configuracion')
   const card = methodsCard(page)
-  // The seven a business starts with: only Efectivo goes into the drawer.
+  // The seven a business starts with: only Efectivo goes into the drawer, each with its suggested account.
   await expect(card.locator('tbody tr td:first-child')).toHaveText(['Efectivo', 'Tarjeta crédito', 'Tarjeta débito', 'Transferencia', 'Nequi', 'Daviplata', 'Otro'])
   await expect(await methodCell(page, 'Efectivo', 'Entra al cajón')).toHaveText('Sí')
   await expect(await methodCell(page, 'Nequi', 'Entra al cajón')).toHaveText('No')
+  await expect(await methodCell(page, 'Efectivo', 'Cuenta contable')).toHaveText('110505')
+  await expect(card).toContainText('La cuenta contable es la que usa el movimiento contable.')
+  await expect(card).not.toContainText('sale en las facturas')
 
   await card.getByRole('button', { name: 'Nueva forma de pago' }).click()
   const dialog = page.getByRole('dialog').filter({ hasText: 'Nueva forma de pago' })
   await dialog.getByLabel('Nombre').fill('Bancolombia')
   await expect(dialog.getByLabel('Entra al cajón')).not.toBeChecked()
   await expect(dialog.getByText('Como el efectivo: suma en el efectivo a entregar del cierre')).toBeVisible()
-  await dialog.getByLabel('Cuenta bancaria (opcional)').fill('Bancolombia ahorros 123-456')
-  await expect(dialog.getByText('Ej: Bancolombia ahorros 123-456. Sale en facturas y recibos')).toBeVisible()
+  // The cuenta contable takes digits only, with the accounting settings' message.
+  const account = dialog.getByLabel('Cuenta contable (opcional)')
+  await expect(dialog.getByText('Ej: 110505. La usa el movimiento contable')).toBeVisible()
+  await account.fill('1110 banco')
+  await account.blur()
+  await expect(dialog.getByText('La cuenta de Bancolombia debe tener solo números (p. ej., 110505).')).toBeVisible()
+  await account.fill('111005')
+  // Without a number there is nothing to show: the switch waits for it.
+  const show = dialog.getByLabel('Mostrar como observación en los documentos')
+  await expect(show).toBeDisabled()
+  await expect(dialog.getByText('Escribe el número de cuenta bancaria para mostrarlo')).toBeVisible()
+  await dialog.getByLabel('Número de cuenta bancaria (opcional)').fill('Bancolombia ahorros 123-456')
+  await expect(show).toBeEnabled()
+  await expect(show).not.toBeChecked()
+  await show.check()
+  await expect(dialog.getByText('Sale en las observaciones de facturas, cuentas de cobro, recibos de caja y tirillas')).toBeVisible()
+  await expect(dialog).not.toContainText('Sale en facturas y recibos')
   await dialog.getByLabel('Abonos a pedidos').uncheck()
   await dialog.getByLabel('Movimientos financieros').uncheck()
   await expect(dialog.getByLabel('Ventas')).toBeChecked()
@@ -1873,7 +1893,9 @@ test('una forma de pago propia se crea en Configuración, cobra una venta con su
   await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(page.getByText('Forma de pago «Bancolombia» guardada.')).toBeVisible()
   await expect(dialog).toBeHidden()
-  await expect(await methodCell(page, 'Bancolombia', 'Cuenta bancaria')).toHaveText('Bancolombia ahorros 123-456')
+  await expect(await methodCell(page, 'Bancolombia', 'Cuenta contable')).toHaveText('111005')
+  await expect(await methodCell(page, 'Bancolombia', 'Cuenta bancaria')).toHaveText(/^\s*Bancolombia ahorros 123-456\s*Se imprime\s*$/)
+  await expect(await methodCell(page, 'Nequi', 'Cuenta bancaria')).toHaveText('—')
   await expect(await methodCell(page, 'Bancolombia', 'Dónde se puede usar')).toHaveText('Ventas, Recibos de caja')
   await expect(await methodCell(page, 'Bancolombia', 'Entra al cajón')).toHaveText('No')
   await expect(await methodCell(page, 'Bancolombia', 'Estado')).toHaveText('Activa')
@@ -1881,7 +1903,9 @@ test('una forma de pago propia se crea en Configuración, cobra una venta con su
   // Renamed, and moved above Otro: the pickers follow this order.
   await card.getByRole('button', { name: 'Editar la forma de pago Bancolombia' }).click()
   const edit = page.getByRole('dialog').filter({ hasText: 'Editar Bancolombia' })
-  await expect(edit.getByLabel('Cuenta bancaria (opcional)')).toHaveValue('Bancolombia ahorros 123-456')
+  await expect(edit.getByLabel('Cuenta contable (opcional)')).toHaveValue('111005')
+  await expect(edit.getByLabel('Número de cuenta bancaria (opcional)')).toHaveValue('Bancolombia ahorros 123-456')
+  await expect(edit.getByLabel('Mostrar como observación en los documentos')).toBeChecked()
   await edit.getByLabel('Nombre').fill('Bancolombia Ahorros')
   await edit.getByRole('button', { name: 'Guardar' }).click()
   await expect(page.getByText('Forma de pago «Bancolombia Ahorros» guardada.')).toBeVisible()
@@ -1891,6 +1915,13 @@ test('una forma de pago propia se crea en Configuración, cobra una venta con su
   ])
   await expect(card.getByRole('button', { name: 'Subir la forma de pago Efectivo' })).toBeDisabled()
   await expect(card.getByRole('button', { name: 'Bajar la forma de pago Otro' })).toBeDisabled()
+
+  // The cuenta contable is the field Configurar contabilidad edits.
+  await page.locator('.v-navigation-drawer').getByText('Contabilidad', { exact: true }).click()
+  await page.getByRole('button', { name: 'Configurar contabilidad' }).click()
+  const accounting = page.getByRole('dialog').filter({ hasText: 'Configurar contabilidad' })
+  await expect(accounting.getByLabel('Cuenta de Bancolombia Ahorros', { exact: true })).toHaveValue('111005')
+  await accounting.getByRole('button', { name: 'Cerrar', exact: true }).click()
 
   // Pedidos offers it for the sale, in that order, and charges with it.
   await page.goto('/pedidos')
@@ -1904,8 +1935,11 @@ test('una forma de pago propia se crea en Configuración, cobra una venta con su
   await pay.getByRole('button', { name: 'Confirmar cobro' }).click()
   await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
 
+  // FORMA DE PAGO names the method; its bank account is an observation.
   const [invoice] = await Promise.all([page.waitForEvent('popup'), page.getByRole('button', { name: 'Generar factura' }).click()])
-  await expect(invoice.locator('.party')).toContainText('FORMA DE PAGO: Bancolombia Ahorros · Bancolombia ahorros 123-456')
+  await expect(invoice.locator('.party-row', { hasText: 'FORMA DE PAGO' })).toHaveText('FORMA DE PAGO: Bancolombia Ahorros')
+  await expect(invoice.locator('.notes')).toContainText('OBSERVACIONES:')
+  await expect(invoice.locator('.notes')).toContainText('Puedes pagar en Bancolombia Ahorros: Bancolombia ahorros 123-456')
   await invoice.close()
   await page.getByRole('button', { name: 'Pagados' }).click()
   const [ticket] = await Promise.all([
@@ -1914,7 +1948,11 @@ test('una forma de pago propia se crea en Configuración, cobra una venta con su
   ])
   await expect(ticket.locator('body')).toContainText('FORMA DE PAGO')
   const ticketText = await ticket.locator('body').innerText()
-  expect(ticketText.replace(/\s+/g, ' ')).toContain('FORMA DE PAGO: Bancolombia Ahorros · Bancolombia ahorros 123-456')
+  const ticketLines = ticketText.split('\n').map(line => line.trim())
+  expect(ticketLines).toContain('FORMA DE PAGO: Bancolombia Ahorros')
+  const notesAt = ticketLines.indexOf('OBSERVACIONES:')
+  expect(notesAt).toBeGreaterThan(ticketLines.indexOf('FORMA DE PAGO: Bancolombia Ahorros'))
+  expect(ticketLines.slice(notesAt + 1, notesAt + 3).join(' ')).toBe('Puedes pagar en Bancolombia Ahorros: Bancolombia ahorros 123-456')
   // Wrapped to the ticket's width: no line runs off the paper.
   expect(Math.max(...ticketText.split('\n').map(line => line.length))).toBeLessThanOrEqual(38)
   await ticket.close()
@@ -1939,6 +1977,51 @@ test('una forma de pago propia se crea en Configuración, cobra una venta con su
   await card.getByRole('button', { name: 'Eliminar la forma de pago Daviplata' }).click()
   await expect(page.getByText('Forma de pago «Daviplata» eliminada.')).toBeVisible()
   await expect(card.locator('tbody tr', { hasText: 'Daviplata' })).toHaveCount(0)
+})
+
+/**
+ * A bank account the business did not choose to show stays off the paper:
+ * the switch starts off, and neither the letter comprobante nor the ticket
+ * print the number, only the method's name.
+ */
+test('con el interruptor apagado la cuenta bancaria no sale en la factura ni en la tirilla', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `cuenta-oculta-${Date.now()}`)
+  const created = await request.post(`${API}/payment-methods`, {
+    headers: auth,
+    data: { name: 'Davivienda Local', bank_account: 'Davivienda corriente 555-000', documents: ['sale'] },
+  })
+  expect(created.status(), await created.text()).toBe(201)
+  expect((await created.json()).data.show_bank_account).toBe(false)
+  const productId = await seedSimpleProduct(request, auth, 'Sopa Oculta', 27300)
+  const order = (await (await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: productId, quantity: 1 }] } })).json()).data
+  const paid = await request.post(`${API}/orders/${order.id}/pay`, { headers: auth, data: { payment_method: 'davivienda-local' } })
+  expect(paid.ok(), await paid.text()).toBeTruthy()
+  const sale = (await (await request.get(`${API}/orders/${order.id}`, { headers: auth })).json()).data.payments[0]
+
+  await loginUI(page, credentials.email, credentials.password)
+  await page.goto('/configuracion')
+  await expect(await methodCell(page, 'Davivienda Local', 'Cuenta bancaria')).toHaveText('Davivienda corriente 555-000')
+
+  await page.goto('/ventas')
+  const [comprobante] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('button', { name: `Imprimir el comprobante ${sale.reference}` }).click(),
+  ])
+  await expect(comprobante.locator('.party-row', { hasText: 'FORMA DE PAGO' })).toHaveText('FORMA DE PAGO: Davivienda Local')
+  await expect(comprobante.locator('.notes')).toContainText('OBSERVACIONES:')
+  await expect(comprobante.locator('body')).not.toContainText('555-000')
+  await expect(comprobante.locator('body')).not.toContainText('Puedes pagar en')
+  await comprobante.close()
+
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Pagados' }).click()
+  const [ticket] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.locator('tbody tr', { hasText: '$27.300' }).getByRole('button', { name: 'Tirilla' }).click(),
+  ])
+  await expect(ticket.locator('body')).toContainText('FORMA DE PAGO: Davivienda Local')
+  await expect(ticket.locator('body')).not.toContainText('555-000')
+  await expect(ticket.locator('body')).not.toContainText('OBSERVACIONES')
 })
 
 /** A method of the business's own marked "Entra al cajón" is cash of the close, as Efectivo is. */

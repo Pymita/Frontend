@@ -78,7 +78,7 @@
                   v-model="businessForm.document_notes"
                   label="Observaciones de los documentos"
                   placeholder="Ej.: Favor consignar en Cta ahorros 37342931449 Bancolombia a nombre de…"
-                  hint="Salen al pie de cada factura, cuenta de cobro y recibo"
+                  hint="Salen en las observaciones de cada factura y cuenta de cobro"
                   persistent-hint
                   rows="2"
                   auto-grow
@@ -196,8 +196,9 @@
       </v-col>
     </v-row>
 
-    <!-- Formas de pago: cada negocio define las suyas, dónde se usa cada una
-         y la cuenta donde le pagan. El orden es el de los selectores de cobro. -->
+    <!-- Formas de pago: cada negocio define las suyas, dónde se usa cada una,
+         su cuenta contable y, si quiere, la cuenta bancaria donde le pagan.
+         El orden es el de los selectores de cobro. -->
     <v-row>
       <v-col cols="12">
         <v-card class="pa-4">
@@ -209,8 +210,9 @@
             </LockableButton>
           </div>
           <p class="text-caption text-medium-emphasis mb-3">
-            Las que ofreces al cobrar, en este orden. La cuenta bancaria sale en las facturas, los recibos de caja y
-            las cuentas de cobro para que tus clientes sepan dónde pagarte.
+            Las que ofreces al cobrar, en este orden. La cuenta contable es la que usa el movimiento contable. Si
+            escribes el número de cuenta bancaria, puedes mostrarlo como observación en las facturas, las cuentas de
+            cobro, los recibos de caja y las tirillas para que tus clientes sepan dónde pagarte.
           </p>
           <v-alert v-if="methodsError" type="error" variant="tonal" density="compact" class="mb-3">{{ methodsError }}</v-alert>
           <v-data-table
@@ -231,8 +233,17 @@
               <v-chip v-if="item.is_cash" size="x-small" variant="tonal" color="secondary" prepend-icon="mdi-cash-register">Sí</v-chip>
               <span v-else class="text-medium-emphasis">No</span>
             </template>
+            <template #item.account="{ item }">
+              <span v-if="item.account">{{ item.account }}</span>
+              <span v-else class="text-medium-emphasis">—</span>
+            </template>
             <template #item.bank_account="{ item }">
-              <span v-if="item.bank_account">{{ item.bank_account }}</span>
+              <div v-if="item.bank_account" class="d-flex flex-wrap align-center ga-1 py-1">
+                <span>{{ item.bank_account }}</span>
+                <v-chip v-if="item.show_bank_account" size="x-small" variant="tonal" color="secondary" prepend-icon="mdi-printer">
+                  Se imprime
+                </v-chip>
+              </div>
               <span v-else class="text-medium-emphasis">—</span>
             </template>
             <template #item.documents="{ item }">
@@ -522,11 +533,32 @@
               class="mb-2"
             />
             <v-text-field
+              v-model="methodForm.account"
+              label="Cuenta contable (opcional)"
+              :maxlength="ACCOUNT_MAX_LENGTH"
+              inputmode="numeric"
+              :rules="[accountRule(methodForm.name.trim() || 'la forma de pago')]"
+              hint="Ej: 110505. La usa el movimiento contable"
+              persistent-hint
+              class="mb-2"
+            />
+            <v-text-field
               v-model="methodForm.bank_account"
-              label="Cuenta bancaria (opcional)"
+              label="Número de cuenta bancaria (opcional)"
               :maxlength="BANK_ACCOUNT_MAX_LENGTH"
               :rules="[bankAccountRule]"
-              hint="Ej: Bancolombia ahorros 123-456. Sale en facturas y recibos"
+              hint="Ej: Bancolombia ahorros 123-456"
+              persistent-hint
+              class="mb-2"
+            />
+            <v-switch
+              v-model="methodForm.show_bank_account"
+              label="Mostrar como observación en los documentos"
+              color="primary"
+              :disabled="!methodForm.bank_account?.trim()"
+              :hint="methodForm.bank_account?.trim()
+                ? 'Sale en las observaciones de facturas, cuentas de cobro, recibos de caja y tirillas'
+                : 'Escribe el número de cuenta bancaria para mostrarlo'"
               persistent-hint
               class="mb-2"
             />
@@ -582,9 +614,11 @@ import { label, options, paymentDocumentLabels, taxRegimeLabels } from '../utils
 import { toIsoDate } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 import {
+  ACCOUNT_MAX_LENGTH,
   BANK_ACCOUNT_MAX_LENGTH,
   PAYMENT_METHOD_DOCUMENTS_MESSAGE,
   PAYMENT_METHOD_NAME_MAX_LENGTH,
+  accountRule,
   bankAccountRule,
   paymentMethodNameRules,
 } from '../utils/validation'
@@ -891,6 +925,7 @@ const { xs } = useDisplay()
 const methodHeaders = [
   { title: 'Nombre', key: 'name', sortable: false },
   { title: 'Entra al cajón', key: 'is_cash', sortable: false },
+  { title: 'Cuenta contable', key: 'account', sortable: false },
   { title: 'Cuenta bancaria', key: 'bank_account', sortable: false },
   { title: 'Dónde se puede usar', key: 'documents', sortable: false },
   { title: 'Estado', key: 'active', sortable: false },
@@ -906,7 +941,9 @@ const reordering = ref(false)
 const emptyMethod = (): PaymentMethodPayload => ({
   name: '',
   is_cash: false,
+  account: '',
   bank_account: '',
+  show_bank_account: false,
   documents: documentOptions.map(option => option.value),
   active: true,
 })
@@ -915,14 +952,21 @@ const methodForm = ref<PaymentMethodPayload>(emptyMethod())
 const payloadOf = (method: PaymentMethodRow): PaymentMethodPayload => ({
   name: method.name,
   is_cash: method.is_cash,
-  bank_account: method.bank_account,
+  account: method.account ?? '',
+  bank_account: method.bank_account ?? '',
+  show_bank_account: method.show_bank_account,
   documents: [...method.documents],
   active: method.active,
 })
 
+// Without a number there is nothing to show: the switch goes off with it, as the API keeps it.
+watch(() => methodForm.value.bank_account?.trim(), number => {
+  if (!number) methodForm.value.show_bank_account = false
+})
+
 const openMethodDialog = (method?: PaymentMethodRow) => {
   editingMethod.value = method ?? null
-  methodForm.value = method ? { ...payloadOf(method), bank_account: method.bank_account ?? '' } : emptyMethod()
+  methodForm.value = method ? payloadOf(method) : emptyMethod()
   methodError.value = ''
   methodDialog.value = true
 }
@@ -935,6 +979,7 @@ const saveMethod = async () => {
   const payload: PaymentMethodPayload = {
     ...methodForm.value,
     name: methodForm.value.name.trim(),
+    account: methodForm.value.account?.trim() || null,
     bank_account: methodForm.value.bank_account?.trim() || null,
   }
   try {

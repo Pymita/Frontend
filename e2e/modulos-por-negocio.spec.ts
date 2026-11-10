@@ -112,7 +112,7 @@ test('la plataforma puede personalizar los módulos de una empresa', async ({ pa
 })
 
 test('con todos los módulos lo fijo del menú cabe a 700 px y todo el menú a 900 px', async ({ page, request }) => {
-  // El menú más largo: Operación suma Facturación automática y Cartera.
+  // El menú más largo: Operación suma Facturación automática, Cartera y Contabilidad.
   const admin = await createCompany(request, 'other', 'todo')
   await page.setViewportSize({ width: 1366, height: 700 })
   await loginUI(page, admin.email, admin.password)
@@ -122,6 +122,7 @@ test('con todos los módulos lo fijo del menú cabe a 700 px y todo el menú a 9
 
   await expect(sidebarItem(page, 'Facturación automática')).toBeInViewport()
   await expect(sidebarItem(page, 'Cartera')).toBeInViewport()
+  await expect(sidebarItem(page, 'Contabilidad')).toBeInViewport()
   await expect(sidebarGroup(page, 'Administración')).toHaveAttribute('aria-expanded', 'false')
   await expect(sidebarGroup(page, 'Administración')).toBeInViewport({ ratio: 1 })
   await expect.poll(fits).toBe(true)

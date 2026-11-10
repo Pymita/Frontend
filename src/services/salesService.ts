@@ -22,8 +22,12 @@ export interface PaymentMethodRow {
   name: string
   /** Goes into the cash drawer like Efectivo: the close adds it to the cash to deliver. */
   is_cash: boolean
-  /** "Bancolombia ahorros 123-456": printed on facturas, recibos and cuentas de cobro. */
+  /** The cuenta contable (PUC) the accounting movement posts it to; also edited in Configurar contabilidad. */
+  account: string | null
+  /** "Bancolombia ahorros 123-456": where the customer pays. */
   bank_account: string | null
+  /** The bank account prints as an observation on the documents (never without a number). */
+  show_bank_account: boolean
   documents: PaymentDocument[]
   active: boolean
   position: number
@@ -34,13 +38,18 @@ export interface PaymentMethodRow {
 export interface PaymentMethodPayload {
   name: string
   is_cash: boolean
+  account: string | null
   bank_account: string | null
+  show_bank_account: boolean
   documents: PaymentDocument[]
   active: boolean
   position?: number
 }
 
-/** A method of a printed document with its current name and bank account (`payment_methods_detail`). */
+/**
+ * A method of a printed document (`payment_methods_detail`): its current name, and its bank
+ * account only when the method shows it, which the document prints as an observation.
+ */
 export interface PaymentMethodDetail {
   key: PaymentMethod
   name: string

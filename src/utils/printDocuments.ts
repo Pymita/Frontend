@@ -105,25 +105,30 @@ export interface PrintableReceipt {
   }[]
 }
 
-/** Where a customer can pay a monthly document (`pay_to`). */
+/** Where a customer can pay a monthly document (`pay_to`): the methods that show their bank account. */
 export interface PayToAccount {
   name: string
   bank_account: string
 }
 
 /**
- * "Transferencia · Bancolombia ahorros 123-456": each method with the account
- * the money goes to, so the customer knows where it was paid. A key the API
- * sent no detail for (a sale on credit) reads by its name alone.
+ * "Transferencia + Nequi": each method by its current name. A key the API
+ * sent no detail for reads by its label. The bank account is not here: it
+ * prints among the observations (bankAccountNotes()).
  */
 export const paymentMethodsText = (keys: string[], detail: PaymentMethodDetail[] = []): string =>
   (keys.length ? keys : detail.map(method => method.key))
-    .map(key => {
-      const found = detail.find(method => method.key === key)
-      const name = found?.name ?? paymentMethodLabel(key)
-      return found?.bank_account ? `${name} · ${found.bank_account}` : name
-    })
+    .map(key => detail.find(method => method.key === key)?.name ?? paymentMethodLabel(key))
     .join(' + ')
+
+/**
+ * One observation per method that shows its bank account ("Puedes pagar en
+ * Nequi: 300 123 4567"), the same words on every document. The API sends the
+ * account only when the method's switch is on.
+ */
+export const bankAccountNotes = (methods: { name: string; bank_account: string | null }[] = []): string[] => [
+  ...new Set(methods.filter(method => method.bank_account).map(method => `Puedes pagar en ${method.name}: ${method.bank_account}`)),
+]
 
 // ===== Valor en letras =====
 
@@ -267,26 +272,12 @@ const footer = (left: string, right: string) => `
   </div>
   <div class="printed-by">Documento impreso por computador · ${escape(APP_NAME)} · <span class="printed-at">${escape(printedAtText())}</span></div>`
 
-/**
- * The observations, and beside them where the customer can pay: side by
- * side, the box uses the height the observations already take, so a
- * one-line document still fits half a letter page.
- */
-const notesAndPayTo = (notes: string, payTo: PayToAccount[]): string => {
-  const notesBox = `
+/** The OBSERVACIONES box of a document: one line per note, in order (the text is escaped here). */
+const notesBox = (notes: (string | null | undefined)[]): string => `
     <div class="box notes">
       <div class="label">OBSERVACIONES:</div>
-      <div>${notes || '&nbsp;'}</div>
+      <div>${notes.filter(Boolean).map(escape).join('<br>') || '&nbsp;'}</div>
     </div>`
-  if (!payTo.length) return notesBox
-  return `
-    <div class="pay-notes">
-      <div class="box pay-to">
-        <div class="label">PUEDES PAGAR EN:</div>
-        ${payTo.map(account => `<div class="pay-to-account">${escape(account.name)} · ${escape(account.bank_account)}</div>`).join('')}
-      </div>${notesBox}
-    </div>`
-}
 
 export const invoiceHtml = (
   business: DocumentBusiness,
@@ -296,7 +287,6 @@ export const invoiceHtml = (
 ): string => {
   const isInvoice = invoice.document_kind === 'invoice'
   const kind = isInvoice ? 'FACTURA DE VENTA' : 'CUENTA DE COBRO'
-  const notes = [business.document_notes, invoice.notes].filter(Boolean).map(escape).join('<br>')
 
   return `
   <section class="document">
@@ -343,7 +333,7 @@ export const invoiceHtml = (
       </div>
     </div>
     <div class="son"><span class="label">SON:</span> ${escape(amountInWords(invoice.total))}</div>
-    ${notesAndPayTo(notes, payTo)}
+    ${notesBox([business.document_notes, invoice.notes, ...bankAccountNotes(payTo)])}
     ${footer('RECIBIDO / CLIENTE', 'FIRMA VENDEDOR')}
   </section>`
 }
@@ -380,7 +370,6 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
     lines.push({ quantity: 1, name, unit_price: sale.time_amount, total: sale.time_amount, tax_rate: 0, tax: '—' })
   }
   const methods = paymentMethodsText(sale.payment_methods, sale.payment_methods_detail)
-  const notes = [business.document_notes].filter(Boolean).map(escape).join('<br>')
 
   return `
   <section class="document">
@@ -432,10 +421,7 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
       </div>
     </div>
     <div class="son"><span class="label">SON:</span> ${escape(amountInWords(value))}</div>
-    <div class="box notes">
-      <div class="label">OBSERVACIONES:</div>
-      <div>${notes || '&nbsp;'}</div>
-    </div>
+    ${notesBox([business.document_notes, ...bankAccountNotes(sale.payment_methods_detail)])}
     ${footer('RECIBIDO / CLIENTE', 'ATENDIÓ')}
   </section>`
 }
@@ -501,10 +487,7 @@ export const receiptHtml = (business: DocumentBusiness, receipt: PrintableReceip
         <div class="grand-total"><span>TOTAL RECIBIDO:</span> <span>${money(receipt.total)}</span></div>
       </div>
     </div>
-    <div class="box notes">
-      <div class="label">OBSERVACIONES:</div>
-      <div>${[receipt.notes, receipt.received_by ? `Recibió: ${receipt.received_by}` : ''].filter(Boolean).map(escape).join('<br>') || '&nbsp;'}</div>
-    </div>
+    ${notesBox([receipt.notes, receipt.received_by ? `Recibió: ${receipt.received_by}` : '', ...bankAccountNotes(receipt.payment_methods_detail)])}
     ${footer('ENTREGA (QUIEN PAGA)', 'RECIBIDO POR')}
   </section>`
 
@@ -742,8 +725,6 @@ const STYLES = `
   .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; align-items: start; margin-top: 8px; }
   .compact td { padding: 3px 4px; }
   .notes { min-height: 22mm; }
-  .pay-notes { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
-  .pay-to-account { margin-top: 2px; }
   .resolution { margin-top: 4px; font-size: 11px; }
   .resolution span { display: inline-block; }
   .signatures { display: flex; justify-content: space-between; gap: 40px; margin-top: 36px; }

@@ -40,7 +40,7 @@
               v-for="item in group.items"
               :key="item.title"
               :to="item.route"
-              :exact="item.route === '/plataforma'"
+              :exact="item.exact"
               :prepend-icon="item.icon"
               :title="item.title"
               active-class="bg-chrome-active"
@@ -57,7 +57,7 @@
               v-for="item in group.items"
               :key="item.title"
               :to="item.route"
-              :exact="item.route === '/plataforma'"
+              :exact="item.exact"
               :prepend-icon="item.icon"
               :title="item.title"
               active-class="bg-chrome-active"
@@ -74,6 +74,8 @@
           <v-list-item
             :prepend-icon="loading ? 'mdi-loading' : 'mdi-logout'"
             :title="loading ? 'Cerrando sesión...' : 'Cerrar sesión'"
+            min-height="30"
+            class="py-0"
             @click="logout"
             :disabled="loading"
           >
@@ -294,13 +296,23 @@ const allMenuItems: MenuItem[] = [
   { title: 'Variantes', icon: 'mdi-tag-multiple', route: '/tipos-producto', requiresAdmin: true, feature: 'menu', group: 'Catálogo' },
   { title: 'Facturación automática', icon: 'mdi-calendar-sync', route: '/facturacion-automatica', feature: 'recurring_billing', group: 'Operación' },
   { title: 'Cartera', icon: 'mdi-wallet', route: '/cartera', feature: ['customers', 'recurring_billing'], group: 'Operación' },
+  // Informes on its movement, in a section that never folds: inside Administración nobody found it.
+  {
+    title: 'Contabilidad',
+    icon: 'mdi-calculator-variant',
+    route: '/informes?informe=movimiento-contable',
+    exact: true,
+    feature: 'reports',
+    requiresAccounting: true,
+    group: 'Operación',
+  },
   { title: 'Clientes', icon: 'mdi-account-multiple', route: '/clientes', feature: 'customers', group: 'Administración' },
   { title: 'Gastos', icon: 'mdi-cash-multiple', route: '/gastos', feature: 'expenses', group: 'Administración' },
-  { title: 'Informes', icon: 'mdi-file-chart-outline', route: '/informes', feature: 'reports', group: 'Administración' },
+  { title: 'Informes', icon: 'mdi-file-chart-outline', route: '/informes', exact: true, feature: 'reports', group: 'Administración' },
   { title: 'Finanzas', icon: 'mdi-finance', route: '/finanzas', requiresAdmin: true, group: 'Administración' },
   { title: 'Empleados', icon: 'mdi-account-cog', route: '/empleados', requiresAdmin: true, group: 'Administración' },
   { title: 'Configuración', icon: 'mdi-cog', route: '/configuracion', requiresAdmin: true, group: 'Administración' },
-  { title: 'Empresas', icon: 'mdi-domain', route: '/plataforma', superAdminOnly: true, group: 'Plataforma' },
+  { title: 'Empresas', icon: 'mdi-domain', route: '/plataforma', exact: true, superAdminOnly: true, group: 'Plataforma' },
   { title: 'Vendedores', icon: 'mdi-account-tie', route: '/plataforma/vendedores', superAdminOnly: true, group: 'Plataforma' },
   { title: 'Ventas por vendedor', icon: 'mdi-chart-line', route: '/plataforma/ventas', superAdminOnly: true, group: 'Plataforma' },
   { title: 'Seguridad', icon: 'mdi-shield-key', route: '/plataforma/seguridad', superAdminOnly: true, group: 'Plataforma' },
@@ -319,6 +331,9 @@ const availableMenuItems = computed((): MenuItem[] => {
       return false
     }
     if (item.requiresAdmin && !isAdmin.value) {
+      return false
+    }
+    if (item.requiresAccounting && !authStore.canUseAccounting) {
       return false
     }
     // La verificación aplica también al admin: sus funciones ya vienen
@@ -345,12 +360,16 @@ const isCollapsible = (group: string): boolean =>
 
 const openedGroups = ref<string[]>([])
 
+// Contabilidad is Informes with a query: the full path names the item first.
+const currentItem = (items: MenuItem[]): MenuItem | undefined =>
+  items.find(item => item.route === route.fullPath) ?? items.find(item => item.route === route.path)
+
 // La sección de la página actual se abre sola (al entrar por URL o al
 // navegar), así el ítem activo nunca queda escondido.
 watch(
-  [() => route.path, menuGroups],
+  [() => route.fullPath, menuGroups],
   () => {
-    const current = availableMenuItems.value.find(item => item.route === route.path)
+    const current = currentItem(availableMenuItems.value)
     if (current?.group && isCollapsible(current.group)) {
       openedGroups.value = [current.group]
     }
@@ -369,10 +388,8 @@ const roleLabel = computed((): string | null => {
   return null
 })
 
-const pageTitle = computed((): string => {
-  const item = allMenuItems.find((item: MenuItem) => item.route === route.path)
-  return item?.title || APP_NAME
-})
+// Among the user's own items first: without the grant, Informes with the movement's query is still Informes.
+const pageTitle = computed((): string => (currentItem(availableMenuItems.value) ?? currentItem(allMenuItems))?.title || APP_NAME)
 
 const logout = async (): Promise<void> => {
   loading.value = true
@@ -445,6 +462,8 @@ watch(() => route.fullPath, () => checkResolutionStatus())
 onMounted(() => {
   // Inicializar el store con datos del localStorage
   authStore.initializeAuth()
+  // Then what was granted since that session was stored, without waiting for it.
+  authStore.refreshUser()
   window.addEventListener(SUBSCRIPTION_BLOCKED_EVENT, onSubscriptionBlocked)
   window.addEventListener(TWO_FACTOR_REQUIRED_EVENT, onTwoFactorRequired)
   window.addEventListener(PASSWORD_CHANGE_REQUIRED_EVENT, onPasswordChangeRequired)
