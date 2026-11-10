@@ -7,19 +7,20 @@ import { ADMIN, API, apiLogin, displayDate, field, freezeTime, loginUI, raisePla
  * seguir agregándole productos a un pedido ya abierto.
  */
 
-/** Deja un producto publicado en el menú y devuelve su nombre y precio. */
+/**
+ * Deja un producto publicado en el menú y devuelve su nombre y precio. Sin
+ * `menu.category_id` le crea su propia categoría; `menu` también lleva el
+ * precio propio del ítem (`custom_price` + `use_automatic_price: false`).
+ */
 async function seedMenuItem(
   request: any,
   auth: Record<string, string>,
   name: string,
   price: number,
   product: Record<string, unknown> = {},
+  menu: Record<string, unknown> & { category_id?: number } = {},
 ) {
-  const category = await request.post(`${API}/categories`, {
-    headers: auth,
-    data: { name: `Categoría ${name}` },
-  })
-  const categoryId = (await category.json()).data.id
+  const categoryId = menu.category_id ?? (await createCategory(request, auth, `Categoría ${name}`))
 
   const created = await request.post(`${API}/products`, {
     headers: auth,
@@ -35,13 +36,37 @@ async function seedMenuItem(
   })
   const productId = (await created.json()).data.id
 
-  await request.post(`${API}/menu-items`, {
+  const item = await request.post(`${API}/menu-items`, {
     headers: auth,
-    data: { name, final_product_id: productId, category_id: categoryId, base_price: price },
+    data: { name, final_product_id: productId, category_id: categoryId, base_price: price, ...menu },
   })
+  expect(item.status(), await item.text()).toBe(201)
 
   return { productId, categoryId }
 }
+
+/** Una categoría del menú (dentro de `parentId` si se da); devuelve su id. */
+async function createCategory(request: any, auth: Record<string, string>, name: string, parentId?: number) {
+  const response = await request.post(`${API}/categories`, {
+    headers: auth,
+    data: { name, ...(parentId ? { parent_id: parentId } : {}) },
+  })
+  expect(response.status(), await response.text()).toBe(201)
+  return (await response.json()).data.id as number
+}
+
+/** Un cliente de la empresa sembrada; devuelve su id. */
+async function createCustomer(request: any, auth: Record<string, string>, name: string, documentNumber: string) {
+  const response = await request.post(`${API}/customers`, {
+    headers: auth,
+    data: { document_type: 'CC', document_number: documentNumber, name },
+  })
+  expect(response.status(), await response.text()).toBe(201)
+  return (await response.json()).data.id as number
+}
+
+/** "1234567" → "1.234.567": como se dicta una cédula. */
+const dotted = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
 
 test('crear un pedido con productos desde la web', async ({ page, request }) => {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
@@ -56,7 +81,7 @@ test('crear un pedido con productos desde la web', async ({ page, request }) => 
 
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill('Limonada Pedidos Web')
-  await dialog.getByText('Limonada Pedidos Web').first().click()
+  await dialog.getByText('Limonada Pedidos Web', { exact: true }).click()
 
   // El total del diálogo refleja lo elegido antes de guardar.
   await expect(dialog.getByText('Total: $7.300')).toBeVisible()
@@ -75,58 +100,182 @@ test('crear un pedido con productos desde la web', async ({ page, request }) => 
 })
 
 /**
- * A reserved table takes no orders: "Nuevo pedido" lists it greyed out with
- * who and when it waits for, and the API refuses an order sent anyway (the
- * waiter app already installed does not know about reservations).
+ * Bajo la mesa, una fila de categorías (las principales, en el orden de la
+ * app de meseros): una principal trae también lo de sus subcategorías, y el
+ * filtro se suma a la búsqueda.
  */
-test('una mesa reservada no se puede elegir para un pedido y el API la rechaza', async ({ page, request }) => {
-  await raisePlanLimits(request, { max_tables: 60 })
+test('el filtro por categoría deja sus productos, también los de sus subcategorías, y se suma a la búsqueda', async ({ page, request }) => {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
   const auth = { Authorization: `Bearer ${token}` }
   const stamp = Date.now()
-  const nickname = `Reservada ${stamp}`
-  const created = await request.post(`${API}/tables`, {
-    headers: auth,
-    data: { number: 100 + ((stamp + 600) % 800), nickname, capacity: 4 },
-  })
-  expect(created.status()).toBe(201)
-  const tableId = (await created.json()).data.id
-  const reserved = await request.post(`${API}/tables/${tableId}/reserve`, {
-    headers: auth,
-    data: { reserved_for: 'Ana', reserved_time: '20:00' },
-  })
-  expect(reserved.status()).toBe(200)
-  const { productId } = await seedMenuItem(request, auth, `Limonada Reservada ${stamp}`, 5000)
-
-  const refused = await request.post(`${API}/orders`, {
-    headers: auth,
-    data: { dining_table_id: tableId, items: [{ product_id: productId, quantity: 1 }] },
-  })
-  expect(refused.status()).toBe(422)
-  const body = await refused.json()
-  expect(body.table_reserved).toBe(true)
-  expect(body.message).toBe(
-    `La mesa ${nickname} está reservada a nombre de Ana para las 08:00 p. m. Quita la reserva cuando lleguen para tomar el pedido.`,
-  )
-  const orders = (await (await request.get(`${API}/orders?dining_table_id=${tableId}`, { headers: auth })).json()).data
-  expect(orders).toHaveLength(0)
+  const drinks = await createCategory(request, auth, `Bebidas ${stamp}`)
+  const beers = await createCategory(request, auth, `Cervezas ${stamp}`, drinks)
+  const food = await createCategory(request, auth, `Comidas ${stamp}`)
+  const lemonade = `Limonada ${stamp}`
+  const beer = `Club Colombia ${stamp}`
+  const arepa = `Arepa ${stamp}`
+  await seedMenuItem(request, auth, lemonade, 4100, {}, { category_id: drinks })
+  await seedMenuItem(request, auth, beer, 5200, {}, { category_id: beers })
+  await seedMenuItem(request, auth, arepa, 3300, {}, { category_id: food })
 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/pedidos')
   await page.getByRole('button', { name: 'Nuevo pedido' }).click()
-  await field(page, 'Mesa (opcional)').click()
-  const option = await scrollToOption(page, new RegExp(nickname))
-  await expect(option).toContainText('Reservada · Ana · 08:00 p. m.')
-  await expect(option).toHaveClass(/v-list-item--disabled/)
+  const dialog = page.getByRole('dialog')
+  const search = dialog.getByRole('textbox', { name: /Buscar producto/ })
+  const chip = (name: string) => dialog.getByRole('button', { name, exact: true })
 
-  // Without the reservation it is a table like any other.
-  await request.post(`${API}/tables/${tableId}/unreserve`, { headers: auth })
-  const accepted = await request.post(`${API}/orders`, {
+  await search.fill(String(stamp))
+  for (const name of [lemonade, beer, arepa]) await expect(dialog.getByText(name)).toBeVisible()
+  await expect(chip('Todas')).toHaveAttribute('aria-pressed', 'true')
+  // Only the main categories: a subcategory is inside its parent.
+  await expect(chip(`Cervezas ${stamp}`)).toHaveCount(0)
+
+  await chip(`Bebidas ${stamp}`).click()
+  await expect(chip(`Bebidas ${stamp}`)).toHaveAttribute('aria-pressed', 'true')
+  await expect(chip('Todas')).toHaveAttribute('aria-pressed', 'false')
+  await expect(dialog.getByText(lemonade)).toBeVisible()
+  await expect(dialog.getByText(beer)).toBeVisible()
+  await expect(dialog.getByText(arepa)).toHaveCount(0)
+
+  // The search narrows the category; another category with the same search has nothing.
+  await search.fill(beer)
+  await expect(dialog.getByText(beer)).toBeVisible()
+  await expect(dialog.getByText(lemonade)).toHaveCount(0)
+  await chip(`Comidas ${stamp}`).click()
+  await expect(dialog.getByText('Sin resultados')).toBeVisible()
+  await chip('Todas').click()
+  await expect(dialog.getByText(beer)).toBeVisible()
+
+  // What is picked under a filter is what the order takes.
+  await dialog.getByText(beer, { exact: true }).click()
+  await expect(dialog.getByText('Total: $5.200')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Crear pedido' }).click()
+  await expect(page.getByText('Pedido creado')).toBeVisible()
+})
+
+/**
+ * El cliente del pedido sale de la lista de clientes, no de un nombre
+ * escrito a mano: Consumidor final por defecto, se busca sin tildes o por la
+ * cédula con puntos, y el pedido se ve con su nombre en la lista y al cobrar.
+ */
+test('el cliente del pedido se elige de la lista y el pedido se ve con su nombre', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const name = `Lucía Peñalosa ${stamp}`
+  const document = String(stamp).slice(-9)
+  const customerId = await createCustomer(request, auth, name, document)
+  const coffee = `Tinto Cliente ${stamp}`
+  const bun = `Pandebono Consumidor ${stamp}`
+  await seedMenuItem(request, auth, coffee, 2600)
+  await seedMenuItem(request, auth, bun, 2700)
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  const dialog = page.getByRole('dialog')
+  const customerField = dialog.locator('.v-input').filter({ has: page.getByText('Cliente', { exact: true }) })
+  const customerBox = dialog.getByRole('combobox', { name: 'Cliente' })
+  await expect(customerField).toContainText('Consumidor final')
+  await expect(dialog.getByRole('textbox', { name: /Cliente \(opcional\)/ })).toHaveCount(0)
+
+  // By name, without its accents.
+  await customerBox.fill(`lucia penalosa ${stamp}`)
+  await page.getByRole('option', { name: `${name} (${document})` }).click()
+  await expect(customerField).toContainText(name)
+
+  await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill(coffee)
+  await dialog.getByText(coffee, { exact: true }).click()
+  await dialog.getByRole('button', { name: 'Crear pedido' }).click()
+  await expect(page.getByText('Pedido creado')).toBeVisible()
+  const row = page.locator('tbody tr', { hasText: name })
+  await expect(row).toBeVisible()
+  await expect(row).toContainText('$2.600')
+
+  // A new order starts again at Consumidor final; the document is found with its dots too.
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  await expect(customerField).toContainText('Consumidor final')
+  await customerBox.fill(dotted(document))
+  await expect(page.getByRole('option', { name: `${name} (${document})` })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(customerField).toContainText('Consumidor final')
+  await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill(bun)
+  await dialog.getByText(bun, { exact: true }).click()
+  await dialog.getByRole('button', { name: 'Crear pedido' }).click()
+  await expect(page.getByText('Pedido creado')).toBeVisible()
+
+  const orders = (await (await request.get(`${API}/orders`, { headers: auth })).json()).data
+  const withCustomer = orders.find((order: any) => order.items?.some((item: any) => item.product_name === coffee))
+  const withoutCustomer = orders.find((order: any) => order.items?.some((item: any) => item.product_name === bun))
+  expect([withCustomer.customer_id, withCustomer.customer_name]).toEqual([customerId, name])
+  expect([withoutCustomer.customer_id, withoutCustomer.customer_name]).toEqual([null, 'Cliente'])
+
+  // Charging it already shows who it goes to.
+  await row.getByRole('button', { name: 'Cobrar' }).click()
+  const payDialog = page.getByRole('dialog').filter({ hasText: 'Cobrar pedido' })
+  await expect(payDialog.locator('.v-input').filter({ has: page.getByText('Cliente (opcional)', { exact: true }) })).toContainText(name)
+})
+
+/**
+ * Lo que el diálogo suma es lo que el pedido cobra: un ítem con precio propio
+ * se mostraba a su precio base y el pedido salía por más.
+ */
+test('el precio que muestra el nuevo pedido es el que se cobra, también con precio propio', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const name = `Jugo Precio Propio ${Date.now()}`
+  await seedMenuItem(request, auth, name, 5000, {}, { custom_price: 6500, use_automatic_price: false })
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill(name)
+  await expect(dialog.locator('.v-list-item', { hasText: name })).toContainText('$6.500')
+  await dialog.getByText(name, { exact: true }).click()
+  await expect(dialog.getByText('Total: $6.500')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Crear pedido' }).click()
+  await expect(page.getByText('Pedido creado')).toBeVisible()
+
+  const orders = (await (await request.get(`${API}/orders`, { headers: auth })).json()).data
+  const created = orders.find((order: any) => order.items?.some((item: any) => item.product_name === name))
+  expect(Number(created.total)).toBe(6500)
+})
+
+/**
+ * Tomar pedidos no pide el permiso de Menú: el catálogo del diálogo es el de
+ * los meseros y los clientes salen de la búsqueda que no muestra sus datos.
+ */
+test('quien toma pedidos sin el permiso de menú crea el pedido desde la web, con su cliente', async ({ page, request }) => {
+  await raisePlanLimits(request, { max_users: 50 })
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const product = `Buñuelo Cajera ${stamp}`
+  const name = `Cliente Cajera ${stamp}`
+  await seedMenuItem(request, auth, product, 2800)
+  await createCustomer(request, auth, name, String(stamp).slice(-8))
+  const cashier = { username: `cajera.sinmenu.${stamp}`, password: 'secreto123' }
+  const employee = await request.post(`${API}/users`, {
     headers: auth,
-    data: { dining_table_id: tableId, items: [{ product_id: productId, quantity: 1 }] },
+    data: { name: 'Cajera sin menú', role: 'employee', permissions: ['orders', 'reports'], ...cashier },
   })
-  expect(accepted.status()).toBe(201)
-  await request.post(`${API}/orders/${(await accepted.json()).data.id}/cancel`, { headers: auth })
+  expect(employee.status()).toBe(201)
+
+  await loginUI(page, cashier.username, cashier.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill(product)
+  await dialog.getByText(product, { exact: true }).click()
+  await expect(dialog.getByText('Total: $2.800')).toBeVisible()
+  await dialog.getByRole('combobox', { name: 'Cliente' }).fill(name)
+  await page.getByRole('option', { name: new RegExp(name) }).click()
+  await dialog.getByRole('button', { name: 'Crear pedido' }).click()
+  await expect(page.getByText('Pedido creado')).toBeVisible()
+  await expect(page.getByText(/cargar el menú/)).toHaveCount(0)
+  await expect(page.locator('tbody tr', { hasText: name })).toContainText('$2.800')
 })
 
 /**
@@ -148,7 +297,7 @@ test('pedir más de lo que hay de un producto sin ventas en rojo muestra que no 
   await page.getByRole('button', { name: 'Nuevo pedido' }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill(name)
-  await dialog.getByText(name).first().click()
+  await dialog.getByText(name, { exact: true }).click()
   await dialog.getByRole('button', { name: `Agregar una unidad de ${name}` }).click()
   await expect(dialog.getByText('Total: $12.400')).toBeVisible()
 
@@ -183,7 +332,7 @@ test('agregar productos a un pedido que ya está abierto', async ({ page, reques
 
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill('Gaseosa Pedidos Web')
-  await dialog.getByText('Gaseosa Pedidos Web').first().click()
+  await dialog.getByText('Gaseosa Pedidos Web', { exact: true }).click()
   await dialog.getByRole('button', { name: 'Agregar', exact: true }).click()
 
   await expect(page.getByText('Productos agregados al pedido')).toBeVisible()
@@ -345,7 +494,7 @@ test('desde el plano se ve el pedido de la mesa y se gestiona ahí mismo', async
   await planDialog.getByRole('button', { name: 'Agregar productos' }).click()
   const addDialog = page.getByRole('dialog').last()
   await addDialog.getByRole('textbox', { name: /Buscar producto/ }).fill('Gaseosa Plano E2E')
-  await addDialog.getByText('Gaseosa Plano E2E').first().click()
+  await addDialog.getByText('Gaseosa Plano E2E', { exact: true }).click()
   await addDialog.getByRole('button', { name: 'Agregar', exact: true }).click()
   await expect(page.getByText('Productos agregados al pedido')).toBeVisible()
   await expect(planDialog.getByRole('cell', { name: 'Gaseosa Plano E2E', exact: true })).toBeVisible()
@@ -427,4 +576,59 @@ test('la lista de pedidos pide solo la página visible, también al refrescarse 
 
   expect(listRequests.length).toBeGreaterThan(0)
   expect(listRequests.filter(url => !url.includes('per_page='))).toEqual([])
+})
+
+/**
+ * A reserved table takes no orders: "Nuevo pedido" lists it greyed out with
+ * who and when it waits for, and the API refuses an order sent anyway (the
+ * waiter app already installed does not know about reservations).
+ */
+test('una mesa reservada no se puede elegir para un pedido y el API la rechaza', async ({ page, request }) => {
+  await raisePlanLimits(request, { max_tables: 60 })
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const nickname = `Reservada ${stamp}`
+  const created = await request.post(`${API}/tables`, {
+    headers: auth,
+    data: { number: 100 + ((stamp + 600) % 800), nickname, capacity: 4 },
+  })
+  expect(created.status()).toBe(201)
+  const tableId = (await created.json()).data.id
+  const reserved = await request.post(`${API}/tables/${tableId}/reserve`, {
+    headers: auth,
+    data: { reserved_for: 'Ana', reserved_time: '20:00' },
+  })
+  expect(reserved.status()).toBe(200)
+  const { productId } = await seedMenuItem(request, auth, `Limonada Reservada ${stamp}`, 5000)
+
+  const refused = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { dining_table_id: tableId, items: [{ product_id: productId, quantity: 1 }] },
+  })
+  expect(refused.status()).toBe(422)
+  const body = await refused.json()
+  expect(body.table_reserved).toBe(true)
+  expect(body.message).toBe(
+    `La mesa ${nickname} está reservada a nombre de Ana para las 08:00 p. m. Quita la reserva cuando lleguen para tomar el pedido.`,
+  )
+  const orders = (await (await request.get(`${API}/orders?dining_table_id=${tableId}`, { headers: auth })).json()).data
+  expect(orders).toHaveLength(0)
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  await field(page, 'Mesa (opcional)').click()
+  const option = await scrollToOption(page, new RegExp(nickname))
+  await expect(option).toContainText('Reservada · Ana · 08:00 p. m.')
+  await expect(option).toHaveClass(/v-list-item--disabled/)
+
+  // Without the reservation it is a table like any other.
+  await request.post(`${API}/tables/${tableId}/unreserve`, { headers: auth })
+  const accepted = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { dining_table_id: tableId, items: [{ product_id: productId, quantity: 1 }] },
+  })
+  expect(accepted.status()).toBe(201)
+  await request.post(`${API}/orders/${(await accepted.json()).data.id}/cancel`, { headers: auth })
 })

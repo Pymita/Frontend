@@ -150,8 +150,12 @@
                 <v-avatar color="primary" size="32" class="mr-2">
                   <span class="text-caption">{{ item.dining_table?.number || '?' }}</span>
                 </v-avatar>
-                <span>{{ item.dining_table?.display_name || 'Sin mesa' }}</span>
-                <span v-if="item.number" class="text-caption text-medium-emphasis ml-2">#{{ item.number }}</span>
+                <div>
+                  <span>{{ item.dining_table?.display_name || 'Sin mesa' }}</span>
+                  <span v-if="item.number" class="text-caption text-medium-emphasis ml-2">#{{ item.number }}</span>
+                  <!-- Only a registered customer: the waiter app writes the table's name in customer_name. -->
+                  <div v-if="item.customer_id" class="text-caption text-medium-emphasis">{{ item.customer_name }}</div>
+                </div>
               </div>
             </template>
             
@@ -704,11 +708,9 @@
             </div>
           </template>
           <template v-else>
-          <v-autocomplete
+          <CustomerPicker
             v-model="payCustomerId"
-            :items="customers"
-            :item-title="(c: any) => `${c.name} (${c.document_number})`"
-            item-value="id"
+            :known="payKnownCustomers"
             :label="onCredit ? undefined : 'Cliente (opcional)'"
             :hint="onCredit ? 'Queda debiendo la venta en Cartera' : 'Se registra en la venta y sale en la factura'"
             persistent-hint
@@ -717,7 +719,7 @@
             <template v-if="onCredit" #label>
               Cliente que queda debiendo <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
             </template>
-          </v-autocomplete>
+          </CustomerPicker>
 
           <!-- A crédito: what the customer owes goes to Cartera, nothing to the drawer. -->
           <template v-if="onCredit">
@@ -1043,10 +1045,12 @@
               />
             </v-col>
             <v-col cols="12" md="6">
-              <v-text-field
-                v-model="nuevoPedido.customer_name"
-                label="Cliente (opcional)"
-                placeholder="Ej: Juan Pérez"
+              <CustomerPicker
+                v-model="nuevoPedido.customer_id"
+                final-consumer
+                label="Cliente"
+                hint="Búscalo por nombre o documento"
+                persistent-hint
               />
             </v-col>
           </v-row>
@@ -1084,7 +1088,7 @@
           <v-divider class="my-4" />
 
           <ProductPicker
-            :items="menuItems"
+            :menu="menu"
             :loading="loadingMenu"
             :selection="nuevoPedido.items"
             :guest-names="nuevoPedido.guest_names"
@@ -1128,7 +1132,7 @@
         </v-card-title>
         <v-card-text class="pt-4">
           <ProductPicker
-            :items="menuItems"
+            :menu="menu"
             :loading="loadingMenu"
             :selection="itemsParaAgregar"
             :existing-guests="guestsOf(selectedOrder)"
@@ -1238,7 +1242,8 @@ import PartialPaymentDialog from '../components/PartialPaymentDialog.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'
 import ProductPicker from '../components/ProductPicker.vue'
-import { menuItemsService } from '@/services/menuService';
+import CustomerPicker from '../components/CustomerPicker.vue'
+import { categoriesService, type MenuCategoryNode } from '@/services/menuService';
 import { tablesService } from '@/services/tablesService';
 import { reservedTableLabel } from '@/utils/labels';
 import { effectiveFeatures } from '@/types/auth';
@@ -1357,13 +1362,14 @@ const guestOptions = computed(() => {
 // Nuevo pedido y "seguir pidiendo" sobre un pedido abierto.
 const nuevoPedidoDialog = ref(false);
 const agregarItemsDialog = ref(false);
-const menuItems = ref<any[]>([]);
+const menu = ref<MenuCategoryNode[]>([]);
 const loadingMenu = ref(false);
 const mesasDisponibles = ref<any[]>([]);
 const itemsParaAgregar = ref<PickedLine[]>([]);
 const nuevoPedido = ref({
   dining_table_id: null as number | null,
-  customer_name: '',
+  /** null: Consumidor final. */
+  customer_id: null as number | null,
   notes: '',
   items: [] as PickedLine[],
   guest_names: {} as Record<number, string>,
@@ -1713,6 +1719,11 @@ const chargeMethodOptions = computed(() =>
 const onCredit = computed(() => payMode.value === 'together' && payMethod.value === 'credit');
 const payDueDate = ref('');
 const creditCustomer = computed(() => customers.value.find(c => c.id === payCustomerId.value) ?? null);
+// The order's own customer reads by its name even when the full list is not readable (no customers permission).
+const payKnownCustomers = computed(() => [
+  ...customers.value,
+  ...(selectedOrder.value?.customer_id ? [{ id: selectedOrder.value.customer_id, name: selectedOrder.value.customer_name }] : []),
+]);
 const dueDateHint = computed(() =>
   creditCustomer.value?.billing_day
     ? `Su día de corte es el ${creditCustomer.value.billing_day}: vence el ${formatDay(payDueDate.value)}`
@@ -1846,7 +1857,7 @@ const openPayDialog = async (order: Order) => {
   selectedOrder.value = order;
   payMethod.value = firstSaleMethod();
   payTip.value = tipEnabled.value ? suggestedTip(order) : 0;
-  payCustomerId.value = null;
+  payCustomerId.value = order.customer_id ?? null;
   payDueDate.value = '';
   newCustomerOpen.value = false;
   payMode.value = hasBills(order) ? 'split' : 'together';
@@ -2366,17 +2377,19 @@ const eliminarItem = async () => {
 };
 
 // El menú y las mesas se cargan al abrir un diálogo, no al entrar a la página.
+// The waiters' menu: it opens without the Menú permission and its `price` is
+// what the order charges; with the categories hidden only from the app.
 const cargarCatalogo = async () => {
   loadingMenu.value = true;
   try {
-    const [items, mesas] = await Promise.all([
-      menuItemsService.getAll(),
+    const [categories, mesas] = await Promise.all([
+      categoriesService.getMenuPreview({ withHidden: true }),
       tablesService.getAvailable().catch(() => []),
     ]);
-    menuItems.value = items;
+    menu.value = categories;
     mesasDisponibles.value = mesas;
   } catch (error) {
-    showMessage(errorMessage(error, 'No se pudo cargar el menú'), 'error');
+    showMessage(errorMessage(error, 'No fue posible cargar el menú. Inténtalo de nuevo.'), 'error');
   } finally {
     loadingMenu.value = false;
   }
@@ -2385,7 +2398,7 @@ const cargarCatalogo = async () => {
 const openNuevoPedidoDialog = () => {
   nuevoPedido.value = {
     dining_table_id: props.tableId ?? null,
-    customer_name: '',
+    customer_id: null,
     notes: '',
     items: [],
     guest_names: {},
@@ -2429,7 +2442,7 @@ const crearPedido = async () => {
   try {
     await ordersService.create({
       dining_table_id: nuevoPedido.value.dining_table_id,
-      customer_name: nuevoPedido.value.customer_name || undefined,
+      customer_id: nuevoPedido.value.customer_id ?? undefined,
       notes: nuevoPedido.value.notes || undefined,
       items: nuevoPedido.value.items.map(line => ({
         menu_item_id: line.menu_item_id,

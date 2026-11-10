@@ -11,9 +11,12 @@ export interface PickedLine {
   guest_number: number | null;
 }
 
-/** El precio que se cobra es el final: puede venir de una variante o un ajuste. */
+/**
+ * El precio que se cobra es el final: puede venir de una variante o un ajuste.
+ * El menú lo manda como `price`; `base_price` no lleva el precio propio ni la variante.
+ */
 export const priceOf = (item: any): number =>
-  Number(item.final_price ?? item.custom_price ?? item.base_price ?? 0);
+  Number(item.price ?? item.final_price ?? item.custom_price ?? item.base_price ?? 0);
 
 const sameLine = (line: PickedLine, menuItemId: number, guest: number | null) =>
   line.menu_item_id === menuItemId && (line.guest_number ?? null) === (guest ?? null);

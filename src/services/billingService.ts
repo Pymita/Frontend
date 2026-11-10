@@ -57,6 +57,9 @@ export interface CustomerSegment extends CustomerSegmentRef {
 /** What the customer forms send: `segment_ids` leaves the customer with exactly those segments. */
 export type CustomerPayload = Partial<Omit<Customer, 'segments'>> & { segment_ids?: number[] }
 
+/** A customer as `GET /customers/lookup` answers it: whoever takes orders never reads their contact data. */
+export type CustomerLookup = Pick<Customer, 'id' | 'name' | 'document_type' | 'document_number' | 'verification_digit'>
+
 // ===== Facturación automática =====
 export type RecurringInvoiceStatus = 'pending' | 'partial' | 'paid' | 'cancelled'
 /**
@@ -427,6 +430,12 @@ export const billingService = {
 
   async getCustomer(id: number): Promise<Customer> {
     const response = await api.get<ApiResponse<Customer>>(`/customers/${id}`)
+    return response.data.data
+  },
+
+  /** Customers to pick for an order or a sale, by name or document; the first 50 when `q` is empty. */
+  async lookupCustomers(q = ''): Promise<CustomerLookup[]> {
+    const response = await api.get<ApiResponse<CustomerLookup[]>>('/customers/lookup', { params: q ? { q } : {} })
     return response.data.data
   },
 
