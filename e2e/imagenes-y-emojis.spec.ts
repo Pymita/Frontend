@@ -37,9 +37,11 @@ test('se puede crear una categoría subiendo una imagen y eligiendo un emoji', a
 
   await dialog.getByRole('button', { name: 'Guardar' }).click()
 
-  // La categoría queda listada con su miniatura.
+  // La categoría queda listada con su miniatura. Va al final (el orden del
+  // menú) y v-img no crea el <img> hasta que la fila entra en pantalla.
   const row = page.locator('tr', { hasText: 'Bebidas E2E' })
   await expect(row).toBeVisible()
+  await row.scrollIntoViewIfNeeded()
   await expect(row.locator('img')).toBeVisible()
 })
 
@@ -70,10 +72,7 @@ test('la imagen subida se guarda en la carpeta de la empresa', async ({ page, re
 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/categorias')
-  // La tabla ordena por nombre y pagina de a 10; con muchas categorías la nueva
-  // puede caer en otra página, así que ampliamos el tamaño de página para verla.
-  await page.locator('.v-data-table-footer__items-per-page .v-select').click()
-  await page.getByRole('option', { name: '100' }).click()
+  // Categorías muestra todo el árbol y la nueva va al final.
   // v-img no crea el <img> hasta que la fila entra en pantalla: se baja hasta ella
   // como lo haría el usuario, o la aserción depende de cuántas categorías haya antes.
   const row = page.locator('tr', { hasText: 'Con foto E2E' })

@@ -163,3 +163,99 @@ test.describe('eliminar una categoría con productos', () => {
     await expect(page.locator('.v-expansion-panel', { hasText: season })).toHaveCount(0)
   })
 })
+
+/**
+ * Ordenar: la dueña decide en qué orden ve el mesero las categorías y los
+ * productos de cada una. Lo nuevo llega al final, no por su nombre; se mueve
+ * con las flechas (pantallas táctiles, teclado) o arrastrando, y se guarda al
+ * instante en el orden que la app recibe de /menu/categories.
+ */
+test.describe('Ordenar el menú', () => {
+  test('lo nuevo llega al final y la dueña lo reordena con flechas y arrastrando', async ({ page, request }) => {
+    const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+    const auth = { Authorization: `Bearer ${token}` }
+    const stamp = Date.now()
+    const soups = `Orden Sopas ${stamp}`
+    const arepas = `Orden Arepas ${stamp}`
+    const [sancocho, ajiaco, mondongo] = ['Sancocho', 'Ajiaco', 'Mondongo'].map((name) => `${name} ${stamp}`)
+
+    const createCategory = async (name: string): Promise<number> => {
+      const created = await request.post(`${API}/categories`, { headers: auth, data: { name } })
+      expect(created.status()).toBe(201)
+      return (await created.json()).data.id
+    }
+    const publish = async (name: string, categoryId: number) => {
+      const product = await request.post(`${API}/products`, {
+        headers: auth,
+        data: { name, type: 'final', unit: 'unidad', sale_price: 12000, tracks_stock: false, category_id: categoryId, menu: {} },
+      })
+      expect(product.status()).toBe(201)
+    }
+    const soupsId = await createCategory(soups)
+    const arepasId = await createCategory(arepas)
+    for (const name of [sancocho, ajiaco, mondongo]) await publish(name, soupsId)
+    await publish(`Arepa de queso ${stamp}`, arepasId)
+
+    // What the waiter app reads, kept to what this test created.
+    const appMenu = async () => (await (await request.get(`${API}/menu/categories`, { headers: auth })).json()).data
+    const appCategories = async () =>
+      (await appMenu()).map((category: { name: string }) => category.name).filter((name: string) => [soups, arepas].includes(name))
+    const appItems = async () =>
+      (await appMenu()).find((category: { name: string }) => category.name === soups).items.map((item: { name: string }) => item.name)
+
+    const panelNames = async () =>
+      (await page.locator('.v-expansion-panel-title .font-weight-medium').allTextContents())
+        .map((name) => name.trim())
+        .filter((name) => [soups, arepas].includes(name))
+    const itemNames = () => page.locator('.v-expansion-panel', { hasText: soups }).locator('.v-list-item-title')
+
+    await loginUI(page, ADMIN.email, ADMIN.password)
+    await page.goto('/menu')
+
+    // Created last, they come last and in the order they were created, not alphabetically.
+    await expect.poll(panelNames).toEqual([soups, arepas])
+    await expect(itemNames()).toHaveText([sancocho, ajiaco, mondongo])
+
+    await page.getByRole('button', { name: 'Ordenar' }).click()
+    await expect(page.getByText('Arrastra las categorías y los productos, o usa las flechas.')).toBeVisible()
+    await expect(page.getByRole('button', { name: `Subir la categoría ${soups}` })).toBeEnabled()
+    await expect(page.getByRole('button', { name: `Mover al final la categoría ${arepas}` })).toBeDisabled()
+    await expect(page.getByRole('button', { name: `Mover al inicio el producto ${sancocho}` })).toBeDisabled()
+
+    // Flechas.
+    await page.getByRole('button', { name: `Subir la categoría ${arepas}` }).click()
+    await expect.poll(panelNames).toEqual([arepas, soups])
+    await page.getByRole('button', { name: `Mover al inicio el producto ${mondongo}` }).click()
+    await expect(itemNames()).toHaveText([mondongo, sancocho, ajiaco])
+    await page.getByRole('button', { name: `Mover al final el producto ${sancocho}` }).click()
+    await expect(itemNames()).toHaveText([mondongo, ajiaco, sancocho])
+    await expect(page.getByText('Orden guardado.')).toBeVisible()
+    await expect.poll(appCategories).toEqual([arepas, soups])
+    await expect.poll(appItems).toEqual([mondongo, ajiaco, sancocho])
+
+    // Arrastrando: the handle onto the row whose place it takes.
+    await page.getByTitle(`Arrastrar el producto ${sancocho}`).dragTo(itemNames().filter({ hasText: mondongo }))
+    await expect(itemNames()).toHaveText([sancocho, mondongo, ajiaco])
+    await page
+      .getByTitle(`Arrastrar la categoría ${soups}`)
+      .dragTo(page.locator('.v-expansion-panel-title', { hasText: arepas }))
+    await expect.poll(panelNames).toEqual([soups, arepas])
+    await expect.poll(appCategories).toEqual([soups, arepas])
+    await expect.poll(appItems).toEqual([sancocho, mondongo, ajiaco])
+
+    // Done ordering, and after a reload, Menú reads the saved order.
+    await page.getByRole('button', { name: 'Listo' }).click()
+    await expect(page.getByRole('button', { name: `Subir la categoría ${soups}` })).toHaveCount(0)
+    await page.reload()
+    await expect.poll(panelNames).toEqual([soups, arepas])
+    await expect(itemNames()).toHaveText([sancocho, mondongo, ajiaco])
+
+    // Categorías lists the same order, the newest one included (it went last).
+    await page.goto('/categorias')
+    await expect(page.locator('tr', { hasText: arepas })).toBeVisible()
+    const rows = await page.locator('tbody tr').allTextContents()
+    const row = (name: string) => rows.findIndex((text) => text.includes(name))
+    expect(row(soups)).toBeGreaterThanOrEqual(0)
+    expect(row(soups)).toBeLessThan(row(arepas))
+  })
+})

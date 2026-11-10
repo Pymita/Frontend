@@ -19,10 +19,15 @@
     <v-row>
       <v-col cols="12">
         <v-card>
+          <!--
+            The whole tree by default: a new category goes last (the menu's
+            order), and pages would hide it and split branches from their parent.
+          -->
           <v-data-table
             :headers="headers"
             :items="categorias"
             :loading="loading"
+            :items-per-page="-1"
             class="elevation-0"
           >
             <template #item.name="{ item }">
