@@ -1830,6 +1830,8 @@ const dayLabel = (iso: string): string => {
 const methodsCard = (page: Page) => page.locator('.v-card').filter({ has: page.getByRole('heading', { name: 'Formas de pago' }) })
 async function methodCell(page: Page, name: string, header: string) {
   const card = methodsCard(page)
+  // allInnerTexts() does not wait: on a slow runner the table is not drawn yet.
+  await expect(card.locator('thead th', { hasText: header }).first()).toBeVisible()
   const headers = (await card.locator('thead th').allInnerTexts()).map(text => text.trim())
   const index = headers.indexOf(header)
   expect(index, `columna «${header}»`).toBeGreaterThanOrEqual(0)
