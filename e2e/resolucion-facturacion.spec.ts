@@ -13,6 +13,7 @@ import {
   loginUI,
   pdfText,
   sidebarItem,
+  uniqueNit,
   watchPrinting,
 } from './helpers'
 
@@ -376,15 +377,15 @@ test('un cobro revertido y vuelto a cobrar imprime el número de la venta nueva'
   expect(ticket.text).not.toMatch(/\d{4}-\d{2}-\d{2}/)
   await ticket.popup.close()
 
-  // Con el NIT cargado en Datos del negocio, el régimen sale junto a él.
-  const nit = `900${Date.now() % 1_000_000}`
+  // Con el NIT cargado en Datos del negocio, el régimen sale junto a él, y el NIT con su DV.
+  const { nit, digit } = uniqueNit('9')
   const business = await request.put(`${API}/invoicing/business`, {
     headers: auth,
     data: { legal_name: 'Tirilla SAS', nit, tax_regime: 'common', address: 'Calle 10 # 5-20', phone: '3001234567' },
   })
   expect(business.ok()).toBeTruthy()
   const withNit = await printTicket()
-  expect(withNit.text).toContain(`NIT ${nit}`)
+  expect(withNit.text).toContain(`NIT ${nit}-${digit}`)
   expect(withNit.text).toContain('Responsable de IVA')
   expect(withNit.text).toContain('FACTURA DE VENTA No. FE2')
   await withNit.popup.close()

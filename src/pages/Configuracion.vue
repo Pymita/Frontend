@@ -35,12 +35,28 @@
               <v-col cols="12" md="6">
                 <v-text-field v-model="businessForm.trade_name" label="Nombre comercial (opcional)" />
               </v-col>
-              <v-col cols="12" md="4">
-                <v-text-field v-model="businessForm.nit" :rules="[required]">
-                  <template #label>NIT o documento <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+              <v-col cols="8" md="3">
+                <v-text-field
+                  v-model="businessForm.nit"
+                  :rules="[required, documentRule('NIT')]"
+                  hint="Persona natural: tu cédula, que es tu NIT en el RUT"
+                  persistent-hint
+                  @blur="tidyNit"
+                >
+                  <template #label>NIT <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
                 </v-text-field>
               </v-col>
-              <v-col cols="12" md="4">
+              <v-col cols="4" md="2">
+                <v-text-field
+                  :model-value="nitDigit ?? ''"
+                  label="DV"
+                  readonly
+                  hint="Lo calcula el sistema"
+                  persistent-hint
+                  aria-label="Dígito de verificación del NIT del negocio"
+                />
+              </v-col>
+              <v-col cols="12" md="3">
                 <v-select
                   v-model="businessForm.tax_regime"
                   :items="taxRegimeOptions"
@@ -658,6 +674,10 @@ import {
   PAYMENT_METHOD_NAME_MAX_LENGTH,
   accountRule,
   bankAccountRule,
+  customerVerificationDigit,
+  documentProblem,
+  documentRule,
+  normalizeDocument,
   paymentMethodNameRules,
 } from '../utils/validation'
 
@@ -710,11 +730,18 @@ const emptyBusiness = (): BusinessForm => ({
 const businessForm = ref<BusinessForm>(emptyBusiness())
 const required = (v: string | null | undefined) => !!(v && String(v).trim()) || 'Este campo es obligatorio'
 const taxRegimeOptions = options(taxRegimeLabels)
+// Live, as the customer forms show it; the API computes the one every document prints.
+const nitDigit = computed(() => customerVerificationDigit('NIT', normalizeDocument(businessForm.value.nit, 'NIT')))
+const tidyNit = () => {
+  if (!documentProblem(businessForm.value.nit, 'NIT')) {
+    businessForm.value.nit = normalizeDocument(businessForm.value.nit, 'NIT')
+  }
+}
 
 const loadBusiness = async () => {
   try {
     business.value = await billingService.getBusiness()
-    const { complete: _complete, ...data } = business.value
+    const { complete: _complete, verification_digit: _digit, ...data } = business.value
     businessForm.value = { ...emptyBusiness(), ...data }
   } catch {
     // Sin la sección no se bloquea el resto de la configuración.

@@ -493,7 +493,10 @@ const VOUCHER_MAX_LENGTH = 20
 const FIXED = 'fixed'
 const MAX_COLUMNS = 40
 /** What "Genérica" carries: a new template starts from it. */
-const GENERIC_COLUMNS = ['voucher', 'document_number', 'date', 'account', 'third_party_document', 'third_party_name', 'description', 'debit', 'credit', 'base']
+const GENERIC_COLUMNS = [
+  'voucher', 'document_number', 'date', 'account', 'third_party_document', 'third_party_dv',
+  'third_party_name', 'description', 'debit', 'credit', 'base', 'tax_rate',
+]
 
 const tab = ref<AccountingTab>('payment_methods')
 const settings = ref<AccountingSettings | null>(null)

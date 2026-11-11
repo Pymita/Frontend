@@ -11,7 +11,7 @@ import { money } from './money'
 import type { CashPeriodTotals, CashSession } from '../services/salesService'
 import type { CashReceipt } from '../services/billingService'
 import { closeMethodLabel, compareMethodKeys, drawerText, paymentMethodLabel } from '../composables/usePaymentMethods'
-import { differenceText, printedAtText, type DocumentBusiness } from './printDocuments'
+import { differenceText, printedAtText, printedDocument, type DocumentBusiness } from './printDocuments'
 
 export interface AbonosPdfFilters {
   from?: string
@@ -102,7 +102,7 @@ const writeHeader = (doc: jsPDF, business: DocumentBusiness, title: string, line
   y += 16
   doc.setFontSize(9)
   const headerBits = [
-    business.nit ? `NIT ${business.nit}` : null,
+    business.nit ? `NIT ${printedDocument('NIT', business.nit)}` : null,
     [business.address, business.city].filter(Boolean).join(', ') || null,
     business.phone || null,
   ].filter(Boolean)

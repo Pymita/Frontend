@@ -268,7 +268,7 @@ export interface PaymentHistoryPage {
 }
 
 /** Datos del negocio editables (encabezado de facturas y recibos) */
-export type BusinessForm = Omit<DocumentBusiness, 'complete'>
+export type BusinessForm = Omit<DocumentBusiness, 'complete' | 'verification_digit'>
 
 /** A monthly document as it prints. */
 export interface InvoiceDocument {
@@ -348,7 +348,11 @@ export interface CustomerPaymentPayload {
 export interface Supplier {
   id: number
   name: string
+  /** NIT, CC, CE…; null without a document, or for one saved before suppliers had a type that is not a NIT. */
+  document_type?: string | null
   document_number?: string | null
+  /** DIAN verification digit, computed by the API for a NIT or a CC (never typed) */
+  verification_digit?: string | null
   phone?: string | null
   email?: string | null
   address?: string | null

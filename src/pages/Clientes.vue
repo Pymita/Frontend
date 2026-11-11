@@ -228,6 +228,20 @@
                   </v-chip>
                 </template>
 
+                <template #item.document_type="{ item }">
+                  <v-chip v-if="item.document_type" size="small" color="primary" variant="outlined">
+                    {{ item.document_type }}
+                  </v-chip>
+                  <span v-else class="text-medium-emphasis">—</span>
+                </template>
+
+                <template #item.verification_digit="{ item }">
+                  <span v-if="item.verification_digit !== null && item.verification_digit !== undefined" class="tabular-nums">
+                    {{ item.verification_digit }}
+                  </span>
+                  <span v-else class="text-medium-emphasis">—</span>
+                </template>
+
                 <template #item.actions="{ item }">
                   <v-btn
                     icon="mdi-pencil"
@@ -403,7 +417,7 @@
     </v-dialog>
 
     <!-- Dialog Proveedor -->
-    <v-dialog v-model="supplierDialog" max-width="700px" persistent>
+    <v-dialog v-model="supplierDialog" max-width="800px" persistent>
       <v-card>
         <v-card-title class="bg-primary">
           {{ supplierEditing ? 'Editar proveedor' : 'Nuevo proveedor' }}
@@ -426,14 +440,33 @@
                   </template>
                 </v-text-field>
               </v-col>
-              <v-col cols="12" md="6">
+              <v-col cols="12" md="4">
+                <v-select
+                  v-model="supplierForm.document_type"
+                  :items="tiposDocumento"
+                  label="Tipo de documento"
+                  variant="outlined"
+                  density="comfortable" />
+              </v-col>
+              <v-col :cols="supplierShowsDigit ? 8 : 12" :md="supplierShowsDigit ? 5 : 8">
                 <v-text-field
                   v-model="supplierForm.document_number"
-                  label="Documento / NIT"
+                  label="Número de documento"
                   variant="outlined"
                   density="comfortable"
-                  :rules="[documentRule()]"
+                  :rules="[documentRule(supplierForm.document_type)]"
                   @blur="tidySupplierDocument" />
+              </v-col>
+              <v-col v-if="supplierShowsDigit" cols="4" md="3">
+                <v-text-field
+                  :model-value="supplierDigit ?? ''"
+                  label="DV"
+                  variant="outlined"
+                  density="comfortable"
+                  readonly
+                  hint="Lo calcula el sistema"
+                  persistent-hint
+                  aria-label="Dígito de verificación del proveedor" />
               </v-col>
               <v-col cols="12" md="6">
                 <v-text-field
@@ -957,6 +990,7 @@ const showMessage = (text: string, color: 'success' | 'error' | 'warning') => {
 interface SupplierForm {
   id?: number
   name: string
+  document_type: string
   document_number?: string
   phone?: string
   email?: string
@@ -974,14 +1008,18 @@ const supplierFormRef = ref<any>(null)
 
 const supplierHeaders = [
   { title: 'Nombre', key: 'name', sortable: true },
-  { title: 'Documento / NIT', key: 'document_number', sortable: true },
+  { title: 'Tipo doc', key: 'document_type', sortable: true },
+  { title: 'Documento', key: 'document_number', sortable: true },
+  { title: 'DV', key: 'verification_digit', sortable: false },
   { title: 'Teléfono', key: 'phone', sortable: false },
   { title: 'Correo', key: 'email', sortable: false },
   { title: 'Acciones', key: 'actions', sortable: false, align: 'end' as const },
 ]
 
+// Suppliers are businesses: a new one starts as a NIT.
 const emptySupplierForm = (): SupplierForm => ({
   name: '',
+  document_type: 'NIT',
   document_number: '',
   phone: '',
   email: '',
@@ -990,6 +1028,12 @@ const emptySupplierForm = (): SupplierForm => ({
 })
 
 const supplierForm = ref<SupplierForm>(emptySupplierForm())
+
+const supplierShowsDigit = computed(() => VERIFICATION_DIGIT_TYPES.includes(supplierForm.value.document_type))
+const supplierDigit = computed(() => {
+  const { document_type, document_number } = supplierForm.value
+  return customerVerificationDigit(document_type, normalizeDocument(document_number, document_type))
+})
 
 const loadSuppliers = async () => {
   loadingSuppliers.value = true
@@ -1009,6 +1053,8 @@ const openSupplierDialog = (supplier?: Supplier) => {
     supplierForm.value = {
       id: supplier.id,
       name: supplier.name,
+      // One saved without a type opens as a NIT: a wrong digit then says the right one.
+      document_type: supplier.document_type || 'NIT',
       document_number: supplier.document_number || '',
       phone: supplier.phone || '',
       email: supplier.email || '',
@@ -1022,9 +1068,9 @@ const openSupplierDialog = (supplier?: Supplier) => {
 }
 
 const tidySupplierDocument = () => {
-  const document = supplierForm.value.document_number
-  if (!documentProblem(document)) {
-    supplierForm.value.document_number = normalizeDocument(document)
+  const { document_type, document_number } = supplierForm.value
+  if (!documentProblem(document_number, document_type)) {
+    supplierForm.value.document_number = normalizeDocument(document_number, document_type)
   }
 }
 
@@ -1032,7 +1078,8 @@ const saveSupplier = async () => {
   const { valid } = await supplierFormRef.value.validate()
   if (!valid) return
 
-  const payload = { ...supplierForm.value, document_number: normalizeDocument(supplierForm.value.document_number) }
+  const { document_type, document_number } = supplierForm.value
+  const payload = { ...supplierForm.value, document_number: normalizeDocument(document_number, document_type) }
   savingSupplier.value = true
   try {
     if (supplierEditing.value?.id) {

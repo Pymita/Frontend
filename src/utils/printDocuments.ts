@@ -20,7 +20,10 @@ import type { OrderReceipt, ReceiptTimeDetail } from '../services/ordersService'
 export interface DocumentBusiness {
   legal_name: string
   trade_name?: string | null
+  /** Without its verification digit; print it with `printedDocument('NIT', nit)`. */
   nit?: string | null
+  /** The API's DIAN digit of `nit` (null for one saved before 2026-11 that prints as typed). */
+  verification_digit?: string | null
   tax_regime?: string | null
   address?: string | null
   city?: string | null
@@ -230,7 +233,7 @@ const header = (business: DocumentBusiness, kind: string, number: string, resolu
       <div class="business">
         <div class="business-name">${escape(business.legal_name)}</div>
         ${business.trade_name ? `<div>${escape(business.trade_name)}</div>` : ''}
-        ${business.nit || regime ? `<div>${business.nit ? `NIT: ${escape(business.nit)}` : ''}${business.nit && regime ? ' · ' : ''}${escape(regime.toUpperCase())}</div>` : ''}
+        ${business.nit || regime ? `<div>${business.nit ? `NIT: ${escape(printedDocument('NIT', business.nit))}` : ''}${business.nit && regime ? ' · ' : ''}${escape(regime.toUpperCase())}</div>` : ''}
         ${business.address ? `<div>${escape(business.address)}</div>` : ''}
         ${business.phone || place ? `<div>${business.phone ? `TELÉFONO: ${escape(business.phone)}` : ''} ${escape(place.toUpperCase())}</div>` : ''}
         ${business.email ? `<div>${escape(business.email)}</div>` : ''}
@@ -244,12 +247,13 @@ const header = (business: DocumentBusiness, kind: string, number: string, resolu
 }
 
 /**
- * The buyer's document as every printed document writes it: the number
- * without the letter that tells customers with the same document apart
- * ("123-A" prints 123) and, next to a NIT, its DIAN verification digit
- * ("900123456-8"); a CC prints without it. The consumidor final's NIT is
- * not a RUT and prints bare, and a document issued when the NIT kept the
- * digit typed after a dash reprints as it was.
+ * A document as every printed document writes it: the number without the
+ * letter that tells customers with the same document apart ("123-A" prints
+ * 123) and, next to a NIT, its DIAN verification digit ("900123456-8"); a
+ * buyer's CC prints without it. The business's own NIT goes through here
+ * too, as 'NIT' (a natural person's cédula is the NIT of its RUT). The
+ * consumidor final's NIT is not a RUT and prints bare, and a document issued
+ * when the NIT kept the digit typed after a dash reprints as it was.
  */
 export const printedDocument = (type: string | null | undefined, document: string | null | undefined): string => {
   const number = documentBase(document)

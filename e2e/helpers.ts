@@ -311,6 +311,24 @@ export function totp(secret: string, at = Date.now()): string {
   return String(value % 1_000_000).padStart(6, '0')
 }
 
+/**
+ * The DIAN verification digit of a NIT, worked out here and not imported
+ * from the app, so a spec checks the screen against the DIAN's rule: each
+ * digit from the right times 3, 7, 13, 17…; r = sum mod 11; r if 0 or 1, else 11 − r.
+ */
+export function nitDigit(nit: string): string {
+  const weights = [3, 7, 13, 17, 19, 23, 29, 37, 41, 43, 47, 53, 59, 67, 71]
+  const sum = [...nit].reverse().reduce((total, digit, position) => total + Number(digit) * weights[position]!, 0)
+  const remainder = sum % 11
+  return String(remainder < 2 ? remainder : 11 - remainder)
+}
+
+/** A NIT no other company of this run has (the NIT is unique across the platform), and its digit. */
+export function uniqueNit(prefix = '9'): { nit: string; digit: string } {
+  const nit = `${prefix}${String(Date.now()).slice(-8)}`
+  return { nit, digit: nitDigit(nit) }
+}
+
 const excelColumn = (index: number): string => {
   let letters = ''
   for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) {
