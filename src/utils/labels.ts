@@ -289,6 +289,21 @@ export const movementTypeColors: Record<string, string> = {
   out: 'error',
 }
 
+/** What became of a numbered document in "Relación de facturas de venta": the last three left the number spent. */
+export const invoiceStatusLabels: Record<string, string> = {
+  issued: 'Emitida',
+  reverted: 'Revertida',
+  cancelled: 'Anulada',
+  order_cancelled: 'Pedido cancelado',
+}
+
+export const invoiceStatusColors: Record<string, string> = {
+  issued: 'success',
+  reverted: 'warning',
+  cancelled: 'error',
+  order_cancelled: 'error',
+}
+
 // ===== Contabilidad =====
 /** The side an account posts on in the normal entry (`nature` in /accounting/settings). */
 export const accountingNatureLabels: Record<string, string> = {
@@ -322,6 +337,7 @@ export const enumLabels: Record<string, Record<string, string>> = {
   expense_payment_method: expensePaymentMethodLabels,
   payment_status: paymentStatusLabels,
   movement_type: movementTypeLabels,
+  invoice_status: invoiceStatusLabels,
 }
 
 /** Enums that are states (or a kardex direction): their cells read as a chip of its role. */
@@ -330,6 +346,7 @@ export const enumColors: Record<string, Record<string, string>> = {
   document_status: recurringInvoiceStatusColors,
   payment_status: paymentStatusColors,
   movement_type: movementTypeColors,
+  invoice_status: invoiceStatusColors,
 }
 
 /** Opciones de un v-select a partir de un mapa de etiquetas, en su orden. */
