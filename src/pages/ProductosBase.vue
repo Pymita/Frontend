@@ -172,6 +172,7 @@
             </template>
             <template #item.name="{ item }">
               {{ item.name }}
+              <v-chip v-if="item.is_combo" size="x-small" variant="tonal" prepend-icon="mdi-package-variant-closed" class="ml-1">Combo</v-chip>
               <v-chip v-if="item.active === false" size="x-small" variant="tonal" class="ml-1">Inactivo</v-chip>
             </template>
             <template #item.category="{ item }">
@@ -220,7 +221,7 @@
               <span v-else class="text-medium-emphasis">-</span>
             </template>
             <template #item.actions="{ item }">
-              <v-tooltip v-if="hasRecipes && item.type !== 'raw_material'" text="Gestionar receta">
+              <v-tooltip v-if="hasRecipes && item.type !== 'raw_material' && !item.is_combo" text="Gestionar receta">
                 <template #activator="{ props }">
                   <v-btn
                     v-bind="props"
@@ -349,7 +350,7 @@
                       </template>
                     </v-combobox>
                   </v-col>
-                  <v-col v-if="formData.type !== 'intermediate'" cols="12" sm="6" md="4">
+                  <v-col v-if="formData.type !== 'intermediate' && !isCombo" cols="12" sm="6" md="4">
                     <MoneyField
                       v-model="formData.unit_cost"
                       label="Precio de costo"
@@ -406,9 +407,98 @@
 
             <v-row dense>
               <v-col cols="12" :md="formData.type === 'final' ? 8 : 12">
-                <h4 class="mb-2">Control de inventario</h4>
+                <!-- The switch sits on the heading's line: off, the form keeps
+                     its height and fits 1440×900 (e2e productos). -->
+                <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-2">
+                  <h4>{{ isCombo ? 'Componentes del combo' : 'Control de inventario' }}</h4>
+                  <v-switch
+                    v-if="formData.type === 'final'"
+                    v-model="formData.is_combo"
+                    color="primary"
+                    inset
+                    density="compact"
+                    hide-details
+                    label="Es un combo"
+                    class="flex-grow-0"
+                  />
+                </div>
 
-                <v-row dense>
+                <template v-if="isCombo">
+                  <p class="text-body-2 text-medium-emphasis mb-3">
+                    Al venderlo salen del kardex estos productos, cada uno a su costo, como si se vendieran solos. El pedido y la factura lo cobran al precio y con el impuesto del combo.
+                  </p>
+                  <div
+                    v-for="(component, index) in components"
+                    :key="component.key"
+                    role="group"
+                    :aria-label="`Producto ${index + 1} del combo`"
+                    class="mb-2"
+                  >
+                    <v-row dense align="center">
+                      <v-col cols="12" sm="6">
+                        <v-autocomplete
+                          v-model="component.product_id"
+                          :items="componentOptions(component)"
+                          item-title="name"
+                          item-value="id"
+                          :loading="loadingCatalog"
+                          density="compact"
+                          hide-details="auto"
+                          :rules="[v => !!v || 'Elige el producto']"
+                        >
+                          <template #label>
+                            Producto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                          </template>
+                          <template #item="{ props, item }">
+                            <v-list-item v-bind="props" :subtitle="`${item.raw.unit} · ${preciseMoney(costOf(item.raw))}`" />
+                          </template>
+                        </v-autocomplete>
+                      </v-col>
+                      <v-col cols="5" sm="2">
+                        <v-text-field
+                          v-model="component.quantity"
+                          label="Cantidad"
+                          type="text"
+                          inputmode="decimal"
+                          :suffix="componentProduct(component)?.unit ?? ''"
+                          density="compact"
+                          hide-details="auto"
+                          :rules="[v => parseStock(v) > 0 || 'Mayor que cero']"
+                          @keypress="allowDecimalInput"
+                        />
+                      </v-col>
+                      <v-col cols="5" sm="3" class="text-right">
+                        <div class="font-weight-bold tabular-nums">{{ preciseMoney(componentCost(component)) }}</div>
+                        <div v-if="componentProduct(component)" class="text-caption text-medium-emphasis tabular-nums">
+                          {{ preciseMoney(costOf(componentProduct(component)!)) }} c/u
+                        </div>
+                      </v-col>
+                      <v-col cols="2" sm="1" class="text-right">
+                        <v-btn
+                          icon
+                          size="small"
+                          variant="text"
+                          color="error"
+                          :aria-label="`Quitar ${componentProduct(component)?.name ?? 'el producto'} del combo`"
+                          @click="components.splice(index, 1)"
+                        >
+                          <v-icon>mdi-delete</v-icon>
+                        </v-btn>
+                      </v-col>
+                    </v-row>
+                  </div>
+                  <div class="d-flex align-center justify-space-between flex-wrap ga-2">
+                    <v-btn color="primary" variant="tonal" size="small" prepend-icon="mdi-plus" @click="addComponent">
+                      Agregar producto
+                    </v-btn>
+                    <div class="text-right">
+                      <div class="text-caption text-medium-emphasis">Costo estimado del combo</div>
+                      <div class="text-h6 tabular-nums">{{ money(comboCost) }}</div>
+                    </div>
+                  </div>
+                </template>
+
+                <v-row v-else dense>
                   <v-col cols="12" :md="formData.tracks_stock ? 6 : 12">
                     <v-switch
                       v-model="formData.tracks_stock"
@@ -435,7 +525,7 @@
                   </v-col>
                 </v-row>
 
-                <v-row v-if="formData.tracks_stock" dense>
+                <v-row v-if="!isCombo && formData.tracks_stock" dense>
                   <!-- Creación: el saldo inicial entra al kardex (SI) con su
                        fecha real, que puede ser anterior a hoy. -->
                   <template v-if="!editing">
@@ -490,7 +580,7 @@
                   </v-col>
                 </v-row>
                 <v-alert
-                  v-else
+                  v-else-if="!isCombo"
                   type="info"
                   density="compact"
                   variant="tonal"
@@ -763,6 +853,56 @@ const formData = ref({
   current_stock: 0 as string | number | null,
   initial_stock_date: today,
   minimum_stock: null as string | number | null,
+  is_combo: false,
+});
+
+// A combo is something sold: only a final product can be one.
+const isCombo = computed(() => formData.value.type === 'final' && formData.value.is_combo);
+
+interface ComponentLine {
+  key: number;
+  product_id: number | null;
+  quantity: string | number;
+}
+const components = ref<ComponentLine[]>([]);
+let componentKey = 0;
+const addComponent = () => {
+  components.value.push({ key: ++componentKey, product_id: null, quantity: 1 });
+};
+
+// Every product of the company, to pick the components and price them.
+const catalog = ref<Product[]>([]);
+const loadingCatalog = ref(false);
+const loadCatalog = async () => {
+  loadingCatalog.value = true;
+  try {
+    catalog.value = await productsService.getAll();
+  } catch (error) {
+    showMessage(errorMessage(error, 'No fue posible cargar los productos del combo. Inténtalo de nuevo.'), 'error');
+  } finally {
+    loadingCatalog.value = false;
+  }
+};
+
+/** What one unit costs today: its recipe per unit, or its average. */
+const costOf = (product: Product) => Number(product.estimated_cost ?? product.unit_cost ?? 0);
+const componentProduct = (line: ComponentLine) => catalog.value.find(p => p.id === line.product_id);
+const componentCost = (line: ComponentLine) => {
+  const product = componentProduct(line);
+  return product ? costOf(product) * parseStock(line.quantity) : 0;
+};
+const comboCost = computed(() => components.value.reduce((sum, line) => sum + componentCost(line), 0));
+// Not the combo itself, nor a product another line already has.
+const componentOptions = (line: ComponentLine) => catalog.value.filter(product =>
+  product.id === line.product_id
+  || (product.id !== editing.value?.id
+    && product.active !== false
+    && !components.value.some(other => other !== line && other.product_id === product.id)));
+
+watch(isCombo, combo => {
+  if (!combo) return;
+  if (components.value.length === 0) addComponent();
+  if (catalog.value.length === 0) loadCatalog();
 });
 
 // El menú se vende al precio de venta salvo que alguien lo cambie a mano:
@@ -860,7 +1000,7 @@ const calcularNuevoStock = computed(() => {
 // El backend genera SKUs secuenciales por empresa (MP-0001, FIN-0001...).
 /** Muestra la ganancia al poner el precio: evita vender a pérdida. */
 const marginHint = computed(() => {
-  const cost = Number(formData.value.unit_cost) || 0
+  const cost = isCombo.value ? comboCost.value : Number(formData.value.unit_cost) || 0
   const price = Number(formData.value.sale_price) || 0
 
   if (!cost || !price) return '¿A qué precio lo vendes?'
@@ -1026,6 +1166,7 @@ const openDialog = (product?: Product, forceMenu = false) => {
         current_stock: product.current_stock || null,
         initial_stock_date: today,
         minimum_stock: product.minimum_stock || null,
+        is_combo: !!product.is_combo,
       }
     : {
         name: '',
@@ -1046,7 +1187,29 @@ const openDialog = (product?: Product, forceMenu = false) => {
         current_stock: 0,
         initial_stock_date: today,
         minimum_stock: null,
+        is_combo: false,
       };
+  components.value = (product?.components ?? []).map(component => ({
+    key: ++componentKey,
+    product_id: component.product_id,
+    quantity: component.quantity,
+  }));
+  if (product?.is_combo) {
+    // Named and priced at once, before the whole catalog arrives.
+    for (const component of product.components ?? []) {
+      if (!catalog.value.some(p => p.id === component.product_id)) {
+        catalog.value.push({
+          id: component.product_id,
+          name: component.name ?? '',
+          sku: '',
+          type: component.type ?? 'final',
+          unit: component.unit,
+          unit_cost: component.unit_cost,
+        });
+      }
+    }
+    loadCatalog();
+  }
   dialog.value = true;
 };
 
@@ -1073,6 +1236,19 @@ const save = async () => {
     return;
   }
 
+  const chosenComponents = components.value.filter(line => line.product_id);
+  if (isCombo.value && chosenComponents.length === 0) {
+    showMessage('Agrega al menos un producto al combo: es lo que sale del kardex cuando lo vendes', 'error');
+    return;
+  }
+  if (isCombo.value && chosenComponents.some(line => parseStock(line.quantity) <= 0)) {
+    showMessage('La cantidad de cada producto del combo debe ser mayor que cero', 'error');
+    return;
+  }
+
+  // A combo's stock is its components': it never keeps one of its own.
+  const tracksStock = formData.value.tracks_stock && !isCombo.value;
+
   saving.value = true;
   try {
     // Preparar datos: convertir comas a puntos y parsear.
@@ -1081,6 +1257,11 @@ const save = async () => {
     const { current_stock: _rawStock, category_id: categoryId, ...formRest } = formData.value;
     const dataToSend: ProductPayload = {
       ...formRest,
+      tracks_stock: tracksStock,
+      is_combo: isCombo.value,
+      ...(isCombo.value
+        ? { components: chosenComponents.map(line => ({ product_id: line.product_id!, quantity: parseStock(line.quantity) })) }
+        : {}),
       category_id: categoryId === NO_CATEGORY ? null : categoryId,
       // Publicación en el menú (solo productos finales, opcional)
       ...(formData.value.type === 'final' && publishToMenu.value
@@ -1095,7 +1276,7 @@ const save = async () => {
       // SKU vacío: lo genera el backend (secuencial por empresa).
       sku: formData.value.sku?.trim() || undefined,
       barcode: formData.value.barcode?.trim() || null,
-      minimum_stock: formData.value.tracks_stock && formData.value.minimum_stock
+      minimum_stock: tracksStock && formData.value.minimum_stock
         ? parseFloat(String(formData.value.minimum_stock).replace(',', '.'))
         : null,
     };
@@ -1107,10 +1288,10 @@ const save = async () => {
     } else {
       // El saldo inicial puede ser 0 (nace agotado); solo entonces se manda
       // la fecha real del saldo cuando hay existencias que fecharle.
-      dataToSend.current_stock = formData.value.tracks_stock
+      dataToSend.current_stock = tracksStock
         ? parseStock(formData.value.current_stock)
         : null;
-      dataToSend.initial_stock_date = formData.value.tracks_stock && parseStock(formData.value.current_stock) > 0
+      dataToSend.initial_stock_date = tracksStock && parseStock(formData.value.current_stock) > 0
         ? formData.value.initial_stock_date
         : undefined;
     }

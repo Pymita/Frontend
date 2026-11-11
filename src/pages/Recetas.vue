@@ -417,8 +417,9 @@ const ingredientEntryModes = [
   { title: 'Esta cantidad rinde varias unidades', value: 'per_yield' },
 ];
 
+// A combo's components are edited in Productos.
 const availableProducts = computed(() => {
-  return products.value.filter(p => p.type === 'intermediate' || p.type === 'final');
+  return products.value.filter(p => (p.type === 'intermediate' || p.type === 'final') && !p.is_combo);
 });
 
 const variantsForSelectedProduct = computed(() => {

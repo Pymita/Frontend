@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, field, loginUI, pickOption } from './helpers'
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { ADMIN, API, apiLogin, field, freezeTime, loginUI, pickOption } from './helpers'
 
 /**
  * Crear varios productos (por API, rápido) y verificar que la tabla de
@@ -403,4 +403,160 @@ test('ordenar por nombre y filtrar por categoría se resuelven en el servidor', 
   await page.getByRole('columnheader', { name: 'Nombre' }).click()
   expect((await sorted).url()).toContain('sort_by=name')
   await expect(names).toHaveText(['Cuajada Orden', 'Bocadillo Orden', 'Arepa Orden'])
+})
+
+/** "$15.437", as `money()` writes it. */
+const pesos = (value: number) => `$${String(value).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`
+
+/**
+ * The components of a combo, one of each kind: a soda resold from stock
+ * ($2.000), fries bought by the kilo ($4.000 the kg) and a hamburger made
+ * from a recipe (bread $500 + meat $3.000). Created through the API.
+ */
+async function comboComponents(request: APIRequestContext, auth: Record<string, string>, stamp: number) {
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `Combos ${stamp}` } })
+  const categoryId = (await category.json()).data.id
+  await request.post(`${API}/taxes`, { headers: auth, data: { name: `IVA Combos ${stamp}`, rate: 19 } })
+  const product = async (data: Record<string, unknown>) => {
+    const response = await request.post(`${API}/products`, { headers: auth, data: { unit: 'unidad', category_id: categoryId, ...data } })
+    expect(response.status(), await response.text()).toBe(201)
+    return (await response.json()).data.id as number
+  }
+  const names = {
+    category: `Combos ${stamp}`,
+    tax: `IVA Combos ${stamp}`,
+    soda: `Gaseosa Combo ${stamp}`,
+    fries: `Papas Combo ${stamp}`,
+    burger: `Hamburguesa Combo ${stamp}`,
+  }
+  const soda = await product({ name: names.soda, type: 'final', sale_price: 4000, current_stock: 20, unit_cost: 2000 })
+  await product({ name: names.fries, type: 'raw_material', unit: 'kg', current_stock: 10, unit_cost: 4000 })
+  const bread = await product({ name: `Pan Combo ${stamp}`, type: 'raw_material', current_stock: 30, unit_cost: 500 })
+  const meat = await product({ name: `Carne Combo ${stamp}`, type: 'raw_material', current_stock: 30, unit_cost: 3000 })
+  const burger = await product({ name: names.burger, type: 'final', sale_price: 12000, tracks_stock: false })
+  const recipe = await request.post(`${API}/recipes`, {
+    headers: auth,
+    data: {
+      product_id: burger,
+      name: `Receta ${names.burger}`,
+      yield_quantity: 1,
+      ingredients: [
+        { product_id: bread, quantity: 1, unit: 'unidad' },
+        { product_id: meat, quantity: 1, unit: 'unidad' },
+      ],
+    },
+  })
+  expect(recipe.status(), await recipe.text()).toBe(201)
+
+  return { names, soda }
+}
+
+/** Picks a product for the combo's line `n` by typing its name. */
+async function pickComponent(page: Page, n: number, name: string, quantity?: string) {
+  const line = page.getByRole('group', { name: `Producto ${n} del combo` })
+  await line.locator('input[role="combobox"]').fill(name)
+  await page.getByRole('option', { name: new RegExp(name) }).click()
+  if (quantity) await line.getByLabel('Cantidad').fill(quantity)
+}
+
+/**
+ * "Al vender un combo debe sacar del kardex los productos relacionados en el
+ * combo con su respectivo costo… se mantiene el precio del combo." Built in
+ * Productos, sold from Nuevo pedido and charged: the Kardex shows each
+ * component leaving for the combo, and Ventas › Por producto its real cost.
+ */
+test('un combo se arma en Productos, se vende desde Nuevo pedido y el kardex y Ventas muestran lo que costó', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const { names } = await comboComponents(request, auth, stamp)
+  const combo = `Combo Burger ${stamp}`
+  // A price of its own, so its order is found by its total among the suite's.
+  const price = 15000 + (stamp % 1000)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/productos-base')
+  await page.getByRole('button', { name: 'Nuevo producto' }).click()
+  const dialog = page.getByRole('dialog')
+  await field(page, 'Nombre del producto *').locator('input').fill(combo)
+  await field(page, 'Categoría *').click()
+  await pickOption(page, names.category)
+  await field(page, 'Precio de venta *').locator('input').fill(String(price))
+  await field(page, 'Impuesto *').locator('.v-field').click()
+  await page.getByRole('option', { name: new RegExp(names.tax) }).click()
+
+  // A combo has no stock nor cost of its own: its components do.
+  await expect(dialog.getByText('Control de inventario')).toBeVisible()
+  await dialog.getByLabel('Es un combo').check()
+  await expect(dialog.getByText('Componentes del combo')).toBeVisible()
+  await expect(dialog.getByLabel('Este producto maneja stock e inventario')).toHaveCount(0)
+  await expect(dialog.getByLabel('Precio de costo')).toHaveCount(0)
+  await pickComponent(page, 1, names.burger)
+  await dialog.getByRole('button', { name: 'Agregar producto' }).click()
+  await pickComponent(page, 2, names.soda)
+  await dialog.getByRole('button', { name: 'Agregar producto' }).click()
+  await pickComponent(page, 3, names.fries, '0,25')
+  const fries = page.getByRole('group', { name: 'Producto 3 del combo' })
+  await expect(fries).toContainText('$1.000')
+  await expect(fries).toContainText('$4.000 c/u')
+  await expect(dialog.getByText('Costo estimado del combo')).toBeVisible()
+  await expect(dialog.getByText('$6.500', { exact: true })).toBeVisible()
+  await expect(dialog.getByText(`Ganas ${pesos(price - 6500)} por unidad`)).toBeVisible()
+  await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Producto creado')).toBeVisible()
+
+  await page.getByRole('textbox', { name: 'Buscar' }).fill(combo)
+  const row = page.locator('tr', { hasText: combo })
+  await expect(row.locator('.v-chip', { hasText: /^Combo$/ })).toBeVisible()
+  await expect(row).toContainText('No aplica')
+  await expect(row).toContainText('$6.500')
+  await expect(row.getByRole('button', { name: `Receta de ${combo}` })).toHaveCount(0)
+
+  // Reopened, it brings its components back in the order they were added.
+  await row.getByRole('button', { name: `Editar ${combo}` }).click()
+  await expect(dialog.getByLabel('Es un combo')).toBeChecked()
+  await expect(page.getByRole('group', { name: 'Producto 1 del combo' })).toContainText(names.burger)
+  await expect(page.getByRole('group', { name: 'Producto 3 del combo' }).getByLabel('Cantidad')).toHaveValue('0.25')
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+
+  // Sold from Nuevo pedido, at its own price, and charged.
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill(combo)
+  await dialog.getByText(combo, { exact: true }).click()
+  await expect(dialog.getByText(`Total: ${pesos(price)}`)).toBeVisible()
+  await dialog.getByRole('button', { name: 'Crear pedido' }).click()
+  await expect(page.getByText('Pedido creado')).toBeVisible()
+  await page.locator('tbody tr', { hasText: pesos(price) }).first().getByRole('button', { name: 'Cobrar' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirmar cobro' }).click()
+  await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
+
+  const orders = (await (await request.get(`${API}/orders`, { headers: auth })).json()).data
+  const sold = orders.find((order: any) => order.items?.some((item: any) => item.product_name === combo))
+  expect(sold.items.map((item: any) => [item.product_name, Number(item.total_price)])).toEqual([[combo, price]])
+
+  // The Kardex: the soda left for the combo, and the combo itself never appears.
+  await page.goto('/kardex')
+  await page.getByRole('combobox', { name: 'Producto' }).fill(names.soda)
+  await page.getByRole('option', { name: names.soda }).click()
+  await page.getByRole('button').filter({ has: page.locator('.mdi-magnify') }).click()
+  const exit = page.locator('tbody tr', { hasText: `${combo}: ${names.soda}` })
+  await expect(exit).toBeVisible()
+  await expect(exit).toContainText('FV')
+  await expect(exit).toContainText('$2.000')
+  await page.getByRole('combobox', { name: 'Producto' }).fill(combo)
+  await expect(page.getByRole('option', { name: combo })).toHaveCount(0)
+
+  // Ventas › Por producto: what its components cost, and its margin.
+  await freezeTime(page, sold.paid_at)
+  await page.goto('/ventas')
+  await page.getByRole('button', { name: 'Por producto' }).click()
+  const sale = page.locator('tr', { hasText: combo })
+  await expect(sale).toContainText(pesos(price))
+  await expect(sale).toContainText('$6.500')
+  await expect(sale).toContainText(pesos(price - 6500))
+  const margin = Math.round(((price - 6500) * 1000) / price) / 10
+  await expect(sale).toContainText(`${margin.toLocaleString('es-CO', { maximumFractionDigits: 1 })} %`)
+  await expect(sale).not.toContainText('estimado')
 })

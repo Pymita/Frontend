@@ -33,6 +33,20 @@ export interface Product {
   notes?: string | null;
   in_menu?: boolean;
   menu_item?: ProductMenuItem | null;
+  /** A final product sold at its own price whose components leave the kardex when it sells */
+  is_combo?: boolean;
+  /** Only on a combo: what one combo takes, each at what it costs today */
+  components?: ProductComponent[];
+}
+
+export interface ProductComponent {
+  product_id: number;
+  name: string | null;
+  type: ProductType | null;
+  unit: string;
+  quantity: number;
+  /** One unit's cost today: its recipe per unit, or its average */
+  unit_cost: number;
 }
 
 export interface ProductMenuItem {
@@ -51,10 +65,12 @@ export interface ProductMenuPayload {
   available?: boolean;
 }
 
-export interface ProductPayload extends Partial<Product> {
+export interface ProductPayload extends Omit<Partial<Product>, 'components'> {
   menu?: ProductMenuPayload | null;
   /** Real date of the initial balance (backdatable, shows in the kardex) */
   initial_stock_date?: string | null;
+  /** A combo's components; replaces the ones it had */
+  components?: { product_id: number; quantity: number }[];
 }
 
 export interface StockAdjustmentPayload {
