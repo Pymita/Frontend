@@ -3,6 +3,9 @@ import type { PageQuery, PaginatedResponse } from '@/types/api';
 import type { PaymentMethod, PaymentMethodDetail, SaleMethod } from './salesService';
 
 export type PaymentStatus = 'pending' | 'paid' | 'partial';
+export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
+/** What "Cambiar estado de pedidos" sets (`orderStatusFlow` in utils/labels): cancelling is `cancel()`. */
+export type OrderFlowStatus = Exclude<OrderStatus, 'cancelled'>;
 export type OrderItemStatus = 'pending' | 'preparing' | 'ready' | 'delivered';
 
 export type OrderPaymentMethod = PaymentMethod;
@@ -192,7 +195,7 @@ export interface Order {
   customer_name: string;
   /** Mesero que tomó el pedido (null en pedidos antiguos o del sistema) */
   waiter?: string | null;
-  status: 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
+  status: OrderStatus;
   payment_status: PaymentStatus;
   subtotal: number;
   discount_percentage: number;
@@ -337,6 +340,12 @@ export const ordersService = {
 
   async recordPartialPayment(id: number, payload: PartialPaymentPayload): Promise<Order> {
     const response = await api.post<ApiResponse<Order>>(`/orders/${id}/partial-payment`, payload);
+    return response.data.data;
+  },
+
+  /** Pendiente, En preparación, Listo o Entregado: needs "Cambiar estado de pedidos". */
+  async changeStatus(id: number, status: OrderFlowStatus): Promise<Order> {
+    const response = await api.post<ApiResponse<Order>>(`/orders/${id}/status`, { status });
     return response.data.data;
   },
 

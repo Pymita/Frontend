@@ -80,8 +80,10 @@ export interface User {
   updated_at?: string
   company?: CompanySummary | null
   features?: Feature[]
-  /** "Cobrar pedidos" (missing in sessions stored before the field: the API decides). */
+  /** "Cobrar pedidos" (missing in sessions stored before the field: the API decides). A new employee starts without it. */
   can_charge_orders?: boolean
+  /** "Cambiar estado de pedidos": Pendiente → En preparación → Listo → Entregado. A new employee starts with it. */
+  can_change_order_status?: boolean
   /** "Editar el kardex": corrects purchases (FC) and adjustments (AJ) registered by hand. */
   can_edit_kardex?: boolean
   /** "Contabilidad" inside Informes: configures the accounts and downloads the accounting movement (admin always). */

@@ -92,6 +92,7 @@ test('el admin crea un empleado con sus funciones y, al desactivarlo, ya no entr
  * "Cobrar pedidos" va aparte de las funciones: un mesero que solo toma
  * pedidos puede, si el admin se lo da, cobrar desde la app. Lo que cobra
  * sale en Pedidos y en Ventas a su nombre; sin el permiso el API lo frena.
+ * Un empleado nuevo viene sin él y con "Cambiar estado de pedidos".
  */
 test('el admin le da a un mesero el permiso de cobrar y lo que cobra desde la app sale en Pedidos y Ventas', async ({ page, request }) => {
   await raisePlanLimits(request, { max_users: 50 })
@@ -115,15 +116,23 @@ test('el admin le da a un mesero el permiso de cobrar y lo que cobra desde la ap
     if ((await box.count()) && (await box.isChecked())) await box.uncheck()
   }
 
-  // Charging sits next to Pedidos and depends on it.
+  // Charging and changing statuses sit next to Pedidos and depend on it. A new
+  // employee changes statuses and does not charge until the admin says so.
   const charge = dialog.getByLabel('Cobrar pedidos')
-  await expect(charge).toBeChecked()
-  await expect(dialog.getByText('Registra pagos y propinas, también desde la app')).toBeVisible()
-  await dialog.getByLabel('Pedidos y mesas').uncheck()
-  await expect(charge).toBeDisabled()
+  const changeStatus = dialog.getByLabel('Cambiar estado de pedidos')
   await expect(charge).not.toBeChecked()
+  await expect(changeStatus).toBeChecked()
+  await expect(dialog.getByText('Registra pagos y propinas, también desde la app')).toBeVisible()
+  await expect(dialog.getByText('En preparación, listo o entregado, también desde la app')).toBeVisible()
+  await charge.check()
+  await dialog.getByLabel('Pedidos y mesas').uncheck()
+  for (const box of [charge, changeStatus]) {
+    await expect(box).toBeDisabled()
+    await expect(box).not.toBeChecked()
+  }
   await dialog.getByLabel('Pedidos y mesas').check()
   await expect(charge).toBeChecked()
+  await expect(changeStatus).toBeChecked()
   await page.waitForTimeout(300)
   await page.screenshot({ path: '../screenshots/cobro-en-la-app-empleados-permiso-1440.png' })
 
@@ -132,6 +141,7 @@ test('el admin le da a un mesero el permiso de cobrar y lo que cobra desde la ap
   const row = page.locator('tbody tr', { hasText: name })
   await expect(row).toContainText('Pedidos y mesas')
   await expect(row).toContainText('Cobrar pedidos')
+  await expect(row).toContainText('Cambiar estado de pedidos')
   await expect(row).not.toContainText('Inicio, ventas y reportes')
 
   // The same dialog on a phone.
@@ -160,6 +170,7 @@ test('el admin le da a un mesero el permiso de cobrar y lo que cobra desde la ap
   })
   expect(waiterLogin.ok()).toBeTruthy()
   expect((await waiterLogin.json()).user.can_charge_orders).toBe(true)
+  expect((await waiterLogin.json()).user.can_change_order_status).toBe(true)
   const waiter = { Authorization: `Bearer ${(await waiterLogin.json()).token}`, Accept: 'application/json' }
   const created = await request.post(`${API}/orders`, {
     headers: waiter,

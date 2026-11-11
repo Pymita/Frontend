@@ -156,7 +156,37 @@
             </template>
             
             <template #item.status="{ item }">
-              <v-chip :color="getStatusColor(item.status)" size="small">
+              <!-- With "Cambiar estado de pedidos" the chip opens the four statuses;
+                   a charged or cancelled order keeps the one it has. -->
+              <v-menu v-if="canChangeStatus && isOpen(item)">
+                <template #activator="{ props }">
+                  <v-chip
+                    v-bind="props"
+                    :color="getStatusColor(item.status)"
+                    size="small"
+                    tag="button"
+                    append-icon="mdi-menu-down"
+                    :aria-label="`Cambiar el estado de ${orderLabel(item)}: ${getStatusText(item.status)}`"
+                  >
+                    {{ getStatusText(item.status) }}
+                  </v-chip>
+                </template>
+                <v-list density="compact">
+                  <v-list-subheader>Cambiar estado</v-list-subheader>
+                  <v-list-item
+                    v-for="status in orderStatusFlow"
+                    :key="status"
+                    :active="item.status === status"
+                    @click="changeStatus(item, status)"
+                  >
+                    <template #prepend>
+                      <v-icon :color="getStatusColor(status)" size="small">mdi-circle</v-icon>
+                    </template>
+                    <v-list-item-title>{{ getStatusText(status) }}</v-list-item-title>
+                  </v-list-item>
+                </v-list>
+              </v-menu>
+              <v-chip v-else :color="getStatusColor(item.status)" size="small">
                 {{ getStatusText(item.status) }}
               </v-chip>
             </template>
@@ -252,6 +282,15 @@
                         <v-icon>mdi-receipt-text</v-icon>
                       </template>
                       <v-list-item-title>Imprimir cuenta</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item
+                      v-if="isOpen(item) && canChangeStatus && item.status !== 'delivered'"
+                      @click="changeStatus(item, 'delivered')"
+                    >
+                      <template #prepend>
+                        <v-icon>mdi-check</v-icon>
+                      </template>
+                      <v-list-item-title>Marcar entregado</v-list-item-title>
                     </v-list-item>
                     <v-list-item v-if="isOpen(item) && isAdmin" @click="openDiscountDialog(item)">
                       <template #prepend>
@@ -1166,6 +1205,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import {
   ordersService,
   type Order,
+  type OrderFlowStatus,
   type OrderItem,
   type OrderPayment,
   type OrderPaymentMethod,
@@ -1177,6 +1217,7 @@ import { billingService, type Customer } from '@/services/billingService';
 import {
   orderStatusLabels,
   orderStatusColors,
+  orderStatusFlow,
   paymentStatusLabels,
   paymentStatusColors,
   customerDocumentTypeLabels,
@@ -1398,6 +1439,21 @@ const canManageOrders = computed(() =>
 // Charging (the whole bill, by person, a partial payment, a tip) takes
 // "Cobrar pedidos". A session stored before the field leaves it to the API.
 const canCharge = computed(() => authStore.user?.can_charge_orders ?? true);
+
+// Pendiente → En preparación → Listo → Entregado takes "Cambiar estado de
+// pedidos", which the API checks too; same fallback as charging.
+const canChangeStatus = computed(() => authStore.user?.can_change_order_status ?? true);
+
+const changeStatus = async (order: Order, status: OrderFlowStatus) => {
+  if (order.status === status) return;
+  try {
+    await ordersService.changeStatus(order.id, status);
+    showMessage(`${orderLabel(order)} pasó a ${getStatusText(status)}`);
+    loadOrders();
+  } catch (error) {
+    showMessage(errorMessage(error, 'No fue posible cambiar el estado del pedido. Inténtalo de nuevo.'), 'error');
+  }
+};
 
 const nowTick = ref(Date.now());
 const tickInterval = setInterval(() => { nowTick.value = Date.now(); }, 15_000);
