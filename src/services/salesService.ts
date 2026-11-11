@@ -56,6 +56,12 @@ export interface PaymentMethodDetail {
   bank_account: string | null
 }
 
+/** What one method paid of a sale or brought to a document ("Efectivo $50.000 + Nequi $30.000"). */
+export interface PaymentLine {
+  payment_method: PaymentMethod
+  amount: number
+}
+
 /** An order charged at the POS, or an automatic-billing document issued. */
 export type SaleOrigin = 'order' | 'recurring'
 
@@ -81,6 +87,8 @@ export interface Sale {
   waiter: string | null
   user_id: number | null
   payment_methods: SaleMethod[]
+  /** What each method paid of the sale, without tip, its own method first: two or more when it was paid with several. */
+  payment_lines?: PaymentLine[]
   subtotal: number
   tip: number
   total: number

@@ -472,7 +472,7 @@
               {{ formatDateTime(item.paid_at) }}
             </template>
             <template #item.payment_methods="{ item }">
-              {{ methodsLabel(item.payment_methods) }}
+              {{ (item.payment_lines?.length ?? 0) > 1 ? paymentLinesLabel(item.payment_lines!) : methodsLabel(item.payment_methods) }}
             </template>
             <template #item.tip="{ item }">
               {{ item.tip ? money(item.tip) : '—' }}
@@ -696,6 +696,7 @@ import { useReadOnly } from '@/composables/useReadOnly'
 import {
   closeMethodLabel,
   compareMethodKeys,
+  paymentLinesLabel,
   paymentMethodLabel,
   paymentMethodsLabel,
   usePaymentMethods,

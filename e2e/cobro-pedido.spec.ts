@@ -2052,3 +2052,97 @@ test('una forma de pago propia que entra al cajón suma al efectivo a entregar d
   await expect(dialog.getByText('+ Cobros en Efectivo y Caja menor (con propinas)').locator('..')).toContainText('$14.000')
   await expect(dialog.getByTestId('cash-expected')).toHaveText('$14.000')
 })
+
+/**
+ * The owner's example: an order of $80.000 paid with $50.000 in cash and
+ * $30.000 by Nequi in one charge. "Efectivo recibido" tells the change, the
+ * factura and the ticket name both methods with their amounts, Ventas counts
+ * each method with its part and the close takes each one to its line.
+ */
+test('un pedido se cobra con dos formas de pago a la vez: vueltas, factura, Ventas y cierre', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `dos-formas-${Date.now()}`)
+  const soup = await seedSimpleProduct(request, auth, 'Sancocho Dos Formas', 50000)
+  const juice = await seedSimpleProduct(request, auth, 'Jugo Dos Formas', 30000)
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { items: [{ product_id: soup, quantity: 1 }, { product_id: juice, quantity: 1 }] },
+  })
+  expect(order.status()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, credentials.email, credentials.password)
+  const printing = await watchPrinting(page)
+  await page.goto('/pedidos')
+  await page.locator('tbody tr', { hasText: '$80.000' }).getByRole('button', { name: 'Cobrar' }).click()
+  const dialog = page.getByRole('dialog')
+
+  // Paid in cash alone, the cashier types what the customer handed over.
+  await dialog.getByLabel('Efectivo recibido').fill('100.000')
+  await expect(dialog.getByText('Vueltas: $20.000')).toBeVisible()
+
+  await dialog.getByRole('button', { name: 'Agregar otra forma de pago' }).click()
+  await field(page, 'Otra forma de pago').click()
+  await pickOption(page, 'Nequi')
+  await expect(dialog.getByText('Resta por cobrar con Efectivo: $80.000')).toBeVisible()
+  await dialog.getByLabel('Valor', { exact: true }).fill('30.000')
+  await expect(dialog.getByText('Resta por cobrar con Efectivo: $50.000')).toBeVisible()
+  // "A crédito" never mixes: it leaves the list once another method is added.
+  await field(page, 'Método de pago').click()
+  const mainMethods = page.getByLabel('Método de pago-list')
+  await expect(mainMethods.getByRole('option', { name: 'Transferencia', exact: true })).toBeVisible()
+  await expect(mainMethods.getByRole('option', { name: 'A crédito', exact: true })).toHaveCount(0)
+  await expect(mainMethods.getByRole('option', { name: 'Nequi', exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  await dialog.getByLabel('Efectivo recibido').fill('60.000')
+  await expect(dialog.getByText('Vueltas: $10.000')).toBeVisible()
+  await dialog.getByLabel('Efectivo recibido').fill('40.000')
+  await expect(dialog.getByText('Faltan $10.000 en efectivo')).toBeVisible()
+  await dialog.getByLabel('Efectivo recibido').fill('50.000')
+  await expect(dialog.getByText('Vueltas: $0')).toBeVisible()
+
+  // More than the total leaves nothing for the first method: the charge waits.
+  await dialog.getByLabel('Valor', { exact: true }).fill('90.000')
+  await expect(dialog.getByText(/Las otras formas de pago ya suman el total/)).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Confirmar cobro' })).toBeDisabled()
+  await dialog.getByLabel('Valor', { exact: true }).fill('30.000')
+
+  await dialog.getByRole('button', { name: 'Confirmar cobro' }).click()
+  await expect(page.getByText('Pedido cobrado con Efectivo $50.000 + Nequi $30.000.')).toBeVisible()
+  expect(await printing()).toEqual({ opened: 0, printed: 0 })
+
+  const [invoice] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('button', { name: 'Generar factura' }).click(),
+  ])
+  await expect(invoice.locator('.party')).toContainText('FORMA DE PAGO: Efectivo $50.000 + Nequi $30.000')
+  await expect(invoice.locator('.totals')).toContainText('TOTAL: $80.000')
+  await invoice.close()
+
+  await page.getByRole('button', { name: 'Pagados' }).click()
+  const [ticket] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.locator('tbody tr', { hasText: '$80.000' }).getByRole('button', { name: 'Tirilla' }).click(),
+  ])
+  await expect(ticket.locator('body')).toContainText('GRACIAS POR SU COMPRA')
+  expect((await ticket.locator('body').innerText()).replace(/\s+/g, ' ')).toContain('FORMA DE PAGO: Efectivo $50.000 + Nequi $30.000')
+  await ticket.close()
+
+  // Ventas: one sale of $80.000, each method with its part.
+  await page.goto('/ventas')
+  const saleRow = page.locator('tbody tr', { hasText: 'Pedido #1' })
+  await expect(saleRow).toContainText('Efectivo $50.000 + Nequi $30.000')
+  await expect(saleRow).toContainText('$80.000')
+  await expect(page.locator('.v-chip', { hasText: 'Efectivo:' })).toHaveText(/Efectivo: \$50\.000/)
+  await expect(page.locator('.v-chip', { hasText: 'Nequi:' })).toHaveText(/Nequi: \$30\.000/)
+
+  // The close: the cash to the drawer, Nequi on its own line, one sale.
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Cerrar caja' }).click()
+  const close = page.getByRole('dialog')
+  await expect(close.locator('tr', { hasText: 'Efectivo' })).toContainText('$50.000')
+  await expect(close.locator('tr', { hasText: 'Nequi' })).toContainText('$30.000')
+  await expect(close.getByTestId('cash-sales-total')).toHaveText('$80.000')
+  await expect(close).toContainText('1 venta · 1 pedido')
+  await expect(close.getByTestId('cash-expected')).toHaveText('$50.000')
+})
