@@ -163,9 +163,12 @@ export interface OrderReceipt {
   items: { quantity: number; name: string; unit_price: number; total: number; tax_rate: number }[]
   /** Lines + table time, tax included. Printed documents show `subtotal_before_tax`. */
   subtotal: number
-  /** What the documents print as SUBTOTAL, in whole pesos: − discount + included_vat + delivery_fee + tip = total. */
+  /** What the documents print as SUBTOTAL, in whole pesos: − discount_before_tax + included_vat + delivery_fee + tip = total. */
   subtotal_before_tax: number
+  /** The order's discount as Pedidos applied it, on prices with tax. */
   discount: number
+  /** What the documents print as DESCUENTO: the discount before tax, since the tax is computed after it. */
+  discount_before_tax: number
   delivery_fee: number
   tip: number
   included_vat: number

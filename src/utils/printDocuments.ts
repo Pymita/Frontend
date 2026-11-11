@@ -60,9 +60,11 @@ export interface PrintableInvoice {
   quantity: number
   unit_price: number
   subtotal: number
-  /** What prints as SUBTOTAL, in whole pesos: − discount + tax_amount = total. */
+  /** What prints as SUBTOTAL, in whole pesos: − discount_before_tax + tax_amount = total. */
   subtotal_before_tax: number
   discount: number
+  /** What prints as DESCUENTO: the discount before tax, since the tax is computed after it. */
+  discount_before_tax: number
   tax_name: string | null
   tax_rate: number
   tax_amount: number
@@ -327,7 +329,7 @@ export const invoiceHtml = (
       </table>
       <div class="totals">
         <div><span>SUBTOTAL:</span> <span>${money(invoice.subtotal_before_tax)}</span></div>
-        ${invoice.discount > 0 ? `<div><span>DESCUENTO:</span> <span>-${money(invoice.discount)}</span></div>` : ''}
+        ${invoice.discount_before_tax > 0 ? `<div><span>DESCUENTO:</span> <span>-${money(invoice.discount_before_tax)}</span></div>` : ''}
         ${invoice.tax_amount > 0 ? `<div><span>${escape(invoice.tax_name || 'IMPUESTO')}:</span> <span>${money(invoice.tax_amount)}</span></div>` : ''}
         <div class="grand-total"><span>TOTAL:</span> <span>${money(invoice.total)}</span></div>
       </div>
@@ -412,7 +414,7 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
       </table>
       <div class="totals">
         <div><span>SUBTOTAL:</span> <span>${money(sale.subtotal_before_tax)}</span></div>
-        ${sale.discount > 0 ? `<div><span>DESCUENTO:</span> <span>-${money(sale.discount)}</span></div>` : ''}
+        ${sale.discount_before_tax > 0 ? `<div><span>DESCUENTO:</span> <span>-${money(sale.discount_before_tax)}</span></div>` : ''}
         ${sale.included_vat > 0 ? `<div><span>IMPUESTO:</span> <span>${money(sale.included_vat)}</span></div>` : ''}
         ${sale.delivery_fee > 0 ? `<div><span>DOMICILIO:</span> <span>${money(sale.delivery_fee)}</span></div>` : ''}
         <div class="grand-total"><span>TOTAL:</span> <span>${money(value)}</span></div>

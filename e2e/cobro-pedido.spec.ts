@@ -1317,10 +1317,12 @@ test('el subtotal impreso es el valor antes de impuestos y suma el total con el 
 
 /**
  * With a discount, two tax rates and a tip every printed line still adds up:
- * subtotal before taxes − discount + taxes = total, and the tip on top is the
- * total paid. The taxes are the accounting movement's, computed on the lines
- * before the discount: $12.000 of beer with 19 % and $9.000 of empanadas with
- * 8 % carry $2.583.
+ * subtotal before taxes − discount before taxes + taxes = total, and the tip
+ * on top is the total paid. An unconditional discount lowers the taxable
+ * base (art. 454 E.T.): $12.000 of beer with 19 % and $9.000 of empanadas
+ * with 8 %, 10 % off, sell for $10.800 and $8.100, which carry $1.724 and
+ * $600 of tax. The discount prints before tax, $1.842 (it was $2.583 of tax
+ * and $2.100 of discount when the tax ignored the discount).
  */
 test('con descuento, dos impuestos y propina las cifras impresas suman el total', async ({ page, request }) => {
   const { credentials, auth } = await createRestaurant(request, `subtotal-descuento-${Date.now()}`)
@@ -1333,11 +1335,11 @@ test('con descuento, dos impuestos y propina las cifras impresas suman el total'
   await loginUI(page, credentials.email, credentials.password)
   const { ticket, letter } = await printPaidOrder(page, '$20.900')
 
-  // 18.417 − 2.100 + 2.583 = 18.900, and 2.000 of tip make 20.900.
+  // 18.418 − 1.842 + 2.324 = 18.900, and 2.000 of tip make 20.900 (the subtotal takes the pesos' rounding).
   for (const [label, amount] of [
-    ['SUBTOTAL', '$18.417'],
-    ['DESCUENTO', '-$2.100'],
-    ['IMPUESTO', '$2.583'],
+    ['SUBTOTAL', '$18.418'],
+    ['DESCUENTO', '-$1.842'],
+    ['IMPUESTO', '$2.324'],
     ['TOTAL SIN PROPINA', '$18.900'],
     ['PROPINA VOLUNTARIA', '$2.000'],
     ['TOTAL PAGADO', '$20.900'],
@@ -1346,9 +1348,9 @@ test('con descuento, dos impuestos y propina las cifras impresas suman el total'
   }
 
   await expect(letter.locator('.totals > div')).toHaveText([
-    'SUBTOTAL: $18.417',
-    'DESCUENTO: -$2.100',
-    'IMPUESTO: $2.583',
+    'SUBTOTAL: $18.418',
+    'DESCUENTO: -$1.842',
+    'IMPUESTO: $2.324',
     'TOTAL: $18.900',
     'PROPINA VOLUNTARIA: $2.000',
     'TOTAL PAGADO: $20.900',

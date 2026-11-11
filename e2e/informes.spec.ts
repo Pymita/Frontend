@@ -864,6 +864,75 @@ test('contabilidad: las cuentas y los comprobantes quedan guardados, la plantill
   expect(lines.every(line => line[col('Fecha')] === day && line[col('Sucursal')] === '01')).toBe(true)
 })
 
+/**
+ * A sale 10 % off with a tip, and a tip given after the close. The IVA is on
+ * what the beers sold for after the discount (art. 454 E.T.), the cash debit
+ * carries the tip, and the tips are owed to the staff in "Propinas por
+ * pagar", prefilled for every company. A service sold without inventory is
+ * named before importing: it carries no cost of sales.
+ */
+test('contabilidad: la venta con descuento lleva el IVA sobre la base descontada y la propina va a propinas por pagar', async ({ page, request }) => {
+  test.setTimeout(120_000)
+  const shop = await createRestaurant(request, `contable-propina-${Date.now()}`)
+  const stamp = Date.now() % 1_000_000
+  const iva = await taxNamed(request, shop.auth, 'IVA 19%', 19)
+  const beer = await createStockedProduct(request, shop.auth, `Cerveza Propina ${stamp}`, 11900, iva, { stock: 20, cost: 3000 })
+  const soda = await createStockedProduct(request, shop.auth, `Gaseosa Propina ${stamp}`, 4000, undefined, { stock: 20, cost: 1500 })
+  const service = `Servicio Propina ${stamp}`
+  const serviceId = await createProduct(request, shop.auth, service, 5000)
+
+  // 2 beers ($23.800, IVA 19 % included) and a soda ($4.000), 10 % off, $2.000 of tip in cash.
+  const created = await request.post(`${API}/orders`, { headers: shop.auth, data: { items: [{ product_id: beer, quantity: 2 }, { product_id: soda, quantity: 1 }] } })
+  expect(created.status(), await created.text()).toBe(201)
+  const order = (await created.json()).data
+  expect((await request.post(`${API}/orders/${order.id}/discount`, { headers: shop.auth, data: { type: 'percentage', value: 10 } })).ok()).toBeTruthy()
+  const paid = await request.post(`${API}/orders/${order.id}/pay`, { headers: shop.auth, data: { payment_method: 'cash', tip: 2000 } })
+  expect(paid.ok(), await paid.text()).toBeTruthy()
+  // Later, $1.000 more of tip by Nequi.
+  const tipped = await request.post(`${API}/orders/${order.id}/tip`, { headers: shop.auth, data: { payment_method: 'nequi', tip: 1000 } })
+  expect(tipped.ok(), await tipped.text()).toBeTruthy()
+  await chargeOrder(request, shop.auth, serviceId, 1, { payment_method: 'cash' })
+
+  await freezeTime(page, order.created_at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, shop.credentials.email, shop.credentials.password, shop.slug)
+  await openAccountingFromSidebar(page)
+
+  // The tips account is there without anyone having saved it.
+  await page.getByRole('button', { name: 'Configurar contabilidad' }).click()
+  const dialog = accountingDialog(page)
+  await dialog.getByRole('tab', { name: 'Documentos' }).click()
+  const tips = dialog.getByLabel('Cuenta de Propinas por pagar · Venta (factura o comprobante de venta)', { exact: true })
+  await expect(tips).toHaveValue('281505')
+  await expect(dialog.getByRole('group', { name: 'Venta (factura o comprobante de venta)' })).toContainText('Propinas por pagar')
+  await dialog.getByRole('button', { name: 'Cerrar', exact: true }).click()
+  await expect(dialog).toBeHidden()
+
+  await page.getByRole('button', { name: 'Ver movimiento' }).click()
+  const amounts: [string, string, string, string][] = [
+    ['110505', 'Venta #1-1', 'Débito', '$27.020'],
+    ['414015', 'Venta #1-1', 'Crédito', '$21.600'],
+    ['240801', 'Venta #1-1', 'Crédito', '$3.420'],
+    ['281505', 'Venta #1-1', 'Crédito', '$2.000'],
+    ['614015', 'Venta #1-1', 'Débito', '$7.500'],
+    ['111005001', 'Propina de #1-1', 'Débito', '$1.000'],
+    ['281505', 'Propina de #1-1', 'Crédito', '$1.000'],
+    ['110505', 'Venta #2-1', 'Débito', '$5.000'],
+  ]
+  for (const [account, detail, header, amount] of amounts) {
+    const line = previewRow(page, account, detail)
+    await expect(line, `${account} ${detail}`).toHaveCount(1)
+    await expect(await previewCell(page, line, header), `${account} ${detail}`).toHaveText(amount)
+  }
+  // The IVA's base is the beers after the discount: $21.420 − $3.420.
+  await expect(await previewCell(page, previewRow(page, '240801'), 'Base')).toHaveText('$18.000')
+  await expect(figure(page, 'Asientos')).toContainText('3')
+  await expect(figure(page, 'Total débito')).toContainText('$40.520')
+  await expect(figure(page, 'Total crédito')).toContainText('$40.520')
+  const warnings = page.getByRole('alert').filter({ hasText: 'Revisa antes de importar' })
+  await expect(warnings).toContainText(`Ventas con productos que no manejan inventario: #2-1 (${service}).`)
+})
+
 test('contabilidad: un período que necesita una cuenta en blanco lo explica y abre la configuración en esa cuenta', async ({ page, request }) => {
   test.setTimeout(90_000)
   const shop = await createRestaurant(request, `contable-falta-${Date.now()}`)

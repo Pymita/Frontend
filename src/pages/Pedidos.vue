@@ -2118,7 +2118,7 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
     ...rows,
     line,
     amountLine('SUBTOTAL', r.subtotal_before_tax),
-    r.discount > 0 ? amountLine('DESCUENTO', r.discount, '-') : '',
+    r.discount_before_tax > 0 ? amountLine('DESCUENTO', r.discount_before_tax, '-') : '',
     r.included_vat > 0 ? amountLine('IMPUESTO', r.included_vat) : '',
     r.delivery_fee > 0 ? amountLine('DOMICILIO', r.delivery_fee) : '',
     ...totals,
