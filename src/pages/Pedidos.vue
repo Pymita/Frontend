@@ -995,6 +995,7 @@
                 v-model="nuevoPedido.dining_table_id"
                 :items="mesasDisponibles"
                 :item-title="(t: any) => t.display_name || `Mesa ${t.number}`"
+                :item-props="(t: any) => (t.status === 'reserved' ? { disabled: true, subtitle: reservedTableLabel(t) } : {})"
                 item-value="id"
                 label="Mesa (opcional)"
                 hint="Sin mesa el pedido queda como venta de mostrador"
@@ -1198,6 +1199,7 @@ import MoneyField from '../components/MoneyField.vue'
 import ProductPicker from '../components/ProductPicker.vue'
 import { menuItemsService } from '@/services/menuService';
 import { tablesService } from '@/services/tablesService';
+import { reservedTableLabel } from '@/utils/labels';
 import { effectiveFeatures } from '@/types/auth';
 import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/utils/orderLines';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';

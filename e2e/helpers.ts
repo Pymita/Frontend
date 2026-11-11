@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { createHmac } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { crc32, inflateRawSync } from 'node:zlib'
-import { expect, type APIRequestContext, type Page } from '@playwright/test'
+import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 
 export const API = `http://127.0.0.1:${process.env.E2E_API_PORT ?? '8010'}/api`
 
@@ -260,7 +260,16 @@ export async function chooseReport(page: Page, title: string): Promise<void> {
  * products to the seeded company: it scrolls the list until the option shows.
  */
 export async function pickOption(page: Page, name: string): Promise<void> {
-  const option = page.getByRole('option', { name, exact: true })
+  await (await scrollToOption(page, name)).click()
+}
+
+/**
+ * Scrolls the open v-select until the option shows and returns it, to read it
+ * (a disabled option cannot be picked). A RegExp matches an option whose name
+ * also carries a subtitle.
+ */
+export async function scrollToOption(page: Page, name: string | RegExp): Promise<Locator> {
+  const option = page.getByRole('option', { name, exact: typeof name === 'string' })
   for (let step = 0; step < 60 && (await option.count()) === 0; step++) {
     await page.getByRole('listbox').evaluate(list => {
       let node: HTMLElement | null = list as HTMLElement
@@ -269,7 +278,7 @@ export async function pickOption(page: Page, name: string): Promise<void> {
     })
     await page.waitForTimeout(100)
   }
-  await option.click()
+  return option
 }
 
 /**
