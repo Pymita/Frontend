@@ -88,10 +88,10 @@ test('armar un pedido por personas desde la web', async ({ page, request }) => {
 
   // Persona 1 pide una arepa, persona 2 pide dos.
   await dialog.getByText('Persona', { exact: true }).click()
-  await dialog.getByText('Arepa Separada').first().click()
+  await dialog.getByText('Arepa Separada', { exact: true }).click()
   await dialog.getByText('Persona', { exact: true }).click()
-  await dialog.getByText('Arepa Separada').first().click()
-  await dialog.getByText('Arepa Separada').first().click()
+  await dialog.getByText('Arepa Separada', { exact: true }).click()
+  await dialog.getByText('Arepa Separada', { exact: true }).click()
 
   await expect(dialog.locator('.v-list-item', { hasText: 'Persona 1' })).toContainText('$5.000')
   await expect(dialog.locator('.v-list-item', { hasText: 'Persona 2' })).toContainText('$10.000')
@@ -131,7 +131,7 @@ test('poner nombre a una persona con el lapicito', async ({ page, request }) => 
   // Ese nombre queda en el pedido de la persona.
   await valeChip.click()
   await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill('Empanada Nombre')
-  await dialog.getByText('Empanada Nombre').first().click()
+  await dialog.getByText('Empanada Nombre', { exact: true }).click()
   await expect(dialog.locator('.v-list-item', { hasText: 'Vale' })).toContainText('Empanada Nombre')
   await dialog.getByRole('button', { name: 'Crear pedido' }).click()
   await expect(page.getByText('Pedido creado')).toBeVisible()

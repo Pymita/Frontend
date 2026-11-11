@@ -91,9 +91,14 @@ export const categoriesService = {
     return response.data.data;
   },
 
-  /** Menú tal como lo ven los meseros (app móvil / tablet) */
-  async getMenuPreview(): Promise<MenuCategoryNode[]> {
-    const response = await api.get<ApiResponse<MenuCategoryNode[]>>('/menu/categories');
+  /**
+   * Menú tal como lo ven los meseros (app móvil / tablet). `withHidden` suma
+   * las categorías ocultas en la app: el Nuevo pedido de la web las vende.
+   */
+  async getMenuPreview({ withHidden = false }: { withHidden?: boolean } = {}): Promise<MenuCategoryNode[]> {
+    const response = await api.get<ApiResponse<MenuCategoryNode[]>>('/menu/categories', {
+      params: withHidden ? { with_hidden: 1 } : {},
+    });
     return response.data.data;
   },
 

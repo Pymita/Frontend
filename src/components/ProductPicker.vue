@@ -1,5 +1,24 @@
 <template>
   <v-row>
+    <!-- Categorías principales en el orden de la app de meseros; de lado a lado, sin empujar la lista. -->
+    <v-col v-if="menu.length > 1" cols="12" class="pb-0">
+      <v-slide-group>
+        <v-chip
+          v-for="option in categoryOptions"
+          :key="option.id ?? 'all'"
+          size="small"
+          class="mr-2"
+          role="button"
+          :aria-pressed="category === option.id"
+          :color="category === option.id ? 'primary' : undefined"
+          :variant="category === option.id ? 'flat' : 'tonal'"
+          @click="category = option.id"
+        >
+          {{ option.label }}
+        </v-chip>
+      </v-slide-group>
+    </v-col>
+
     <!-- Catálogo: un clic agrega una unidad -->
     <v-col cols="12" md="7">
       <v-text-field
@@ -146,10 +165,12 @@
 <script setup lang="ts">
 import { money } from '@/utils/money'
 import { computed, ref, watch } from 'vue';
+import type { MenuCategoryNode } from '@/services/menuService';
 import { guestLabel, guestsIn, priceOf, type PickedLine } from '@/utils/orderLines';
 
 const props = defineProps<{
-  items: any[];
+  /** El menú de los meseros (`/menu/categories`): categorías principales con sus subcategorías. */
+  menu: MenuCategoryNode[];
   loading?: boolean;
   selection: PickedLine[];
   /** Personas que ya tiene el pedido abierto (para seguir numerando desde ahí) */
@@ -204,13 +225,30 @@ watch(() => props.selection.length, (length) => {
   }
 });
 
+// A main category brings what its subcategories hold: the waiter app opens them inside it.
+const itemsOf = (node: MenuCategoryNode): MenuCategoryNode['items'] => [...node.items, ...node.children.flatMap(itemsOf)];
+
+const items = computed(() =>
+  props.menu.flatMap(root => itemsOf(root).map(item => ({ ...item, categoryId: root.id }))),
+);
+
+// Filtro por categoría (null = todas); cada vez que se recarga el menú vuelve a "Todas".
+const category = ref<number | null>(null);
+const categoryOptions = computed(() => [
+  { id: null, label: 'Todas' },
+  ...props.menu.map(root => ({ id: root.id, label: root.icon ? `${root.icon} ${root.name}` : root.name })),
+]);
+watch(() => props.menu, () => {
+  category.value = null;
+});
+
 const filteredItems = computed(() => {
   const term = (search.value || '').toLowerCase().trim();
-  const available = props.items.filter(item => item.available !== false);
 
-  if (!term) return available;
-
-  return available.filter(item => item.name.toLowerCase().includes(term));
+  return items.value.filter(item =>
+    (category.value === null || item.categoryId === category.value)
+    && (!term || item.name.toLowerCase().includes(term)),
+  );
 });
 </script>
 
