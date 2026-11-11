@@ -320,11 +320,21 @@
               <div class="text-h6 tabular-nums">{{ money(productReport?.summary.net) }}</div>
             </div>
             <div>
+              <div class="text-caption text-medium-emphasis">Costo</div>
+              <div class="text-h6 tabular-nums">{{ money(productReport?.summary.cost) }}</div>
+            </div>
+            <div>
               <div class="text-caption text-medium-emphasis">Ganancia (neto - costo)</div>
               <div class="text-h6" :class="(productReport?.summary.profit ?? 0) >= 0 ? 'text-success' : 'text-error'">
                 {{ money(productReport?.summary.profit) }}
               </div>
             </div>
+          </v-card-text>
+          <v-card-text class="text-body-2 text-medium-emphasis pb-0">
+            El costo es lo que salió del kardex en cada venta; en un combo, lo que costaron sus productos.
+            <template v-if="productReport?.summary.cost_estimated">
+              Donde dice «estimado», son ventas de antes de guardarlo o productos sin inventario, al costo de hoy.
+            </template>
           </v-card-text>
           <v-card-text v-if="recurringBilling" class="text-body-2 text-medium-emphasis pb-0">
             Lo facturado sale en la categoría Servicios, un concepto por fila y sin costo: no pasa por el kardex.
@@ -347,10 +357,14 @@
             <template #item.net="{ item }">
               <span class="font-weight-bold">{{ money(item.net) }}</span>
             </template>
-            <template #item.cost="{ item }">{{ money(item.cost) }}</template>
+            <template #item.cost="{ item }">
+              {{ money(item.cost) }}
+              <div v-if="item.cost_estimated" class="text-caption text-medium-emphasis">estimado</div>
+            </template>
             <template #item.profit="{ item }">
               <span :class="item.profit >= 0 ? 'text-success' : 'text-error'">{{ money(item.profit) }}</span>
             </template>
+            <template #item.margin="{ item }">{{ item.margin === null ? '—' : percent(item.margin) }}</template>
             <template #item.share="{ item }">{{ percent(item.share) }}</template>
             <template #no-data>
               <p class="text-medium-emphasis py-6">No hay ventas en el rango seleccionado</p>
@@ -785,6 +799,7 @@ const productHeaders = computed(() => [
   { title: 'Neto', key: 'net', align: 'end' as const },
   { title: 'Costo', key: 'cost', align: 'end' as const },
   { title: 'Ganancia', key: 'profit', align: 'end' as const },
+  { title: 'Margen', key: 'margin', align: 'end' as const },
   { title: 'Ventas', key: 'orders_count', align: 'end' as const },
   // Products next to services: how much of what is shown each one is.
   ...(recurringBilling.value ? [{ title: 'Participación', key: 'share', align: 'end' as const }] : []),

@@ -132,8 +132,13 @@ export interface ProductSalesRow {
   quantity: number
   gross: number
   net: number
+  /** What its sales took from the kardex, line by line */
   cost: number
+  /** Part of the cost is today's estimate: sales whose exits do not name their line, or products without inventory */
+  cost_estimated: boolean
   profit: number
+  /** Profit over net, %; null for a service (no cost to weigh) */
+  margin: number | null
   /** Orders, or documents for a concept. */
   orders_count: number
   /** % of what the view sold (products, services or both). */
@@ -142,7 +147,7 @@ export interface ProductSalesRow {
 
 export interface ProductSalesReport {
   products: ProductSalesRow[]
-  summary: { quantity: number; net: number; profit: number }
+  summary: { quantity: number; net: number; cost: number; profit: number; cost_estimated: boolean }
 }
 
 /** Qué dejó cada mesa: productos, tiempo de billar, propinas y total. */

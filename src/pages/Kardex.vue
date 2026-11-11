@@ -387,6 +387,8 @@
                 <td class="px-2">
                   {{ m.reference || '—' }}
                   <div v-if="m.counterparty" class="text-caption text-medium-emphasis">{{ m.counterparty }}</div>
+                  <!-- What a sale took it for: "Combo Burger: Gaseosa", "Consumo de receta: Pizza". -->
+                  <div v-if="m.notes" class="text-caption text-medium-emphasis">{{ m.notes }}</div>
                 </td>
                 <td v-if="showProductColumn" class="px-2">{{ m.product.name }}</td>
                 <td class="text-right text-success px-2">
