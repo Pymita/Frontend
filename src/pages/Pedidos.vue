@@ -2098,7 +2098,7 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
   return [
     center(r.business.name || ''),
     center(r.business.legal_name || ''),
-    r.business.nit ? center(`NIT ${r.business.nit}`) : '',
+    r.business.nit ? center(`NIT ${printedDocument('NIT', r.business.nit)}`) : '',
     center(taxRegimeText(r.business)),
     center([r.business.address, r.business.city].filter(Boolean).join(' - ')),
     r.business.phone ? center(`Tel. ${r.business.phone}`) : '',

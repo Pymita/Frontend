@@ -13,6 +13,7 @@ import {
   freezeTime,
   issueDocuments,
   loginUI,
+  nitDigit,
   openSidebarGroup,
   pickOption,
   pickOptions,
@@ -290,6 +291,11 @@ test('un conjunto ve sus informes, no los de pedidos ni kardex, y más de 366 d�
 
   await chooseReport(page, 'Clientes con saldo')
   await expect(await cellUnder(page, bodyRow(page, 'Ana Informes 101'), 'Saldo')).toHaveText('$250.000')
+  // The DIAN digit next to the NIT, on by default (a cédula has one too).
+  const headers = await headerTexts(page)
+  expect(headers.indexOf('DV')).toBe(headers.indexOf('NIT / Documento') + 1)
+  await expect(await cellUnder(page, bodyRow(page, 'Ana Informes 101'), 'NIT / Documento')).toHaveText('7101')
+  await expect(await cellUnder(page, bodyRow(page, 'Ana Informes 101'), 'DV')).toHaveText(nitDigit('7101'))
 
   await chooseReport(page, 'Ventas por fecha y vendedor')
   await field(page, 'Desde').locator('input').fill(displayDate('2024-01-01'))
@@ -784,7 +790,8 @@ test('contabilidad: las cuentas y los comprobantes quedan guardados, la plantill
   await editor.getByRole('button', { name: 'Columna fija', exact: true }).click()
   await editor.getByLabel('Encabezado de la columna fija', { exact: true }).fill('Sucursal')
   await editor.getByLabel('Valor de la columna fija', { exact: true }).fill('01')
-  const headers = ['Cuenta contable', 'Comprobante', 'Número', 'Fecha', 'NIT tercero', 'Nombre del tercero', 'Detalle', 'Débito', 'Crédito', 'Sucursal']
+  // A new template starts from Genérica's columns, the DV and the rate included.
+  const headers = ['Cuenta contable', 'Comprobante', 'Número', 'Fecha', 'NIT tercero', 'DV', 'Nombre del tercero', 'Detalle', 'Débito', 'Crédito', 'Tarifa %', 'Sucursal']
   await expect(editor.getByRole('table', { name: 'Encabezados de la plantilla' }).locator('tbody td')).toHaveText(headers)
   await editor.getByRole('button', { name: 'Guardar plantilla' }).click()
   await expect(page.getByText(`Plantilla «${templateName}» guardada.`)).toBeVisible()
@@ -845,7 +852,10 @@ test('contabilidad: las cuentas y los comprobantes quedan guardados, la plantill
   expect(cashRow[col('Número')]).not.toBe('')
   expect(cashRow[col('Fecha')]).toBe(day)
   expect(cashRow[col('NIT tercero')]).toBe('222222222222')
+  // The consumidor final's NIT is not a RUT: no DV.
+  expect(cashRow[col('DV')]).toBe('')
   expect(cashRow[col('Nombre del tercero')]).toBe('Consumidor final')
+  expect(Number(sheetLine('240801', 'F-1')[col('Tarifa %')])).toBe(19)
   // The file writes 0 on the side a line does not post on.
   expect(Number(cashRow[col('Débito')])).toBe(11900)
   expect(cashRow[col('Crédito')]).toBe('0')

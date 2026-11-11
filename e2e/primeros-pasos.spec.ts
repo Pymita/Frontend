@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { API, PLATFORM, apiLogin, field, loginUI, sidebarItem } from './helpers'
+import { API, PLATFORM, apiLogin, field, loginUI, sidebarItem, uniqueNit } from './helpers'
 
 /**
  * Una empresa recién creada, sin plantilla: la guía "Primeros pasos" dice
@@ -113,7 +113,8 @@ test('una empresa nueva sigue los primeros pasos y hace su primera venta', async
   await expect(page).toHaveURL(/\/configuracion/)
   // El formulario llega con el nombre de la empresa: se escribe cuando cargó.
   await expect(field(page, 'Nombre o razón social *').locator('input')).toHaveValue(/Fonda Nueva/)
-  await field(page, 'NIT o documento *').locator('input').fill('900555111-2')
+  const { nit, digit } = uniqueNit('9')
+  await field(page, 'NIT *').locator('input').fill(`${nit}-${digit}`)
   await field(page, 'Teléfonos *').locator('input').fill('3001234567')
   await field(page, 'Dirección *').locator('input').fill('Calle 10 # 5-20')
   await page.getByRole('button', { name: 'Guardar datos del negocio' }).click()

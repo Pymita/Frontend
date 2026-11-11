@@ -10,11 +10,14 @@ import {
   freezeTime,
   issueDocuments,
   loginUI,
+  nitDigit,
   pageRule,
   pdfPageSize,
   pdfPages,
+  pdfText,
   pickOptions,
   sidebarItem,
+  uniqueNit,
   xlsxRows,
   type CompanySession,
   type IssuedDocument,
@@ -598,8 +601,9 @@ test('factura a un segmento y la cartera con su Excel suma solo los clientes que
     page.getByRole('button', { name: 'Descargar Excel' }).click(),
   ])
   const sheet = xlsxRows(readFileSync(await download.path()))
-  expect(sheet[0]).toEqual(['NIT / Documento', 'Cliente', 'Fecha', 'Tipo', 'Documento', 'Período', 'Vence', 'Valor', 'Abonos', 'Saldo'])
-  expect(sheet.slice(1).map(cells => [cells[0], cells[1], cells[9]])).toEqual([['8001', 'Ana Grado 5', '300000']])
+  // The DIAN digit in its own column, next to the NIT (a cédula has one too).
+  expect(sheet[0]).toEqual(['NIT / Documento', 'DV', 'Cliente', 'Fecha', 'Tipo', 'Documento', 'Período', 'Vence', 'Valor', 'Abonos', 'Saldo'])
+  expect(sheet.slice(1).map(cells => [cells[0], cells[1], cells[2], cells[10]])).toEqual([['8001', nitDigit('8001'), 'Ana Grado 5', '300000']])
 
   // The customer form of Facturación automática: the join date and the segments.
   await sidebarItem(page, 'Facturación automática').click()
@@ -897,16 +901,18 @@ test('el histórico de abonos lista parciales y totales y descarga el PDF', asyn
   test.setTimeout(60_000)
   const company = await createRecurringCompany(request, 'historico')
   const auth = { Authorization: `Bearer ${company.token}` }
-  await request.put(`${API}/invoicing/business`, {
+  const { nit, digit } = uniqueNit('8')
+  const business = await request.put(`${API}/invoicing/business`, {
     headers: auth,
     data: {
       legal_name: 'Conjunto Histórico E2E',
-      nit: `900.${Date.now() % 1000000}`,
+      nit,
       address: 'Calle 1',
       city: 'Bogotá',
       phone: '3001112233',
     },
   })
+  expect(business.ok(), await business.text()).toBeTruthy()
   const ana = await createResident(request, company.token, {
     name: 'Ana Histórico',
     document_number: '8001',
@@ -975,6 +981,8 @@ test('el histórico de abonos lista parciales y totales y descarga el PDF', asyn
   expect(bytes.subarray(0, 4).toString()).toBe('%PDF')
   expect(bytes.length).toBeGreaterThan(500)
   expect(download.suggestedFilename()).toMatch(/^historico-abonos-.*\.pdf$/)
+  // The business's NIT with its DIAN digit in the header.
+  expect(pdfText(bytes)).toContain(`NIT ${nit}-${digit}`)
 
   // Headless Chromium no embebe PDFs ("Couldn't load plugin"): se renderiza
   // el contenido del PDF descargado como HTML para la captura de revisión.
@@ -1467,7 +1475,8 @@ test('la cuenta de cobro sale con el encabezado del negocio y el valor en letras
     headers: auth,
     data: {
       legal_name: 'Mauricio Obando Castrillón',
-      nit: `75.068.382-${Date.now() % 10000}`,
+      // A natural person: the cédula is the NIT of the RUT, with its DIAN digit.
+      nit: '75.068.382-4',
       tax_regime: 'simplified',
       address: 'Quintas de Aragón M9 CS9',
       city: 'Dosquebradas',
@@ -1517,7 +1526,7 @@ test('la cuenta de cobro sale con el encabezado del negocio y el valor en letras
   ])
   const body = popup.locator('body')
   await expect(body).toContainText('Mauricio Obando Castrillón')
-  await expect(body).toContainText('NO RESPONSABLE DE IVA')
+  await expect(popup.locator('.header .business')).toContainText('NIT: 75068382-4 · NO RESPONSABLE DE IVA')
   await expect(body).toContainText('TELÉFONO: 3159276091 - 3001571023 DOSQUEBRADAS - RISARALDA')
   await expect(popup.locator('.doc-number')).toContainText('CUENTA DE COBRO')
   await expect(popup.locator('.doc-number')).toContainText('CC-1')
@@ -1677,11 +1686,12 @@ test('la cuenta de cobro de una casa imprime solo el número del documento y la 
 test('la factura de venta lleva el número tal cual y la resolución en el encabezado, antes de los ítems', async ({ page, request }) => {
   const company = await createRecurringCompany(request, 'factura')
   const auth = { Authorization: `Bearer ${company.token}` }
+  const { nit, digit } = uniqueNit('9')
   const business = await request.put(`${API}/invoicing/business`, {
     headers: auth,
     data: {
       legal_name: 'Conjunto Los Pinos PH',
-      nit: `900${Date.now() % 1000000}-1`,
+      nit,
       tax_regime: 'common',
       address: 'Calle 10 # 20-30',
       city: 'Pereira',
@@ -1722,6 +1732,7 @@ test('la factura de venta lleva el número tal cual y la resolución en el encab
   ])
   await expect(popup.locator('.doc-number')).toContainText('FACTURA DE VENTA')
   await expect(popup.locator('.doc-number .number')).toHaveText('SETP990000001')
+  await expect(popup.locator('.header .business')).toContainText(`NIT: ${nit}-${digit} · RESPONSABLE DE IVA`)
 
   // La resolución va con los datos del negocio, con el número tal cual se escribió.
   const line = popup.locator('.header .business .resolution')
@@ -1780,11 +1791,38 @@ test('el admin edita los datos del negocio que van en los documentos', async ({ 
   await expect(page.getByText('Este campo es obligatorio').first()).toBeVisible()
 
   await field(page, 'Nombre o razón social *').locator('input').fill('Conjunto Los Pinos PH')
-  await field(page, 'NIT o documento *').locator('input').fill(`900${Date.now() % 1000000}-1`)
   await field(page, 'Teléfonos *').locator('input').fill('6011234567 - 3000000000')
   await field(page, 'Dirección *').locator('input').fill('Calle 10 # 20-30')
   await field(page, 'Ciudad').locator('input').fill('Pereira')
   await field(page, 'Observaciones de los documentos').locator('textarea').first().fill('Consignar en Cta corriente 123 Davivienda')
+
+  // The NIT's DIAN digit shows as it is typed, read-only: the system computes it.
+  const { nit, digit } = uniqueNit('9')
+  const wrong = String((Number(digit) + 1) % 10)
+  const nitInput = field(page, 'NIT *').locator('input')
+  const digitInput = field(page, 'DV').locator('input')
+  await nitInput.fill(nit)
+  await expect(digitInput).toHaveValue(digit)
+  await expect(digitInput).toHaveAttribute('readonly')
+  // A wrong digit is a wrong NIT: the field says the right one, and nothing is saved.
+  await nitInput.fill(`${nit}-${wrong}`)
+  await nitInput.blur()
+  const wrongMessage = `El dígito de verificación del NIT ${nit} es ${digit}, no ${wrong}: revisa el número o escríbelo sin el dígito, que lo calcula el sistema.`
+  await expect(page.getByText(wrongMessage)).toBeVisible()
+  await page.getByRole('button', { name: 'Guardar datos del negocio' }).click()
+  await expect(page.getByText('Datos del negocio guardados')).toHaveCount(0)
+  // And the API refuses it too, whoever sends it.
+  const refused = await request.put(`${API}/invoicing/business`, {
+    headers: { Authorization: `Bearer ${company.token}`, Accept: 'application/json' },
+    data: { legal_name: 'Conjunto Los Pinos PH', nit: `${nit}-${wrong}`, address: 'Calle 10 # 20-30', phone: '6011234567' },
+  })
+  expect(refused.status()).toBe(422)
+  expect((await refused.json()).errors.nit).toEqual([wrongMessage])
+
+  await nitInput.fill(`${nit}-${digit}`)
+  await nitInput.blur()
+  await expect(nitInput).toHaveValue(nit)
+  await expect(digitInput).toHaveValue(digit)
   await page.getByRole('button', { name: 'Guardar datos del negocio' }).click()
 
   await expect(page.getByText('Datos del negocio guardados')).toBeVisible()
@@ -1795,6 +1833,10 @@ test('el admin edita los datos del negocio que van en los documentos', async ({ 
   })).json()
   expect(saved.data.legal_name).toBe('Conjunto Los Pinos PH')
   expect(saved.data.document_notes).toBe('Consignar en Cta corriente 123 Davivienda')
+  expect([saved.data.nit, saved.data.verification_digit]).toEqual([nit, digit])
+  await page.reload()
+  await expect(nitInput).toHaveValue(nit)
+  await expect(digitInput).toHaveValue(digit)
 })
 
 /**

@@ -123,7 +123,9 @@ export interface OrderReceipt {
   business: {
     name: string | null
     legal_name: string | null
+    /** Without its verification digit; the ticket prints it with `printedDocument('NIT', nit)`. */
     nit: string | null
+    verification_digit?: string | null
     address: string | null
     city: string | null
     phone: string | null

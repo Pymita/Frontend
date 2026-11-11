@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { ADMIN, API, apiLogin, buildXlsx, createCompany, displayDate, field, loginUI, pickOptions, xlsxRows } from './helpers'
+import { ADMIN, API, apiLogin, buildXlsx, createCompany, displayDate, field, loginUI, nitDigit, pickOptions, xlsxRows } from './helpers'
 
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
@@ -260,9 +260,13 @@ test('la cédula con puntos se guarda solo con números y escrita otra vez dice 
 /**
  * La pestaña Proveedores vive junto a Clientes: trae un proveedor por defecto
  * (el nombre de la empresa, que no se puede borrar) y deja crear los demás.
+ * Un NIT de proveedor tiene su DV como el de un cliente: se ve mientras se
+ * escribe, lo calcula el sistema y uno equivocado dice el correcto. Antes
+ * "900.123.456 - 7" se guardaba tal cual, aunque el DV de ese NIT es 8.
  */
-test('la pestaña Proveedores trae el proveedor por defecto y permite crear otro', async ({ page }) => {
-  await loginUI(page, ADMIN.email, ADMIN.password)
+test('la pestaña Proveedores trae el proveedor por defecto, calcula el DV del NIT y rechaza uno equivocado', async ({ page, request }) => {
+  const company = await createCompany(request, 'dv-proveedores', { business_type: 'restaurant' })
+  await loginUI(page, company.credentials.email, company.credentials.password)
   await page.goto('/clientes')
 
   await page.getByRole('tab', { name: /Proveedores/ }).click()
@@ -274,14 +278,52 @@ test('la pestaña Proveedores trae el proveedor por defecto y permite crear otro
   await page.getByRole('button', { name: /Nuevo proveedor/ }).click()
 
   const dialog = page.getByRole('dialog')
+  const documento = field(page, 'Número de documento').locator('input')
+  const digit = field(page, 'DV').locator('input')
   await dialog.getByLabel('Nombre').fill(nombre)
-  await dialog.getByLabel('Documento / NIT').fill('900.123.456 - 7')
+  // A new supplier starts as a NIT, the DV next to it, read-only.
+  await expect(field(page, 'Tipo de documento')).toContainText('NIT')
+  await documento.fill('900.123.456')
+  await expect(digit).toHaveValue(nitDigit('900123456'))
+  await expect(digit).toHaveAttribute('readonly')
+
+  await documento.fill('900.123.456 - 7')
+  await documento.blur()
+  await expect(dialog).toContainText('El dígito de verificación del NIT 900123456 es 8, no 7: revisa el número o escríbelo sin el dígito, que lo calcula el sistema.')
   await dialog.getByLabel('Teléfono').fill('3005551234')
   await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Proveedor creado exitosamente')).toHaveCount(0)
 
+  await documento.fill('900.123.456-8')
+  await documento.blur()
+  await expect(documento).toHaveValue('900123456')
+  await expect(digit).toHaveValue('8')
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
   await expect(page.getByText('Proveedor creado exitosamente')).toBeVisible()
-  // El NIT queda sin puntos y con su dígito de verificación.
-  await expect(page.locator('tr', { hasText: nombre })).toContainText('900123456-7')
+
+  // In the list: the type, the number without its digit and the DV in its column.
+  const row = page.locator('tbody tr', { hasText: nombre })
+  // The Clientes tab keeps its own table in the page: only the open tab's headers.
+  const headers = (await page.locator('.v-window-item--active .v-data-table thead th').allInnerTexts()).map(text => text.trim())
+  expect(headers.slice(0, 4)).toEqual(['Nombre', 'Tipo doc', 'Documento', 'DV'])
+  await expect(row.locator('td').nth(1)).toHaveText('NIT')
+  await expect(row.locator('td').nth(2)).toHaveText('900123456')
+  await expect(row.locator('td').nth(3)).toHaveText('8')
+
+  // A cédula has its digit too; a passport has none.
+  await row.getByRole('button', { name: `Editar el proveedor ${nombre}` }).click()
+  await field(page, 'Tipo de documento').click()
+  await page.getByRole('option', { name: 'Pasaporte' }).click()
+  await expect(field(page, 'DV')).toHaveCount(0)
+  await field(page, 'Tipo de documento').click()
+  await page.getByRole('option', { name: 'Cédula de ciudadanía (CC)' }).click()
+  await documento.fill('1.002.655.357')
+  await expect(digit).toHaveValue(nitDigit('1002655357'))
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Proveedor actualizado exitosamente')).toBeVisible()
+  await expect(row.locator('td').nth(1)).toHaveText('CC')
+  await expect(row.locator('td').nth(2)).toHaveText('1002655357')
+  await expect(row.locator('td').nth(3)).toHaveText('3')
 })
 
 /**

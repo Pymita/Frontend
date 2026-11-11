@@ -18,6 +18,7 @@ import {
   pdfPages,
   pdfText,
   pickOption,
+  uniqueNit,
   watchPrinting,
   xlsxRows,
 } from './helpers'
@@ -1103,7 +1104,7 @@ test('la venta se imprime en hoja como factura de venta, desde Pedidos y desde V
     },
   })
   expect(resolution.ok()).toBeTruthy()
-  const nit = `901${Date.now() % 1_000_000}`
+  const { nit, digit } = uniqueNit('8')
   const business = await request.put(`${API}/invoicing/business`, {
     headers: auth,
     data: {
@@ -1161,7 +1162,8 @@ test('la venta se imprime en hoja como factura de venta, desde Pedidos y desde V
   await expect(invoice.locator('.doc-number')).toContainText('FACTURA DE VENTA')
   await expect(invoice.locator('.doc-number .number')).toHaveText('FE1')
   await expect(invoice.locator('.header .business')).toContainText('Hoja Carta SAS')
-  await expect(invoice.locator('.header .business')).toContainText(`NIT: ${nit}`)
+  // The business's NIT with its DIAN digit, computed: Datos del negocio stores it without one.
+  await expect(invoice.locator('.header .business')).toContainText(`NIT: ${nit}-${digit} · RESPONSABLE DE IVA`)
   await expect(invoice.locator('.header .business .resolution')).toHaveText(
     'Resolución DIAN N.º 018764000000001 del 15/01/2026 · Rango FE1 a FE100 · Vigente hasta 15/01/2030',
   )
