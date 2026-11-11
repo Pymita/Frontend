@@ -14,7 +14,7 @@ import { formatFullDateTime, formatIsoDate, toIsoDate } from './dates'
 import { resolveImageUrl } from './images'
 import { documentBase, verificationDigit } from './validation'
 import { closeMethodLabel, compareMethodKeys, drawerText, paymentMethodLabel } from '../composables/usePaymentMethods'
-import type { CashSession, CashWithdrawal, PaymentMethodDetail } from '../services/salesService'
+import type { CashSession, CashWithdrawal, PaymentLine, PaymentMethodDetail } from '../services/salesService'
 import type { OrderReceipt, ReceiptTimeDetail } from '../services/ordersService'
 
 export interface DocumentBusiness {
@@ -118,13 +118,16 @@ export interface PayToAccount {
 
 /**
  * "Transferencia + Nequi": each method by its current name. A key the API
- * sent no detail for reads by its label. The bank account is not here: it
- * prints among the observations (bankAccountNotes()).
+ * sent no detail for reads by its label. Paid with two or more (`lines`),
+ * each one says what it brought: "Efectivo $50.000 + Nequi $30.000". The
+ * bank account is not here: it prints among the observations (bankAccountNotes()).
  */
-export const paymentMethodsText = (keys: string[], detail: PaymentMethodDetail[] = []): string =>
-  (keys.length ? keys : detail.map(method => method.key))
-    .map(key => detail.find(method => method.key === key)?.name ?? paymentMethodLabel(key))
-    .join(' + ')
+export const paymentMethodsText = (keys: string[], detail: PaymentMethodDetail[] = [], lines: PaymentLine[] = []): string => {
+  const name = (key: string) => detail.find(method => method.key === key)?.name ?? paymentMethodLabel(key)
+  // A no-break space keeps each method with its amount when the line wraps.
+  if (lines.length > 1) return lines.map(line => `${name(line.payment_method)}\u00a0${money(line.amount)}`).join(' + ')
+  return (keys.length ? keys : detail.map(method => method.key)).map(name).join(' + ')
+}
 
 /**
  * One observation per method that shows its bank account ("Puedes pagar en
@@ -375,7 +378,7 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
     const name = detail ? `Tiempo de mesa: ${detail}` : 'Tiempo de mesa'
     lines.push({ quantity: 1, name, unit_price: sale.time_amount, total: sale.time_amount, tax_rate: 0, tax: '—' })
   }
-  const methods = paymentMethodsText(sale.payment_methods, sale.payment_methods_detail)
+  const methods = paymentMethodsText(sale.payment_methods, sale.payment_methods_detail, sale.payment_lines)
 
   return `
   <section class="document">

@@ -710,6 +710,52 @@
             </div>
           </template>
           <template v-else>
+          <!-- Varias formas de pago en un solo cobro: la del selector de arriba cobra lo que falta. -->
+          <template v-if="!onCredit">
+            <v-row v-for="(line, index) in extraLines" :key="index" dense class="align-center mb-1">
+              <v-col cols="12" sm="6">
+                <v-select
+                  v-model="line.method"
+                  :items="extraMethodOptions(index)"
+                  label="Otra forma de pago"
+                  density="compact"
+                  hide-details
+                />
+              </v-col>
+              <v-col cols="10" sm="5">
+                <MoneyField v-model="line.amount" label="Valor" density="compact" hide-details empty-as-zero />
+              </v-col>
+              <v-col cols="2" sm="1" class="text-center">
+                <v-btn
+                  icon="mdi-close"
+                  variant="text"
+                  size="small"
+                  :aria-label="`Quitar la forma de pago ${paymentMethodLabel(line.method)}`"
+                  @click="extraLines.splice(index, 1)"
+                />
+              </v-col>
+            </v-row>
+            <v-btn
+              v-if="unusedSaleMethods.length"
+              variant="text"
+              color="primary"
+              size="small"
+              prepend-icon="mdi-plus"
+              class="mb-2"
+              @click="addPayLine"
+            >
+              Agregar otra forma de pago
+            </v-btn>
+            <p v-if="splitting" class="text-body-2 tabular-nums mb-2" :class="{ 'text-error': firstLineAmount < 1 }">
+              <template v-if="firstLineAmount >= 1">
+                Resta por cobrar con {{ paymentMethodLabel(payMethod) }}: <strong>{{ money(firstLineAmount) }}</strong>
+              </template>
+              <template v-else>
+                Las otras formas de pago ya suman el total: bájales el valor para que {{ paymentMethodLabel(payMethod) }} cobre lo que falta.
+              </template>
+            </p>
+          </template>
+
           <CustomerPicker
             v-model="payCustomerId"
             :known="payKnownCustomers"
@@ -832,6 +878,9 @@
               <strong>imprime la cuenta</strong>: el cliente ve el total con y sin
               propina y decide; después cobras con la opción que eligió.
             </p>
+            <p v-if="splitting" class="text-caption text-medium-emphasis mt-1 mb-0">
+              Con varias formas de pago se cobra la propina escrita, con {{ paymentMethodLabel(payMethod) }}: bórrala si el cliente no la deja.
+            </p>
           </template>
 
           <v-card flat color="surface-light" class="pa-3 mt-3">
@@ -853,6 +902,18 @@
             </div>
           </v-card>
 
+          <!-- Las vueltas son solo para el cajero: no se guardan ni se imprimen. -->
+          <v-row v-if="cashDue.length" dense class="mt-3 align-center">
+            <v-col cols="12" sm="6">
+              <MoneyField v-model="cashReceived" label="Efectivo recibido" density="compact" hide-details />
+            </v-col>
+            <v-col cols="12" sm="6" class="text-body-2 tabular-nums" aria-live="polite">
+              <div v-for="change in changeLines" :key="change.text" :class="{ 'text-error': change.short }">
+                {{ change.text }}
+              </div>
+            </v-col>
+          </v-row>
+
           </template>
         </v-card-text>
         <v-card-actions class="flex-wrap">
@@ -870,7 +931,7 @@
           <v-btn @click="payDialog = false">{{ payMode === 'split' ? 'Cerrar' : 'Cancelar' }}</v-btn>
           <template v-if="payMode === 'together'">
             <v-btn
-              v-if="tipOffered"
+              v-if="tipOffered && !splitting"
               color="primary"
               variant="tonal"
               :loading="saving"
@@ -883,10 +944,10 @@
               color="primary"
               variant="flat"
               :loading="saving"
-              :disabled="!payMethod || (onCredit && (!payCustomerId || !payDueDate))"
+              :disabled="!payMethod || (onCredit && (!payCustomerId || !payDueDate)) || (splitting && !splitReady)"
               @click="confirmarCobro(false)"
             >
-              {{ onCredit ? 'Vender a crédito' : tipOffered ? 'Cobrar sin propina' : 'Confirmar cobro' }}
+              {{ onCredit ? 'Vender a crédito' : tipOffered && !splitting ? 'Cobrar sin propina' : 'Confirmar cobro' }}
             </v-btn>
           </template>
         </v-card-actions>
@@ -1252,7 +1313,7 @@ import { reservedTableLabel } from '@/utils/labels';
 import { effectiveFeatures } from '@/types/auth';
 import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/utils/orderLines';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
-import { methodOptions, methodsFor, paymentMethodLabel, usePaymentMethods } from '@/composables/usePaymentMethods';
+import { isCashMethod, methodOptions, methodsFor, paymentMethodLabel, usePaymentMethods } from '@/composables/usePaymentMethods';
 import { money } from '@/utils/money';
 import { creditDueDate, formatDay, formatFullDateTime, formatIsoDate, formatRecent, todayIso } from '@/utils/dates';
 import {
@@ -1714,6 +1775,10 @@ const getPagoText = (estado: string) => label(paymentStatusLabels, estado) || es
 const payDialog = ref(false);
 const printing = ref(false);
 const payMethod = ref<SaleMethod>('');
+// Other methods of the same charge (7.3); the one of `payMethod` takes what they leave.
+const extraLines = ref<{ method: SaleMethod; amount: number }[]>([]);
+// Only to tell the change: never sent.
+const cashReceived = ref<number | null>(null);
 const payTip = ref(0);
 const payCustomerId = ref<number | null>(null);
 const customers = ref<Customer[]>([]);
@@ -1724,10 +1789,11 @@ const customers = ref<Customer[]>([]);
 const canSellOnCredit = computed(() =>
   canCharge.value && effectiveFeatures(authStore.user).some(f => f === 'customers' || f === 'recurring_billing'),
 );
+// With other methods added, "A crédito" leaves the list (it never mixes) and so does each method already used.
 const chargeMethodOptions = computed(() =>
-  payMode.value === 'together' && canSellOnCredit.value
+  payMode.value === 'together' && canSellOnCredit.value && !extraLines.value.length
     ? [...saleMethods.value, { value: 'credit', title: paymentMethodLabel('credit') }]
-    : saleMethods.value,
+    : saleMethods.value.filter(method => payMode.value !== 'together' || !extraLines.value.some(line => line.method === method.value)),
 );
 const onCredit = computed(() => payMode.value === 'together' && payMethod.value === 'credit');
 const payDueDate = ref('');
@@ -1843,6 +1909,55 @@ const useGuestSuggested = (guest: OrderGuest) => {
 /** Se le ofrece propina al cliente: hay sugerencia y vale más de cero. A crédito no lleva propina. */
 const tipOffered = computed(() => !onCredit.value && tipEnabled.value && payTip.value > 0);
 
+const splitting = computed(() => payMode.value === 'together' && !onCredit.value && extraLines.value.length > 0);
+const unusedSaleMethods = computed(() =>
+  saleMethods.value.filter(method => method.value !== payMethod.value && !extraLines.value.some(line => line.method === method.value)),
+);
+const extraMethodOptions = (index: number) =>
+  saleMethods.value.filter(method => method.value !== payMethod.value && !extraLines.value.some((line, i) => i !== index && line.method === method.value));
+const addPayLine = () => {
+  const next = unusedSaleMethods.value[0];
+  if (next) extraLines.value.push({ method: next.value, amount: 0 });
+};
+/**
+ * The first method's part: the balance as the API reads it (a running clock
+ * included) plus the tip, which rides on it, minus what the others bring.
+ */
+const firstLineAmount = computed(() => {
+  const order = selectedOrder.value;
+  if (!order) return 0;
+  const others = extraLines.value.reduce((sum, line) => sum + (line.amount || 0), 0);
+  const total = Number(order.pending_balance) + unbilledTime(order) + (tipOffered.value ? payTip.value : 0);
+  return Math.round((total - others) * 100) / 100;
+});
+const splitReady = computed(() => firstLineAmount.value >= 1 && extraLines.value.every(line => !!line.method && line.amount >= 1));
+
+/** What has to come in as cash, to tell the change; without a tip decided yet, with and without it. */
+const cashDue = computed((): { label: string; amount: number }[] => {
+  if (payMode.value !== 'together' || onCredit.value) return [];
+  if (splitting.value) {
+    const cash = [{ method: payMethod.value, amount: firstLineAmount.value }, ...extraLines.value]
+      .filter(line => isCashMethod(line.method))
+      .reduce((sum, line) => sum + (line.amount || 0), 0);
+    return cash > 0 ? [{ label: '', amount: cash }] : [];
+  }
+  if (!isCashMethod(payMethod.value)) return [];
+  return tipOffered.value
+    ? [{ label: 'sin propina', amount: payBase.value }, { label: 'con propina', amount: payBase.value + payTip.value }]
+    : [{ label: '', amount: payBase.value }];
+});
+const changeLines = computed(() => {
+  const received = cashReceived.value ?? 0;
+  if (!(received > 0)) return [];
+  return cashDue.value.map(due => {
+    const left = Math.round(received - due.amount);
+    const suffix = due.label ? ` ${due.label}` : '';
+    return left >= 0
+      ? { text: `Vueltas${suffix}: ${money(left)}`, short: false }
+      : { text: `Faltan ${money(-left)} en efectivo${suffix}`, short: true };
+  });
+});
+
 const suggestedTip = (order: Order) =>
   Math.round((consumptionOf(order) * Math.max(0, Number(tipPercent.value) || 0)) / 100);
 
@@ -1869,6 +1984,8 @@ watch([onCredit, creditCustomer], ([credit, customer]) => {
 const openPayDialog = async (order: Order) => {
   selectedOrder.value = order;
   payMethod.value = firstSaleMethod();
+  extraLines.value = [];
+  cashReceived.value = null;
   payTip.value = tipEnabled.value ? suggestedTip(order) : 0;
   payCustomerId.value = order.customer_id ?? null;
   payDueDate.value = '';
@@ -1913,16 +2030,25 @@ const confirmarCobro = async (withTip: boolean) => {
   if (!selectedOrder.value) return;
   const order = selectedOrder.value;
   const credit = onCredit.value;
+  const split = splitting.value;
   saving.value = true;
   try {
     const { order: paid, message } = await ordersService.markPaid(order.id, {
       payment_method: payMethod.value,
+      ...(split
+        ? {
+            payments: [
+              { payment_method: payMethod.value, amount: firstLineAmount.value },
+              ...extraLines.value.map(line => ({ payment_method: line.method, amount: line.amount })),
+            ],
+          }
+        : {}),
       // Sin propina se manda 0: si el pedido traía una, queda en cero.
-      tip: withTip && !credit ? payTip.value : 0,
+      tip: split ? (tipOffered.value ? payTip.value : 0) : withTip && !credit ? payTip.value : 0,
       customer_id: payCustomerId.value ?? undefined,
       due_date: credit ? payDueDate.value : undefined,
     });
-    showMessage(credit ? message : withTip ? 'Pedido cobrado con propina' : 'Pedido cobrado', 'success', [
+    showMessage(credit || split ? message : withTip ? 'Pedido cobrado con propina' : 'Pedido cobrado', 'success', [
       ticketAction(() => printReceipt(paid)),
       ...invoiceActions(order, paid),
     ]);
@@ -2042,7 +2168,7 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
   const totalWithoutTip = Number(r.total) - Number(r.tip || 0);
   const amountPaid = Number(opts.amountPaid || 0);
   const suggestedTip = Math.max(0, Number(opts.suggestedTip || 0));
-  const methods = r.payment_methods.length ? paymentMethodsText(r.payment_methods, r.payment_methods_detail) : '';
+  const methods = r.payment_methods.length ? paymentMethodsText(r.payment_methods, r.payment_methods_detail, r.payment_lines) : '';
   // Where the method was printed, the bank account it shows is an observation, as on the letter documents.
   const notes = methods && (!opts.preBill || opts.paidNow) ? bankAccountNotes(r.payment_methods_detail).flatMap(wrapped) : [];
 

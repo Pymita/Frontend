@@ -1,6 +1,6 @@
 import api from './api';
 import type { PageQuery, PaginatedResponse } from '@/types/api';
-import type { PaymentMethod, PaymentMethodDetail, SaleMethod } from './salesService';
+import type { PaymentLine, PaymentMethod, PaymentMethodDetail, SaleMethod } from './salesService';
 
 export type PaymentStatus = 'pending' | 'paid' | 'partial';
 export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
@@ -10,12 +10,15 @@ export type OrderItemStatus = 'pending' | 'preparing' | 'ready' | 'delivered';
 
 export type OrderPaymentMethod = PaymentMethod;
 
-/** Un pago es una VENTA (factura sus ítems, cuenta como ingreso) o un ABONO (anticipo en efectivo). */
-export type OrderPaymentKind = 'sale' | 'abono';
+/**
+ * Un pago es una VENTA (factura sus ítems, cuenta como ingreso), un ABONO (anticipo en efectivo)
+ * o una PARTE: otra forma de pago del mismo cobro que una venta (su misma `invoice_sequence`).
+ */
+export type OrderPaymentKind = 'sale' | 'abono' | 'part';
 
 export interface OrderPayment {
   id: number;
-  /** 'sale' = factura parcial #pedido-n; 'abono' = recibo de anticipo (no factura) */
+  /** 'sale' = factura parcial #pedido-n; 'abono' = recibo de anticipo (no factura); 'part' = dinero de otra forma de pago de esa venta */
   kind: OrderPaymentKind;
   amount: number;
   /** Propina de este pago (no es venta) */
@@ -178,6 +181,8 @@ export interface OrderReceipt {
   payment_methods: string[]
   /** Each method of `payment_methods` with its current name and bank account, for the "FORMA DE PAGO" line. */
   payment_methods_detail?: PaymentMethodDetail[]
+  /** What each method brought, tips included (none on one person's bill): with two or more, FORMA DE PAGO prints the amounts. */
+  payment_lines?: PaymentLine[]
   time_amount: number | null
   /** How the time line reads; null when its amount is not one product (a slice prorated by products). */
   time_detail?: ReceiptTimeDetail | null
@@ -295,6 +300,11 @@ export const ordersService = {
     payload: {
       /** 'credit': the customer owes it in Cartera; needs customer_id. */
       payment_method?: SaleMethod;
+      /**
+       * Several methods for this one charge, the first one the sale's: they add up to the balance
+       * plus `tip`, which rides on the first. Never with 'credit'.
+       */
+      payments?: { payment_method: PaymentMethod; amount: number }[];
       tip?: number;
       customer_id?: number | null;
       /** Due date of a credit sale (AAAA-MM-DD); without it the API uses the customer's next cutoff. */
@@ -302,7 +312,7 @@ export const ordersService = {
     } = {},
   ): Promise<{ order: Order; message: string }> {
     const response = await api.post<ApiResponse<Order>>(`/orders/${id}/pay`, {
-      ...(payload.payment_method ? { payment_method: payload.payment_method } : {}),
+      ...(payload.payments?.length ? { payments: payload.payments } : payload.payment_method ? { payment_method: payload.payment_method } : {}),
       // Se manda también el 0: si el pedido traía propina, "sin propina" la quita.
       ...(payload.tip !== undefined ? { tip: payload.tip } : {}),
       ...(payload.customer_id ? { customer_id: payload.customer_id } : {}),

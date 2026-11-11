@@ -1,8 +1,9 @@
 import { ref } from 'vue'
-import salesService, { type PaymentDocument, type PaymentMethod, type PaymentMethodRow } from '../services/salesService'
+import salesService, { type PaymentDocument, type PaymentLine, type PaymentMethod, type PaymentMethodRow } from '../services/salesService'
 import { useAuthStore } from '../stores/auth'
 import { errorMessage } from '../utils/errors'
 import { saleMethodLabels } from '../utils/labels'
+import { money } from '../utils/money'
 
 /**
  * The company's payment methods, shared by a page and everything it opens:
@@ -46,6 +47,10 @@ export const paymentMethodLabel = (key: string | null | undefined, legacy?: Reco
 /** Several methods of one record, "Efectivo + Nequi". */
 export const paymentMethodsLabel = (keys: string[]): string => keys.map(key => paymentMethodLabel(key)).join(' + ')
 
+/** A record paid with several methods, each with what it paid: "Efectivo $50.000 + Nequi $30.000" (wraps only at " + "). */
+export const paymentLinesLabel = (lines: PaymentLine[]): string =>
+  lines.map(line => `${paymentMethodLabel(line.payment_method)}\u00a0${money(line.amount)}`).join(' + ')
+
 /** What a cash close (or the totals of a period of closes) carries about its methods. */
 interface CloseNames {
   method_labels?: Record<PaymentMethod, string>
@@ -70,6 +75,10 @@ export const drawerText = (close: CloseNames | null | undefined): string => {
   if (names.length === 1 && names[0] === 'Efectivo') return 'en efectivo'
   return `en ${names.length > 1 ? `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}` : names[0]}`
 }
+
+/** Whether a method's money goes into the drawer (Efectivo, a "Caja menor" of the company's own). */
+export const isCashMethod = (key: string | null | undefined): boolean =>
+  !!key && (methods.value.find(method => method.key === key)?.is_cash ?? key === 'cash')
 
 /** The active methods allowed for a document, in the company's order; without one, every active method (Gastos). */
 export const methodsFor = (document?: PaymentDocument): PaymentMethodRow[] =>
