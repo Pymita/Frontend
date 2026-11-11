@@ -67,6 +67,8 @@ export interface ReportDefinition {
   filters: ReportFilter[]
   default_sort?: { by: string; dir: 'asc' | 'desc' }
   notes: string[]
+  /** The first cell of the Total row ("Total emitidas" when the rows also list what is not summed). */
+  total_label?: string
 }
 
 export interface ReportArea {

@@ -18,6 +18,7 @@ import {
   pickOption,
   pickOptions,
   reportTitles,
+  SHOP_WITH_FEES,
   sidebarGroup,
   sidebarItem,
   xlsxRows,
@@ -46,11 +47,14 @@ async function createRestaurant(request: APIRequestContext, slug: string) {
   return { slug, credentials, auth: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }
 }
 
-async function createProduct(request: APIRequestContext, auth: Auth, name: string, price: number): Promise<number> {
+async function createProduct(request: APIRequestContext, auth: Auth, name: string, price: number, taxId?: number): Promise<number> {
   const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `${name} Cat` } })
   const product = await request.post(`${API}/products`, {
     headers: auth,
-    data: { name, type: 'final', unit: 'und', sale_price: price, tracks_stock: false, category_id: (await category.json()).data.id },
+    data: {
+      name, type: 'final', unit: 'und', sale_price: price, tracks_stock: false, category_id: (await category.json()).data.id,
+      ...(taxId ? { tax_id: taxId } : {}),
+    },
   })
   expect(product.status(), await product.text()).toBe(201)
   return (await product.json()).data.id
@@ -227,6 +231,144 @@ test('el Excel trae las columnas de la pantalla, la fila Total y los filtros en 
   expect(filters).toContainEqual(['Agrupado por', 'Día y Vendedor'])
 })
 
+/**
+ * A restaurant with automatic billing: a comprobante sold before its DIAN
+ * resolution, then FE1 to a registered NIT with a tip, FE2 charged and
+ * reverted, and the monthly facturas FE3 and FE4, the second one cancelled.
+ */
+async function arrangeInvoices(request: APIRequestContext) {
+  const stamp = Date.now() % 1_000_000
+  const company = await createCompany(request, `facturas-${stamp}`, { business_type: 'restaurant', modules: SHOP_WITH_FEES })
+  const auth = { Authorization: `Bearer ${company.token}`, Accept: 'application/json' }
+  const iva = await taxNamed(request, auth, 'IVA 19%', 19)
+  const beer = await createProduct(request, auth, `Cerveza Factura ${stamp}`, 11900, iva)
+  const arepa = await createProduct(request, auth, `Arepa Factura ${stamp}`, 5000)
+  await chargeOrder(request, auth, arepa, 1, { payment_method: 'cash' })
+
+  const resolution = await request.put(`${API}/invoicing/resolution`, {
+    headers: auth,
+    data: { invoicing_resolution: '18764000009999', invoice_prefix: 'FE', range_from: 1, range_to: 1000, resolution_date: '2026-01-15', valid_until: '2030-01-15' },
+  })
+  expect(resolution.ok(), await resolution.text()).toBeTruthy()
+  const buyer = { name: `Distribuidora Andina ${stamp}`, nit: '900608736' }
+  const customer = await request.post(`${API}/customers`, { headers: auth, data: { document_type: 'NIT', document_number: buyer.nit, name: buyer.name } })
+  expect(customer.status(), await customer.text()).toBe(201)
+
+  const first = await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: beer, quantity: 1 }], customer_id: (await customer.json()).data.id } })
+  expect(first.status(), await first.text()).toBe(201)
+  const paid = await request.post(`${API}/orders/${(await first.json()).data.id}/pay`, { headers: auth, data: { payment_method: 'cash', tip: 1000 } })
+  expect(paid.ok(), await paid.text()).toBeTruthy()
+
+  const second = await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: beer, quantity: 2 }] } })
+  const secondId = (await second.json()).data.id
+  expect((await request.post(`${API}/orders/${secondId}/pay`, { headers: auth, data: { payment_method: 'transfer' } })).ok()).toBeTruthy()
+  const reverted = await request.post(`${API}/orders/${secondId}/revert-payment`, { headers: auth, data: { reason: 'Cobro equivocado' } })
+  expect(reverted.ok(), await reverted.text()).toBeTruthy()
+
+  const [fee, voided] = await issueDocuments(request, company.token, [
+    { name: `Ana Cuota ${stamp}`, document_number: '7101', monthly_fee: 119000 },
+    { name: `Beto Cuota ${stamp}`, document_number: '7102', monthly_fee: 50000 },
+  ])
+  const cancelled = await request.post(`${API}/recurring-billing/invoices/${voided!.id}/cancel`, { headers: auth, data: { reason: 'Mal facturada' } })
+  expect(cancelled.ok(), await cancelled.text()).toBeTruthy()
+  return { ...company, buyer, fee: fee!, voided: voided! }
+}
+
+test('relación de facturas de venta: cada número de la resolución con su cliente, impuestos y estado, los comprobantes sin la numeración DIAN y el Excel', async ({ page, request }) => {
+  test.setTimeout(90_000)
+  const shop = await arrangeInvoices(request)
+  await freezeTime(page, shop.fee.issued_at)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, shop.credentials.email, shop.credentials.password)
+  await openInformesFromSidebar(page)
+  await chooseReport(page, 'Relación de facturas de venta')
+  await expect(page.getByText('No es factura electrónica (no hay CUFE).', { exact: false })).toBeVisible()
+  await expect(field(page, 'Solo numeración DIAN').getByRole('checkbox')).toBeChecked()
+
+  // One row per number of the resolution, POS and monthly alike, the spent ones with their state.
+  await expect(bodyRow(page, 'FE1')).toHaveCount(1)
+  expect(await columnTexts(page, 'Número')).toEqual(['FE1', 'FE2', 'FE3', 'FE4'])
+  expect(await headerTexts(page)).toEqual([
+    'Número', 'Fecha', 'Cliente', 'NIT / Documento', 'DV', 'Base', 'IVA 19%', 'Total', 'Forma de pago', 'Estado',
+  ])
+  const fe1 = bodyRow(page, 'FE1')
+  const day = new Date(shop.fee.issued_at).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+  await expect(await cellUnder(page, fe1, 'Fecha')).toHaveText(new RegExp(`^${day.slice(8)} de .* de ${day.slice(0, 4)}$`))
+  await expect(await cellUnder(page, fe1, 'Cliente')).toHaveText(shop.buyer.name)
+  await expect(await cellUnder(page, fe1, 'NIT / Documento')).toHaveText(shop.buyer.nit)
+  await expect(await cellUnder(page, fe1, 'DV')).toHaveText('8')
+  await expect(await cellUnder(page, fe1, 'Base')).toHaveText('$10.000')
+  await expect(await cellUnder(page, fe1, 'IVA 19%')).toHaveText('$1.900')
+  await expect(await cellUnder(page, fe1, 'Total')).toHaveText('$11.900')
+  await expect(await cellUnder(page, fe1, 'Forma de pago')).toHaveText('Efectivo')
+  await expect(await cellUnder(page, fe1, 'Estado')).toHaveText('Emitida')
+  const fe2 = bodyRow(page, 'FE2')
+  await expect(await cellUnder(page, fe2, 'Cliente')).toHaveText('Consumidor final')
+  await expect(await cellUnder(page, fe2, 'NIT / Documento')).toHaveText('222222222222')
+  await expect(await cellUnder(page, fe2, 'Total')).toHaveText('$23.800')
+  await expect(await cellUnder(page, fe2, 'Forma de pago')).toHaveText('Transferencia')
+  await expect(await cellUnder(page, fe2, 'Estado')).toHaveText('Revertida')
+  const fe3 = bodyRow(page, 'FE3')
+  await expect(await cellUnder(page, fe3, 'Cliente')).toHaveText(shop.fee.customer_name)
+  await expect(await cellUnder(page, fe3, 'Total')).toHaveText('$119.000')
+  await expect(await cellUnder(page, fe3, 'Forma de pago')).toHaveText('—')
+  await expect(await cellUnder(page, fe3, 'Estado')).toHaveText('Emitida')
+  await expect(await cellUnder(page, bodyRow(page, 'FE4'), 'Estado')).toHaveText('Anulada')
+  // The reverted and the cancelled ones are listed, not summed.
+  await expect(totalRow(page).locator('td').first()).toHaveText('Total emitidas')
+  await expect(await cellUnder(page, totalRow(page), 'Total')).toHaveText('$130.900')
+  await expect(await cellUnder(page, totalRow(page), 'IVA 19%')).toHaveText('$1.900')
+
+  // The resolution each number came from, one click away.
+  const menu = await openColumns(page)
+  await menu.getByLabel('Resolución', { exact: true }).check()
+  await page.keyboard.press('Escape')
+  await expect(table(page).getByRole('columnheader', { name: 'Resolución' })).toBeVisible()
+  await expect(await cellUnder(page, fe1, 'Resolución')).toHaveText('18764000009999')
+  await expect(await cellUnder(page, bodyRow(page, 'FE4'), 'Resolución')).toHaveText('18764000009999')
+
+  // Without the DIAN numbering, the comprobante sold before the resolution shows too.
+  await field(page, 'Solo numeración DIAN').getByRole('checkbox').uncheck()
+  await expect(bodyRow(page, '#1-1')).toHaveCount(1)
+  await expect(await cellUnder(page, bodyRow(page, '#1-1'), 'Resolución')).toHaveText('—')
+  await expect(await cellUnder(page, totalRow(page), 'Total')).toHaveText('$135.900')
+  await field(page, 'Solo numeración DIAN').getByRole('checkbox').check()
+  await expect(bodyRow(page, '#1-1')).toHaveCount(0)
+
+  const visible = await headerTexts(page)
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Descargar Excel' }).click()
+  const download = await downloading
+  expect(download.suggestedFilename()).toMatch(/^informe-relacion-de-facturas-de-venta-.*\.xlsx$/)
+  const file = readFileSync(await download.path())
+  const rows = xlsxRows(file).filter(row => row.some(cell => cell !== ''))
+  expect(rows[0]).toEqual(visible)
+  const col = (header: string) => visible.indexOf(header)
+  const line = (number: string) => rows.find(row => row[0] === number)!
+  expect(line('FE1')[col('Fecha')]).toBe(day)
+  expect(line('FE1')[col('Resolución')]).toBe('18764000009999')
+  expect(line('FE1')[col('NIT / Documento')]).toBe(shop.buyer.nit)
+  expect(line('FE1')[col('DV')]).toBe('8')
+  expect(line('FE1')[col('Base')]).toBe('10000')
+  expect(line('FE1')[col('IVA 19%')]).toBe('1900')
+  expect(line('FE1')[col('Estado')]).toBe('Emitida')
+  expect(line('FE2')[col('Estado')]).toBe('Revertida')
+  expect(line('FE4')[col('Estado')]).toBe('Anulada')
+  const total = rows.at(-1)!
+  expect(total[0]).toBe('Total emitidas')
+  expect(total[col('Total')]).toBe('130900')
+  const filters = xlsxRows(file, 2)
+  expect(filters).toContainEqual(['Informe', 'Relación de facturas de venta'])
+  expect(filters).toContainEqual(['Solo numeración DIAN', 'Sí'])
+
+  // One state at a time: the reverted number alone sums nothing.
+  await field(page, 'Estado').click()
+  await pickOption(page, 'Revertida')
+  await expect(table(page).locator('tbody tr')).toHaveCount(1)
+  await expect(bodyRow(page, 'FE2')).toHaveCount(1)
+  await expect(await cellUnder(page, totalRow(page), 'Total')).toHaveText('$0')
+})
+
 test('productos con saldo: la compra de 10 a $2.000 vale $20.000 y queda bajo el mínimo de 15', async ({ page, request }) => {
   const token = await apiLogin(request, ADMIN.email, ADMIN.password)
   const auth = { Authorization: `Bearer ${token}`, Accept: 'application/json' }
@@ -285,7 +427,7 @@ test('un conjunto ve sus informes, no los de pedidos ni kardex, y más de 366 d�
   for (const title of ['Ventas por fecha y vendedor', 'Clientes con saldo', 'Documentos de facturación automática por período']) {
     expect(titles).toContain(title)
   }
-  for (const title of ['Propinas por mesero', 'Resumen movimiento por transacciones', 'Movimientos del kardex', 'Productos con saldo']) {
+  for (const title of ['Propinas por mesero', 'Resumen movimiento por transacciones', 'Movimiento por tipo de documento', 'Movimientos del kardex', 'Productos con saldo']) {
     expect(titles).not.toContain(title)
   }
 
@@ -509,6 +651,104 @@ test('resumen movimiento por transacciones: el informe renombrado cuadra saldo i
   expect(product[headers.indexOf('Saldo inicial')]).toBe('3')
   expect(product[headers.indexOf('Saldo final')]).toBe('12')
   expect(xlsxRows(file, 2)).toContainEqual(['Informe', 'Resumen movimiento por transacciones'])
+})
+
+/** The row of one document type and unit: per document type, each unit has its own. */
+const documentRow = (page: Page, type: string, unit: string) =>
+  table(page)
+    .locator('tbody tr')
+    .filter({ has: page.getByRole('cell', { name: type, exact: true }) })
+    .filter({ has: page.getByRole('cell', { name: unit, exact: true }) })
+
+/**
+ * "Resumir el movimiento de los inventarios por cada tipo de documento en un
+ * rango de fechas": one pick, and each document type with what came in and
+ * went out in units and in pesos, a unit per row, footed like the Kardex.
+ */
+test('movimiento por tipo de documento: un clic y cada tipo con sus unidades y valores de entrada y salida, y el Excel igual', async ({ page, request }) => {
+  const shop = await arrangeKardex(request)
+  const stamp = Date.now() % 1_000_000
+  const category = await request.post(`${API}/categories`, { headers: shop.auth, data: { name: `Harina Documentos ${stamp} Cat` } })
+  const flour = await request.post(`${API}/products`, {
+    headers: shop.auth,
+    data: {
+      name: `Harina Documentos ${stamp}`, type: 'raw_material', unit: 'kg', unit_cost: 0, current_stock: 0, tracks_stock: true,
+      initial_stock_date: new Date(Date.now() - 40 * 86_400_000).toLocaleDateString('en-CA'),
+      category_id: (await category.json()).data.id,
+    },
+  })
+  expect(flour.status(), await flour.text()).toBe(201)
+  const flourId = (await flour.json()).data.id
+  await registerKardex(request, shop.auth, 'FC', {
+    movement_type: 'in', counterparty: `Molinos ${stamp}`, reference: `FH-${stamp}`,
+    items: [{ product_id: flourId, quantity: 5, unit_cost: 3000 }],
+  })
+  await registerKardex(request, shop.auth, 'AJ', { movement_type: 'out', reference: `AJ-${stamp}`, items: [{ product_id: flourId, quantity: 1 }] })
+
+  await freezeTime(page, new Date().toISOString())
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, shop.credentials.email, shop.credentials.password, shop.slug)
+  await page.goto('/informes')
+  await chooseReport(page, 'Movimiento por tipo de documento')
+  await expect(field(page, 'Informe')).toContainText('¿Cuánto entró y salió del inventario con cada tipo de documento, en unidades y en valor?')
+  // The month so far, grouped by document type, with the units and the values already on.
+  await expect(field(page, 'Desde').locator('input')).toHaveValue(displayDate(`${bogotaToday().slice(0, 8)}01`))
+  await expect(field(page, 'Agrupar por')).toContainText('Tipo de documento')
+  await expect(documentRow(page, 'Factura de compra (FC)', 'und')).toHaveCount(1)
+  expect(await headerTexts(page)).toEqual([
+    'Tipo de documento', 'Unidad', 'Entradas', 'Salidas', 'Valor bruto de las entradas', 'IVA de las entradas', 'Salidas al costo',
+  ])
+  await expect(table(page).locator('tbody tr')).toHaveCount(4)
+  const expected: [string, string, string, string, string, string, string][] = [
+    ['Ajuste de inventario (AJ)', 'kg', '0', '1', '$0', '$0', '$3.000'],
+    ['Factura de compra (FC)', 'kg', '5', '0', '$15.000', '$0', '$0'],
+    ['Factura de compra (FC)', 'und', '10', '0', '$20.000', '$3.800', '$0'],
+    ['Factura de venta (FV)', 'und', '0', '1', '$0', '$0', '$1.954'],
+  ]
+  for (const [type, unit, entries, exits, gross, tax, cost] of expected) {
+    const row = documentRow(page, type, unit)
+    await expect(await cellUnder(page, row, 'Entradas'), `${type} ${unit}`).toHaveText(entries)
+    await expect(await cellUnder(page, row, 'Salidas'), `${type} ${unit}`).toHaveText(exits)
+    await expect(await cellUnder(page, row, 'Valor bruto de las entradas'), `${type} ${unit}`).toHaveText(gross)
+    await expect(await cellUnder(page, row, 'IVA de las entradas'), `${type} ${unit}`).toHaveText(tax)
+    await expect(await cellUnder(page, row, 'Salidas al costo'), `${type} ${unit}`).toHaveText(cost)
+  }
+  expect(await columnTexts(page, 'Tipo de documento')).toEqual(expected.map(line => line[0]))
+  // Units of kg and und do not add up; pesos do.
+  await expect(totalRow(page).locator('td').first()).toHaveText('Total')
+  await expect(await cellUnder(page, totalRow(page), 'Entradas')).toHaveText('')
+  await expect(await cellUnder(page, totalRow(page), 'Valor bruto de las entradas')).toHaveText('$35.000')
+  await expect(await cellUnder(page, totalRow(page), 'IVA de las entradas')).toHaveText('$3.800')
+  await expect(await cellUnder(page, totalRow(page), 'Salidas al costo')).toHaveText('$4.954')
+  await expect(page.getByText('Una fila por tipo de documento y unidad')).toBeVisible()
+
+  // The neto, one click away.
+  const menu = await openColumns(page)
+  await menu.getByLabel('Valor neto de las entradas', { exact: true }).check()
+  await page.keyboard.press('Escape')
+  await expect(table(page).getByRole('columnheader', { name: 'Valor neto de las entradas' })).toBeVisible()
+  await expect(await cellUnder(page, documentRow(page, 'Factura de compra (FC)', 'und'), 'Valor neto de las entradas')).toHaveText('$23.800')
+  await expect(await cellUnder(page, totalRow(page), 'Valor neto de las entradas')).toHaveText('$38.800')
+
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Descargar Excel' }).click()
+  const download = await downloading
+  expect(download.suggestedFilename()).toMatch(/^informe-movimiento-por-tipo-de-documento-.*\.xlsx$/)
+  const file = readFileSync(await download.path())
+  const rows = xlsxRows(file).filter(line => line.some(cell => cell !== ''))
+  expect(rows[0]).toEqual([
+    'Tipo de documento', 'Unidad', 'Entradas', 'Salidas', 'Valor bruto de las entradas', 'IVA de las entradas', 'Valor neto de las entradas', 'Salidas al costo',
+  ])
+  expect(rows[1]).toEqual(['Ajuste de inventario (AJ)', 'kg', '0', '1', '0', '0', '0', '3000'])
+  expect(rows[3]).toEqual(['Factura de compra (FC)', 'und', '10', '0', '20000', '3800', '23800', '0'])
+  expect(rows[4]!.slice(0, 7)).toEqual(['Factura de venta (FV)', 'und', '0', '1', '0', '0', '0'])
+  expect(Number(rows[4]![7])).toBeCloseTo(1953.85, 2)
+  const total = rows.at(-1)!
+  expect(total.slice(0, 7)).toEqual(['Total', '', '', '', '35000', '3800', '38800'])
+  expect(Number(total[7])).toBeCloseTo(4953.85, 2)
+  const filters = xlsxRows(file, 2)
+  expect(filters).toContainEqual(['Informe', 'Movimiento por tipo de documento'])
+  expect(filters).toContainEqual(['Agrupado por', 'Tipo de documento'])
 })
 
 test('movimientos del kardex: las filas y cifras de la página Kardex, columnas que se eligen y el Excel', async ({ page, request }) => {

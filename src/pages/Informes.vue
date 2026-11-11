@@ -785,7 +785,8 @@ const cellClass = (column: ReportColumn, value: CellValue): string[] => {
 const totalCell = (column: ReportColumn, index: number): string => {
   const value = totals.value[column.key]
   const hasValue = value !== null && value !== undefined && value !== ''
-  if (index === 0) return hasValue ? `Total: ${cell(column, value)}` : 'Total'
+  const label = definition.value?.total_label ?? 'Total'
+  if (index === 0) return hasValue ? `${label}: ${cell(column, value)}` : label
   return hasValue ? cell(column, value) : ''
 }
 
