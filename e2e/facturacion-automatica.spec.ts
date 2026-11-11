@@ -1574,8 +1574,10 @@ test('la cuenta de cobro sale con el encabezado del negocio y el valor en letras
 
 /**
  * A cuenta de cobro with a tax and a discount adds up on paper: the subtotal
- * is the value before the tax, so subtotal − discount + tax = total. A fee of
- * $119.000 with $19.000 off and IVA 19 % included carries $15.966.
+ * and the discount print before the tax, which is computed on the total after
+ * the discount (art. 454 E.T.), so subtotal − discount + tax = total. A fee of
+ * $119.000 with $23.800 off is $95.200: IVA 19 % of $15.200 on a base of
+ * $80.000, the $100.000 before tax less the $20.000 of discount.
  */
 test('la cuenta de cobro con impuesto y descuento suma el total en lo impreso', async ({ page, request }) => {
   const company = await createRecurringCompany(request, 'subtotal')
@@ -1586,7 +1588,7 @@ test('la cuenta de cobro con impuesto y descuento suma el total en lo impreso', 
   const client = await createResident(request, company.token, { name: 'Local Subtotal SAS', document_number: '901555001', monthly_fee: 119000 })
   const generated = await request.post(`${API}/recurring-billing/invoices/generate`, {
     headers: auth,
-    data: { period: PERIOD, items: [{ customer_id: client, tax_id: iva.id, discount: 19000 }] },
+    data: { period: PERIOD, items: [{ customer_id: client, tax_id: iva.id, discount: 23800 }] },
   })
   expect(generated.status(), await generated.text()).toBe(201)
 
@@ -1599,14 +1601,14 @@ test('la cuenta de cobro con impuesto y descuento suma el total en lo impreso', 
   ])
   await expect(popup.locator('.doc-number')).toContainText('CUENTA DE COBRO')
   await expect(popup.locator('.items tbody tr td').nth(3)).toHaveText('$119.000')
-  // 103.034 − 19.000 + 15.966 = 100.000.
+  // 100.000 − 20.000 + 15.200 = 95.200.
   await expect(popup.locator('.totals > div')).toHaveText([
-    'SUBTOTAL: $103.034',
-    'DESCUENTO: -$19.000',
-    'IVA 19%: $15.966',
-    'TOTAL: $100.000',
+    'SUBTOTAL: $100.000',
+    'DESCUENTO: -$20.000',
+    'IVA 19%: $15.200',
+    'TOTAL: $95.200',
   ])
-  await expect(popup.locator('.son')).toHaveText('SON: CIEN MIL PESOS M/CTE')
+  await expect(popup.locator('.son')).toHaveText('SON: NOVENTA Y CINCO MIL DOSCIENTOS PESOS M/CTE')
 })
 
 /**
