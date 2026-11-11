@@ -483,7 +483,7 @@ test('el panel de pedidos filtra por rango de fechas', async ({ page, request })
   await expect(row).toBeVisible()
 
   // En "Pendientes" con fechas avisa que se ocultan los de otros días.
-  await page.getByRole('button', { name: 'Pendientes' }).click()
+  await page.getByRole('button', { name: 'Pendientes', exact: true }).click()
   await expect(page.getByText('Con un rango de fechas no ves los pendientes de otros días.')).toBeVisible()
   await page.getByRole('button', { name: 'Quitar fechas' }).click()
   await expect(page.getByLabel('Desde')).toHaveValue('')
