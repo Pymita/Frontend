@@ -43,6 +43,12 @@ export const DEFAULT_EMPLOYEE_FEATURES: Feature[] = [
 /** Tipo de negocio: solo siembra los módulos, no se usa para decidir en runtime */
 export type BusinessType = 'restaurant' | 'billiard' | 'store' | 'recurring' | 'other'
 
+/**
+ * How the company takes orders (Company::ORDER_MODES): what the screens offer,
+ * never what the API accepts. Same values in mobile/src/types.
+ */
+export type OrderMode = 'tables' | 'customers' | 'both'
+
 export interface CompanySubscriptionInfo {
   status: SubscriptionStatus
   /** Días que faltan para el próximo corte (0 = hoy o ya bloqueada) */
@@ -58,6 +64,8 @@ export interface CompanySummary {
   business_type?: BusinessType
   /** Módulos activos de la empresa (el backend ya los intersecta en features) */
   modules?: Feature[]
+  /** Tables, customers or both (missing in sessions stored before the field: tables). */
+  order_mode?: OrderMode
   subscription?: CompanySubscriptionInfo | null
   subscription_status?: SubscriptionStatus | null
 }

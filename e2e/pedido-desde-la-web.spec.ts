@@ -217,6 +217,116 @@ test('el cliente del pedido se elige de la lista y el pedido se ve con su nombre
   await expect(payDialog.locator('.v-input').filter({ has: page.getByText('Cliente (opcional)', { exact: true }) })).toContainText(name)
 })
 
+/** How the seeded company takes orders, set by its admin; every spec shares it, so each test puts tables back. */
+async function setOrderMode(request: any, auth: Record<string, string>, mode: 'tables' | 'customers' | 'both') {
+  const response = await request.put(`${API}/company/order-mode`, { headers: auth, data: { order_mode: mode } })
+  expect(response.ok(), await response.text()).toBeTruthy()
+}
+
+/**
+ * A shop sells to customers, not to tables: the admin says so in
+ * Configuración, and Nuevo pedido opens on the customer, with no table to
+ * pick, and the list shows each order under its customer. The API takes the
+ * order without a table in any mode: this only changes what the page offers.
+ */
+test('por cliente: Configuración lo cambia y Nuevo pedido pide el cliente, sin mesa', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const name = `Valeria Tienda ${stamp}`
+  const document = String(stamp).slice(-9)
+  await createCustomer(request, auth, name, document)
+  const shirt = `Camiseta Por Cliente ${stamp}`
+  const cap = `Gorra Consumidor ${stamp}`
+  await seedMenuItem(request, auth, shirt, 45000)
+  await seedMenuItem(request, auth, cap, 28000)
+
+  try {
+    await loginUI(page, ADMIN.email, ADMIN.password)
+    await page.goto('/configuracion')
+    const card = page.locator('.v-card', { has: page.getByRole('heading', { name: 'Cómo tomas los pedidos' }) })
+    await expect(card.getByRole('radio', { name: /^Con mesas\s*Cada pedido/ })).toBeChecked()
+    await expect(card).toContainText('Cada pedido va a un cliente o al Consumidor final, sin mesas: una tienda, un almacén de ropa.')
+    await expect(card.getByRole('button', { name: 'Guardar cómo tomas los pedidos' })).toBeDisabled()
+    await card.getByRole('radio', { name: /^Con clientes/ }).check()
+    await card.getByRole('button', { name: 'Guardar cómo tomas los pedidos' }).click()
+    await expect(page.getByText('Listo: los pedidos se toman por cliente.')).toBeVisible()
+    await expect(card.getByRole('button', { name: 'Guardar cómo tomas los pedidos' })).toBeDisabled()
+
+    await page.goto('/pedidos')
+    await expect(page.getByRole('textbox', { name: 'Buscar cliente o pedido' })).toBeVisible()
+    await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+    const dialog = page.getByRole('dialog')
+    const customerField = dialog.locator('.v-input').filter({ has: page.getByText('Cliente', { exact: true }) })
+    await expect(customerField).toContainText('Consumidor final')
+    await expect(dialog.getByText('Mesa (opcional)')).toHaveCount(0)
+    // The customer is the first field of the dialog.
+    await expect(dialog.locator('.v-input').first()).toContainText('Cliente')
+
+    await dialog.getByRole('combobox', { name: 'Cliente' }).fill(name)
+    await page.getByRole('option', { name: `${name} (${document})` }).click()
+    await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill(shirt)
+    await dialog.getByText(shirt, { exact: true }).click()
+    await dialog.getByRole('button', { name: 'Crear pedido' }).click()
+    await expect(page.getByText('Pedido creado')).toBeVisible()
+
+    // The consumidor final, another order of its own.
+    await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+    await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill(cap)
+    await dialog.getByText(cap, { exact: true }).click()
+    await dialog.getByRole('button', { name: 'Crear pedido' }).click()
+    await expect(page.getByText('Pedido creado')).toBeVisible()
+
+    await expect(page.getByRole('columnheader', { name: 'Cliente' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Mesa' })).toHaveCount(0)
+    const row = page.locator('tbody tr', { hasText: name })
+    await expect(row).toContainText('$45.000')
+    await expect(row).not.toContainText('Sin mesa')
+    await expect(page.locator('tbody tr', { hasText: '$28.000' }).filter({ hasText: 'Consumidor final' }).first()).toBeVisible()
+
+    // The list finds the order by its customer.
+    await page.getByRole('textbox', { name: 'Buscar cliente o pedido' }).fill(name)
+    await expect(page.locator('tbody tr', { hasText: '$45.000' })).toHaveCount(1)
+
+    const orders = (await (await request.get(`${API}/orders?q=${encodeURIComponent(name)}`, { headers: auth })).json()).data
+    expect(orders).toHaveLength(1)
+    expect([orders[0].dining_table, orders[0].customer_name]).toEqual([null, name])
+  } finally {
+    await setOrderMode(request, auth, 'tables')
+  }
+})
+
+test('con mesas y clientes, Nuevo pedido ofrece los dos', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  await setOrderMode(request, auth, 'both')
+
+  try {
+    await loginUI(page, ADMIN.email, ADMIN.password)
+    await page.goto('/pedidos')
+    await expect(page.getByRole('textbox', { name: 'Buscar mesa, cliente o pedido' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Mesa o cliente' })).toBeVisible()
+    await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(field(page, 'Mesa (opcional)')).toBeVisible()
+    await expect(dialog.locator('.v-input').filter({ has: page.getByText('Cliente', { exact: true }) })).toContainText('Consumidor final')
+    await dialog.getByRole('button', { name: 'Cancelar' }).click()
+
+    // Back to tables from Configuración: the page is as it always was.
+    await page.goto('/configuracion')
+    const card = page.locator('.v-card', { has: page.getByRole('heading', { name: 'Cómo tomas los pedidos' }) })
+    await expect(card.getByRole('radio', { name: /^Con mesas y clientes/ })).toBeChecked()
+    await card.getByRole('radio', { name: /^Con mesas\s*Cada pedido/ }).check()
+    await card.getByRole('button', { name: 'Guardar cómo tomas los pedidos' }).click()
+    await expect(page.getByText('Listo: los pedidos se toman por mesa.')).toBeVisible()
+    await page.goto('/pedidos')
+    await expect(page.getByRole('textbox', { name: 'Buscar mesa o pedido' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Mesa', exact: true })).toBeVisible()
+  } finally {
+    await setOrderMode(request, auth, 'tables')
+  }
+})
+
 /**
  * Lo que el diálogo suma es lo que el pedido cobra: un ítem con precio propio
  * se mostraba a su precio base y el pedido salía por más.

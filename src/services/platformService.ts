@@ -37,7 +37,7 @@ class PlatformService {
 
   async updateCompany(
     id: number,
-    payload: Partial<Pick<PlatformCompany, 'name' | 'slug' | 'email' | 'phone' | 'business_type' | 'modules'>>,
+    payload: Partial<Pick<PlatformCompany, 'name' | 'slug' | 'email' | 'phone' | 'business_type' | 'modules' | 'order_mode'>>,
   ): Promise<PlatformCompany> {
     const response = await api.put<ApiEnvelope<PlatformCompany>>(`/platform/companies/${id}`, payload)
     return response.data.data

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import authService from '../services/authService'
 import type { User, LoginCredentials, ChangePasswordData } from '../types'
+import type { OrderMode } from '../types/auth'
 
 export const useAuthStore = defineStore('auth', () => {
   // Estado
@@ -55,6 +56,17 @@ export const useAuthStore = defineStore('auth', () => {
 
   const changePassword = async (data: ChangePasswordData): Promise<void> => {
     user.value = await authService.changePassword(data)
+  }
+
+  // Tables, customers or both: what the screens offer to take an order on.
+  // Presentation only (the API takes an order with or without a table).
+  const orderMode = computed((): OrderMode => user.value?.company?.order_mode ?? 'tables')
+
+  /** Saves the company's order mode (admin) and returns the API's message. */
+  const setOrderMode = async (mode: OrderMode): Promise<string> => {
+    const { message, user: fresh } = await authService.updateOrderMode(mode)
+    user.value = fresh
+    return message
   }
 
   const acceptPrivacy = async (): Promise<void> => {
@@ -180,11 +192,13 @@ export const useAuthStore = defineStore('auth', () => {
     mustAcceptPrivacy,
     mustChangePassword,
     canUseAccounting,
+    orderMode,
     
     // Actions
     login,
     acceptPrivacy,
     changePassword,
+    setOrderMode,
     completeTwoFactor,
     logout,
     getCurrentUser,

@@ -17,6 +17,8 @@ export interface MenuItem {
   disabled?: boolean
   /** Section heading it is listed under in the side menu */
   group?: string
+  /** A page about tables: hidden while the company takes orders by customer (the route stays) */
+  tables?: boolean
 }
 
 export interface NavigationDrawerItem extends MenuItem {

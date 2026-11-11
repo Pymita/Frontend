@@ -286,8 +286,8 @@ const allMenuItems: MenuItem[] = [
   { title: 'Inicio', icon: 'mdi-view-dashboard', route: '/dashboard', feature: 'reports', group: 'Operación' },
   { title: 'Pedidos', icon: 'mdi-receipt-text', route: '/pedidos', feature: 'orders', group: 'Operación' },
   { title: 'Ventas', icon: 'mdi-cash-register', route: '/ventas', feature: 'reports', group: 'Operación' },
-  { title: 'Mesas', icon: 'mdi-table-chair', route: '/mesas', feature: 'orders', group: 'Operación' },
-  { title: 'Plano del salón', icon: 'mdi-floor-plan', route: '/plano', feature: 'orders', group: 'Operación' },
+  { title: 'Mesas', icon: 'mdi-table-chair', route: '/mesas', feature: 'orders', group: 'Operación', tables: true },
+  { title: 'Plano del salón', icon: 'mdi-floor-plan', route: '/plano', feature: 'orders', group: 'Operación', tables: true },
   { title: 'Menú', icon: 'mdi-book-open-variant', route: '/menu', feature: 'menu', group: 'Catálogo' },
   { title: 'Categorías', icon: 'mdi-shape', route: '/categorias', feature: 'menu', group: 'Catálogo' },
   { title: 'Productos', icon: 'mdi-package-variant', route: '/productos-base', feature: 'inventory', group: 'Catálogo' },
@@ -334,6 +334,10 @@ const availableMenuItems = computed((): MenuItem[] => {
       return false
     }
     if (item.requiresAccounting && !authStore.canUseAccounting) {
+      return false
+    }
+    // Presentation: a shop that takes orders by customer has no floor to show.
+    if (item.tables && authStore.orderMode === 'customers') {
       return false
     }
     // La verificación aplica también al admin: sus funciones ya vienen

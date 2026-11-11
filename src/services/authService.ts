@@ -6,7 +6,7 @@ import type {
   ChangePasswordData,
   UpdateProfileData
 } from '../types'
-import type { PrivacyStatus, TwoFactorChallenge, TwoFactorSetup } from '../types/auth'
+import type { OrderMode, PrivacyStatus, TwoFactorChallenge, TwoFactorSetup } from '../types/auth'
 
 class AuthService {
   /**
@@ -117,6 +117,16 @@ class AuthService {
     const response = await api.post<{ message: string; user: User }>('/auth/change-password', passwordData)
     localStorage.setItem('user_data', JSON.stringify(response.data.user))
     return response.data.user
+  }
+
+  /**
+   * "Cómo tomas los pedidos" (admin). The API answers the session with the new
+   * mode, and it stays in the stored one so the sidebar and Pedidos follow it.
+   */
+  async updateOrderMode(orderMode: OrderMode): Promise<{ message: string; user: User }> {
+    const response = await api.put<{ message: string; user: User }>('/company/order-mode', { order_mode: orderMode })
+    localStorage.setItem('user_data', JSON.stringify(response.data.user))
+    return response.data
   }
 
   /**

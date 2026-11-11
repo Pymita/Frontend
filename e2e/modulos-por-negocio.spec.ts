@@ -111,6 +111,58 @@ test('la plataforma puede personalizar los módulos de una empresa', async ({ pa
   await expect(sidebarItem(page, 'Mesas')).toBeVisible()
 })
 
+/**
+ * How a company takes orders is presentation, not a module: a store that
+ * sells from the app starts by customer (its type's preset), and its menu has
+ * no tables to show. Choosing both in Configuración brings them back.
+ */
+test('una tienda que vende por cliente no ve Mesas ni el plano, y vuelven si elige mesas', async ({ page, request }) => {
+  const superToken = await apiLogin(request, PLATFORM.email, PLATFORM.password)
+  const admin = { email: `admin.tienda.${Date.now()}@e2e.test`, password: 'negocio2026' }
+  const created = await request.post(`${API}/platform/companies`, {
+    headers: { Authorization: `Bearer ${superToken}` },
+    data: {
+      name: `E2E Tienda de ropa ${Date.now()}`,
+      business_type: 'store',
+      // The store preset plus orders: it sells from the waiter app.
+      modules: ['orders', 'menu', 'inventory', 'customers', 'expenses', 'reports'],
+      admin: { name: 'Dueña E2E', ...admin },
+    },
+  })
+  expect(created.status()).toBe(201)
+  expect((await created.json()).data.order_mode).toBe('customers')
+
+  await loginUI(page, admin.email, admin.password)
+  await expect(sidebarItem(page, 'Pedidos')).toBeVisible()
+  await expect(sidebarItem(page, 'Mesas')).toHaveCount(0)
+  await expect(sidebarItem(page, 'Plano del salón')).toHaveCount(0)
+
+  // Primeros pasos asks for no tables; registering customers is optional.
+  await expect(page.getByTestId('setup-guide')).toBeVisible()
+  await expect(page.getByTestId('setup-step-tables')).toHaveCount(0)
+  await expect(page.getByTestId('setup-step-customers')).toContainText('Registra a tus clientes')
+  await expect(page.getByTestId('setup-step-customers')).toContainText('Opcional')
+
+  // Ventas has no "Por mesa": every sale would be one row without a table.
+  await page.goto('/ventas')
+  await expect(page.getByRole('button', { name: 'Por producto' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Por mesa' })).toHaveCount(0)
+
+  // The route stays reachable: hiding is presentation.
+  await page.goto('/mesas')
+  await expect(page).toHaveURL(/\/mesas$/)
+
+  await openSidebarGroup(page, 'Administración')
+  await sidebarItem(page, 'Configuración').click()
+  const card = page.locator('.v-card', { has: page.getByRole('heading', { name: 'Cómo tomas los pedidos' }) })
+  await expect(card.getByRole('radio', { name: /^Con clientes/ })).toBeChecked()
+  await card.getByRole('radio', { name: /^Con mesas y clientes/ }).check()
+  await card.getByRole('button', { name: 'Guardar cómo tomas los pedidos' }).click()
+  await expect(page.getByText('Listo: los pedidos se toman por mesa o por cliente.')).toBeVisible()
+  await expect(sidebarItem(page, 'Mesas')).toBeVisible()
+  await expect(sidebarItem(page, 'Plano del salón')).toBeVisible()
+})
+
 test('con todos los módulos lo fijo del menú cabe a 700 px y todo el menú a 900 px', async ({ page, request }) => {
   // El menú más largo: Operación suma Facturación automática, Cartera y Contabilidad.
   const admin = await createCompany(request, 'other', 'todo')
