@@ -50,6 +50,9 @@ export const useAuthStore = defineStore('auth', () => {
   // answers 403 to everything but changing it, so nothing else is offered.
   const mustChangePassword = computed((): boolean => user.value?.must_change_password === true)
 
+  // "Contabilidad" (User::canUseAccounting()); an admin's session stored before the flag existed has it.
+  const canUseAccounting = computed((): boolean => user.value?.can_use_accounting ?? user.value?.role === 'admin')
+
   const changePassword = async (data: ChangePasswordData): Promise<void> => {
     user.value = await authService.changePassword(data)
   }
@@ -121,6 +124,22 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /**
+   * The stored session brings the user as it was at sign-in: modules and
+   * permissions granted since then (a company module, "Contabilidad") arrive
+   * here, in the background, without signing out.
+   */
+  const refreshUser = async (): Promise<void> => {
+    if (!token.value) return
+    try {
+      user.value = await authService.me()
+    } catch {
+      // Offline or the server asleep: the stored session keeps working as it
+      // did. An expired token is a 401, which the api interceptor already
+      // sends to the login.
+    }
+  }
+
   const setUser = (userData: User): void => {
     user.value = userData
   }
@@ -160,6 +179,7 @@ export const useAuthStore = defineStore('auth', () => {
     readOnlyMessage,
     mustAcceptPrivacy,
     mustChangePassword,
+    canUseAccounting,
     
     // Actions
     login,
@@ -168,6 +188,7 @@ export const useAuthStore = defineStore('auth', () => {
     completeTwoFactor,
     logout,
     getCurrentUser,
+    refreshUser,
     setUser,
     setToken,
     markBlocked,

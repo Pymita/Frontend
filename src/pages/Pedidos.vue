@@ -1205,6 +1205,7 @@ import { methodOptions, methodsFor, paymentMethodLabel, usePaymentMethods } from
 import { money } from '@/utils/money';
 import { creditDueDate, formatDay, formatFullDateTime, formatIsoDate, formatRecent, todayIso } from '@/utils/dates';
 import {
+  bankAccountNotes,
   fillDocumentWindow,
   openDocumentWindow,
   paymentMethodsText,
@@ -1960,6 +1961,8 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
   const amountPaid = Number(opts.amountPaid || 0);
   const suggestedTip = Math.max(0, Number(opts.suggestedTip || 0));
   const methods = r.payment_methods.length ? paymentMethodsText(r.payment_methods, r.payment_methods_detail) : '';
+  // Where the method was printed, the bank account it shows is an observation, as on the letter documents.
+  const notes = methods && (!opts.preBill || opts.paidNow) ? bankAccountNotes(r.payment_methods_detail).flatMap(wrapped) : [];
 
   const header = opts.preBill
     ? [
@@ -2037,6 +2040,7 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
     r.included_vat > 0 ? amountLine('IMPUESTO', r.included_vat) : '',
     r.delivery_fee > 0 ? amountLine('DOMICILIO', r.delivery_fee) : '',
     ...totals,
+    ...(notes.length ? [line, 'OBSERVACIONES:', ...notes] : []),
     line,
     center(opts.preBill ? '** GRACIAS POR SU VISITA **' : '** GRACIAS POR SU COMPRA **'),
     center(printedAtText()),

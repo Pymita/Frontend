@@ -348,6 +348,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AccountingSettingsDialog from '../components/AccountingSettingsDialog.vue'
 import DateField from '../components/DateField.vue'
 import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage'
@@ -373,6 +374,8 @@ import { enumColors, enumLabels, label, options } from '@/utils/labels'
 import { money, percent, preciseMoney, quantity } from '@/utils/money'
 
 const authStore = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 
 const catalog = ref<ReportCatalog>({ reports: [], areas: [] })
 const loadingCatalog = ref(true)
@@ -390,8 +393,10 @@ const enumMap = (name: string | undefined): Record<string, string> | undefined =
 
 /** Movimiento contable is not a report definition: it has its own endpoints and the "Contabilidad" grant. */
 const ACCOUNTING_KEY = 'accounting_movement'
+/** `/informes?informe=movimiento-contable`: the sidebar's "Contabilidad" (App.vue), and a reload that stays on it. */
+const ACCOUNTING_QUERY = 'movimiento-contable'
 const ACCOUNTING_QUESTION = 'Los asientos de cada documento del período, para importarlos en tu programa contable'
-const canUseAccounting = computed(() => authStore.isAdmin || authStore.user?.can_use_accounting === true)
+const canUseAccounting = computed(() => authStore.canUseAccounting)
 const isAccounting = computed(() => canUseAccounting.value && reportKey.value === ACCOUNTING_KEY)
 
 const period = reactive({ from: todayIso(), to: todayIso(), cut: todayIso() })
@@ -827,7 +832,8 @@ const rememberAccounting = () => {
   const previous = readChoices()[ACCOUNTING_KEY]
   // Until the templates load there is no choice yet: the remembered one stays.
   const template = templateId.value ?? (previous && typeof previous === 'object' ? previous.template : undefined)
-  stored[userId] = { ...readChoices(), last: ACCOUNTING_KEY, [ACCOUNTING_KEY]: { template } }
+  // `last` stays the last report: the movement opens from its own entry, "Contabilidad".
+  stored[userId] = { ...readChoices(), [ACCOUNTING_KEY]: { template } }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stored))
 }
 
@@ -982,20 +988,50 @@ const downloadExcel = async () => {
 }
 
 // --- Catalog ---
+/**
+ * The report Informes opens on: the movement when the URL asks for it, else the last report used;
+ * an accountant whose modules open no report has only the movement.
+ */
+const openingReport = (): string => {
+  if (route.query.informe === ACCOUNTING_QUERY && canUseAccounting.value) return ACCOUNTING_KEY
+  const last = readChoices().last
+  const keys = catalog.value.reports.map(report => report.key)
+  return last && keys.includes(last) ? last : (keys[0] ?? (canUseAccounting.value ? ACCOUNTING_KEY : ''))
+}
+
+// The URL follows the picker, so the sidebar marks the entry on screen and a reload stays on it.
+const followPicker = () => {
+  const { informe: _informe, ...query } = route.query
+  const wanted = reportKey.value === ACCOUNTING_KEY ? ACCOUNTING_QUERY : undefined
+  if (route.query.informe !== wanted) router.replace({ query: wanted ? { ...query, informe: wanted } : query })
+}
+watch(reportKey, followPicker)
+
+/** Shows `key`; when it is already on screen the watch above does not run, so the URL is put back here. */
+const openReport = (key: string) => {
+  if (key === reportKey.value) followPicker()
+  else reportKey.value = key
+}
+
 const loadCatalog = async () => {
   loadingCatalog.value = true
   catalogError.value = ''
   try {
     catalog.value = await reportsService.definitions()
-    const last = readChoices().last
-    const keys = [...catalog.value.reports.map(report => report.key), ...(canUseAccounting.value ? [ACCOUNTING_KEY] : [])]
-    reportKey.value = last && keys.includes(last) ? last : (keys[0] ?? '')
+    openReport(openingReport())
   } catch (error) {
     catalogError.value = errorMessage(error, 'No fue posible cargar los informes. Inténtalo de nuevo.')
   } finally {
     loadingCatalog.value = false
   }
 }
+
+// The sidebar's Informes and Contabilidad open this same page: a click on the other one while here
+// changes only the URL.
+watch(() => route.query.informe, informe => {
+  if (loadingCatalog.value || catalogError.value) return
+  if ((informe === ACCOUNTING_QUERY) !== (reportKey.value === ACCOUNTING_KEY)) openReport(openingReport())
+})
 
 onMounted(loadCatalog)
 </script>

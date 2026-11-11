@@ -158,7 +158,10 @@ export const documentProblem = (value?: string | null, type?: string | null): st
 /** Regla de Vuetify para el número de documento del tipo elegido. */
 export const documentRule = (type?: string | null) => (v: string) => documentProblem(v, type) ?? true
 
-/** An accounting account (PUC): blank, or 1 to 20 digits (PUT /accounting/settings, same message). */
+/**
+ * An accounting account (PUC): blank, or 1 to 20 digits (`AccountingEntries::accountProblem()`, same message),
+ * in Configurar contabilidad and in Configuración › Formas de pago.
+ */
 export const ACCOUNT_MAX_LENGTH = 20
 
 export const accountProblem = (value: string | null | undefined, name: string): string | null => {

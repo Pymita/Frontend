@@ -10,6 +10,10 @@ export interface MenuItem {
   superAdminOnly?: boolean
   /** Función requerida para verla (empleados; los admins tienen todas); con varias, basta una */
   feature?: string | string[]
+  /** Only with "Contabilidad" (User::canUseAccounting()) */
+  requiresAccounting?: boolean
+  /** Active only on this exact path and query: another item opens the same page */
+  exact?: boolean
   disabled?: boolean
   /** Section heading it is listed under in the side menu */
   group?: string

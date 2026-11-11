@@ -80,6 +80,58 @@ test('empleado con acceso limitado solo ve sus secciones', async ({ page, reques
   await expect(page).not.toHaveURL(/\/cartera/)
 })
 
+/**
+ * "Contabilidad" is in the menu only for whoever holds the grant (the admin
+ * always: the menu height tests count it). A grant given while the
+ * employee's session is open arrives with the next page load: the app asks
+ * /auth/me in the background.
+ */
+test('Contabilidad sale en el menú solo con su permiso y aparece sin cerrar sesión cuando se lo dan', async ({ page, request }) => {
+  await raisePlanLimits(request, { max_users: 50 })
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}`, Accept: 'application/json' }
+  const credentials = { username: `contadora.${Date.now() % 1_000_000}`, password: 'secreto123' }
+  const created = await request.post(`${API}/users`, {
+    headers: auth,
+    // Each report also needs its module: with Pedidos she reads the sales reports.
+    data: { name: 'Contadora Menú', role: 'employee', permissions: ['orders', 'reports'], ...credentials },
+  })
+  expect(created.status(), await created.text()).toBe(201)
+  const employeeId = (await created.json()).data.id
+
+  await loginUI(page, credentials.username, credentials.password)
+  await expect(sidebarItem(page, 'Inicio')).toBeVisible()
+  await expect(sidebarItem(page, 'Contabilidad')).toHaveCount(0)
+  // Its URL does not open the movement either: Informes falls back to a report and drops the query.
+  await page.goto('/informes?informe=movimiento-contable')
+  await expect(field(page, 'Informe')).toContainText('Ventas por fecha y vendedor')
+  await expect(page).toHaveURL(/\/informes$/)
+  await expect(page.locator('.v-app-bar-title')).toHaveText('Informes')
+
+  const granted = await request.put(`${API}/users/${employeeId}`, { headers: auth, data: { can_use_accounting: true } })
+  expect(granted.ok(), await granted.text()).toBeTruthy()
+  await page.reload()
+  await expect(sidebarItem(page, 'Contabilidad')).toBeVisible()
+  await sidebarItem(page, 'Contabilidad').click()
+  await expect(page).toHaveURL(/\/informes\?informe=movimiento-contable$/)
+  await expect(field(page, 'Informe')).toContainText('Movimiento contable')
+
+  // An accountant whose modules open no report: Informes has only the movement, and opens on it.
+  const accountant = { username: `contador.${Date.now() % 1_000_000}`, password: 'secreto123' }
+  const onlyAccounting = await request.post(`${API}/users`, {
+    headers: auth,
+    data: { name: 'Contador Solo', role: 'employee', permissions: ['reports'], can_use_accounting: true, ...accountant },
+  })
+  expect(onlyAccounting.status(), await onlyAccounting.text()).toBe(201)
+  await sidebarItem(page, 'Cerrar sesión').click()
+  await expect(page).toHaveURL(/\/login$/)
+  await loginUI(page, accountant.username, accountant.password)
+  await openSidebarGroup(page, 'Administración')
+  await sidebarItem(page, 'Informes').click()
+  await expect(field(page, 'Informe')).toContainText('Movimiento contable')
+  await expect(page.locator('.v-navigation-drawer .v-list-item--active')).toHaveText(['Contabilidad'])
+})
+
 test('con una sola sección el menú no pone encabezados', async ({ page, request }) => {
   await raisePlanLimits(request, { max_users: 50 })
   const cook = await createEmployee(request, 'cocina.menu', ['menu'])
@@ -193,7 +245,7 @@ test('pedidos y kardex quedan fijos en el menú: solo Administración se pliega'
   // Administración arranca plegada y así lo fijo cabe sin scroll.
   await expect(admin).toHaveAttribute('aria-expanded', 'false')
   await expect(sidebarItem(page, 'Empleados')).toBeHidden()
-  for (const item of ['Pedidos', 'Cartera', 'Kardex', 'Variantes', 'Cerrar sesión']) {
+  for (const item of ['Pedidos', 'Cartera', 'Contabilidad', 'Kardex', 'Variantes', 'Cerrar sesión']) {
     await expect(sidebarItem(page, item)).toBeInViewport()
   }
   await expect(admin).toBeInViewport({ ratio: 1 })
