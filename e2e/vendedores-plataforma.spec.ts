@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
-import { API, PLATFORM, acceptPrivacyPolicy, apiLogin, field, loginUI, sidebarItem } from './helpers'
+import { API, PLATFORM, acceptPrivacyPolicy, apiLogin, field, loginUI, pickOption, sidebarItem } from './helpers'
 
 /**
  * Capa comercial de la plataforma: vendedores, precio acordado en la
@@ -53,9 +53,9 @@ test('vendedor, pago con motivo obligatorio y estadísticas de ventas', async ({
   })
   expect(withReason.status()).toBe(201)
 
-  // --- La sección de estadísticas muestra a la vendedora con su recaudo ---
-  await sidebarItem(page, 'Ventas por vendedor').click()
-  const statsRow = page.locator('tr', { hasText: `Vendedora E2E ${stamp}` })
+  // --- Ventas › Por vendedor muestra a la vendedora con su recaudo ---
+  await sidebarItem(page, 'Ventas').click()
+  const statsRow = page.getByRole('region', { name: 'Por vendedor' }).locator('tr', { hasText: `Vendedora E2E ${stamp}` })
   await expect(statsRow).toBeVisible()
   await expect(statsRow).toContainText('$100.000')
 
@@ -83,9 +83,131 @@ test('vendedor, pago con motivo obligatorio y estadísticas de ventas', async ({
   await expect(page.getByText('Suscripción guardada')).toBeVisible()
   await page.getByRole('dialog').getByRole('button', { name: 'Cerrar' }).click()
 
-  await sidebarItem(page, 'Ventas por vendedor').click()
+  await sidebarItem(page, 'Ventas').click()
   await expect(statsRow).toContainText('$1.250.000')
   await expect(statsRow).toContainText('$250.000')
+})
+
+/**
+ * Seguimiento comercial: una empresa vendida aparece en Novedades y en Ventas
+ * con quién la vendió, qué incluye y su precio; su pago se reparte (vendedor,
+ * socios, mantenimiento); una ampliación se vuelve el acuerdo de la empresa,
+ * y las ventas se corrigen o, si son ampliaciones, se eliminan.
+ */
+test('ventas: la venta inicial, el reparto del pago y una ampliación que cambia el acuerdo', async ({ page, request }) => {
+  const token = await apiLogin(request, PLATFORM.email, PLATFORM.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const sellerName = `Vendedor Ventas ${stamp}`
+  // The companies list pages by 10 ordered by name: this one sorts before every other company.
+  const companyName = `Aaron Billar ${stamp}`
+
+  const seller = await (await request.post(`${API}/platform/sellers`, { headers: auth, data: { name: sellerName } })).json()
+  const created = await request.post(`${API}/platform/companies`, {
+    headers: auth,
+    data: {
+      name: companyName,
+      city: 'Pereira',
+      business_type: 'billiard',
+      admin: { name: 'Dueña Ventas', email: `ventas.${stamp}@e2e.test`, password: 'clave1234' },
+      monthly_price: 150000,
+      seller_id: seller.data.id,
+    },
+  })
+  expect(created.status()).toBe(201)
+  const companyId = (await created.json()).data.id
+  expect((await request.post(`${API}/platform/companies/${companyId}/subscription/payments`, { headers: auth, data: { amount: 150000 } })).status()).toBe(201)
+
+  await loginUI(page, PLATFORM.email, PLATFORM.password)
+
+  // --- Empresas › Novedades: la empresa de hoy con su ciudad, su precio y quién la vendió ---
+  const news = page.getByRole('region', { name: 'Novedades' })
+  await expect(news.getByText(/^Hoy, \d{2} de .+ de \d{4}\. \d+ clientes? activos?: /)).toBeVisible()
+  await news.getByRole('button', { name: /Empresas nuevas/ }).click()
+  const newCompany = news.getByRole('list', { name: 'Empresas nuevas' }).getByRole('listitem').filter({ hasText: companyName })
+  await expect(newCompany).toContainText('Pereira · Billar')
+  await expect(newCompany).toContainText('$150.000/mes')
+  await expect(newCompany).toContainText(`Vendió ${sellerName}`)
+  await expect(newCompany).toContainText(`ventas.${stamp}@e2e.test`)
+  await expect(newCompany).toContainText('Activa')
+  await expect(page.locator('tr', { hasText: companyName }).filter({ hasText: 'usuarios' })).toContainText('· Pereira')
+
+  // The payment's split, in the company's history.
+  await page.getByRole('button', { name: `Ver detalle de ${companyName}` }).click()
+  const detail = page.getByRole('dialog').filter({ hasText: 'Historial de pagos' })
+  await expect(detail.locator('tr', { hasText: '$150.000' })).toContainText(`${sellerName} $45.000`)
+  await detail.getByRole('button', { name: 'Cerrar' }).click()
+
+  // --- Ventas: la venta inicial, el reparto y el vendedor ---
+  await sidebarItem(page, 'Ventas').click()
+  await expect(page.getByRole('heading', { name: 'Ventas', exact: true })).toBeVisible()
+  const sales = page.getByRole('region', { name: 'Ventas del periodo' })
+  const firstSale = sales.locator('tr', { hasText: companyName }).filter({ hasText: 'Nueva' })
+  await expect(firstSale).toContainText('Pereira · Activa')
+  await expect(firstSale).toContainText(sellerName)
+  await expect(firstSale).toContainText('Cobro por tiempo')
+  await expect(firstSale).toContainText('10 mesas · 5 empleados · plan standard')
+  await expect(firstSale).toContainText('$150.000')
+
+  const split = page.getByRole('region', { name: 'Reparto de lo recaudado' })
+  await expect(split.locator('tr', { hasText: sellerName })).toContainText('$45.000')
+  for (const partner of ['Valentina', 'Mauricio', 'Mantenimiento']) {
+    await expect(split.locator('tr', { hasText: partner })).toBeVisible()
+  }
+  await expect(page.getByRole('region', { name: 'Por vendedor' }).locator('tr', { hasText: sellerName })).toContainText('$45.000')
+
+  // Only this seller's sales.
+  await field(page, 'Vendedor').click()
+  await pickOption(page, sellerName)
+  await expect(sales.locator('tbody tr')).toHaveCount(1)
+  await expect(sales.locator('tbody tr')).toContainText(companyName)
+  await page.getByRole('button', { name: 'Borrar Vendedor' }).click()
+  await expect(sales.locator('tbody tr', { hasText: companyName })).toHaveCount(1)
+
+  // --- Registrar ampliación: parte del acuerdo de hoy y lo reemplaza ---
+  await page.getByRole('button', { name: 'Registrar ampliación' }).click()
+  const upgrade = page.getByRole('dialog').filter({ hasText: 'Registrar ampliación' })
+  await upgrade.getByLabel('Empresa *').fill(companyName)
+  await pickOption(page, companyName)
+  await expect(upgrade.getByText(`Hoy paga $150.000.`)).toBeVisible()
+  const fee = upgrade.getByLabel('Nuevo valor mensual (COP) *')
+  await expect(fee).toHaveValue('150.000')
+  await fee.fill('200.000')
+  await upgrade.getByLabel('Mesas incluidas').fill('15')
+  await upgrade.getByLabel('Recetas').check()
+  await upgrade.getByLabel('Notas (opcional)').fill('Le sumamos recetas')
+  await upgrade.getByRole('button', { name: 'Registrar ampliación' }).click()
+  await expect(page.getByText(`Ampliación registrada: "${companyName}" queda con los módulos, el valor mensual y los límites de esta venta.`)).toBeVisible()
+  await expect(upgrade).toHaveCount(0)
+
+  const upgradeRow = sales.locator('tr', { hasText: companyName }).filter({ hasText: 'Ampliación' })
+  await expect(upgradeRow).toContainText('$200.000')
+  await expect(upgradeRow).toContainText('antes $150.000')
+  await expect(upgradeRow).toContainText('Recetas')
+  await expect(upgradeRow).toContainText('15 mesas')
+  await expect(upgradeRow).toContainText('Le sumamos recetas')
+  await expect(upgradeRow).toContainText('Sin vendedor')
+
+  // --- Corregir la venta inicial ---
+  await page.getByRole('button', { name: `Editar la venta inicial de ${companyName}` }).click()
+  const edit = page.getByRole('dialog').filter({ hasText: 'Editar venta' })
+  await expect(edit.getByText('También es el vendedor de la suscripción. Los pagos ya registrados conservan su reparto.')).toBeVisible()
+  await edit.getByLabel('Notas (opcional)').fill('Cerrada en la feria')
+  await edit.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Venta actualizada')).toBeVisible()
+  await expect(firstSale).toContainText('Cerrada en la feria')
+
+  // --- Eliminar la ampliación: el acuerdo de la empresa no cambia ---
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('button', { name: `Eliminar la ampliación de ${companyName}` }).click()
+  await expect(page.getByText(`Se eliminó la ampliación de "${companyName}". La empresa conserva sus módulos, su valor mensual y sus límites actuales.`)).toBeVisible()
+  await expect(upgradeRow).toHaveCount(0)
+  await expect(page.getByRole('button', { name: `Eliminar la ampliación de ${companyName}` })).toHaveCount(0)
+
+  await sidebarItem(page, 'Empresas').click()
+  await page.getByRole('button', { name: `Suscripción de ${companyName}` }).click()
+  await expect(page.getByLabel('Valor mensual (COP)')).toHaveValue('200.000')
+  await expect(page.getByLabel('Límite de mesas')).toHaveValue('15')
 })
 
 /**
@@ -245,7 +367,7 @@ test('eliminar una empresa desactivada después de descargar su copia', async ({
   await remove.click()
 
   await expect(
-    page.getByText(`Se eliminaron los datos de "${leaving.name}". Quedan la empresa desactivada, su suscripción y sus pagos.`),
+    page.getByText(`Se eliminaron los datos de "${leaving.name}". Quedan la empresa desactivada, su suscripción, sus pagos y sus ventas.`),
   ).toBeVisible()
   await expect(dialog).toHaveCount(0)
   await expect(row.getByText('Datos eliminados', { exact: true })).toBeVisible()

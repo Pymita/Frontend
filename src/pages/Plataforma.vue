@@ -15,11 +15,76 @@
             <v-icon start>mdi-account-plus</v-icon>
             Nuevo vendedor
           </v-btn>
+          <v-btn v-else-if="tab === 'stats'" color="primary" size="large" @click="openUpgradeDialog">
+            <v-icon start>mdi-arrow-up-bold-circle-outline</v-icon>
+            Registrar ampliación
+          </v-btn>
         </div>
       </v-col>
     </v-row>
 
     <v-row v-if="tab === 'companies'">
+      <!-- Novedades: the same report platform:report prints and mails every morning -->
+      <v-col cols="12">
+        <v-card role="region" aria-label="Novedades">
+          <v-card-title class="d-flex align-center flex-wrap ga-2">
+            <v-icon class="mr-2">mdi-bell-ring-outline</v-icon>
+            Novedades
+            <v-spacer />
+            <v-btn-toggle
+              v-model="activityDays"
+              mandatory
+              color="primary"
+              density="compact"
+              variant="outlined"
+              divided
+              @update:model-value="loadActivity"
+            >
+              <v-btn :value="1" :aria-pressed="activityDays === 1">Hoy</v-btn>
+              <v-btn :value="7" :aria-pressed="activityDays === 7">7 días</v-btn>
+              <v-btn :value="30" :aria-pressed="activityDays === 30">30 días</v-btn>
+            </v-btn-toggle>
+          </v-card-title>
+          <v-card-subtitle v-if="activity" class="text-wrap">{{ activityCaption }}</v-card-subtitle>
+          <v-card-text>
+            <v-progress-linear v-if="loadingActivity && !activity" indeterminate color="primary" />
+            <template v-if="activity">
+              <v-row dense>
+                <v-col v-for="tile in activityTiles" :key="tile.title" cols="6" sm="4" lg="2">
+                  <div class="text-caption text-medium-emphasis">{{ tile.title }}</div>
+                  <div class="text-h5 tabular-nums">{{ tile.value }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ tile.caption }}</div>
+                </v-col>
+              </v-row>
+
+              <v-expansion-panels v-if="activityPanels.length" variant="accordion" class="mt-4">
+                <v-expansion-panel v-for="panel in activityPanels" :key="panel.key">
+                  <v-expansion-panel-title>
+                    {{ panel.title }}
+                    <v-chip size="x-small" variant="tonal" class="ml-2">{{ panel.count }}</v-chip>
+                  </v-expansion-panel-title>
+                  <v-expansion-panel-text>
+                    <!-- Stacked lines instead of columns: they read the same on a phone. -->
+                    <div role="list" :aria-label="panel.title">
+                      <template v-for="(row, index) in panel.rows" :key="row.id">
+                        <v-divider v-if="index > 0" />
+                        <div role="listitem" class="d-flex align-start ga-3 py-2">
+                          <div class="flex-grow-1 text-break">
+                            <div class="font-weight-medium">{{ row.title }}</div>
+                            <div v-for="line in row.lines" :key="line" class="text-caption text-medium-emphasis">{{ line }}</div>
+                          </div>
+                          <v-chip v-if="row.status" :color="statusColor(row.status)" size="x-small" class="flex-shrink-0">{{ statusLabel(row.status) }}</v-chip>
+                        </div>
+                      </template>
+                    </div>
+                  </v-expansion-panel-text>
+                </v-expansion-panel>
+              </v-expansion-panels>
+            </template>
+          </v-card-text>
+        </v-card>
+      </v-col>
+
       <v-col cols="12">
         <v-card>
           <v-data-table
@@ -34,7 +99,7 @@
                 <v-chip v-if="item.is_template" size="x-small" color="primary" variant="flat" class="ml-2">
                   Plantilla
                 </v-chip>
-                <div class="text-caption text-medium-emphasis">{{ item.slug }}</div>
+                <div class="text-caption text-medium-emphasis">{{ [item.slug, item.city].filter(Boolean).join(' · ') }}</div>
               </div>
             </template>
             <template #item.business_type="{ item }">
@@ -165,26 +230,165 @@
       </v-col>
     </v-row>
 
-    <!-- Ventas por vendedor -->
+    <!-- Ventas: cada venta, el reparto de lo recaudado y los resultados por vendedor -->
     <v-row v-else>
       <v-col cols="12">
-        <v-card>
+        <v-row dense>
+          <v-col cols="6" sm="4" md="3">
+            <DateField v-model="salesPeriod.from" label="Desde" :max="salesPeriod.to || todayIso()" density="compact" hide-details @update:model-value="loadSalesSection" />
+          </v-col>
+          <v-col cols="6" sm="4" md="3">
+            <DateField v-model="salesPeriod.to" label="Hasta" :min="salesPeriod.from" :max="todayIso()" density="compact" hide-details @update:model-value="loadSalesSection" />
+          </v-col>
+        </v-row>
+      </v-col>
+
+      <v-col v-for="stat in salesStats" :key="stat.title" cols="12" sm="6" lg="3">
+        <v-card class="pa-4 h-100">
+          <div class="text-subtitle-2 text-medium-emphasis">{{ stat.title }}</div>
+          <div class="text-h4 tabular-nums my-1">{{ stat.value }}</div>
+          <div class="text-caption text-medium-emphasis">{{ stat.subtitle }}</div>
+        </v-card>
+      </v-col>
+
+      <v-col cols="12">
+        <v-card role="region" aria-label="Ventas del periodo">
+          <!-- The seller filter narrows this list only: the totals and the split are the whole period's. -->
+          <v-card-title class="d-flex align-center flex-wrap ga-2">
+            Ventas del periodo
+            <v-spacer />
+            <v-select
+              v-model="salesSeller"
+              :items="sellers"
+              item-title="name"
+              item-value="id"
+              label="Vendedor"
+              density="compact"
+              hide-details
+              clearable
+              min-width="200"
+              max-width="280"
+            />
+          </v-card-title>
+          <v-data-table
+            :headers="saleHeaders"
+            :items="filteredSales"
+            :loading="loadingSales"
+            :items-per-page="25"
+            mobile-breakpoint="sm"
+            class="elevation-0"
+          >
+            <template #item.sold_at="{ item }">
+              <span class="text-no-wrap">{{ formatDay(item.sold_at) }}</span>
+            </template>
+            <template #item.company="{ item }">
+              <strong>{{ item.company.name }}</strong>
+              <div class="text-caption text-medium-emphasis">
+                {{ item.company.city || '—' }}
+                <template v-if="item.company.status"> · {{ statusLabel(item.company.status) }}</template>
+              </div>
+            </template>
+            <template #item.kind="{ item }">
+              <v-chip size="small" variant="tonal" :prepend-icon="saleKindIcons[item.kind]">
+                {{ saleKindLabels[item.kind] }}
+              </v-chip>
+            </template>
+            <template #item.seller="{ item }">
+              <span v-if="item.seller">{{ item.seller }}</span>
+              <span v-else class="text-medium-emphasis">Sin vendedor</span>
+            </template>
+            <template #item.modules="{ item }">
+              <div class="text-body-2">{{ item.modules.map(featureLabel).join(', ') || '—' }}</div>
+              <div class="text-caption text-medium-emphasis">{{ saleLimits(item) }}</div>
+              <div v-if="item.notes" class="text-caption">{{ item.notes }}</div>
+            </template>
+            <template #item.monthly_price="{ item }">
+              <span class="text-no-wrap">{{ item.monthly_price !== null ? money(item.monthly_price) : '—' }}</span>
+              <div v-if="item.kind === 'upgrade' && item.previous_monthly_price !== null" class="text-caption text-medium-emphasis text-no-wrap">
+                antes {{ money(item.previous_monthly_price) }}
+              </div>
+            </template>
+            <template #item.actions="{ item }">
+              <div class="d-flex">
+                <v-btn
+                  icon
+                  size="small"
+                  variant="text"
+                  :aria-label="item.kind === 'new' ? `Editar la venta inicial de ${item.company.name}` : `Editar la ampliación de ${item.company.name}`"
+                  @click="openSaleDialog(item)"
+                >
+                  <v-icon size="small">mdi-pencil</v-icon>
+                </v-btn>
+                <v-btn
+                  v-if="item.kind === 'upgrade'"
+                  icon
+                  size="small"
+                  variant="text"
+                  color="error"
+                  :aria-label="`Eliminar la ampliación de ${item.company.name}`"
+                  @click="confirmDeleteSale(item)"
+                >
+                  <v-icon size="small">mdi-delete-outline</v-icon>
+                </v-btn>
+              </div>
+            </template>
+            <template #no-data>
+              <p class="text-medium-emphasis py-6">No hay ventas entre estas fechas</p>
+            </template>
+          </v-data-table>
+        </v-card>
+      </v-col>
+
+      <v-col cols="12" lg="4">
+        <v-card class="h-100" role="region" aria-label="Reparto de lo recaudado">
+          <v-card-title>Reparto de lo recaudado</v-card-title>
+          <v-card-subtitle class="text-wrap">Cada pago se reparte al registrarlo y así queda.</v-card-subtitle>
+          <v-table density="compact">
+            <tbody>
+              <tr v-for="line in salesOverview?.split ?? []" :key="line.key">
+                <td>
+                  {{ line.label }}
+                  <div class="text-caption text-medium-emphasis">{{ splitRole(line) }}</div>
+                </td>
+                <td class="text-right tabular-nums">{{ money(line.amount) }}</td>
+              </tr>
+              <tr>
+                <td class="font-weight-bold">Total recaudado</td>
+                <td class="text-right tabular-nums font-weight-bold">{{ money(salesOverview?.summary.collected ?? 0) }}</td>
+              </tr>
+            </tbody>
+          </v-table>
+          <v-card-text class="text-caption text-medium-emphasis">
+            El vendedor recibe el 30% de lo que el cliente paga en su primer año; Valentina y Mauricio, el 30% cada uno, y mantenimiento, el 10%.
+            Sin vendedor, o pasado ese año, ese 30% queda para Servify POS.
+          </v-card-text>
+        </v-card>
+      </v-col>
+
+      <v-col cols="12" lg="8">
+        <v-card class="h-100" role="region" aria-label="Por vendedor">
+          <v-card-title>Por vendedor</v-card-title>
           <v-data-table
             :headers="statsHeaders"
             :items="sellerStats"
             :loading="loadingStats"
+            mobile-breakpoint="sm"
             class="elevation-0"
           >
             <template #item.monthly_recurring="{ item }">
               {{ money(item.monthly_recurring) }}
             </template>
             <template #item.total_collected="{ item }">
-              <span class="font-weight-bold">
-                {{ money(item.total_collected) }}
-              </span>
+              {{ money(item.total_collected) }}
+            </template>
+            <template #item.commission_period="{ item }">
+              <span class="font-weight-bold">{{ money(item.commission_period ?? 0) }}</span>
+            </template>
+            <template #item.commission_total="{ item }">
+              {{ money(item.commission_total) }}
             </template>
             <template #item.last_sale_at="{ item }">
-              {{ item.last_sale_at || '—' }}
+              {{ item.last_sale_at ? formatDay(item.last_sale_at) : '—' }}
             </template>
             <template #no-data>
               <p class="text-medium-emphasis py-6">Sin ventas asociadas a vendedores todavía</p>
@@ -193,6 +397,114 @@
         </v-card>
       </v-col>
     </v-row>
+
+    <!-- Dialog: registrar una ampliación (se vuelve el acuerdo de la empresa) -->
+    <v-dialog v-model="upgradeDialog" max-width="720" persistent>
+      <v-card>
+        <v-card-title>Registrar ampliación</v-card-title>
+        <v-card-text>
+          <v-form ref="upgradeFormRef" @submit.prevent="saveUpgrade">
+            <v-autocomplete
+              v-model="upgradeData.company_id"
+              :items="upgradeCompanies"
+              item-title="name"
+              item-value="id"
+              :loading="loading"
+              :rules="[(v: number | null) => !!v || 'Elige la empresa']"
+              @update:model-value="prefillUpgrade"
+            >
+              <template #label>Empresa <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+            </v-autocomplete>
+
+            <template v-if="upgradeCompany">
+              <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+                Al guardar, {{ upgradeCompany.name }} queda con estos módulos, este valor mensual y estos límites.
+                Hoy paga {{ upgradeCompany.subscription?.monthly_price != null ? money(upgradeCompany.subscription.monthly_price) : 'sin valor acordado' }}.
+              </v-alert>
+              <v-row dense>
+                <v-col cols="12" sm="6">
+                  <DateField v-model="upgradeData.sold_at" label="Fecha de la venta" :max="todayIso()" />
+                </v-col>
+                <v-col cols="12" sm="6">
+                  <v-select
+                    v-model="upgradeData.seller_id"
+                    :items="sellers"
+                    item-title="name"
+                    item-value="id"
+                    label="Vendedor"
+                    hint="Quién hizo la ampliación"
+                    persistent-hint
+                    clearable
+                  />
+                </v-col>
+                <v-col cols="12" sm="6">
+                  <MoneyField
+                    v-model="upgradeData.monthly_price"
+                    :rules="[(v: number | null) => v !== null || 'Escribe el nuevo valor mensual']"
+                  >
+                    <template #label>Nuevo valor mensual (COP) <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                  </MoneyField>
+                </v-col>
+                <v-col cols="12" sm="6">
+                  <v-text-field v-model="upgradeData.plan" label="Plan" :rules="[(v: string) => !!v.trim() || 'Escribe el plan']" />
+                </v-col>
+                <v-col cols="6">
+                  <v-text-field v-model.number="upgradeData.max_tables" label="Mesas incluidas" type="number" min="1" />
+                </v-col>
+                <v-col cols="6">
+                  <v-text-field v-model.number="upgradeData.max_users" label="Empleados incluidos" type="number" min="1" />
+                </v-col>
+              </v-row>
+              <p class="text-subtitle-2 mt-2 mb-1">Módulos</p>
+              <v-row dense>
+                <v-col v-for="feature in allFeatures" :key="feature" cols="6" md="4">
+                  <v-checkbox
+                    v-model="upgradeData.modules"
+                    :label="featureLabel(feature)"
+                    :value="feature"
+                    density="compact"
+                    hide-details
+                  />
+                </v-col>
+              </v-row>
+              <v-textarea v-model="upgradeData.notes" label="Notas (opcional)" rows="2" class="mt-3" />
+            </template>
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="upgradeDialog = false">Cancelar</v-btn>
+          <v-btn color="primary" :loading="saving" :disabled="!upgradeCompany" @click="saveUpgrade">Registrar ampliación</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Dialog: corregir una venta (fecha, vendedor, notas) -->
+    <v-dialog v-model="saleDialog" max-width="480" persistent>
+      <v-card v-if="editingSale">
+        <v-card-title>Editar venta</v-card-title>
+        <v-card-subtitle>{{ editingSale.company.name }} · {{ saleKindLabels[editingSale.kind] }}</v-card-subtitle>
+        <v-card-text>
+          <DateField v-model="saleForm.sold_at" label="Fecha de la venta" :max="todayIso()" />
+          <v-select
+            v-model="saleForm.seller_id"
+            :items="sellers"
+            item-title="name"
+            item-value="id"
+            label="Vendedor"
+            :hint="editingSale.kind === 'new' ? 'También es el vendedor de la suscripción. Los pagos ya registrados conservan su reparto.' : ''"
+            persistent-hint
+            clearable
+          />
+          <v-textarea v-model="saleForm.notes" label="Notas (opcional)" rows="2" class="mt-3" />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="saleDialog = false">Cancelar</v-btn>
+          <v-btn color="primary" :loading="saving" :disabled="!saleForm.sold_at" @click="saveSale">Guardar</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Dialog: crear/editar vendedor -->
     <v-dialog v-model="sellerDialog" max-width="480" persistent>
@@ -242,13 +554,20 @@
             <v-row>
               <v-col cols="12" md="6">
                 <p class="text-subtitle-2 mb-2">Empresa</p>
-                <v-text-field
-                  v-model="createData.name"
-                  :rules="[(v: string) => !!v || 'Nombre requerido']"
-                  required
-                >
-                  <template #label>Nombre de la empresa <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
-                </v-text-field>
+                <v-row dense>
+                  <v-col cols="12" sm="8">
+                    <v-text-field
+                      v-model="createData.name"
+                      :rules="[(v: string) => !!v || 'Nombre requerido']"
+                      required
+                    >
+                      <template #label>Nombre de la empresa <span class="text-error font-weight-bold" title="Campo obligatorio">*</span></template>
+                    </v-text-field>
+                  </v-col>
+                  <v-col cols="12" sm="4">
+                    <v-text-field v-model="createData.city" label="Ciudad (opcional)" />
+                  </v-col>
+                </v-row>
                 <v-select
                   v-model="createData.business_type"
                   :items="businessTypeOptions"
@@ -447,6 +766,14 @@
                 <v-col cols="6">
                   <v-text-field v-model="editData.phone" label="Teléfono" />
                 </v-col>
+                <v-col cols="6">
+                  <v-text-field
+                    v-model="editData.city"
+                    label="Ciudad"
+                    hint="La misma de Configuración › Datos del negocio"
+                    persistent-hint
+                  />
+                </v-col>
               </v-row>
 
               <v-select
@@ -533,6 +860,10 @@
                 <div>{{ detail.phone || '—' }}</div>
               </v-col>
               <v-col cols="6">
+                <div class="text-caption text-medium-emphasis">Ciudad</div>
+                <div>{{ detail.city || '—' }}</div>
+              </v-col>
+              <v-col cols="6">
                 <div class="text-caption text-medium-emphasis">Suscripción</div>
                 <v-chip
                   v-if="detail.subscription"
@@ -610,6 +941,7 @@
                   <th>Método</th>
                   <th>Referencia</th>
                   <th>Periodo cubierto</th>
+                  <th>Comisión</th>
                 </tr>
               </thead>
               <tbody>
@@ -619,6 +951,7 @@
                   <td>{{ methodLabel(payment.method) }}</td>
                   <td>{{ payment.reference || '—' }}</td>
                   <td>{{ payment.period_start }} → {{ payment.period_end }}</td>
+                  <td>{{ sellerShare(payment) }}</td>
                 </tr>
               </tbody>
             </v-table>
@@ -828,7 +1161,7 @@
             gastos, caja, facturación e imágenes. Sus usuarios ya no podrán entrar y no se puede deshacer.
           </p>
           <p class="text-body-2 text-medium-emphasis mb-4">
-            Por ley se conservan su suscripción y sus pagos durante 10 años; la empresa queda
+            Por ley se conservan su suscripción, sus pagos y sus ventas durante 10 años; la empresa queda
             desactivada, sin correo ni teléfono.
           </p>
 
@@ -839,7 +1172,7 @@
               {{ deletionPlan.refusal }}
             </v-alert>
             <v-alert v-else-if="deletionPlan.nothing_to_delete" type="info" variant="tonal" density="compact">
-              No le quedan datos por eliminar: solo la empresa desactivada, su suscripción y sus pagos.
+              No le quedan datos por eliminar: solo la empresa desactivada, su suscripción, sus pagos y sus ventas.
             </v-alert>
 
             <template v-else>
@@ -935,18 +1268,24 @@
 
 <script setup lang="ts">
 import { money } from '@/utils/money'
-import { formatDateTime, formatDay, formatMomentDay } from '@/utils/dates'
+import { formatDateTime, formatDay, formatMomentDay, todayIso } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import platformService from '../services/platformService'
 import type {
   CompanyDeletionPlan,
+  PlatformActivity,
   PlatformCompany,
   PlatformCompanyDetail,
   PlatformCompanyUser,
+  PlatformPayment,
+  PlatformSale,
   PlatformSeller,
+  SaleKind,
+  SalesOverview,
   SellerStats,
+  SplitLine,
 } from '../types/platform'
 import { ALL_FEATURES, type BusinessType, type Feature, type OrderMode, type SubscriptionStatus } from '../types/auth'
 import { PASSWORD_HINT, confirmPasswordRules, passwordRules } from '../utils/validation'
@@ -1046,6 +1385,7 @@ const emptyCreateData = () => ({
   name: '',
   email: '',
   phone: '',
+  city: '',
   business_type: 'restaurant' as BusinessType,
   modules: [...BUSINESS_TYPE_PRESETS.restaurant] as Feature[],
   order_mode: 'tables' as OrderMode,
@@ -1130,10 +1470,11 @@ const saveCompany = async () => {
       modules: modulesToSend(createData.value.business_type, createData.value.modules),
       email: createData.value.email || undefined,
       phone: createData.value.phone || undefined,
+      city: createData.value.city.trim() || undefined,
     })
     createDialog.value = false
     notify('Empresa creada exitosamente')
-    await loadCompanies()
+    await Promise.all([loadCompanies(), loadActivity()])
   } catch (error: any) {
     notify(errorMessage(error, 'No fue posible crear la empresa. Inténtalo de nuevo.'), 'error')
   } finally {
@@ -1152,6 +1493,7 @@ const editData = ref({
   slug: '',
   email: '',
   phone: '',
+  city: '',
   business_type: 'restaurant' as BusinessType,
   modules: [] as Feature[],
   order_mode: 'tables' as OrderMode,
@@ -1179,6 +1521,7 @@ const startEditDetail = () => {
     slug: detail.value.slug,
     email: detail.value.email || '',
     phone: detail.value.phone || '',
+    city: detail.value.city || '',
     business_type: detail.value.business_type,
     // Siempre se muestran los módulos efectivos (antes, si seguían el preset,
     // los checkboxes salían todos vacíos).
@@ -1200,6 +1543,7 @@ const saveDetail = async () => {
       slug: editData.value.slug,
       email: editData.value.email || null,
       phone: editData.value.phone || null,
+      city: editData.value.city.trim() || null,
       business_type: editData.value.business_type,
       modules: modulesToSend(editData.value.business_type, editData.value.modules),
       order_mode: editData.value.order_mode,
@@ -1338,7 +1682,7 @@ const savePayment = async () => {
     })
     notify('Pago registrado y periodo extendido')
     subscriptionDialog.value = false
-    await loadCompanies()
+    await Promise.all([loadCompanies(), loadActivity()])
   } catch (error: any) {
     notify(errorMessage(error, 'No fue posible registrar el pago. Inténtalo de nuevo.'), 'error')
   } finally {
@@ -1503,16 +1847,326 @@ const route = useRoute()
 const tab = computed(() => (route.meta.section as 'companies' | 'sellers' | 'stats' | 'security') ?? 'companies')
 
 const sectionTitle = computed(() =>
-  ({ companies: 'Empresas', sellers: 'Vendedores', stats: 'Ventas por vendedor', security: 'Seguridad' })[tab.value],
+  ({ companies: 'Empresas', sellers: 'Vendedores', stats: 'Ventas', security: 'Seguridad' })[tab.value],
 )
 const sectionSubtitle = computed(() =>
   ({
     companies: 'Administra las empresas del sistema y sus suscripciones',
     sellers: 'Quiénes venden el sistema; se asocian a cada suscripción',
-    stats: 'Resultados comerciales de cada vendedor',
+    stats: 'Cada venta con quién la hizo y qué incluye, y cómo se reparte lo que pagan los clientes',
     security: 'Verificación en dos pasos de la cuenta de plataforma',
   })[tab.value],
 )
+
+// --- Novedades (Empresas): lo mismo que platform:report y su correo de cada mañana ---
+const activityDays = ref(1)
+const activity = ref<PlatformActivity | null>(null)
+const loadingActivity = ref(false)
+
+const loadActivity = async () => {
+  loadingActivity.value = true
+  try {
+    activity.value = await platformService.activity(activityDays.value)
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar las novedades. Inténtalo de nuevo.'), 'error')
+  } finally {
+    loadingActivity.value = false
+  }
+}
+
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
+
+const NAMES_SHOWN = 3
+const namesPreview = (names: string[]) =>
+  names.slice(0, NAMES_SHOWN).join(', ') + (names.length > NAMES_SHOWN ? ` y ${names.length - NAMES_SHOWN} más` : '')
+
+const activityCaption = computed(() => {
+  if (!activity.value) return ''
+  const { period, totals } = activity.value
+  const when = period.from === period.to ? `Hoy, ${formatDay(period.to)}` : `Del ${formatDay(period.from)} al ${formatDay(period.to)}`
+  return `${when}. ${plural(totals.companies, 'cliente activo', 'clientes activos')}: ${totals.active} pagando, `
+    + `${totals.trial} en prueba, ${totals.grace} en gracia y ${totals.suspended} suspendidos. `
+    + `Recurrente mensual: ${money(totals.monthly_recurring)}.`
+})
+
+const activityTiles = computed(() => {
+  const report = activity.value
+  if (!report) return []
+  const companiesWithNewUsers = new Set(report.new_users.map(user => user.company.id)).size
+  return [
+    {
+      title: 'Empresas nuevas',
+      value: report.new_companies.length,
+      caption: report.new_companies.length ? namesPreview(report.new_companies.map(company => company.name)) : 'Ninguna en el periodo',
+    },
+    {
+      title: 'Usuarios nuevos',
+      value: report.new_users.length,
+      caption: report.new_users.length ? `En ${plural(companiesWithNewUsers, 'empresa', 'empresas')}` : 'Ninguno en el periodo',
+    },
+    { title: 'Pagos recibidos', value: money(report.collected), caption: plural(report.payments.length, 'pago', 'pagos') },
+    { title: 'Entraron', value: `${report.signed_in} de ${report.totals.companies}`, caption: 'Empresas con algún ingreso' },
+    { title: 'Pruebas por vencer', value: report.trials_ending.length, caption: 'En los próximos 7 días' },
+    { title: 'Pagos vencidos', value: report.overdue.length, caption: 'En gracia o suspendidas' },
+  ]
+})
+
+interface ActivityRow {
+  id: number
+  title: string
+  lines: string[]
+  status?: SubscriptionStatus | null
+}
+
+const monthly = (price: number | null) => (price !== null ? `${money(price)}/mes` : 'Sin valor acordado')
+
+// One panel per list with something in it.
+const activityPanels = computed(() => {
+  const report = activity.value
+  if (!report) return []
+  const panels: { key: string; title: string; rows: ActivityRow[] }[] = [
+    {
+      key: 'new_companies',
+      title: 'Empresas nuevas',
+      rows: report.new_companies.map(company => ({
+        id: company.id,
+        title: company.name,
+        lines: [
+          [company.city, businessTypeLabel(company.business_type)].filter(Boolean).join(' · '),
+          `${monthly(company.monthly_price)} · ${company.seller ? `Vendió ${company.seller}` : 'Sin vendedor'}`,
+          company.admin ? `Admin: ${company.admin.name} · ${company.admin.email}` : 'Sin administrador',
+        ],
+        status: company.status,
+      })),
+    },
+    {
+      key: 'new_users',
+      title: 'Usuarios nuevos',
+      rows: report.new_users.map(user => ({
+        id: user.id,
+        title: `${user.name} · ${user.role === 'admin' ? 'Admin' : 'Empleado'}`,
+        lines: [`${user.login} · ${user.company.name}`, `Creado ${formatDateTime(user.created_at)}`],
+      })),
+    },
+    {
+      key: 'trials_ending',
+      title: 'Pruebas que vencen en los próximos 7 días',
+      rows: report.trials_ending.map(trial => ({
+        id: trial.id,
+        title: trial.name,
+        lines: [
+          `Vence el ${formatDay(trial.ends_on)} (${daysLeftLabel(trial.days_left)})`,
+          `${monthly(trial.monthly_price)} · ${trial.seller ?? 'Sin vendedor'}`,
+        ],
+      })),
+    },
+    {
+      key: 'overdue',
+      title: 'Pagos vencidos',
+      rows: report.overdue.map(company => ({
+        id: company.id,
+        title: company.name,
+        lines: [`Pagada hasta ${formatDay(company.period_end)} · ${monthly(company.monthly_price)}`],
+        status: company.status,
+      })),
+    },
+    {
+      key: 'idle',
+      title: 'Sin entrar hace más de 7 días',
+      rows: report.idle.map(company => ({
+        id: company.id,
+        title: company.name,
+        lines: [company.last_login_at ? `Último ingreso ${formatMomentDay(company.last_login_at)}` : 'Nunca ha entrado'],
+      })),
+    },
+  ]
+  return panels.filter(panel => panel.rows.length > 0).map(panel => ({ ...panel, count: panel.rows.length }))
+})
+
+const daysLeftLabel = (days: number) => (days === 0 ? 'hoy' : `en ${plural(days, 'día', 'días')}`)
+
+// --- Ventas ---
+const saleKindLabels: Record<SaleKind, string> = { new: 'Nueva', upgrade: 'Ampliación' }
+const saleKindIcons: Record<SaleKind, string> = { new: 'mdi-handshake-outline', upgrade: 'mdi-arrow-up-bold-circle-outline' }
+
+const salesPeriod = ref({ from: `${todayIso().slice(0, 8)}01`, to: todayIso() })
+const salesSeller = ref<number | null>(null)
+const salesOverview = ref<SalesOverview | null>(null)
+const loadingSales = ref(false)
+
+const filteredSales = computed(() =>
+  (salesOverview.value?.sales ?? []).filter(sale => salesSeller.value === null || sale.seller_id === salesSeller.value),
+)
+
+const salesStats = computed(() => {
+  const summary = salesOverview.value?.summary
+  return [
+    {
+      title: 'Ventas',
+      value: summary ? summary.new_count + summary.upgrade_count : '—',
+      subtitle: summary ? `${plural(summary.new_count, 'nueva', 'nuevas')} · ${plural(summary.upgrade_count, 'ampliación', 'ampliaciones')}` : '',
+    },
+    { title: 'Valor mensual vendido', value: money(summary?.added_monthly ?? 0), subtitle: 'Cuotas nuevas y aumentos de las ampliaciones' },
+    { title: 'Recaudado', value: money(summary?.collected ?? 0), subtitle: 'Pagos de suscripción del periodo' },
+    { title: 'Comisiones', value: money(summary?.commissions ?? 0), subtitle: 'Lo que les tocó a los vendedores' },
+  ]
+})
+
+const saleHeaders = [
+  { title: 'Fecha', key: 'sold_at' },
+  { title: 'Empresa', key: 'company', sortable: false },
+  { title: 'Tipo', key: 'kind' },
+  { title: 'Vendedor', key: 'seller' },
+  { title: 'Incluye', key: 'modules', sortable: false },
+  { title: 'Valor mensual', key: 'monthly_price', align: 'end' as const },
+  { title: '', key: 'actions', sortable: false },
+]
+
+const saleLimits = (sale: PlatformSale) =>
+  [
+    sale.max_tables ? plural(sale.max_tables, 'mesa', 'mesas') : null,
+    sale.max_users ? plural(sale.max_users, 'empleado', 'empleados') : null,
+    sale.plan ? `plan ${sale.plan}` : null,
+  ].filter(Boolean).join(' · ')
+
+const splitRole = (line: SplitLine) => {
+  if (line.key.startsWith('seller')) return 'Vendedor'
+  if (line.key === 'company') return 'La empresa'
+  if (line.key === 'unsplit') return 'Pagos sin reparto'
+  return line.key === 'maintenance' ? 'Mantenimiento del sistema' : 'Socio'
+}
+
+const sellerShare = (payment: PlatformPayment) => {
+  const line = payment.split.find(share => share.key === 'seller')
+  return line ? `${line.label} ${money(line.amount)}` : '—'
+}
+
+const loadSalesSection = async () => {
+  const { from, to } = salesPeriod.value
+  if (!from || !to || from > to) return
+  loadingSales.value = true
+  loadingStats.value = true
+  try {
+    const [overview, stats] = await Promise.all([
+      platformService.listSales({ from, to }),
+      platformService.sellerStats({ from, to }),
+    ])
+    salesOverview.value = overview
+    sellerStats.value = stats
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cargar las ventas. Inténtalo de nuevo.'), 'error')
+  } finally {
+    loadingSales.value = false
+    loadingStats.value = false
+  }
+}
+
+// Registrar ampliación: the companies come with their current agreement to start from.
+const upgradeDialog = ref(false)
+const upgradeFormRef = ref()
+const emptyUpgradeData = () => ({
+  company_id: null as number | null,
+  sold_at: todayIso(),
+  seller_id: null as number | null,
+  plan: 'standard',
+  modules: [] as Feature[],
+  monthly_price: null as number | null,
+  max_tables: 10,
+  max_users: 5,
+  notes: '',
+})
+const upgradeData = ref(emptyUpgradeData())
+
+const upgradeCompanies = computed(() =>
+  companies.value.filter(company => !company.is_template && !company.data_deleted_at && company.subscription),
+)
+const upgradeCompany = computed(() => companies.value.find(company => company.id === upgradeData.value.company_id) ?? null)
+
+const openUpgradeDialog = () => {
+  upgradeData.value = emptyUpgradeData()
+  upgradeDialog.value = true
+  if (!companies.value.length) loadCompanies()
+}
+
+const prefillUpgrade = () => {
+  const company = upgradeCompany.value
+  if (!company) return
+  upgradeData.value = {
+    ...upgradeData.value,
+    plan: company.subscription?.plan ?? 'standard',
+    modules: [...company.modules],
+    monthly_price: company.subscription?.monthly_price ?? null,
+    max_tables: company.subscription?.max_tables ?? 10,
+    max_users: company.subscription?.max_users ?? 5,
+  }
+}
+
+const saveUpgrade = async () => {
+  const company = upgradeCompany.value
+  const { valid } = await upgradeFormRef.value.validate()
+  if (!valid || !company) return
+
+  saving.value = true
+  try {
+    const message = await platformService.registerUpgrade(company.id, {
+      sold_at: upgradeData.value.sold_at,
+      seller_id: upgradeData.value.seller_id,
+      plan: upgradeData.value.plan.trim(),
+      modules: upgradeData.value.modules,
+      monthly_price: upgradeData.value.monthly_price ?? 0,
+      max_tables: upgradeData.value.max_tables,
+      max_users: upgradeData.value.max_users,
+      notes: upgradeData.value.notes.trim() || null,
+    })
+    upgradeDialog.value = false
+    notify(message)
+    await Promise.all([loadSalesSection(), loadCompanies()])
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible registrar la ampliación. Inténtalo de nuevo.'), 'error')
+  } finally {
+    saving.value = false
+  }
+}
+
+// Editar venta: only when, who and the notes; what was sold stays as it was.
+const saleDialog = ref(false)
+const editingSale = ref<PlatformSale | null>(null)
+const saleForm = ref({ sold_at: '', seller_id: null as number | null, notes: '' })
+
+const openSaleDialog = (sale: PlatformSale) => {
+  editingSale.value = sale
+  saleForm.value = { sold_at: sale.sold_at, seller_id: sale.seller_id, notes: sale.notes ?? '' }
+  saleDialog.value = true
+}
+
+const saveSale = async () => {
+  if (!editingSale.value) return
+  saving.value = true
+  try {
+    await platformService.updateSale(editingSale.value.id, {
+      sold_at: saleForm.value.sold_at,
+      seller_id: saleForm.value.seller_id,
+      notes: saleForm.value.notes.trim() || null,
+    })
+    saleDialog.value = false
+    notify('Venta actualizada')
+    await loadSalesSection()
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible guardar la venta. Inténtalo de nuevo.'), 'error')
+  } finally {
+    saving.value = false
+  }
+}
+
+const confirmDeleteSale = async (sale: PlatformSale) => {
+  if (!window.confirm(`¿Seguro que quieres eliminar la ampliación de "${sale.company.name}"? La empresa conserva sus módulos, su valor mensual y sus límites actuales.`)) return
+  try {
+    notify(await platformService.deleteSale(sale.id))
+    await loadSalesSection()
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible eliminar la ampliación. Inténtalo de nuevo.'), 'error')
+  }
+}
 const sellers = ref<PlatformSeller[]>([])
 const loadingSellers = ref(false)
 const sellerStats = ref<SellerStats[]>([])
@@ -1526,12 +2180,16 @@ const sellerHeaders = [
   { title: '', key: 'actions', sortable: false },
 ]
 
+// What each seller is owed comes first: the rest scrolls on narrow screens.
 const statsHeaders = [
   { title: 'Vendedor', key: 'name' },
+  { title: 'Comisión del periodo', key: 'commission_period' },
+  { title: 'Comisión total', key: 'commission_total' },
   { title: 'Empresas vendidas', key: 'companies_count' },
-  { title: 'Activas', key: 'active_companies' },
+  { title: 'Ampliaciones', key: 'upgrades_count' },
   { title: 'Recurrente mensual', key: 'monthly_recurring' },
   { title: 'Total recaudado', key: 'total_collected' },
+  { title: 'Activas', key: 'active_companies' },
   { title: 'Última venta', key: 'last_sale_at' },
 ]
 
@@ -1543,17 +2201,6 @@ const loadSellers = async () => {
     notify(errorMessage(error, 'No fue posible cargar los vendedores. Inténtalo de nuevo.'), 'error')
   } finally {
     loadingSellers.value = false
-  }
-}
-
-const loadStats = async () => {
-  loadingStats.value = true
-  try {
-    sellerStats.value = await platformService.sellerStats()
-  } catch (error) {
-    notify(errorMessage(error, 'No fue posible cargar las estadísticas. Inténtalo de nuevo.'), 'error')
-  } finally {
-    loadingStats.value = false
   }
 }
 
@@ -1604,7 +2251,10 @@ const saveSeller = async () => {
 onMounted(() => {
   if (tab.value === 'security') return
   loadSellers()
-  if (tab.value === 'companies') loadCompanies()
-  if (tab.value === 'stats') loadStats()
+  if (tab.value === 'companies') {
+    loadCompanies()
+    loadActivity()
+  }
+  if (tab.value === 'stats') loadSalesSection()
 })
 </script>

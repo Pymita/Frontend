@@ -4,14 +4,19 @@ import type {
   CompanyDeletionSummary,
   CreateCompanyPayload,
   DeleteCompanyPayload,
+  PlatformActivity,
   PlatformCompany,
   PlatformCompanyDetail,
+  PlatformSale,
   PlatformSeller,
   PlatformSubscription,
   RegisterPaymentPayload,
+  RegisterUpgradePayload,
+  SalesOverview,
   SaveSubscriptionPayload,
   SellerStats,
   TemporaryPasswordPayload,
+  UpdateSalePayload,
 } from '../types/platform'
 
 interface ApiEnvelope<T> {
@@ -37,7 +42,7 @@ class PlatformService {
 
   async updateCompany(
     id: number,
-    payload: Partial<Pick<PlatformCompany, 'name' | 'slug' | 'email' | 'phone' | 'business_type' | 'modules' | 'order_mode'>>,
+    payload: Partial<Pick<PlatformCompany, 'name' | 'slug' | 'email' | 'phone' | 'city' | 'business_type' | 'modules' | 'order_mode'>>,
   ): Promise<PlatformCompany> {
     const response = await api.put<ApiEnvelope<PlatformCompany>>(`/platform/companies/${id}`, payload)
     return response.data.data
@@ -111,9 +116,37 @@ class PlatformService {
     return response.data.data
   }
 
-  async sellerStats(): Promise<SellerStats[]> {
-    const response = await api.get<ApiEnvelope<SellerStats[]>>('/platform/sellers/stats')
+  /** With a period, each row also carries the commission earned in it. */
+  async sellerStats(period?: { from: string; to: string }): Promise<SellerStats[]> {
+    const response = await api.get<ApiEnvelope<SellerStats[]>>('/platform/sellers/stats', { params: period })
     return response.data.data
+  }
+
+  // --- Novedades y ventas ---
+  async activity(days: number): Promise<PlatformActivity> {
+    const response = await api.get<ApiEnvelope<PlatformActivity>>('/platform/activity', { params: { days } })
+    return response.data.data
+  }
+
+  async listSales(period: { from: string; to: string }): Promise<SalesOverview> {
+    const response = await api.get<ApiEnvelope<SalesOverview>>('/platform/sales', { params: period })
+    return response.data.data
+  }
+
+  /** Returns the API's message, which says what changed in the company. */
+  async registerUpgrade(companyId: number, payload: RegisterUpgradePayload): Promise<string> {
+    const response = await api.post<ApiEnvelope<PlatformSale>>(`/platform/companies/${companyId}/sales`, payload)
+    return response.data.message ?? ''
+  }
+
+  async updateSale(id: number, payload: UpdateSalePayload): Promise<PlatformSale> {
+    const response = await api.put<ApiEnvelope<PlatformSale>>(`/platform/sales/${id}`, payload)
+    return response.data.data
+  }
+
+  async deleteSale(id: number): Promise<string> {
+    const response = await api.delete<{ message: string }>(`/platform/sales/${id}`)
+    return response.data.message
   }
 }
 
