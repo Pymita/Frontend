@@ -2146,3 +2146,37 @@ test('un pedido se cobra con dos formas de pago a la vez: vueltas, factura, Vent
   await expect(close).toContainText('1 venta · 1 pedido')
   await expect(close.getByTestId('cash-expected')).toHaveText('$50.000')
 })
+
+/**
+ * The owner's case: 50.000 by transfer as an abono ("Registrar pago parcial")
+ * and the rest in cash at the close. The printed comprobante said only
+ * "Efectivo"; it lists both, and Ventas too.
+ */
+test('una venta con un abono por transferencia y el resto en efectivo imprime las dos formas de pago', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `abono-impreso-${Date.now()}`)
+  const productId = await seedSimpleProduct(request, auth, 'Picada para dos', 96500)
+  const order = (await (await request.post(`${API}/orders`, { headers: auth, data: { items: [{ product_id: productId, quantity: 1 }] } })).json()).data
+  const abono = await request.post(`${API}/orders/${order.id}/partial-payment`, { headers: auth, data: { amount: 50000, payment_method: 'transfer' } })
+  expect(abono.ok(), await abono.text()).toBeTruthy()
+  const paid = await request.post(`${API}/orders/${order.id}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+  expect(paid.ok(), await paid.text()).toBeTruthy()
+  const sale = (await (await request.get(`${API}/orders/${order.id}`, { headers: auth })).json()).data.payments
+    .find((payment: { kind: string }) => payment.kind === 'sale')
+
+  await loginUI(page, credentials.email, credentials.password)
+  await page.goto('/ventas')
+  const row = page.locator('tbody tr', { hasText: '$96.500' })
+  await expect(row).toContainText('Efectivo $46.500 + Transferencia $50.000')
+  // The method chips count the abono under its own method too.
+  await expect(page.getByText('Efectivo: $46.500')).toBeVisible()
+  await expect(page.getByText('Transferencia: $50.000')).toBeVisible()
+
+  const [comprobante] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('button', { name: `Imprimir el comprobante ${sale.reference}` }).click(),
+  ])
+  await expect(comprobante.locator('.party-row', { hasText: 'FORMA DE PAGO' }))
+    .toHaveText('FORMA DE PAGO: Efectivo $46.500 + Transferencia $50.000')
+  await expect(comprobante.locator('.totals')).toContainText('TOTAL: $96.500')
+  await comprobante.close()
+})
