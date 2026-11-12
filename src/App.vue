@@ -314,7 +314,7 @@ const allMenuItems: MenuItem[] = [
   { title: 'Configuración', icon: 'mdi-cog', route: '/configuracion', requiresAdmin: true, group: 'Administración' },
   { title: 'Empresas', icon: 'mdi-domain', route: '/plataforma', exact: true, superAdminOnly: true, group: 'Plataforma' },
   { title: 'Vendedores', icon: 'mdi-account-tie', route: '/plataforma/vendedores', superAdminOnly: true, group: 'Plataforma' },
-  { title: 'Ventas por vendedor', icon: 'mdi-chart-line', route: '/plataforma/ventas', superAdminOnly: true, group: 'Plataforma' },
+  { title: 'Ventas', icon: 'mdi-chart-line', route: '/plataforma/ventas', superAdminOnly: true, group: 'Plataforma' },
   { title: 'Seguridad', icon: 'mdi-shield-key', route: '/plataforma/seguridad', superAdminOnly: true, group: 'Plataforma' },
 ]
 
