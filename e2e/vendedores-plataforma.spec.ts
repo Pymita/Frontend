@@ -211,6 +211,53 @@ test('ventas: la venta inicial, el reparto del pago y una ampliación que cambia
 })
 
 /**
+ * Una cuenta de prueba (una demo, una copia para ensayar) no es un cliente:
+ * marcada desde su fila, sale de Novedades y de Ventas, y vuelve al marcarla
+ * como cliente real.
+ */
+test('una cuenta de prueba no cuenta en Novedades ni en Ventas hasta marcarla como cliente real', async ({ page, request }) => {
+  const token = await apiLogin(request, PLATFORM.email, PLATFORM.password)
+  const stamp = Date.now()
+  // The companies list pages by 10 ordered by name: this one sorts before every other company.
+  const name = `Aaron Demo ${stamp}`
+  const created = await request.post(`${API}/platform/companies`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name, monthly_price: 90000, admin: { name: 'Dueña Demo', email: `demo.${stamp}@e2e.test`, password: 'clave1234' } },
+  })
+  expect(created.status()).toBe(201)
+
+  await loginUI(page, PLATFORM.email, PLATFORM.password)
+  const news = page.getByRole('region', { name: 'Novedades' })
+  const listed = news.getByRole('listitem').filter({ hasText: name })
+  await news.getByRole('button', { name: /Empresas nuevas/ }).click()
+  await expect(listed).toBeVisible()
+  const row = page.locator('tr', { hasText: name }).filter({ hasText: 'usuarios' })
+  await expect(row.getByText('Cuenta de prueba')).toHaveCount(0)
+
+  await page.getByRole('button', { name: `Marcar ${name} como cuenta de prueba` }).click()
+  await expect(page.getByText(`"${name}" quedó como cuenta de prueba: ya no cuenta en Novedades, Ventas ni comisiones.`)).toBeVisible()
+  await expect(row.getByText('Cuenta de prueba')).toBeVisible()
+  await expect(listed).toHaveCount(0)
+  await expect(news.getByText(/cuentas? de prueba no cuentan?\./)).toBeVisible()
+
+  await sidebarItem(page, 'Ventas').click()
+  const sales = page.getByRole('region', { name: 'Ventas del periodo' })
+  await expect(sales.getByText('Nueva').first()).toBeVisible()
+  await expect(sales.locator('tr', { hasText: name })).toHaveCount(0)
+
+  // It became a customer after all: it counts again.
+  await sidebarItem(page, 'Empresas').click()
+  await page.getByRole('button', { name: `Marcar ${name} como cliente real` }).click()
+  await expect(page.getByText(`"${name}" volvió a contar como cliente real.`)).toBeVisible()
+  await expect(row.getByText('Cuenta de prueba')).toHaveCount(0)
+  // Coming back from Ventas mounts the view again, with its panels closed.
+  await news.getByRole('button', { name: /Empresas nuevas/ }).click()
+  await expect(listed).toBeVisible()
+  await sidebarItem(page, 'Ventas').click()
+  await expect(sales.locator('tr', { hasText: name })).toContainText('$90.000')
+})
+
+/**
  * Los campos obligatorios de "Nueva empresa" se ven como tales al abrir el
  * formulario, no solo cuando falla el guardado.
  */

@@ -99,6 +99,9 @@
                 <v-chip v-if="item.is_template" size="x-small" color="primary" variant="flat" class="ml-2">
                   Plantilla
                 </v-chip>
+                <v-chip v-if="item.is_test" size="x-small" color="secondary" variant="tonal" prepend-icon="mdi-flask-outline" class="ml-2">
+                  Cuenta de prueba
+                </v-chip>
                 <div class="text-caption text-medium-emphasis">{{ [item.slug, item.city].filter(Boolean).join(' · ') }}</div>
               </div>
             </template>
@@ -154,6 +157,20 @@
                 <template #activator="{ props }">
                   <v-btn v-bind="props" icon size="small" variant="text" :aria-label="`Suscripción de ${item.name}`" @click="openSubscriptionDialog(item)">
                     <v-icon size="small">mdi-credit-card-outline</v-icon>
+                  </v-btn>
+                </template>
+              </v-tooltip>
+              <v-tooltip v-if="!item.is_template" :text="item.is_test ? 'Marcar como cliente real' : 'Marcar como cuenta de prueba'">
+                <template #activator="{ props }">
+                  <v-btn
+                    v-bind="props"
+                    icon
+                    size="small"
+                    variant="text"
+                    :aria-label="item.is_test ? `Marcar ${item.name} como cliente real` : `Marcar ${item.name} como cuenta de prueba`"
+                    @click="toggleTestAccount(item)"
+                  >
+                    <v-icon size="small">{{ item.is_test ? 'mdi-flask-off-outline' : 'mdi-flask-outline' }}</v-icon>
                   </v-btn>
                 </template>
               </v-tooltip>
@@ -609,6 +626,13 @@
                     <v-text-field v-model="createData.phone" label="Teléfono (opcional)" />
                   </v-col>
                 </v-row>
+                <v-checkbox
+                  v-model="createData.is_test"
+                  label="Cuenta de prueba"
+                  hint="Una demo o una copia para ensayar: no cuenta en Novedades, Ventas ni comisiones"
+                  persistent-hint
+                  density="compact"
+                />
               </v-col>
 
               <v-col cols="12" md="6">
@@ -722,6 +746,9 @@
           >
             {{ detail.active ? 'Activa' : 'Inactiva' }}
           </v-chip>
+          <v-chip v-if="detail?.is_test" size="small" color="secondary" variant="tonal" prepend-icon="mdi-flask-outline" class="ml-2">
+            Cuenta de prueba
+          </v-chip>
           <v-spacer />
           <v-btn
             v-if="!editingDetail"
@@ -772,6 +799,15 @@
                     label="Ciudad"
                     hint="La misma de Configuración › Datos del negocio"
                     persistent-hint
+                  />
+                </v-col>
+                <v-col cols="6">
+                  <v-checkbox
+                    v-model="editData.is_test"
+                    label="Cuenta de prueba"
+                    hint="No cuenta en Novedades, Ventas ni comisiones"
+                    persistent-hint
+                    density="compact"
                   />
                 </v-col>
               </v-row>
@@ -1386,6 +1422,7 @@ const emptyCreateData = () => ({
   email: '',
   phone: '',
   city: '',
+  is_test: false,
   business_type: 'restaurant' as BusinessType,
   modules: [...BUSINESS_TYPE_PRESETS.restaurant] as Feature[],
   order_mode: 'tables' as OrderMode,
@@ -1494,6 +1531,7 @@ const editData = ref({
   email: '',
   phone: '',
   city: '',
+  is_test: false,
   business_type: 'restaurant' as BusinessType,
   modules: [] as Feature[],
   order_mode: 'tables' as OrderMode,
@@ -1522,6 +1560,7 @@ const startEditDetail = () => {
     email: detail.value.email || '',
     phone: detail.value.phone || '',
     city: detail.value.city || '',
+    is_test: detail.value.is_test,
     business_type: detail.value.business_type,
     // Siempre se muestran los módulos efectivos (antes, si seguían el preset,
     // los checkboxes salían todos vacíos).
@@ -1544,13 +1583,14 @@ const saveDetail = async () => {
       email: editData.value.email || null,
       phone: editData.value.phone || null,
       city: editData.value.city.trim() || null,
+      is_test: editData.value.is_test,
       business_type: editData.value.business_type,
       modules: modulesToSend(editData.value.business_type, editData.value.modules),
       order_mode: editData.value.order_mode,
     })
     notify('Empresa actualizada exitosamente')
     editingDetail.value = false
-    await loadCompanies()
+    await Promise.all([loadCompanies(), loadActivity()])
     detail.value = await platformService.getCompany(detail.value.id)
   } catch (error: any) {
     notify(errorMessage(error, 'No fue posible actualizar la empresa. Inténtalo de nuevo.'), 'error')
@@ -1687,6 +1727,21 @@ const savePayment = async () => {
     notify(errorMessage(error, 'No fue posible registrar el pago. Inténtalo de nuevo.'), 'error')
   } finally {
     saving.value = false
+  }
+}
+
+// --- Cuenta de prueba / cliente real ---
+const toggleTestAccount = async (company: PlatformCompany) => {
+  try {
+    await platformService.updateCompany(company.id, { is_test: !company.is_test })
+    notify(
+      company.is_test
+        ? `"${company.name}" volvió a contar como cliente real.`
+        : `"${company.name}" quedó como cuenta de prueba: ya no cuenta en Novedades, Ventas ni comisiones.`,
+    )
+    await Promise.all([loadCompanies(), loadActivity()])
+  } catch (error) {
+    notify(errorMessage(error, 'No fue posible cambiar la cuenta. Inténtalo de nuevo.'), 'error')
   }
 }
 
@@ -1887,6 +1942,7 @@ const activityCaption = computed(() => {
   return `${when}. ${plural(totals.companies, 'cliente activo', 'clientes activos')}: ${totals.active} pagando, `
     + `${totals.trial} en prueba, ${totals.grace} en gracia y ${totals.suspended} suspendidos. `
     + `Recurrente mensual: ${money(totals.monthly_recurring)}.`
+    + (totals.test_accounts ? ` ${plural(totals.test_accounts, 'cuenta de prueba no cuenta', 'cuentas de prueba no cuentan')}.` : '')
 })
 
 const activityTiles = computed(() => {

@@ -26,6 +26,8 @@ export interface PlatformCompany {
   business_type: BusinessType
   /** Catálogo base que se copia a clientes nuevos, no un cliente real */
   is_template: boolean
+  /** A demo or a copy to try things: out of Novedades, Ventas and the commissions */
+  is_test: boolean
   /** Lista efectiva (preset del tipo o personalizada) */
   modules: Feature[]
   modules_customized: boolean
@@ -138,6 +140,7 @@ export interface CreateCompanyPayload {
   email?: string
   phone?: string
   city?: string
+  is_test?: boolean
   admin: {
     name: string
     email: string
@@ -275,6 +278,8 @@ export interface PlatformActivity {
     suspended: number
     monthly_recurring: number
     trial_monthly: number
+    /** Active test accounts, left out of every figure */
+    test_accounts: number
   }
   new_companies: (ActivityCompany & {
     business_type: BusinessType
