@@ -1,5 +1,5 @@
 import { documentsTicketText } from './documentTicket'
-import { loadTicketPrinter, startTicketPrint, ticketColumns } from './ticketPrinter'
+import { isAndroid, loadTicketPrinter, startTicketPrint, ticketColumns } from './ticketPrinter'
 import { money } from './money'
 /**
  * Documentos imprimibles en carta o media carta: cuenta de cobro / factura de venta y
@@ -783,7 +783,7 @@ const STYLES = `
 
 /**
  * Un documento por imprimir: en hoja (su ventana, con carta o media carta) o
- * en tirilla, según lo que eligió este equipo en "Impresora de tirillas".
+ * en tirilla, según lo que eligió este equipo en "Impresora de este equipo".
  */
 export interface DocumentPrint {
   fill: (title: string, sections: string) => void
@@ -809,10 +809,39 @@ export const openDocumentWindow = (): DocumentPrint | null => {
       close: job.cancel,
     }
   }
+  if (isAndroid()) return sheetOverlay()
   const win = window.open('', '_blank', 'width=900,height=1000')
   if (!win) return null
-  win.document.write('<html><body style="font-family:sans-serif;padding:16px">Generando…</body></html>')
+  win.document.write(GENERATING)
   return { fill: (title, sections) => fillSheetWindow(win, title, sections), close: () => win.close() }
+}
+
+const GENERATING = '<html><body style="font-family:sans-serif;padding:16px">Generando…</body></html>'
+
+/**
+ * Android: the sheets over the app, in a full-screen frame with a "Cerrar"
+ * button. A new window there is a tab that shows the document with an X and
+ * never prints; the frame's print() opens the dialog over the app.
+ */
+const sheetOverlay = (): DocumentPrint => {
+  const frame = document.createElement('iframe')
+  frame.title = 'Documento para imprimir'
+  frame.setAttribute('data-document-print', '')
+  frame.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:0;background:white;z-index:3000'
+  document.body.append(frame)
+  const win = frame.contentWindow!
+  win.document.open()
+  win.document.write(GENERATING)
+  win.document.close()
+  const close = () => {
+    frame.remove()
+    document.removeEventListener('keydown', onKey)
+  }
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') close()
+  }
+  document.addEventListener('keydown', onKey)
+  return { fill: (title, sections) => fillSheetWindow(win, title, sections, close), close }
 }
 
 /** Fills what `openDocumentWindow` opened: the sheets with their toolbar, or the ticket that prints. */
@@ -987,7 +1016,7 @@ const preferredPaper = (): Paper => {
  * document fits one half page; otherwise it is letter and the toolbar says
  * why. The last choice is remembered in this browser.
  */
-const fillSheetWindow = (win: Window, title: string, sections: string): void => {
+const fillSheetWindow = (win: Window, title: string, sections: string, onClose?: () => void): void => {
   const doc = win.document
   doc.open()
   doc.write(
@@ -997,7 +1026,8 @@ const fillSheetWindow = (win: Window, title: string, sections: string): void => 
       '<span class="paper-choice" role="group" aria-label="Tamaño de hoja">' +
       (Object.keys(PAPERS) as Paper[]).map(paper => `<button type="button" data-paper="${paper}" aria-pressed="false">${PAPERS[paper].label}</button>`).join('') +
       '</span><span class="paper-note" role="status"></span>' +
-      '<button type="button" class="print-button">Imprimir o guardar en PDF</button></div>' +
+      '<button type="button" class="print-button">Imprimir o guardar en PDF</button>' +
+      (onClose ? '<button type="button" class="close-button">Cerrar</button>' : '') + '</div>' +
       '<main class="sheets"></main></body></html>',
   )
   doc.close()
@@ -1038,5 +1068,9 @@ const fillSheetWindow = (win: Window, title: string, sections: string): void => 
     stamp()
     win.print()
   }))
+  doc.querySelector('.close-button')?.addEventListener('click', () => onClose?.())
+  win.addEventListener('keydown', event => {
+    if (event.key === 'Escape') onClose?.()
+  })
   win.focus()
 }

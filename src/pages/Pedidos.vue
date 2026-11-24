@@ -38,13 +38,6 @@
           <v-btn value="paid">Pagados</v-btn>
           <v-btn value="all">Todos</v-btn>
         </v-btn-toggle>
-        <v-btn
-          icon="mdi-printer-settings"
-          variant="text"
-          aria-label="Impresora de tirillas"
-          title="Impresora de tirillas"
-          @click="printerDialog = true"
-        />
       </v-col>
     </v-row>
 
@@ -1232,17 +1225,6 @@
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="printerDialog" max-width="560">
-      <v-card class="pa-4">
-        <div class="d-flex align-center mb-2">
-          <h2 class="text-h6">Impresora de tirillas</h2>
-          <v-spacer />
-          <v-btn icon="mdi-close" variant="text" size="small" aria-label="Cerrar" @click="printerDialog = false" />
-        </div>
-        <TicketPrinterSettings />
-      </v-card>
-    </v-dialog>
-
     <v-snackbar
       v-model="snackbar"
       :color="snackbarColor"
@@ -1346,7 +1328,6 @@ import {
   taxRegimeText,
   timeLineDetail,
 } from '@/utils/printDocuments';
-import TicketPrinterSettings from '@/components/TicketPrinterSettings.vue';
 import { startTicketPrint, ticketColumns, type TicketPrint } from '@/utils/ticketPrinter';
 import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage';
 import type { PageQuery, PaginatedResponse } from '@/types/api';
@@ -1793,7 +1774,6 @@ const getPagoText = (estado: string) => label(paymentStatusLabels, estado) || es
 // --- Cobro: método, cliente y propina (voluntaria) ---
 const payDialog = ref(false);
 const printing = ref(false);
-const printerDialog = ref(false);
 const payMethod = ref<SaleMethod>('');
 // Other methods of the same charge (7.3); the one of `payMethod` takes what they leave.
 const extraLines = ref<{ method: SaleMethod; amount: number }[]>([]);
@@ -2281,7 +2261,7 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
 /**
  * Empieza a imprimir en el mismo clic (los navegadores bloquean la ventana que
  * se abre después de esperar al servidor); se llena cuando llega la tirilla.
- * Cómo se imprime lo elige cada equipo en "Impresora de tirillas".
+ * Cómo se imprime lo elige cada equipo en "Impresora de este equipo".
  */
 const openPrintWindow = (): TicketPrint | null =>
   startTicketPrint({

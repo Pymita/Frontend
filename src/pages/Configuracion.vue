@@ -116,7 +116,7 @@
     <v-row>
       <v-col cols="12">
         <v-card class="pa-4">
-          <h2 class="text-h6 mb-1">Impresora de tirillas</h2>
+          <h2 class="text-h6 mb-1">Impresora de este equipo</h2>
           <TicketPrinterSettings />
         </v-card>
       </v-col>

@@ -105,6 +105,12 @@ const pendingSend = ref<(() => void) | null>(null)
 
 watch(settings, value => saveTicketPrinter({ ...value }), { deep: true })
 
+// Straight to the thermal printer, a letter sheet has nowhere to go: the
+// documents follow on the ticket (they can still be switched back).
+watch(() => settings.mode, mode => {
+  if (mode === 'rawbt') settings.documents = 'ticket'
+})
+
 const documentsOnTicket = computed({
   get: () => settings.documents === 'ticket',
   set: value => { settings.documents = value ? 'ticket' : 'sheet' },

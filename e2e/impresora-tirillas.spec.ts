@@ -4,7 +4,7 @@ import { ADMIN, API, apiLogin, loginUI } from './helpers'
 /**
  * Pantallas POS Android con impresora térmica integrada ("3 en 1"): la
  * ventana emergente de impresión allá es una pestaña con la tirilla y una X
- * que nunca imprime. Cada equipo elige en "Impresora de tirillas" cómo
+ * que nunca imprime. Cada equipo elige en "Impresora de este equipo" cómo
  * imprime: con el diálogo (en Android, desde la misma pantalla) o directo a la
  * impresora con RawBT (ESC/POS en un intent de Android).
  */
@@ -80,7 +80,7 @@ test('con RawBT la tirilla sale en ESC/POS, con tildes, 42 columnas y corte', as
 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/pedidos')
-  await page.getByRole('button', { name: 'Impresora de tirillas' }).click()
+  await page.getByRole('button', { name: 'Impresora de este equipo' }).click()
   const settings = page.getByRole('dialog')
   await settings.getByText('Directo a la impresora térmica (Android)').click()
   await expect(settings.getByText('Instala RawBT')).toBeVisible()
@@ -117,7 +117,7 @@ test('con RawBT la tirilla sale en ESC/POS, con tildes, 42 columnas y corte', as
   expect(lines[0]).toHaveLength(42)
 })
 
-/** This device's printer settings, as "Impresora de tirillas" stores them. */
+/** This device's printer settings, as "Impresora de este equipo" stores them. */
 async function useTicketPrinter(page: Page, settings: object) {
   await page.addInitScript(value => localStorage.setItem('pos.ticketPrinter', value), JSON.stringify(settings))
 }
@@ -155,4 +155,50 @@ test('con documentos en tirilla, la factura de una venta sale por RawBT con sus 
   expect(text).toContain('_'.repeat(30))
   // One document, one cut at its end.
   expect(text.split('\x1d\x56\x42').length).toBe(2)
+})
+
+test('en Android una factura en hoja, desde Ventas, se abre sobre la misma pantalla, imprime y se cierra', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `Hojas ${Date.now()}` } })
+  const product = await request.post(`${API}/products`, {
+    headers: auth,
+    data: { name: `Empanada ${Date.now()}`, type: 'final', unit: 'und', sale_price: 61000, tracks_stock: false, category_id: (await category.json()).data.id },
+  })
+  const customerName = `Cliente Hoja Android ${Date.now()}`
+  const customer = await request.post(`${API}/customers`, {
+    headers: auth,
+    data: { document_type: 'CC', document_number: String(Date.now() % 1_000_000_000), name: customerName },
+  })
+  const order = await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { items: [{ product_id: (await product.json()).data.id, quantity: 1 }] },
+  })
+  const paid = await request.post(`${API}/orders/${(await order.json()).data.id}/pay`, {
+    headers: auth,
+    data: { payment_method: 'cash', customer_id: (await customer.json()).data.id },
+  })
+  expect(paid.ok(), await paid.text()).toBe(true)
+
+  await useTicketPrinter(page, { mode: 'browser', paper: 80, cut: true, documents: 'sheet' })
+  const device = await watchDevice(page)
+  let popups = 0
+  page.on('popup', () => { popups++ })
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/ventas')
+  // The device's printer is set up from any page, not only Pedidos.
+  await expect(page.getByRole('button', { name: 'Impresora de este equipo' })).toBeVisible()
+
+  await page.locator('tr', { hasText: customerName }).first().getByRole('button', { name: /^Imprimir / }).click()
+  const frame = page.frameLocator('iframe[data-document-print]')
+  await expect(frame.locator('.sheets')).toContainText('$61.000')
+  await expect(frame.locator('.sheets')).toContainText(customerName)
+  await page.screenshot({ path: '../screenshots/factura-hoja-android-1280.png' })
+  await frame.getByRole('button', { name: 'Imprimir o guardar en PDF' }).click()
+  await expect.poll(async () => (await device()).printed).toBe(1)
+  expect(popups).toBe(0)
+
+  await frame.getByRole('button', { name: 'Cerrar' }).click()
+  await expect(page.locator('iframe[data-document-print]')).toHaveCount(0)
 })
