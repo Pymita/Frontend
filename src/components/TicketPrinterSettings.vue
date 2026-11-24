@@ -59,6 +59,20 @@
       />
     </div>
 
+    <v-switch
+      v-model="documentsOnTicket"
+      color="primary"
+      class="mt-2"
+      hide-details
+      density="compact"
+      label="Facturas, recibos y cierres de caja también en tirilla"
+    />
+    <p class="text-body-2 text-medium-emphasis ms-1">
+      {{ documentsOnTicket
+        ? 'Salen por esta impresora, con los mismos datos de la hoja.'
+        : 'Salen en hoja carta o media carta, para una impresora de oficina.' }}
+    </p>
+
     <div class="d-flex justify-end mt-4">
       <v-btn variant="tonal" color="primary" prepend-icon="mdi-printer" @click="printTest">
         Imprimir tirilla de prueba
@@ -72,7 +86,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { APP_NAME } from '../utils/branding'
 import {
   RAWBT_PLAY_STORE_URL,
@@ -90,6 +104,11 @@ const messageError = ref(false)
 const pendingSend = ref<(() => void) | null>(null)
 
 watch(settings, value => saveTicketPrinter({ ...value }), { deep: true })
+
+const documentsOnTicket = computed({
+  get: () => settings.documents === 'ticket',
+  set: value => { settings.documents = value ? 'ticket' : 'sheet' },
+})
 
 /** A ruler of the configured width shows at a glance whether the columns fit the paper. */
 const testText = (): string => {

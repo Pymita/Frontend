@@ -1,3 +1,5 @@
+import { documentsTicketText } from './documentTicket'
+import { loadTicketPrinter, startTicketPrint, ticketColumns } from './ticketPrinter'
 import { money } from './money'
 /**
  * Documentos imprimibles en carta o media carta: cuenta de cobro / factura de venta y
@@ -780,16 +782,42 @@ const STYLES = `
 `
 
 /**
- * La ventana se abre en el mismo clic (los navegadores bloquean las que se
- * abren después de esperar al servidor) y se llena cuando llegan los datos.
+ * Un documento por imprimir: en hoja (su ventana, con carta o media carta) o
+ * en tirilla, según lo que eligió este equipo en "Impresora de tirillas".
  */
-export const openDocumentWindow = (): Window | null => {
-  const win = window.open('', '_blank', 'width=900,height=1000')
-  if (win) {
-    win.document.write('<html><body style="font-family:sans-serif;padding:16px">Generando…</body></html>')
-  }
-  return win
+export interface DocumentPrint {
+  fill: (title: string, sections: string) => void
+  close: () => void
 }
+
+/**
+ * Se abre en el mismo clic (los navegadores bloquean las ventanas que se
+ * abren después de esperar al servidor) y se llena cuando llegan los datos.
+ * Null cuando el navegador bloqueó la ventana.
+ */
+export const openDocumentWindow = (): DocumentPrint | null => {
+  const settings = loadTicketPrinter()
+  if (settings.documents === 'ticket') {
+    const job = startTicketPrint({ onBlocked: () => {} })
+    if (!job) return null
+    return {
+      fill: (title, sections) => job.fill({
+        title,
+        text: documentsTicketText(sections, ticketColumns(settings)),
+        logoUrl: new DOMParser().parseFromString(sections, 'text/html').querySelector<HTMLImageElement>('img.logo')?.getAttribute('src'),
+      }),
+      close: job.cancel,
+    }
+  }
+  const win = window.open('', '_blank', 'width=900,height=1000')
+  if (!win) return null
+  win.document.write('<html><body style="font-family:sans-serif;padding:16px">Generando…</body></html>')
+  return { fill: (title, sections) => fillSheetWindow(win, title, sections), close: () => win.close() }
+}
+
+/** Fills what `openDocumentWindow` opened: the sheets with their toolbar, or the ticket that prints. */
+export const fillDocumentWindow = (print: DocumentPrint, title: string, sections: string): void =>
+  print.fill(title, sections)
 
 // ===== Hoja: carta o media carta, en páginas =====
 
@@ -959,7 +987,7 @@ const preferredPaper = (): Paper => {
  * document fits one half page; otherwise it is letter and the toolbar says
  * why. The last choice is remembered in this browser.
  */
-export const fillDocumentWindow = (win: Window, title: string, sections: string): void => {
+const fillSheetWindow = (win: Window, title: string, sections: string): void => {
   const doc = win.document
   doc.open()
   doc.write(

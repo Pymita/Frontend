@@ -191,6 +191,7 @@
         <p class="text-body-2 text-white mt-3">Cerrando sesión...</p>
       </div>
     </v-overlay>
+    <TicketSendPrompt />
   </v-app>
 </template>
 
@@ -198,6 +199,7 @@
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDisplay } from 'vuetify'
+import TicketSendPrompt from './components/TicketSendPrompt.vue'
 import invoicingService from './services/invoicingService'
 import { useAuthStore } from './stores/auth'
 import { effectiveFeatures, type Feature } from './types/auth'

@@ -116,3 +116,43 @@ test('con RawBT la tirilla sale en ESC/POS, con tildes, 42 columnas y corte', as
   const lines = text.slice(5).split('\n').filter(line => line.startsWith('---'))
   expect(lines[0]).toHaveLength(42)
 })
+
+/** This device's printer settings, as "Impresora de tirillas" stores them. */
+async function useTicketPrinter(page: Page, settings: object) {
+  await page.addInitScript(value => localStorage.setItem('pos.ticketPrinter', value), JSON.stringify(settings))
+}
+
+test('con documentos en tirilla, la factura de una venta sale por RawBT con sus líneas, totales y firmas', async ({ page, request }) => {
+  await seedOrder(request, 52000, 'Mesa Factura Tirilla E2E')
+  await useTicketPrinter(page, { mode: 'rawbt', paper: 58, cut: true, documents: 'ticket' })
+  const device = await watchDevice(page)
+  let popups = 0
+  page.on('popup', () => { popups++ })
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  await page.locator('tr', { hasText: 'Mesa Factura Tirilla E2E' }).first().getByRole('button', { name: 'Cobrar' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirmar cobro' }).click()
+  await page.getByRole('button', { name: 'Generar factura' }).click()
+
+  const sendButton = page.getByRole('button', { name: 'Enviar a la impresora' })
+  await expect.poll(async () => (await device()).intents.length > 0 || await sendButton.isVisible()).toBe(true)
+  if (!(await device()).intents.length) await sendButton.click()
+  await expect.poll(async () => (await device()).intents.length).toBe(1)
+  expect(popups).toBe(0)
+
+  const url = (await device()).intents[0]!
+  const bytes = Buffer.from(url.slice('intent:base64,'.length, url.indexOf('#')), 'base64')
+  const text = bytes.toString('latin1')
+  const lines = text.slice(5).split('\n')
+  // 58 mm: nothing wider than 32 columns.
+  expect(Math.max(...lines.map(line => line.replace(/[\x00-\x1f]/g, '').length))).toBeLessThanOrEqual(32)
+  expect(text).toMatch(/No\. /)
+  expect(text).toContain('Aguardiente')
+  expect(text).toContain('$52.000')
+  expect(text).toContain('SON:')
+  expect(text).toContain('TOTAL')
+  expect(text).toContain('_'.repeat(30))
+  // One document, one cut at its end.
+  expect(text.split('\x1d\x56\x42').length).toBe(2)
+})

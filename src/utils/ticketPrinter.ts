@@ -13,6 +13,7 @@
  *   impresoras térmicas) y se entrega a la app RawBT, que la imprime en la
  *   impresora integrada, USB, Bluetooth o de red, sin diálogo y con corte.
  */
+import { shallowRef } from 'vue'
 import { resolveImageUrl } from './images'
 
 export type TicketPrinterMode = 'browser' | 'rawbt'
@@ -23,10 +24,12 @@ export interface TicketPrinterSettings {
   paper: TicketPaper
   /** Corta el papel al terminar (solo RawBT: el navegador no sabe cortar). */
   cut: boolean
+  /** Facturas, recibos y cierres de caja: en hoja (carta / media carta) o en tirilla. */
+  documents: 'sheet' | 'ticket'
 }
 
 const STORAGE_KEY = 'pos.ticketPrinter'
-const DEFAULTS: TicketPrinterSettings = { mode: 'browser', paper: 80, cut: true }
+const DEFAULTS: TicketPrinterSettings = { mode: 'browser', paper: 80, cut: true, documents: 'sheet' }
 
 export const RAWBT_PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=ru.a402d.rawbtprinter'
 
@@ -39,6 +42,7 @@ export const loadTicketPrinter = (): TicketPrinterSettings => {
       mode: saved?.mode === 'rawbt' ? 'rawbt' : 'browser',
       paper: saved?.paper === 58 ? 58 : 80,
       cut: saved?.cut ?? DEFAULTS.cut,
+      documents: saved?.documents === 'ticket' ? 'ticket' : 'sheet',
     }
   } catch {
     return { ...DEFAULTS }
@@ -69,7 +73,11 @@ export const ticketColumns = (settings = loadTicketPrinter()): number =>
 const CP850: Record<string, number> = {
   á: 0xa0, é: 0x82, í: 0xa1, ó: 0xa2, ú: 0xa3, ñ: 0xa4, Ñ: 0xa5, ü: 0x81, Ü: 0x9a,
   Á: 0xb5, É: 0x90, Í: 0xd6, Ó: 0xe0, Ú: 0xe9, '¿': 0xa8, '¡': 0xad, '°': 0xf8, 'º': 0xa7, 'ª': 0xa6, '·': 0xfa,
+  '×': 0x9e,
 }
+
+// Signs the documents use that code page 850 lacks, as the closest ASCII.
+const ASCII: Record<string, string> = { '—': '-', '–': '-', '−': '-', '→': '>', '…': '.', '“': '"', '”': '"', '‘': "'", '’': "'" }
 
 const encodeChar = (char: string): number[] => {
   const code = char.charCodeAt(0)
@@ -77,6 +85,8 @@ const encodeChar = (char: string): number[] => {
   if (char === '\n') return [0x0a]
   const mapped = CP850[char]
   if (mapped !== undefined) return [mapped]
+  const ascii = ASCII[char]
+  if (ascii !== undefined) return [ascii.charCodeAt(0)]
   // Any other accented letter goes without its accent; anything else as "?".
   const plain = char.normalize('NFD').replace(/[̀-ͯ]/g, '')
   return plain && plain.charCodeAt(0) < 0x7f ? [plain.charCodeAt(0)] : [0x3f]
@@ -85,13 +95,19 @@ const encodeChar = (char: string): number[] => {
 const ESC = 0x1b
 const GS = 0x1d
 
-/** The ticket text as ESC/POS bytes: reset, code page 850, the lines, feed and (optionally) a partial cut. */
+/**
+ * The ticket text as ESC/POS bytes: reset, code page 850, the lines, feed and
+ * (optionally) a partial cut. A form feed (`\f`) between documents ends one
+ * ticket and starts the next, so each comes out on its own.
+ */
 export const escposTicket = (text: string, cut: boolean): Uint8Array => {
   const bytes: number[] = [ESC, 0x40, ESC, 0x74, 2]
-  for (const char of text.replace(/\r/g, '')) bytes.push(...encodeChar(char))
-  bytes.push(0x0a)
   // GS V 66 n feeds up to the cutter and cuts; without a cut, feed enough to tear it off.
-  bytes.push(...(cut ? [GS, 0x56, 66, 3] : [ESC, 0x64, 5]))
+  const end = cut ? [GS, 0x56, 66, 3] : [ESC, 0x64, 5]
+  text.replace(/\r/g, '').split('\f').forEach(ticket => {
+    for (const char of ticket.replace(/^\n+|\n+$/g, '')) bytes.push(...encodeChar(char))
+    bytes.push(0x0a, ...end)
+  })
   return Uint8Array.from(bytes)
 }
 
@@ -131,10 +147,13 @@ const ticketHtml = (job: TicketJob, settings: TicketPrinterSettings): string => 
   return `<html><head><meta charset="utf-8"><title>${escapeHtml(job.title)}</title>` +
     `<style>body{font-family:monospace;font-size:${settings.paper === 58 ? 11 : 12}px;white-space:pre;` +
     `width:${settings.paper}mm;margin:0 auto;padding:8px}` +
-    '.logo{display:block;max-width:100%;max-height:48px;margin:0 auto 6px}</style>' +
+    '.logo{display:block;max-width:100%;max-height:48px;margin:0 auto 6px}' +
+    '.ticket+.ticket{break-before:page;margin-top:16px;border-top:1px dashed #999;padding-top:8px}</style>' +
     '</head><body>' +
     (logo ? `<img class="logo" src="${escapeHtml(logo)}" alt="">` : '') +
-    `${escapeHtml(job.text)}</body></html>`
+    // Several documents: each on its own page (a cut on the paper roll).
+    job.text.split('\f').map(text => `<div class="ticket">${escapeHtml(text.replace(/^\n+/, ''))}</div>`).join('') +
+    '</body></html>'
 }
 
 /** Calls `print` when the window's logo loaded or failed, five seconds at most: printing earlier prints it blank. */
@@ -220,11 +239,17 @@ const rawbtPrint = (settings: TicketPrinterSettings, onNeedsTap: (send: () => vo
   cancel: () => {},
 })
 
+/**
+ * A ticket waiting for a tap to reach RawBT, for pages without a message of
+ * their own: TicketSendPrompt (in App.vue) shows its button.
+ */
+export const pendingTicketSend = shallowRef<(() => void) | null>(null)
+
 export interface StartTicketOptions {
   /** The browser blocked the print window (desktop). */
   onBlocked: () => void
-  /** RawBT needs a fresh tap: show a button that runs `send`. */
-  onNeedsTap: (send: () => void) => void
+  /** RawBT needs a fresh tap: show a button that runs `send`. By default, TicketSendPrompt. */
+  onNeedsTap?: (send: () => void) => void
 }
 
 /**
@@ -233,6 +258,7 @@ export interface StartTicketOptions {
  */
 export const startTicketPrint = (options: StartTicketOptions): TicketPrint | null => {
   const settings = loadTicketPrinter()
-  if (settings.mode === 'rawbt') return rawbtPrint(settings, options.onNeedsTap)
+  const onNeedsTap = options.onNeedsTap ?? (send => { pendingTicketSend.value = send })
+  if (settings.mode === 'rawbt') return rawbtPrint(settings, onNeedsTap)
   return isAndroid() ? framePrint(settings) : windowPrint(settings, options.onBlocked)
 }

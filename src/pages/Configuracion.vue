@@ -111,8 +111,9 @@
       </v-col>
     </v-row>
 
-    <!-- A setting of this device, not of the company: stored in the browser. -->
-    <v-row v-if="takesOrders">
+    <!-- A setting of this device, not of the company: stored in the browser.
+         Every company prints documents, with orders or only monthly fees. -->
+    <v-row>
       <v-col cols="12">
         <v-card class="pa-4">
           <h2 class="text-h6 mb-1">Impresora de tirillas</h2>
