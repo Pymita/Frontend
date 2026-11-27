@@ -634,15 +634,15 @@
             <v-btn value="percentage">Porcentaje</v-btn>
             <v-btn value="per_unit">Valor por unidad</v-btn>
           </v-btn-toggle>
-          <v-text-field
+          <MoneyField
             v-if="taxForm.calculation === 'percentage'"
-            v-model.number="taxForm.rate"
+            v-model="taxForm.rate"
             label="Porcentaje"
-            type="number"
+            quantity
+            empty-as-zero
             suffix="%"
             hint="Sobre el valor antes de impuestos; nunca se calcula sobre otro impuesto"
             persistent-hint
-            :rules="[(v: number) => v >= 0 || 'Debe ser 0 o mayor']"
           />
           <MoneyField
             v-else
@@ -686,8 +686,8 @@
           <v-text-field v-model="conceptForm.name" label="Concepto (ej: Compras generales)" />
           <v-select v-model="conceptForm.type" :items="withholdingTypeOptions" label="Tipo" />
           <div class="d-flex ga-3">
-            <v-text-field v-model.number="conceptForm.rate_declarant" label="Tarifa declarante" type="number" suffix="%" />
-            <v-text-field v-model.number="conceptForm.rate_non_declarant" label="Tarifa no declarante" type="number" suffix="%" />
+            <MoneyField v-model="conceptForm.rate_declarant" label="Tarifa declarante" quantity empty-as-zero suffix="%" />
+            <MoneyField v-model="conceptForm.rate_non_declarant" label="Tarifa no declarante" quantity empty-as-zero suffix="%" />
           </div>
           <v-text-field
             v-model.number="conceptForm.min_base_uvt"

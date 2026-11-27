@@ -1,6 +1,6 @@
 import { documentsTicketText } from './documentTicket'
 import { isAndroid, loadTicketPrinter, startTicketPrint, ticketColumns } from './ticketPrinter'
-import { lineQuantity, money, quantity } from './money'
+import { lineQuantity, money, quantity, rateNumber } from './money'
 /**
  * Documentos imprimibles en carta o media carta: cuenta de cobro / factura de venta y
  * recibo de caja de la facturación automática, la factura de venta de una
@@ -380,7 +380,7 @@ const taxDetailBox = (taxes: TaxBreakdownLine[]): string =>
             <td class="left">${escape(tax.name)}</td>
             <td class="center">${escape(tax.rate_label)}</td>
             <td class="right">${money(tax.base)}</td>
-            <td class="right">${money(tax.amount)}</td>
+            <td class="right">${money(tax.printed_amount ?? tax.amount)}</td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -450,7 +450,7 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
         <div><span>SUBTOTAL:</span> <span>${money(sale.subtotal_before_tax)}</span></div>
         ${sale.discount_before_tax > 0 ? `<div><span>DESCUENTO:</span> <span>-${money(sale.discount_before_tax)}</span></div>` : ''}
         ${sale.taxes?.length
-          ? sale.taxes.map(tax => `<div><span>${escape(taxLineLabel(tax).toUpperCase())}:</span> <span>${money(tax.amount)}</span></div>`).join('')
+          ? sale.taxes.map(tax => `<div><span>${escape(taxLineLabel(tax).toUpperCase())}:</span> <span>${money(tax.printed_amount ?? tax.amount)}</span></div>`).join('')
           : sale.included_vat > 0 ? `<div><span>IMPUESTO:</span> <span>${money(sale.included_vat)}</span></div>` : ''}
         ${sale.delivery_fee > 0 ? `<div><span>DOMICILIO:</span> <span>${money(sale.delivery_fee)}</span></div>` : ''}
         <div class="grand-total"><span>TOTAL:</span> <span>${money(value)}</span></div>
@@ -524,7 +524,7 @@ export const receiptHtml = (business: DocumentBusiness, receipt: PrintableReceip
       </table>
       <div class="totals">
         ${receipt.lines.flatMap(line => line.withholdings ?? []).map(withholding =>
-          `<div><span>${escape(`Retención ${withholding.name} ${withholding.rate}%`.toUpperCase())}:</span> <span>${money(withholding.amount)}</span></div>`).join('')}
+          `<div><span>${escape(`Retención ${withholding.name} ${rateNumber(withholding.rate)}%`.toUpperCase())}:</span> <span>${money(withholding.amount)}</span></div>`).join('')}
         <div class="grand-total"><span>TOTAL RECIBIDO:</span> <span>${money(receipt.total)}</span></div>
       </div>
     </div>

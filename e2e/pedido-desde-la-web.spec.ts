@@ -957,9 +957,12 @@ test('un producto por kilo con dos impuestos se pide con la lista del cliente y 
     page.getByRole('button', { name: 'Generar factura' }).click(),
   ])
   await expect(invoice.locator('.items tbody tr').first().locator('td')).toHaveText([product, '1,375 kg', '$4.990', `${iva} + ${inc}`, '$6.861'])
-  await expect(invoice.locator('.tax-detail tbody tr').nth(0).locator('td')).toHaveText([iva, '19%', '$5.402', '$1.026'])
+  await expect(invoice.locator('.tax-detail tbody tr').nth(0).locator('td')).toHaveText([iva, '19%', '$5.402', '$1.027'])
   await expect(invoice.locator('.tax-detail tbody tr').nth(1).locator('td')).toHaveText([inc, '8%', '$5.402', '$432'])
   await expect(invoice.locator('.totals')).toContainText('SUBTOTAL: $5.402')
+  // Each tax prints in whole pesos and they add up: $5.402 + $1.027 + $432 = $6.861.
+  await expect(invoice.locator('.totals')).toContainText(`${iva.toUpperCase()}: $1.027`)
+  await expect(invoice.locator('.totals')).toContainText(`${inc.toUpperCase()}: $432`)
   await expect(invoice.locator('.totals')).toContainText('TOTAL: $6.861')
   if (process.env.FV6_SHOTS) {
     for (const width of [1440, 390]) {

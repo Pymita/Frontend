@@ -723,10 +723,12 @@ test('una compra lleva varios impuestos, el que es costo sube el costo y la rete
   // Suggested from the supplier: 2,5 % of the value before taxes.
   const withholdings = page.getByRole('group', { name: 'Retenciones de la compra' })
   await expect(withholdings.getByLabel('Concepto')).toHaveValue('Compras generales')
+  await expect(withholdings.getByLabel('Tarifa')).toHaveValue('2,5')
   await expect(withholdings.getByLabel('Valor retenido')).toHaveValue('15.000')
   await expect(summaryRow(page, 'Neto a pagar')).toContainText('$819.000')
   // Edited: the invoice says 3,5 %.
-  await withholdings.getByLabel('Tarifa').fill('3.5')
+  // Typed with a decimal comma, as Colombia writes it.
+  await withholdings.getByLabel('Tarifa').fill('3,5')
   await expect(withholdings.getByLabel('Valor retenido')).toHaveValue('21.000')
   await expect(summaryRow(page, 'Retenciones')).toContainText('-$21.000')
   await expect(summaryRow(page, 'Neto a pagar')).toContainText('$813.000')
