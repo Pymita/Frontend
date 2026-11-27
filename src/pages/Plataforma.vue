@@ -87,22 +87,21 @@
 
       <v-col cols="12">
         <v-card>
-          <!-- The company whose Facturación automática and Cartera bill the others -->
-          <div class="d-flex align-center flex-wrap ga-2 px-4 pt-4" role="region" aria-label="Facturación de la plataforma">
+          <!-- Where the companies are billed: a company of the platform, with its own modules (12.1) -->
+          <div class="d-flex align-start ga-2 px-4 pt-4" role="region" aria-label="Facturación de la plataforma">
             <v-icon class="text-medium-emphasis">mdi-receipt-text-outline</v-icon>
             <span class="text-body-2">
-              <template v-if="billingSettings?.biller">
-                Factura la plataforma: <strong>{{ billingSettings.biller.name }}</strong>
-                <span class="text-medium-emphasis">· cuentas de cobro, abonos y recibos de caja de su Cartera</span>
+              <template v-if="billerCompany">
+                Factura la plataforma: <strong>{{ billerCompany.name }}</strong>.
+                <span class="text-medium-emphasis">
+                  Cada empresa es un cliente suyo: sus cuotas, cuentas de cobro, abonos y recibos de caja se manejan en
+                  Facturación automática y Cartera de {{ billerCompany.name }}, con tu usuario de esa empresa.
+                </span>
               </template>
               <span v-else class="text-medium-emphasis">
-                Ninguna empresa factura la plataforma: elige la que emite tus cuentas de cobro para ver la cartera de cada empresa.
+                Ninguna empresa factura la plataforma: marca la tuya con el botón de recibo en su fila (necesita Facturación automática).
               </span>
             </span>
-            <v-spacer />
-            <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-swap-horizontal" @click="openBillerDialog">
-              {{ billingSettings?.biller ? 'Cambiar' : 'Elegir empresa que factura' }}
-            </v-btn>
           </div>
           <!-- On a phone each company stacks its columns: its cartera reads without scrolling sideways. -->
           <v-data-table
@@ -162,21 +161,32 @@
               <v-chip v-if="item.is_platform_biller" size="small" color="primary" variant="tonal" prepend-icon="mdi-receipt-text-outline">
                 Factura la plataforma
               </v-chip>
+              <!-- Read-only: what it owes is the billing company's Cartera. -->
               <div v-else-if="item.billing && !item.is_template" class="py-1">
                 <v-chip :color="billingStatusColor(item.billing.status)" size="small" variant="tonal">
                   {{ billingStatusLabel(item.billing.status) }}
                 </v-chip>
-                <template v-if="item.billing.status !== 'unlinked'">
+                <template v-if="item.billing.customer_id">
                   <div v-if="item.billing.balance" class="text-caption tabular-nums">
                     Debe {{ money(item.billing.balance) }}<span v-if="item.billing.overdue_balance" class="text-error"> · vencido {{ money(item.billing.overdue_balance) }}</span>
                   </div>
                   <div class="text-caption text-medium-emphasis">
-                    {{ item.billing.last_payment_at ? `Último abono ${formatDay(item.billing.last_payment_at)}` : 'Sin abonos' }}
-                  </div>
-                  <div v-if="item.billing.next_charge_on" class="text-caption text-medium-emphasis">
-                    {{ nextChargeText(item.billing.next_charge_on) }}
+                    Cliente {{ item.billing.customer_name }}
+                    <v-btn
+                      icon="mdi-link-variant-off"
+                      size="x-small"
+                      variant="text"
+                      density="comfortable"
+                      :aria-label="`Desvincular ${item.name} de su cliente en ${billerCompany?.name}`"
+                      @click="unlinkCustomer(item)"
+                    />
                   </div>
                 </template>
+                <div v-else-if="item.subscription">
+                  <v-btn size="x-small" variant="tonal" color="primary" class="mt-1" prepend-icon="mdi-link-variant" @click="openLinkDialog(item)">
+                    Vincular
+                  </v-btn>
+                </div>
               </div>
               <span v-else class="text-medium-emphasis">—</span>
             </template>
@@ -215,6 +225,23 @@
                       @click="toggleTestAccount(item)"
                     >
                       <v-icon size="small">{{ item.is_test ? 'mdi-flask-off-outline' : 'mdi-flask-outline' }}</v-icon>
+                    </v-btn>
+                  </template>
+                </v-tooltip>
+                <v-tooltip
+                  v-if="!item.is_template && item.modules.includes('recurring_billing')"
+                  :text="item.is_platform_biller ? 'Dejar de facturar la plataforma con esta empresa' : 'Facturar la plataforma con esta empresa'"
+                >
+                  <template #activator="{ props }">
+                    <v-btn
+                      v-bind="props"
+                      icon
+                      size="small"
+                      variant="text"
+                      :aria-label="item.is_platform_biller ? `Dejar de facturar la plataforma con ${item.name}` : `Facturar la plataforma con ${item.name}`"
+                      @click="toggleBiller(item)"
+                    >
+                      <v-icon size="small">{{ item.is_platform_biller ? 'mdi-receipt-text-remove-outline' : 'mdi-receipt-text-outline' }}</v-icon>
                     </v-btn>
                   </template>
                 </v-tooltip>
@@ -1011,191 +1038,6 @@
               </tbody>
             </v-table>
 
-            <!-- Cartera con la empresa que factura la plataforma (12.1) -->
-            <template v-if="billingSettings?.biller">
-              <v-divider class="my-4" />
-              <section aria-label="Cartera con la empresa que factura">
-                <div class="d-flex align-center flex-wrap ga-2 mb-2">
-                  <p class="text-subtitle-2">Cartera con {{ billingSettings.biller.name }}</p>
-                  <v-chip v-if="companyBilling" :color="billingStatusColor(companyBilling.status)" size="small" variant="tonal">
-                    {{ billingStatusLabel(companyBilling.status) }}
-                  </v-chip>
-                  <v-spacer />
-                  <v-btn
-                    v-if="companyBilling?.customer_id"
-                    size="small"
-                    variant="tonal"
-                    color="primary"
-                    prepend-icon="mdi-email-fast-outline"
-                    :loading="mailingStatement"
-                    @click="mailStatement"
-                  >
-                    Enviar estado de cuenta
-                  </v-btn>
-                </div>
-                <v-progress-linear v-if="loadingBilling" indeterminate color="primary" class="mb-2" />
-
-                <template v-if="companyBilling && !companyBilling.customer_id">
-                  <p class="text-body-2 mb-2">
-                    Vincula la empresa con su cliente en {{ billingSettings.biller.name }} para ver lo que debe, imprimir sus documentos y enviarle el estado de cuenta.
-                  </p>
-                  <v-btn
-                    v-if="companyBilling.suggested_customer"
-                    size="small"
-                    color="primary"
-                    variant="flat"
-                    class="mb-3"
-                    prepend-icon="mdi-link-variant"
-                    :loading="linkingCustomer"
-                    @click="linkCustomer(companyBilling.suggested_customer.id)"
-                  >
-                    Vincular con {{ companyBilling.suggested_customer.name }} (mismo NIT)
-                  </v-btn>
-                  <div class="d-flex flex-wrap align-center ga-2">
-                    <v-autocomplete
-                      v-model="customerToLink"
-                      v-model:search="customerSearch"
-                      :items="billerCustomerOptions"
-                      :loading="searchingCustomers"
-                      item-title="title"
-                      item-value="value"
-                      :item-props="(item: any) => ({ subtitle: item.subtitle, disabled: item.disabled })"
-                      no-filter
-                      label="Cliente en la empresa que factura"
-                      placeholder="Busca por nombre o NIT"
-                      density="compact"
-                      hide-details
-                      class="flex-grow-1"
-                      @update:search="searchBillerCustomers"
-                    />
-                    <v-btn color="primary" :disabled="!customerToLink" :loading="linkingCustomer" @click="linkCustomer(customerToLink)">
-                      Vincular
-                    </v-btn>
-                  </div>
-                </template>
-
-                <template v-else-if="companyBilling">
-                  <div class="text-body-2 mb-2">
-                    Cliente: <strong>{{ companyBilling.customer_name }}</strong>
-                    <span class="text-medium-emphasis">
-                      · {{ companyBilling.customer_document || 'sin documento' }} · {{ companyBilling.customer_email || 'sin correo' }}
-                    </span>
-                    <v-btn size="x-small" variant="text" color="error" class="ml-1" :loading="linkingCustomer" @click="linkCustomer(null)">
-                      Desvincular
-                    </v-btn>
-                  </div>
-                  <v-row dense class="mb-2">
-                    <v-col v-for="tile in billingTiles" :key="tile.title" cols="6" sm="3">
-                      <div class="text-caption text-medium-emphasis">{{ tile.title }}</div>
-                      <div class="text-body-1 font-weight-medium tabular-nums">{{ tile.value }}</div>
-                      <div v-if="tile.caption" class="text-caption text-medium-emphasis">{{ tile.caption }}</div>
-                    </v-col>
-                  </v-row>
-
-                  <p class="text-caption text-medium-emphasis mb-1">Documentos ({{ companyBilling.documents.length }})</p>
-                  <v-table v-if="companyBilling.documents.length" density="compact" class="mb-3">
-                    <thead>
-                      <tr>
-                        <th>Documento</th>
-                        <th class="d-none d-sm-table-cell">Fecha</th>
-                        <th class="d-none d-sm-table-cell">Vence</th>
-                        <th class="text-right d-none d-sm-table-cell">Valor</th>
-                        <th class="text-right">Saldo</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="doc in companyBilling.documents" :key="doc.id">
-                        <td>
-                          <div class="font-weight-medium">{{ doc.document_number }}</div>
-                          <div class="text-caption text-medium-emphasis">{{ doc.concept }}{{ doc.period ? ` · ${doc.period}` : '' }}</div>
-                          <!-- On a phone the dates move under the number: the table fits the dialog. -->
-                          <div class="text-caption text-medium-emphasis d-sm-none">
-                            {{ formatDay(doc.issued_at) }}{{ doc.due_date ? ` · vence ${formatDay(doc.due_date)}` : '' }}
-                          </div>
-                          <v-chip v-if="doc.overdue" color="error" size="x-small" variant="tonal" class="d-sm-none">Vencido</v-chip>
-                        </td>
-                        <td class="d-none d-sm-table-cell">{{ formatDay(doc.issued_at) }}</td>
-                        <td class="d-none d-sm-table-cell">
-                          {{ doc.due_date ? formatDay(doc.due_date) : '—' }}
-                          <v-chip v-if="doc.overdue" color="error" size="x-small" variant="tonal" class="ml-1">Vencido</v-chip>
-                          <v-chip v-else-if="doc.status === 'cancelled'" size="x-small" variant="tonal" class="ml-1">Anulado</v-chip>
-                        </td>
-                        <td class="text-right tabular-nums d-none d-sm-table-cell">{{ money(doc.total) }}</td>
-                        <td class="text-right tabular-nums">{{ money(doc.balance) }}</td>
-                        <td class="text-right">
-                          <v-btn
-                            v-if="doc.printable"
-                            icon="mdi-printer-outline"
-                            size="small"
-                            variant="text"
-                            :aria-label="`Imprimir el documento ${doc.document_number}`"
-                            @click="printCompanyDocument(doc.id)"
-                          />
-                        </td>
-                      </tr>
-                    </tbody>
-                  </v-table>
-                  <p v-else class="text-body-2 text-medium-emphasis mb-3">
-                    Sin documentos: factúrale desde Facturación automática de {{ billingSettings.biller.name }}.
-                  </p>
-
-                  <p class="text-caption text-medium-emphasis mb-1">Recibos de caja ({{ companyBilling.receipts.length }})</p>
-                  <v-table v-if="companyBilling.receipts.length" density="compact">
-                    <thead>
-                      <tr>
-                        <th>Recibo</th>
-                        <th class="d-none d-sm-table-cell">Fecha</th>
-                        <th class="text-right">Valor</th>
-                        <th class="d-none d-sm-table-cell">En Ventas</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="receipt in companyBilling.receipts" :key="receipt.number">
-                        <td>
-                          <div class="font-weight-medium">{{ receipt.reference }}</div>
-                          <div class="text-caption text-medium-emphasis">{{ receipt.documents.join(', ') }}</div>
-                          <div class="text-caption text-medium-emphasis d-sm-none">{{ formatDay(receipt.paid_at) }}</div>
-                          <!-- On a phone the "En Ventas" column moves here. -->
-                          <div class="d-sm-none py-1">
-                            <v-chip v-if="receipt.subscription_payment_id" color="success" size="x-small" variant="tonal">Pago registrado</v-chip>
-                            <v-btn v-else size="x-small" variant="tonal" color="primary" @click="registerReceiptAsPayment(receipt)">
-                              Registrar como pago
-                            </v-btn>
-                          </div>
-                        </td>
-                        <td class="d-none d-sm-table-cell">{{ formatDay(receipt.paid_at) }}</td>
-                        <td class="text-right tabular-nums">{{ money(receipt.amount) }}</td>
-                        <td class="d-none d-sm-table-cell">
-                          <v-chip v-if="receipt.subscription_payment_id" color="success" size="x-small" variant="tonal">Pago registrado</v-chip>
-                          <v-btn
-                            v-else
-                            size="x-small"
-                            variant="tonal"
-                            color="primary"
-                            @click="registerReceiptAsPayment(receipt)"
-                          >
-                            Registrar como pago
-                          </v-btn>
-                        </td>
-                        <td class="text-right">
-                          <v-btn
-                            icon="mdi-printer-outline"
-                            size="small"
-                            variant="text"
-                            :aria-label="`Imprimir el recibo de caja ${receipt.reference}`"
-                            @click="printCompanyReceipt(receipt.number)"
-                          />
-                        </td>
-                      </tr>
-                    </tbody>
-                  </v-table>
-                  <p v-else class="text-body-2 text-medium-emphasis">Sin abonos todavía.</p>
-                </template>
-              </section>
-            </template>
-
             <!-- Pagos -->
             <v-divider class="my-4" />
             <p class="text-subtitle-2 mb-2">Historial de pagos ({{ detail.payments.length }})</p>
@@ -1378,28 +1220,32 @@
           </v-row>
 
           <!-- The same money in the billing company's Cartera: counted once (12.1) -->
-          <v-alert
-            v-if="paymentData.receipt_number"
-            type="info"
-            variant="tonal"
-            density="compact"
-            class="mb-2"
-            closable
-            @click:close="paymentData.receipt_number = null"
-          >
-            Este pago es el recibo de caja RC-{{ paymentData.receipt_number }} de {{ billingSettings?.biller?.name }}: no se registra otro abono.
-          </v-alert>
-          <v-radio-group
-            v-else-if="selectedCompany.billing?.customer_id"
-            v-model="paymentData.billing"
-            density="compact"
-            hide-details
-            class="mb-2"
-            :label="`En la cartera de ${billingSettings?.biller?.name ?? 'la empresa que factura'}`"
-          >
-            <v-radio value="abono" :label="`Registrar también el abono (recibo de caja); debe ${money(selectedCompany.billing.balance ?? 0)}`" />
-            <v-radio value="none" label="Solo aquí: la cartera no cambia" />
-          </v-radio-group>
+          <template v-if="selectedCompany.billing?.customer_id">
+            <v-radio-group
+              v-model="paymentData.billing"
+              density="compact"
+              hide-details
+              class="mb-2"
+              :label="`En la Cartera de ${billerCompany?.name ?? 'la empresa que factura'}`"
+            >
+              <v-radio value="abono" :label="`Registrar el abono allí (recibo de caja); debe ${money(selectedCompany.billing.balance ?? 0)}`" />
+              <v-radio value="receipt" label="Ya registré el abono en su Cartera" />
+              <v-radio value="none" label="Solo aquí: su Cartera no cambia" />
+            </v-radio-group>
+            <p v-if="paymentData.billing === 'abono'" class="text-caption text-medium-emphasis mb-2">
+              Si paga más de lo que debe, Facturación automática emite primero la cuenta de cobro de los meses que paga.
+            </p>
+            <v-text-field
+              v-if="paymentData.billing === 'receipt'"
+              v-model.number="paymentData.receipt_number"
+              type="number"
+              min="1"
+              prefix="RC-"
+              label="Recibo de caja de ese abono"
+              :rules="[(v: number | null) => !!v || 'Escribe el número del recibo de caja']"
+              class="mb-2"
+            />
+          </template>
 
           <!-- Pago distinto al acuerdo: el motivo es obligatorio y queda escrito -->
           <v-alert
@@ -1444,29 +1290,40 @@
       </v-card>
     </v-dialog>
 
-    <!-- Dialog: empresa que factura la plataforma -->
-    <v-dialog v-model="billerDialog" max-width="520">
-      <v-card>
-        <v-card-title class="text-wrap">Empresa que factura la plataforma</v-card-title>
+    <!-- Dialog: the company as a customer of the billing company (12.1) -->
+    <v-dialog v-model="linkDialog" max-width="520">
+      <v-card v-if="linkTarget">
+        <v-card-title class="text-wrap">Vincular {{ linkTarget.name }}</v-card-title>
         <v-card-text>
           <p class="text-body-2 mb-3">
-            Su Facturación automática emite las cuentas de cobro de las empresas y su Cartera recibe los abonos y los
-            recibos de caja. Cada empresa se vincula con su cliente allí. Solo aparecen las empresas con Facturación automática.
+            La empresa queda como cliente de {{ billerCompany?.name }}. Si ya existe un cliente con este documento, se usa ese;
+            si no, se crea en Clientes con estos datos<template v-if="linkTarget.subscription?.monthly_price">
+            y su cuota de {{ money(linkTarget.subscription.monthly_price) }} en Facturación automática</template>.
           </p>
-          <v-select
-            v-model="billerChoice"
-            :items="billerOptions"
-            item-title="title"
-            item-value="value"
-            label="Empresa que factura"
-            hint="Cambiarla desvincula las empresas de los clientes de la anterior"
-            persistent-hint
-          />
+          <v-form ref="linkForm" @submit.prevent="saveLink">
+            <v-text-field v-model="linkData.name" label="Nombre o razón social" :rules="[(v: string) => !!v.trim() || 'Escribe el nombre']" />
+            <v-row dense>
+              <v-col cols="4">
+                <v-select v-model="linkData.document_type" :items="['NIT', 'CC', 'CE']" label="Tipo" />
+              </v-col>
+              <v-col cols="8">
+                <v-text-field
+                  v-model="linkData.document_number"
+                  label="Número de documento"
+                  :rules="[(v: string) => !!v.trim() || 'Escribe el documento']"
+                  :hint="linkDigit ? `DV ${linkDigit} · lo calcula el sistema` : 'El de Datos del negocio de la empresa'"
+                  persistent-hint
+                />
+              </v-col>
+            </v-row>
+            <v-text-field v-model="linkData.email" label="Correo (opcional)" type="email" class="mt-2" />
+            <v-text-field v-model="linkData.phone" label="Teléfono (opcional)" />
+          </v-form>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="billerDialog = false">Cancelar</v-btn>
-          <v-btn color="primary" variant="flat" :loading="savingBiller" @click="saveBiller">Guardar</v-btn>
+          <v-btn variant="text" @click="linkDialog = false">Cancelar</v-btn>
+          <v-btn color="primary" variant="flat" :loading="linking" @click="saveLink">Vincular</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -1594,12 +1451,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import platformService from '../services/platformService'
 import type {
-  BillerCustomer,
-  CompanyBillingDetail,
-  CompanyBillingReceipt,
   CompanyBillingStatus,
   CompanyDeletionPlan,
-  PlatformBillingSettings,
   PlatformActivity,
   PlatformCompany,
   PlatformCompanyDetail,
@@ -1620,7 +1473,7 @@ import PasswordField from '../components/PasswordField.vue'
 import TwoFactorSetup from '../components/TwoFactorSetup.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'
-import { fillDocumentWindow, invoiceHtml, openDocumentWindow, receiptHtml } from '../utils/printDocuments'
+import { customerVerificationDigit } from '../utils/validation'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -1709,175 +1562,75 @@ const billingStatusColor = (status: CompanyBillingStatus): string => ({
   unlinked: 'secondary',
 }[status] || 'secondary')
 
-// A cutoff already past whose month has no document yet is still to bill, not a date ahead.
-const nextChargeText = (date: string, prefix = true) =>
-  date < todayIso()
-    ? `Por facturar desde el ${formatDay(date)}`
-    : `${prefix ? 'Próximo cobro ' : ''}${formatDay(date)}`
+// The company whose Clientes, Facturación automática and Cartera bill the others.
+const billerCompany = computed(() => companies.value.find(company => company.is_platform_biller) ?? null)
 
-const billingSettings = ref<PlatformBillingSettings | null>(null)
-const loadBillingSettings = async () => {
+const toggleBiller = async (company: PlatformCompany) => {
+  const other = billerCompany.value
+  if (!company.is_platform_biller && other && other.id !== company.id
+    && !window.confirm(`Hoy factura "${other.name}". Si factura "${company.name}", las empresas se desvinculan de los clientes de "${other.name}". ¿Continuar?`)) return
+  if (company.is_platform_biller
+    && !window.confirm(`Si "${company.name}" deja de facturar la plataforma, las empresas se desvinculan de sus clientes (los clientes y su cartera se quedan allí). ¿Continuar?`)) return
   try {
-    billingSettings.value = await platformService.billingSettings()
+    await platformService.updateCompany(company.id, { is_platform_biller: !company.is_platform_biller })
+    notify(company.is_platform_biller
+      ? `"${company.name}" ya no factura la plataforma.`
+      : `"${company.name}" factura ahora la plataforma: vincula cada empresa con su cliente allí.`)
+    await Promise.all([loadCompanies(), loadActivity()])
   } catch (error) {
-    notify(errorMessage(error, 'No fue posible cargar la facturación de la plataforma. Inténtalo de nuevo.'), 'error')
+    notify(errorMessage(error, 'No fue posible cambiar la empresa que factura. Inténtalo de nuevo.'), 'error')
   }
 }
 
-const billerDialog = ref(false)
-const billerChoice = ref<number | null>(null)
-const savingBiller = ref(false)
-const billerOptions = computed(() => [
-  { title: 'Ninguna', value: null },
-  ...(billingSettings.value?.candidates ?? []).map(company => ({ title: company.name, value: company.id })),
-])
-const openBillerDialog = () => {
-  billerChoice.value = billingSettings.value?.biller?.id ?? null
-  billerDialog.value = true
-}
-const saveBiller = async () => {
-  savingBiller.value = true
-  try {
-    notify(await platformService.setBiller(billerChoice.value))
-    billerDialog.value = false
-    await Promise.all([loadBillingSettings(), loadCompanies()])
-  } catch (error) {
-    notify(errorMessage(error, 'No fue posible guardar la empresa que factura. Inténtalo de nuevo.'), 'error')
-  } finally {
-    savingBiller.value = false
+const linkDialog = ref(false)
+const linkTarget = ref<PlatformCompany | null>(null)
+const linkForm = ref()
+const linking = ref(false)
+const linkData = ref({ name: '', document_type: 'NIT', document_number: '', email: '', phone: '' })
+const linkDigit = computed(() => customerVerificationDigit(linkData.value.document_type, linkData.value.document_number))
+
+/** Starts from the company's own data: its name, Datos del negocio's NIT, its email and phone. */
+const openLinkDialog = (company: PlatformCompany) => {
+  linkTarget.value = company
+  linkData.value = {
+    name: company.name,
+    document_type: 'NIT',
+    document_number: company.nit ?? '',
+    email: company.email ?? '',
+    phone: company.phone ?? '',
   }
+  linkDialog.value = true
 }
 
-const companyBilling = ref<CompanyBillingDetail | null>(null)
-const loadingBilling = ref(false)
-const loadCompanyBilling = async (companyId: number) => {
-  companyBilling.value = null
-  if (!billingSettings.value?.biller) return
-  loadingBilling.value = true
+const saveLink = async () => {
+  if (!linkTarget.value) return
+  const { valid } = await linkForm.value.validate()
+  if (!valid) return
+  linking.value = true
   try {
-    companyBilling.value = await platformService.companyBilling(companyId)
-  } catch (error) {
-    notify(errorMessage(error, 'No fue posible cargar la cartera de la empresa. Inténtalo de nuevo.'), 'error')
-  } finally {
-    loadingBilling.value = false
-  }
-}
-
-const billingTiles = computed(() => {
-  const billing = companyBilling.value
-  if (!billing) return []
-  return [
-    { title: 'Saldo', value: money(billing.balance ?? 0), caption: '' },
-    { title: 'Vencido', value: money(billing.overdue_balance ?? 0), caption: '' },
-    {
-      title: 'Último abono',
-      value: billing.last_payment_at ? formatDay(billing.last_payment_at) : 'Ninguno',
-      caption: billing.last_payment_amount ? `${money(billing.last_payment_amount)} · RC-${billing.last_receipt_number}` : '',
-    },
-    {
-      title: 'Próximo cobro',
-      value: billing.next_charge_on ? nextChargeText(billing.next_charge_on, false) : 'Sin cuota mensual',
-      caption: billing.next_charge_amount ? money(billing.next_charge_amount) : '',
-    },
-  ]
-})
-
-const customerToLink = ref<number | null>(null)
-const customerSearch = ref('')
-const billerCustomers = ref<BillerCustomer[]>([])
-const searchingCustomers = ref(false)
-const billerCustomerOptions = computed(() => billerCustomers.value.map(customer => ({
-  value: customer.id,
-  title: customer.name,
-  subtitle: [customer.document_number, customer.linked_company ? `Ya es ${customer.linked_company.name}` : null].filter(Boolean).join(' · '),
-  disabled: customer.linked_company !== null && customer.linked_company.id !== detail.value?.id,
-})))
-let customerSearchTimer: ReturnType<typeof setTimeout> | undefined
-const searchBillerCustomers = (q: string | null) => {
-  clearTimeout(customerSearchTimer)
-  customerSearchTimer = setTimeout(async () => {
-    searchingCustomers.value = true
-    try {
-      billerCustomers.value = await platformService.billerCustomers(q ?? '')
-    } catch (error) {
-      notify(errorMessage(error, 'No fue posible buscar los clientes. Inténtalo de nuevo.'), 'error')
-    } finally {
-      searchingCustomers.value = false
-    }
-  }, 250)
-}
-
-const linkingCustomer = ref(false)
-const linkCustomer = async (customerId: number | null) => {
-  if (!detail.value) return
-  linkingCustomer.value = true
-  try {
-    const result = await platformService.linkBillingCustomer(detail.value.id, customerId)
-    companyBilling.value = result.detail
-    customerToLink.value = null
-    notify(result.message)
+    notify(await platformService.linkBillingCustomer(linkTarget.value.id, {
+      name: linkData.value.name.trim(),
+      document_type: linkData.value.document_type,
+      document_number: linkData.value.document_number.trim(),
+      email: linkData.value.email.trim() || null,
+      phone: linkData.value.phone.trim() || null,
+    }))
+    linkDialog.value = false
     await loadCompanies()
   } catch (error) {
     notify(errorMessage(error, 'No fue posible vincular la empresa. Inténtalo de nuevo.'), 'error')
   } finally {
-    linkingCustomer.value = false
+    linking.value = false
   }
 }
 
-const printBlocked = () =>
-  notify('El navegador bloqueó la ventana de impresión: permite las ventanas emergentes para este sitio', 'error')
-
-const printCompanyDocument = async (invoiceId: number) => {
-  if (!detail.value) return
-  const win = openDocumentWindow()
-  if (!win) return printBlocked()
+const unlinkCustomer = async (company: PlatformCompany) => {
+  if (!window.confirm(`¿Desvincular "${company.name}" de su cliente? El cliente y su cartera se quedan en "${billerCompany.value?.name}".`)) return
   try {
-    const doc = await platformService.billingDocument(detail.value.id, invoiceId)
-    fillDocumentWindow(win, doc.invoice.document_number, invoiceHtml(doc.business, doc.invoice, doc.resolution, doc.pay_to))
+    notify(await platformService.unlinkBillingCustomer(company.id))
+    await loadCompanies()
   } catch (error) {
-    win.close()
-    notify(errorMessage(error, 'No se pudo generar el documento para imprimir'), 'error')
-  }
-}
-
-const printCompanyReceipt = async (receiptNumber: number) => {
-  if (!detail.value) return
-  const win = openDocumentWindow()
-  if (!win) return printBlocked()
-  try {
-    const { business, receipt } = await platformService.billingReceipt(detail.value.id, receiptNumber)
-    fillDocumentWindow(win, receipt.reference, receiptHtml(business, receipt))
-  } catch (error) {
-    win.close()
-    notify(errorMessage(error, 'No se pudo generar el recibo para imprimir'), 'error')
-  }
-}
-
-const mailingStatement = ref(false)
-const mailStatement = async () => {
-  if (!detail.value) return
-  mailingStatement.value = true
-  try {
-    notify(await platformService.mailStatement(detail.value.id))
-  } catch (error) {
-    notify(errorMessage(error, 'No fue posible enviar el estado de cuenta. Inténtalo de nuevo.'), 'error')
-  } finally {
-    mailingStatement.value = false
-  }
-}
-
-/** A recibo de caja already in the biller's Cartera becomes the subscription payment, once. */
-const registerReceiptAsPayment = (receipt: CompanyBillingReceipt) => {
-  const company = companies.value.find(c => c.id === detail.value?.id)
-  if (!company) return
-  openSubscriptionDialog(company)
-  paymentData.value = {
-    ...paymentData.value,
-    amount: receipt.amount,
-    paid_at: receipt.paid_at ?? '',
-    reference: receipt.reference,
-    receipt_number: receipt.number,
-    billing: 'none',
+    notify(errorMessage(error, 'No fue posible desvincular la empresa. Inténtalo de nuevo.'), 'error')
   }
 }
 
@@ -2022,9 +1775,6 @@ const openDetailDialog = async (company: PlatformCompany) => {
   loadingDetail.value = true
   try {
     detail.value = await platformService.getCompany(company.id)
-    customerToLink.value = null
-    billerCustomers.value = []
-    loadCompanyBilling(company.id)
   } catch (error) {
     notify(errorMessage(error, 'No fue posible cargar el detalle de la empresa. Inténtalo de nuevo.'), 'error')
     detailDialog.value = false
@@ -2145,8 +1895,8 @@ const emptyPayment = (company?: PlatformCompany) => ({
   reference: '',
   discrepancy_reason: '',
   paid_at: '',
-  // With a linked company that owes something, the abono goes to its Cartera too.
-  billing: (company?.billing?.customer_id && (company.billing.balance ?? 0) > 0 ? 'abono' : 'none') as 'abono' | 'none',
+  // A linked company's payment is also its abono in the billing company's Cartera.
+  billing: (company?.billing?.customer_id ? 'abono' : 'none') as 'abono' | 'receipt' | 'none',
   receipt_number: null as number | null,
 })
 const paymentData = ref(emptyPayment())
@@ -2212,19 +1962,15 @@ const savePayment = async () => {
       discrepancy_reason: paymentDiffers.value
         ? paymentData.value.discrepancy_reason.trim()
         : undefined,
-      ...(paymentData.value.receipt_number
-        ? { billing: 'receipt' as const, receipt_number: paymentData.value.receipt_number }
-        : { billing: selectedCompany.value.billing?.customer_id ? paymentData.value.billing : 'none' as const }),
+      billing: selectedCompany.value.billing?.customer_id ? paymentData.value.billing : 'none',
+      receipt_number: paymentData.value.billing === 'receipt' ? paymentData.value.receipt_number ?? undefined : undefined,
     })
     // The API names the recibo de caja when the payment is one in the billing company's Cartera.
     notify(payment.billing_receipt_number ? message : 'Pago registrado y periodo extendido')
     subscriptionDialog.value = false
     const reopened = detailDialog.value && detail.value?.id === selectedCompany.value.id ? detail.value.id : null
     await Promise.all([loadCompanies(), loadActivity()])
-    if (reopened) {
-      detail.value = await platformService.getCompany(reopened)
-      await loadCompanyBilling(reopened)
-    }
+    if (reopened) detail.value = await platformService.getCompany(reopened)
   } catch (error: any) {
     notify(errorMessage(error, 'No fue posible registrar el pago. Inténtalo de nuevo.'), 'error')
   } finally {
@@ -2530,14 +2276,11 @@ const activityPanels = computed(() => {
     },
     {
       key: 'billing_overdue',
-      title: `En mora con ${billingSettings.value?.biller?.name ?? 'la empresa que factura'}`,
+      title: `En mora con ${billerCompany.value?.name ?? 'la empresa que factura'}`,
       rows: (report.billing_overdue ?? []).map(company => ({
         id: company.id,
         title: company.name,
-        lines: [
-          `Vencido ${money(company.overdue_balance)} de ${money(company.balance)}`,
-          company.last_payment_at ? `Último abono ${formatDay(company.last_payment_at)}` : 'Sin abonos',
-        ],
+        lines: [`Vencido ${money(company.overdue_balance)} de ${money(company.balance)}`],
       })),
     },
     {
@@ -2833,7 +2576,6 @@ onMounted(() => {
   if (tab.value === 'companies') {
     loadCompanies()
     loadActivity()
-    loadBillingSettings()
   }
   if (tab.value === 'stats') loadSalesSection()
 })
