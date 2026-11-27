@@ -142,38 +142,14 @@
     </v-col>
   </v-row>
 
-  <!-- Nueva / editar lista -->
-  <v-dialog v-model="listDialog" max-width="480">
-    <v-card>
-      <v-card-title>{{ listForm.id ? 'Editar lista de precios' : 'Nueva lista de precios' }}</v-card-title>
-      <v-card-text>
-        <v-text-field v-model="listForm.name" label="Nombre" maxlength="60" counter autofocus hint="Ej: Mayoristas, Zona norte" persistent-hint />
-        <v-textarea
-          v-model="listForm.description"
-          label="Para quién es (opcional)"
-          rows="2"
-          maxlength="255"
-          hint="Ej: Restaurantes del centro que compran por bulto"
-          persistent-hint
-          class="mt-2"
-        />
-        <v-switch
-          v-model="listForm.active"
-          color="primary"
-          inset
-          label="Activa"
-          hint="Apagada, sus clientes compran al precio de su segmento o al precio base"
-          persistent-hint
-          class="mt-2"
-        />
-      </v-card-text>
-      <v-card-actions>
-        <v-spacer />
-        <v-btn @click="listDialog = false">Cancelar</v-btn>
-        <v-btn color="primary" :loading="saving" :disabled="!listForm.name.trim()" @click="saveList">Guardar</v-btn>
-      </v-card-actions>
-    </v-card>
-  </v-dialog>
+  <!-- Nueva / editar lista, and who it applies to -->
+  <PriceListDialog
+    v-model="listDialog"
+    :list="editingList"
+    name-hint="Ej: Mayoristas, Zona norte"
+    @saved="onListSaved"
+    @error="text => emit('message', text, 'error')"
+  />
 
   <!-- Eliminar lista -->
   <v-dialog :model-value="!!deleteTarget" max-width="480" @update:model-value="deleteTarget = null">
@@ -199,6 +175,7 @@ import { errorMessage } from '@/utils/errors'
 import { money } from '@/utils/money'
 import LockableButton from './LockableButton.vue'
 import MoneyField from './MoneyField.vue'
+import PriceListDialog from './PriceListDialog.vue'
 import { useReadOnly } from '../composables/useReadOnly'
 
 /**
@@ -275,30 +252,17 @@ const select = (list: PriceList) => {
 }
 
 const listDialog = ref(false)
-const listForm = ref({ id: null as number | null, name: '', description: '', active: true })
+const editingList = ref<PriceList | null>(null)
 const openListDialog = (list?: PriceList) => {
-  listForm.value = list
-    ? { id: list.id, name: list.name, description: list.description ?? '', active: list.active }
-    : { id: null, name: '', description: '', active: true }
+  editingList.value = list ?? null
   listDialog.value = true
 }
 
-const saveList = async () => {
-  saving.value = true
-  const payload = { name: listForm.value.name.trim(), description: listForm.value.description.trim() || null, active: listForm.value.active }
-  try {
-    const { data, message } = listForm.value.id
-      ? await priceListsService.update(listForm.value.id, payload)
-      : await priceListsService.create(payload)
-    listDialog.value = false
-    emit('message', message)
-    await load()
-    if (!listForm.value.id) select(lists.value.find(list => list.id === data.id) ?? data)
-  } catch (error) {
-    emit('message', errorMessage(error, 'No fue posible guardar la lista. Inténtalo de nuevo.'), 'error')
-  } finally {
-    saving.value = false
-  }
+const onListSaved = async (data: PriceList, message: string) => {
+  const created = !editingList.value
+  emit('message', message)
+  await load()
+  if (created) select(lists.value.find(list => list.id === data.id) ?? data)
 }
 
 const deleteTarget = ref<PriceList | null>(null)

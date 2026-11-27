@@ -970,3 +970,72 @@ test('un producto por kilo con dos impuestos se pide con la lista del cliente y 
   }
   await invoice.close()
 })
+
+/**
+ * A product whose list prices the seller picks ("El vendedor elige en el
+ * pedido"): the customer's list does not apply by itself, and a seller
+ * without "Cambiar precio en pedidos" picks the base price or one of the
+ * product's lists, in Nuevo pedido and on the order's line.
+ */
+test('el vendedor elige en el pedido el precio de una lista del producto, sin el permiso de cambiar precios', async ({ page, request }) => {
+  await raisePlanLimits(request, { max_users: 50 })
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const product = `Tomate de la finca ${stamp}`
+  const { productId } = await seedMenuItem(request, auth, product, 5000, { price_list_mode: 'seller' })
+  const customer = `Restaurante Finca ${stamp}`
+  const customerId = await createCustomer(request, auth, customer, String(stamp).slice(-9))
+  const listName = `Mayoristas finca ${stamp}`
+  const list = await request.post(`${API}/price-lists`, { headers: auth, data: { name: listName, customer_ids: [customerId] } })
+  expect(list.status(), await list.text()).toBe(201)
+  const listId = (await list.json()).data.id
+  expect((await request.put(`${API}/price-lists/${listId}/items`, { headers: auth, data: { items: [{ product_id: productId, price: 4200 }] } })).ok()).toBeTruthy()
+  const seller = { username: `vendedor.lista.${stamp}`, password: 'secreto123' }
+  const created = await request.post(`${API}/users`, {
+    headers: auth,
+    data: { name: 'Vendedor de finca', role: 'employee', permissions: ['orders', 'customers'], ...seller },
+  })
+  expect(created.status(), await created.text()).toBe(201)
+
+  await loginUI(page, seller.username, seller.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Nuevo pedido' })
+  await dialog.getByRole('combobox', { name: 'Cliente' }).click()
+  await dialog.getByRole('combobox', { name: 'Cliente' }).fill(customer)
+  await page.getByRole('option', { name: new RegExp(customer) }).click()
+
+  // The customer's list does not apply by itself: the line starts at the base price.
+  await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill(product)
+  await dialog.getByText(product, { exact: true }).click()
+  await expect(dialog.getByText('Total: $5.000')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: `Cambiar el precio de ${product}` })).toHaveCount(0)
+
+  // The seller picks the list's price, by name.
+  await dialog.locator('.v-input').filter({ has: page.getByText(`Precio de ${product}`, { exact: true }) }).click()
+  await page.locator('.v-overlay--active').getByRole('option', { name: `${listName} · $4.200` }).click()
+  await expect(dialog.getByText('Total: $4.200')).toBeVisible()
+  await dialog.getByRole('button', { name: `Agregar una unidad de ${product}` }).click()
+  await expect(dialog.getByText('Total: $8.400')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Crear pedido' }).click()
+  await expect(page.getByText('Pedido creado')).toBeVisible()
+
+  const row = page.locator('tbody tr', { hasText: customer })
+  await expect(row).toContainText('$8.400')
+  await row.locator('.mdi-chevron-down').click()
+  await expect(page.getByText(`Lista ${listName}`)).toBeVisible()
+
+  // On the line: back to the base price, still without the grant.
+  await page.getByRole('button', { name: `Editar ${product}` }).click()
+  const edit = page.getByRole('dialog').filter({ hasText: 'Editar item' })
+  await expect(edit.getByRole('textbox', { name: 'Precio unitario' })).toHaveCount(0)
+  await edit.locator('.v-input').filter({ has: page.getByText('Precio de la lista', { exact: true }) }).click()
+  await page.locator('.v-overlay--active').getByRole('option', { name: 'Precio base · $5.000' }).click()
+  await edit.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Item actualizado')).toBeVisible()
+  await expect(row).toContainText('$10.000')
+
+  const orders = (await (await request.get(`${API}/orders?customer_id=${customerId}`, { headers: auth })).json()).data
+  expect(orders[0].items.map((item: any) => [item.unit_price, item.price_list_name, item.price_picked, item.price_changed])).toEqual([[5000, null, true, false]])
+})
