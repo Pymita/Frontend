@@ -348,7 +348,11 @@
             </div>
             <div>
               <div class="text-caption text-medium-emphasis">Abonado</div>
-              <div class="text-h6 tabular-nums">{{ money(paymentInvoice.amount_paid) }}</div>
+              <div class="text-h6 tabular-nums">{{ money(paymentInvoice.amount_paid - invoiceWithheld) }}</div>
+            </div>
+            <div v-if="invoiceWithheld > 0">
+              <div class="text-caption text-medium-emphasis">Te retuvieron</div>
+              <div class="text-h6 tabular-nums">{{ money(invoiceWithheld) }}</div>
             </div>
             <div>
               <div class="text-caption text-medium-emphasis">Saldo</div>
@@ -396,7 +400,39 @@
             </tbody>
           </v-table>
 
+          <p v-for="row in paymentInvoice.withholdings ?? []" :key="row.id" class="text-body-2 mb-1">
+            Retención: {{ row.name }} {{ row.rate }}% sobre {{ money(row.base) }} = {{ money(row.amount) }}
+          </p>
+
           <v-form v-if="paymentInvoice.balance > 0" ref="paymentFormRef">
+            <!-- Lo que el cliente te retuvo (docs/RETENCIONES.md): salda el documento como un abono,
+                 pero no es plata que entra a la caja; es un anticipo de tus impuestos. -->
+            <div role="group" aria-label="Retención que te hizo el cliente" class="mb-3">
+              <div class="d-flex align-center flex-wrap ga-2">
+                <div class="text-subtitle-2">Retención que te hizo el cliente</div>
+                <v-spacer />
+                <v-btn size="small" variant="text" prepend-icon="mdi-plus" @click="addPaymentWithholding">Agregar retención</v-btn>
+              </div>
+              <p class="text-caption text-medium-emphasis mb-2">
+                {{ paymentWithholdings.length
+                  ? 'Sugerida por las retenciones del cliente; cámbiala si su comprobante dice otro valor. Lo que te retuvo salda el documento y se descuenta de tus impuestos.'
+                  : `Si el cliente te pagó menos porque te retuvo, regístralo aquí. Base antes de impuestos: ${money(paymentInvoice.withholding_base ?? paymentInvoice.total)}.` }}
+              </p>
+              <v-row v-for="(row, index) in paymentWithholdings" :key="index" dense align="center">
+                <v-col cols="12" sm="5">
+                  <v-combobox v-model="row.name" :items="conceptNames" label="Concepto" density="compact" hide-details @update:model-value="onPaymentConcept(row)" />
+                </v-col>
+                <v-col cols="4" sm="2">
+                  <v-text-field v-model.number="row.rate" label="Tarifa" type="number" suffix="%" density="compact" hide-details @update:model-value="onPaymentRate(row)" />
+                </v-col>
+                <v-col cols="6" sm="4">
+                  <MoneyField v-model="row.amount" label="Valor retenido" density="compact" empty-as-zero hide-details @update:model-value="fitAbono" />
+                </v-col>
+                <v-col cols="2" sm="1" class="text-center">
+                  <v-btn icon="mdi-delete-outline" variant="text" size="small" :aria-label="`Quitar la retención ${row.name || index + 1}`" @click="removePaymentWithholding(index)" />
+                </v-col>
+              </v-row>
+            </div>
             <v-row dense>
               <v-col cols="12" md="4">
                 <MoneyField
@@ -921,6 +957,7 @@ import {
   type DocumentBusiness,
 } from '../utils/printDocuments'
 import { ordersService } from '../services/ordersService'
+import kardexService, { type WithholdingConcept, type WithholdingLine } from '../services/kardexService'
 import type { PaymentMethod } from '../services/salesService'
 import { methodOptions as offeredMethods, methodsFor, paymentMethodLabel, usePaymentMethods } from '../composables/usePaymentMethods'
 import { useAuthStore } from '../stores/auth'
@@ -1194,8 +1231,41 @@ const paymentFormRef = ref<any>(null)
 const savingPayment = ref(false)
 const paymentForm = ref({ amount: 0, payment_method: '' as PaymentMethod, paid_at: today.value })
 
+// --- Retención que hizo el cliente (docs/RETENCIONES.md) ---
+const paymentWithholdings = ref<WithholdingLine[]>([])
+const withholdingConcepts = ref<WithholdingConcept[]>([])
+const conceptNames = computed(() => withholdingConcepts.value.filter(c => c.active).map(c => c.name))
+const invoiceWithheld = computed(() => (paymentInvoice.value?.withholdings ?? []).reduce((sum, row) => sum + Number(row.amount), 0))
+const typedWithheld = () => paymentWithholdings.value.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)
+// The customer pays the balance minus what it withholds.
+const fitAbono = () => {
+  if (paymentInvoice.value) paymentForm.value.amount = Math.max(0, paymentInvoice.value.balance - typedWithheld())
+}
+const onPaymentRate = (row: WithholdingLine) => {
+  row.amount = Math.round(row.base * (Number(row.rate) || 0) / 100)
+  fitAbono()
+}
+const onPaymentConcept = (row: WithholdingLine) => {
+  const concept = withholdingConcepts.value.find(c => c.name === row.name)
+  if (!concept || !paymentInvoice.value) return
+  row.withholding_concept_id = concept.id
+  row.type = concept.type
+  row.rate = concept.rate_declarant
+  row.base = concept.type === 'iva' ? (paymentInvoice.value.withholding_iva ?? 0) : (paymentInvoice.value.withholding_base ?? paymentInvoice.value.total)
+  onPaymentRate(row)
+}
+const addPaymentWithholding = () => {
+  paymentWithholdings.value.push({ name: '', type: 'renta', rate: 0, base: paymentInvoice.value?.withholding_base ?? 0, amount: 0 })
+}
+const removePaymentWithholding = (index: number) => {
+  paymentWithholdings.value.splice(index, 1)
+  fitAbono()
+}
+
 const resetPaymentForm = (invoice: RecurringInvoice) => {
-  paymentForm.value = { amount: invoice.balance, payment_method: defaultMethod(), paid_at: today.value }
+  // Suggested once, while the document has none: a later abono usually carries no new withholding.
+  paymentWithholdings.value = (invoice.suggested_withholdings ?? []).map(row => ({ ...row }))
+  paymentForm.value = { amount: Math.max(0, invoice.balance - typedWithheld()), payment_method: defaultMethod(), paid_at: today.value }
 }
 
 // El recibo del abono recién registrado, para imprimirlo con un clic.
@@ -1203,7 +1273,13 @@ const lastReceiptNumber = ref<number | null>(null)
 
 const openPaymentDialog = async (invoiceId: number) => {
   try {
-    const [invoice] = await Promise.all([billingService.getRecurringInvoice(invoiceId), methodsReady()])
+    const [invoice] = await Promise.all([
+      billingService.getRecurringInvoice(invoiceId),
+      methodsReady(),
+      withholdingConcepts.value.length
+        ? null
+        : kardexService.withholdingConcepts().then(({ concepts }) => (withholdingConcepts.value = concepts)).catch(() => null),
+    ])
     paymentInvoice.value = invoice
     today.value = localDate()
     resetPaymentForm(paymentInvoice.value)
@@ -1221,10 +1297,11 @@ const savePayment = async () => {
 
   savingPayment.value = true
   try {
-    const { data, message } = await billingService.addRecurringPayment(paymentInvoice.value.id, paymentForm.value)
+    const withholdings = paymentWithholdings.value.filter(row => row.name.trim() && Number(row.amount) > 0)
+    const { data, message } = await billingService.addRecurringPayment(paymentInvoice.value.id, { ...paymentForm.value, withholdings })
     paymentInvoice.value = data
     lastReceiptNumber.value = data.receipt_number ?? null
-    resetPaymentForm(data)
+    resetPaymentForm({ ...data, suggested_withholdings: [] })
     notify(message)
     await refreshCartera()
   } catch (error) {

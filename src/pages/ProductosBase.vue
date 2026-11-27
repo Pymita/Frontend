@@ -113,6 +113,12 @@
               </v-avatar>
               <v-icon v-else class="text-medium-emphasis" size="small">mdi-image-outline</v-icon>
             </template>
+            <template #item.unit="{ item }">
+              <span class="text-no-wrap">{{ item.unit }}</span>
+              <v-chip v-if="item.sold_by_fraction" size="x-small" color="secondary" variant="tonal" class="ml-1">
+                Por fracción
+              </v-chip>
+            </template>
             <template #item.type="{ item }">
               <v-chip color="secondary" :prepend-icon="getTipoIcon(item.type)" size="small">
                 {{ getTipoLabel(item.type) }}
@@ -127,7 +133,7 @@
                   @click="openStockDialog(item)"
                   class="cursor-pointer"
                 >
-                  {{ item.current_stock }} {{ item.unit }}
+                  {{ quantity(item.current_stock) }} {{ item.unit }}
                 </v-chip>
                 <v-tooltip v-if="item.allows_negative_stock === false" text="Sin ventas en rojo">
                   <template #activator="{ props }">
@@ -157,7 +163,7 @@
             <template #item.minimum_stock="{ item }">
               <span v-if="item.tracks_stock === false" class="text-medium-emphasis">No aplica</span>
               <span v-else-if="item.minimum_stock">
-                {{ item.minimum_stock }} {{ item.unit }}
+                {{ quantity(item.minimum_stock) }} {{ item.unit }}
               </span>
               <span v-else class="text-medium-emphasis">-</span>
             </template>
@@ -354,11 +360,25 @@
                       persistent-hint
                       :rules="[v => !!v || 'Unidad requerida']"
                       required
+                      @update:model-value="onUnitChosen"
                     >
                       <template #label>
                         Unidad de medida <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                       </template>
                     </v-combobox>
+                  </v-col>
+                  <!-- Kilos, litros, libras: el pedido acepta 1,375 en vez de unidades enteras. -->
+                  <v-col v-if="!isCombo" cols="12" sm="6" :md="hasRecipes ? 4 : 6">
+                    <v-switch
+                      v-model="formData.sold_by_fraction"
+                      color="primary"
+                      inset
+                      label="Se vende por fracción"
+                      :hint="formData.sold_by_fraction
+                        ? `En los pedidos escribes la cantidad con decimales, por ejemplo 1,375 ${formData.unit || 'kg'}`
+                        : 'En los pedidos se vende por unidades enteras'"
+                      persistent-hint
+                    />
                   </v-col>
                   <v-col v-if="formData.type !== 'intermediate' && !isCombo" cols="12" sm="6" md="4">
                     <MoneyField
@@ -385,14 +405,18 @@
                   </v-col>
                   <v-col cols="12" sm="6" md="4">
                     <v-select
-                      v-model="formData.tax_id"
+                      v-model="formData.tax_ids"
                       :items="taxOptions"
-                      hint="Catálogo en configuración"
+                      multiple
+                      chips
+                      closable-chips
+                      :menu-props="{ closeOnContentClick: true }"
+                      :hint="taxHint"
                       persistent-hint
-                      :rules="[v => v !== null && v !== undefined || 'Selecciona el impuesto (hay opción Exento)']"
+                      :rules="[(v: number[]) => v.length > 0 || 'Selecciona al menos un impuesto (hay opción Exento)']"
                     >
                       <template #label>
-                        Impuesto <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
+                        Impuestos <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                       </template>
                     </v-select>
                   </v-col>
@@ -567,7 +591,7 @@
                        solo con el botón Ajustar stock, que pide motivo. -->
                   <v-col v-else cols="12" md="4">
                     <v-text-field
-                      :model-value="`${editing.current_stock ?? 0} ${editing.unit}`"
+                      :model-value="`${quantity(editing.current_stock)} ${editing.unit}`"
                       label="Stock actual"
                       readonly
                       disabled
@@ -680,12 +704,12 @@
             <div class="d-flex justify-space-between align-center">
               <span>Stock actual:</span>
               <span class="text-h6">
-                {{ stockProduct.current_stock || 0 }} {{ stockProduct.unit }}
+                {{ quantity(stockProduct.current_stock) }} {{ stockProduct.unit }}
               </span>
             </div>
             <div v-if="stockProduct.minimum_stock" class="d-flex justify-space-between align-center mt-2">
               <span>Stock mínimo:</span>
-              <span>{{ stockProduct.minimum_stock }} {{ stockProduct.unit }}</span>
+              <span>{{ quantity(stockProduct.minimum_stock) }} {{ stockProduct.unit }}</span>
             </div>
           </v-alert>
 
@@ -707,7 +731,7 @@
               <v-card flat color="surface-light" class="pa-3">
                 <div class="text-caption">Nuevo stock:</div>
                 <div class="text-h5" :class="calcularNuevoStock >= 0 ? 'text-success' : 'text-error'">
-                  {{ calcularNuevoStock.toFixed(2) }} {{ stockProduct.unit }}
+                  {{ quantity(calcularNuevoStock) }} {{ stockProduct.unit }}
                 </div>
               </v-card>
             </v-col>
@@ -793,11 +817,12 @@ const onImported = (created: number) => {
 };
 import ImageUploader from '@/components/ImageUploader.vue';
 import { resolveImageUrl } from '@/utils/images';
-import { money, preciseMoney } from '@/utils/money';
+import { money, preciseMoney, quantity } from '@/utils/money';
 import { useRouter } from 'vue-router';
 import { productsService, productCategoriesService, type Product, type Category, type ProductPayload } from '@/services/productsService';
 import { menuItemsService } from '@/services/menuService';
-import kardexService from '@/services/kardexService';
+import kardexService, { type Tax } from '@/services/kardexService';
+import { splitPrice, taxOptionTitle } from '@/utils/taxes';
 import { productTypeLabels, label } from '@/utils/labels';
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
@@ -889,9 +914,20 @@ const today = new Date().toLocaleDateString('sv-SE');
 
 // Unidades sugeridas; el combobox también acepta texto libre.
 const UNIT_OPTIONS = [
-  'unidad', 'kg', 'gramos', 'libra', 'litro', 'ml', 'botella', 'lata',
+  'unidad', 'kg', 'gramos', 'libra', 'litro', 'ml', 'metro', 'botella', 'lata',
   'paquete', 'caja', 'bolsa', 'porción', 'plato', 'galón', 'arroba',
 ];
+
+/**
+ * Units that are measured, not counted: choosing one turns "Se vende por
+ * fracción" on, and choosing a counted one turns it off. The owner can still
+ * change it (a "bolsa de 1 kg" is sold by units).
+ */
+const FRACTION_UNITS = /^(kg|kilo|kilos|kilogramos?|g|gr|grs|gramos?|lb|libras?|l|litros?|ml|mililitros?|m|metros?|gal[oó]n|galones|arrobas?)$/i;
+
+const onUnitChosen = (unit: string | null) => {
+  formData.value.sold_by_fraction = FRACTION_UNITS.test((unit ?? '').trim());
+};
 
 const formData = ref({
   name: '',
@@ -901,11 +937,12 @@ const formData = ref({
   image_url: null as string | null,
   type: 'final' as 'raw_material' | 'intermediate' | 'final',
   unit: 'unidad',
+  sold_by_fraction: false,
   tracks_stock: true,
   allows_negative_stock: true,
   unit_cost: 0,
   sale_price: null as number | null,
-  tax_id: null as number | null,
+  tax_ids: [] as number[],
   /** null until chosen: a category, or NO_CATEGORY on purpose */
   category_id: null as number | typeof NO_CATEGORY | null,
   current_stock: 0 as string | number | null,
@@ -979,9 +1016,17 @@ watch(
 );
 
 // Catálogo de impuestos de la empresa para el selector del producto.
-const taxes = ref<{ id: number; name: string; rate: number }[]>([]);
+const taxes = ref<Tax[]>([]);
+// The price includes the taxes: what it is before them, and what each one takes.
+const taxHint = computed(() => {
+  const chosen = taxes.value.filter(tax => formData.value.tax_ids.includes(tax.id) && (tax.calculation === 'per_unit' ? tax.amount > 0 : tax.rate > 0))
+  const price = Number(formData.value.sale_price) || 0
+  if (chosen.length === 0 || price <= 0) return 'Catálogo en Configuración; elige varios si los lleva'
+  const { base, amounts } = splitPrice(chosen, price)
+  return `Antes de impuestos ${money(base)} · ` + chosen.map((tax, i) => `${tax.name} ${money(amounts[i] ?? 0)}`).join(' + ')
+})
 const taxOptions = computed(() =>
-  taxes.value.map(tax => ({ title: `${tax.name} (${Number(tax.rate)}%)`, value: tax.id })),
+  taxes.value.filter(tax => tax.active || formData.value.tax_ids.includes(tax.id)).map(tax => ({ title: taxOptionTitle(tax), value: tax.id })),
 );
 
 const snackbar = ref(false);
@@ -1215,11 +1260,12 @@ const openDialog = (product?: Product, forceMenu = false) => {
         image_url: product.image_url || null,
         type: product.type,
         unit: product.unit,
+        sold_by_fraction: !!product.sold_by_fraction,
         tracks_stock: product.tracks_stock ?? true,
         allows_negative_stock: product.allows_negative_stock ?? true,
         unit_cost: product.unit_cost || 0,
         sale_price: product.sale_price || null,
-        tax_id: product.tax_id ?? null,
+        tax_ids: product.tax_ids?.length ? [...product.tax_ids] : (product.tax_id ? [product.tax_id] : []),
         category_id: product.category_id ?? NO_CATEGORY,
         current_stock: product.current_stock || null,
         initial_stock_date: today,
@@ -1235,11 +1281,12 @@ const openDialog = (product?: Product, forceMenu = false) => {
         // Por defecto un producto final y en unidades: es el caso más común.
         type: 'final',
         unit: 'unidad',
+        sold_by_fraction: false,
         tracks_stock: true,
         allows_negative_stock: true,
         unit_cost: 0,
         sale_price: null,
-        tax_id: null,
+        tax_ids: [],
         category_id: null,
         // Nace agotado (0): se puede crear sin existencias y verlo en el kardex.
         current_stock: 0,
@@ -1293,7 +1340,7 @@ const save = async () => {
   }
 
   // Todo producto lleva un impuesto asociado (existe la opción Exento).
-  if (formData.value.tax_id === null || formData.value.tax_id === undefined) {
+  if (formData.value.tax_ids.length === 0) {
     showMessage('Selecciona el impuesto del producto', 'error');
     return;
   }

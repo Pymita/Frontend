@@ -533,6 +533,59 @@ test('dos clientes con el mismo documento se distinguen con -A y -B, y el repeti
 })
 
 /**
+ * Quién es el proveedor para los impuestos decide qué se le retiene: un
+ * campesino que vende fruta sin procesar, persona natural no declarante, con
+ * la retención de compras agrícolas (1,5 %, desde 70 UVT). Se guarda con el
+ * proveedor y es lo que el kardex sugiere en sus compras.
+ */
+test('un proveedor guarda su tipo de contribuyente y las retenciones que se le aplican', async ({ page, request }) => {
+  const company = await createCompany(request, 'retenciones-proveedor', { business_type: 'restaurant' })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/clientes')
+  await page.getByRole('tab', { name: /Proveedores/ }).click()
+
+  const name = `Finca El Mango ${Date.now()}`
+  await page.getByRole('button', { name: /Nuevo proveedor/ }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Nombre').fill(name)
+  await field(page, 'Tipo de persona').click()
+  await page.getByRole('option', { name: 'Persona natural' }).click()
+  await dialog.getByLabel('Declarante de renta').uncheck()
+  await dialog.getByLabel('Responsable de IVA').uncheck()
+  await field(page, 'Retenciones que le aplicas').click()
+  await page.getByRole('option', { name: 'Compras agrícolas o pecuarias sin procesar (Retención en la fuente)' }).click()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toContainText('Se sugiere la tarifa de no declarante.')
+  if (process.env.FV4_SHOTS) {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 })
+      await field(page, 'Retenciones que le aplicas').scrollIntoViewIfNeeded()
+      // Menus and dialogs fade: the picture waits for them to settle.
+      await page.waitForTimeout(600)
+      await page.screenshot({ path: `/Users/valentina.morales/Documents/Pymita/screenshots/fruver/fv4-proveedor-retenciones-${width}.png` })
+    }
+    await page.setViewportSize({ width: 1440, height: 900 })
+  }
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Proveedor creado exitosamente')).toBeVisible()
+
+  // Reopened, it keeps what was chosen.
+  await page.locator('tbody tr', { hasText: name }).getByRole('button', { name: `Editar el proveedor ${name}` }).click()
+  await expect(field(page, 'Tipo de persona')).toContainText('Persona natural')
+  await expect(dialog.getByLabel('Declarante de renta')).not.toBeChecked()
+  await expect(field(page, 'Retenciones que le aplicas')).toContainText('Compras agrícolas o pecuarias sin procesar')
+
+  // What a purchase of $4.000.000 from it suggests: 1,5 % (above 70 UVT, $3.666.180).
+  const suggestion = await request.get(`${API}/withholdings/suggest`, {
+    headers: { Authorization: `Bearer ${company.token}` },
+    params: { counterparty: name, base: 4000000 },
+  })
+  expect((await suggestion.json()).data).toEqual([
+    expect.objectContaining({ name: 'Compras agrícolas o pecuarias sin procesar', rate: 1.5, amount: 60000 }),
+  ])
+})
+
+/**
  * Listas de precios in Clientes: a customer buys at its own list, else at
  * the one of its segment (a zone), which the "Segmentos" window sets.
  */

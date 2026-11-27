@@ -42,6 +42,9 @@ export interface MenuCategoryNode {
     variant?: string | null;
     variant_group_id?: number | null;
     variant_group_name?: string | null;
+    /** Se vende por fracción de `unit` (1,375 kg): la cantidad lleva decimales. */
+    sold_by_fraction?: boolean;
+    unit?: string | null;
   }[];
   children: MenuCategoryNode[];
 }

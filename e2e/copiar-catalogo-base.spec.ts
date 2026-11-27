@@ -68,7 +68,7 @@ test('la plataforma copia parte de un catálogo base a una empresa nueva', async
   await expect(page.getByRole('button', { name: 'Añadir al menú' })).toHaveCount(0)
 
   await beer.getByRole('button', { name: 'Editar Cerveza nacional' }).click()
-  await expect(field(page, 'Impuesto *')).toContainText('Exento (0%)')
+  await expect(field(page, 'Impuestos *')).toContainText('Exento (0%)')
   await expect(page.getByRole('dialog').getByLabel('Publicar en el menú de venta')).toBeChecked()
   await page.getByRole('dialog').getByRole('button', { name: 'Cancelar' }).click()
 

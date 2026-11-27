@@ -356,7 +356,7 @@
                         </thead>
                         <tbody>
                           <tr v-for="orderItem in item.items" :key="orderItem.id">
-                            <td>{{ orderItem.quantity }}</td>
+                            <td class="text-no-wrap">{{ lineQuantity(orderItem.quantity, orderItem.unit) }}</td>
                             <td>
                               {{ orderItem.product_name }}
                               <span v-if="orderItem.variant" class="text-medium-emphasis"> ({{ orderItem.variant }})</span>
@@ -455,6 +455,15 @@
                           <div class="d-flex justify-space-between font-weight-bold">
                             <span>Total:</span>
                             <span class="tabular-nums">{{ money(item.total) }}</span>
+                          </div>
+                          <!-- Prices include their taxes: what the total carries of each one. -->
+                          <div
+                            v-for="tax in item.taxes ?? []"
+                            :key="`${tax.tax_id}-${tax.rate_label}`"
+                            class="d-flex justify-space-between text-caption text-medium-emphasis"
+                          >
+                            <span>Incluye {{ taxLineLabel(tax) }}</span>
+                            <span class="tabular-nums">{{ money(tax.amount) }}</span>
                           </div>
                           <div v-if="item.invoice_number" class="d-flex justify-space-between text-caption text-medium-emphasis mt-1">
                             <span>Factura:</span>
@@ -1050,7 +1059,17 @@
         <v-card-title>Editar item</v-card-title>
         <v-card-text>
           <p class="mb-4 font-weight-bold">{{ selectedItem?.product_name }}</p>
+          <!-- Lo pesado lleva hasta tres decimales ("1,375"); lo demás, unidades enteras. -->
+          <MoneyField
+            v-if="selectedItem?.unit"
+            v-model="editItemData.quantity"
+            quantity
+            label="Cantidad"
+            :suffix="selectedItem.unit"
+            :rules="[value => (value ?? 0) > 0 || 'Escribe una cantidad mayor que 0']"
+          />
           <v-text-field
+            v-else
             v-model.number="editItemData.quantity"
             label="Cantidad"
             type="number"
@@ -1179,6 +1198,7 @@
             :can-edit-prices="canChangePrices"
             @add="agregarAlPedido"
             @remove="quitarDelPedido"
+            @quantity="fijarCantidad"
             @rename="renombrarPersonaNueva"
             @price="setLinePrice"
           />
@@ -1228,6 +1248,7 @@
             @price="setLinePrice"
             @add="(item: any, guest: number | null) => agregarASeleccion(itemsParaAgregar, item, guest)"
             @remove="(line: PickedLine) => quitarDeSeleccion(itemsParaAgregar, line)"
+            @quantity="fijarCantidad"
             @rename="renombrarPersonaExistente"
           />
         </v-card-text>
@@ -1334,12 +1355,12 @@ import ProductPicker from '../components/ProductPicker.vue'
 import CustomerPicker from '../components/CustomerPicker.vue'
 import { categoriesService, type MenuCategoryNode } from '@/services/menuService';
 import { tablesService } from '@/services/tablesService';
-import { reservedTableLabel } from '@/utils/labels';
+import { reservedTableLabel, taxLineLabel } from '@/utils/labels';
 import { effectiveFeatures } from '@/types/auth';
 import { addLine, removeLine, linesTotal, guestLabel, linePayload, repriceLines, setLinePrice, type PickedLine } from '@/utils/orderLines';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
 import { isCashMethod, methodOptions, methodsFor, paymentMethodLabel, usePaymentMethods } from '@/composables/usePaymentMethods';
-import { money } from '@/utils/money';
+import { lineQuantity, money } from '@/utils/money';
 import { creditDueDate, formatDay, formatFullDateTime, formatIsoDate, formatRecent, todayIso } from '@/utils/dates';
 import {
   bankAccountNotes,
@@ -1437,7 +1458,7 @@ const discountReason = ref('');
 
 const pagoDialog = ref(false);
 const editItemDialog = ref(false);
-const editItemData = ref({ quantity: 1, unit_price: 0 as number | null, discount: 0, guest_number: null as number | null });
+const editItemData = ref({ quantity: 1 as number | null, unit_price: 0 as number | null, discount: 0, guest_number: null as number | null });
 
 // Compartido + las personas que ya hay + una más, por si llega alguien.
 const guestOptions = computed(() => {
@@ -2225,8 +2246,13 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
   const line = '-'.repeat(TICKET_WIDTH);
   const isInvoice = !opts.preBill && !!r.invoice_number;
 
-  const rows = r.items
-    .map(i => `${String(i.quantity).padEnd(4)}${i.name.slice(0, 22).padEnd(24)}${money(i.total).padStart(10)}`);
+  // Lo pesado no cabe en la columna de cantidad: va debajo, con su precio por unidad.
+  const rows = r.items.flatMap(i => i.unit
+    ? [
+        `${''.padEnd(4)}${i.name.slice(0, 22).padEnd(24)}${money(i.total).padStart(10)}`,
+        `${''.padEnd(4)}${lineQuantity(i.quantity, i.unit)} x ${money(i.unit_price)}`,
+      ]
+    : [`${String(i.quantity).padEnd(4)}${i.name.slice(0, 22).padEnd(24)}${money(i.total).padStart(10)}`]);
   if (r.time_amount && r.time_amount > 0) {
     rows.push(`${'1'.padEnd(4)}${'Tiempo de mesa'.padEnd(24)}${money(r.time_amount).padStart(10)}`);
     const detail = timeLineDetail(r.time_detail);
@@ -2313,7 +2339,10 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
     line,
     amountLine('SUBTOTAL', r.subtotal_before_tax),
     r.discount_before_tax > 0 ? amountLine('DESCUENTO', r.discount_before_tax, '-') : '',
-    r.included_vat > 0 ? amountLine('IMPUESTO', r.included_vat) : '',
+    // Each tax the total includes, with its rate ("IVA 19%", "IBUA $68 c/u").
+    ...(r.taxes?.length
+      ? r.taxes.map(tax => amountLine(taxLineLabel(tax).toUpperCase().slice(0, 22), tax.amount))
+      : [r.included_vat > 0 ? amountLine('IMPUESTO', r.included_vat) : '']),
     r.delivery_fee > 0 ? amountLine('DOMICILIO', r.delivery_fee) : '',
     ...totals,
     ...(notes.length ? [line, 'OBSERVACIONES:', ...notes] : []),
@@ -2551,7 +2580,7 @@ const guardarItem = async () => {
     // Quantity and person for everyone; the price with "Cambiar precio en
     // pedidos", the discount only the admin (the API checks both again).
     const payload = {
-      quantity: editItemData.value.quantity,
+      quantity: editItemData.value.quantity ?? undefined,
       guest_number: editItemData.value.guest_number,
       ...(canChangePrices.value && editItemData.value.unit_price !== null ? { unit_price: editItemData.value.unit_price } : {}),
       ...(isAdmin.value ? { discount: editItemData.value.discount } : {}),
@@ -2634,6 +2663,8 @@ const agregarAlPedido = (item: any, guest: number | null) => addLine(nuevoPedido
 const quitarDelPedido = (line: PickedLine) => removeLine(nuevoPedido.value.items, line.menu_item_id, line.guest_number);
 const agregarASeleccion = (lines: PickedLine[], item: any, guest: number | null) => addLine(lines, item, guest);
 const quitarDeSeleccion = (lines: PickedLine[], line: PickedLine) => removeLine(lines, line.menu_item_id, line.guest_number);
+/** Lo pesado que se escribió a mano (1,375 kg). */
+const fijarCantidad = (line: PickedLine, value: number) => { line.quantity = value; };
 
 // Guarda (o borra si queda vacío) el nombre puesto a una persona.
 const setGuestName = (target: Record<number, string>, n: number, name: string) => {

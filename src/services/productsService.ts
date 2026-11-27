@@ -13,14 +13,19 @@ export interface Product {
   image_url?: string | null;
   type: ProductType;
   unit: string;
+  /** Sold in fractions of `unit` (1,375 kg): order quantities take up to three decimals. */
+  sold_by_fraction?: boolean;
   tracks_stock?: boolean;
   /** "Permite ventas en rojo": may sell past the kardex balance (only with tracks_stock) */
   allows_negative_stock?: boolean;
   unit_cost?: number | null;
   sale_price?: number | null;
-  /** Configured tax this product uses; tax_rate is its snapshot */
+  /** Its first tax and the sum of its percentages, as older readers keep reading them */
   tax_id?: number | null;
   tax_rate?: number | null;
+  /** Every tax it carries (IVA, impoconsumo, IBUA…); sending it wins over `tax_id` */
+  tax_ids?: number[];
+  taxes?: { id: number; name: string; kind: string; calculation: 'percentage' | 'per_unit'; rate: number; amount: number }[];
   /** null: without category, so out of the waiter app's menu until it gets one */
   category_id?: number | null;
   category?: {

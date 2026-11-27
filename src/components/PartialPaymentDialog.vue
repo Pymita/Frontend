@@ -82,11 +82,13 @@
                   {{ orderItem.product_name }}
                   <span v-if="orderItem.variant" class="text-medium-emphasis"> ({{ orderItem.variant }})</span>
                   <div v-if="orderItem.paid_quantity > 0" class="text-caption text-success">
-                    {{ orderItem.paid_quantity }} de {{ orderItem.quantity }} ya pagadas
+                    {{ lineQuantity(orderItem.paid_quantity, orderItem.unit) }} de {{ lineQuantity(orderItem.quantity, orderItem.unit) }} ya {{ orderItem.unit ? 'pagados' : 'pagadas' }}
                   </div>
                 </td>
                 <td style="width: 150px">
-                  <div v-if="selectedQty(orderItem) > 0" class="d-flex align-center ga-1">
+                  <!-- Lo pesado se cobra entero: todos sus kilos pendientes o nada. -->
+                  <span v-if="orderItem.unit" class="text-no-wrap">{{ lineQuantity(orderItem.unpaid_quantity, orderItem.unit) }}</span>
+                  <div v-else-if="selectedQty(orderItem) > 0" class="d-flex align-center ga-1">
                     <v-btn
                       icon="mdi-minus"
                       size="x-small"
@@ -107,7 +109,7 @@
                   </div>
                 </td>
                 <td class="text-right" style="width: 90px">
-                  {{ money(unitPriceOf(orderItem)) }} c/u
+                  {{ money(unitPriceOf(orderItem)) }} {{ orderItem.unit ? `/ ${orderItem.unit}` : 'c/u' }}
                 </td>
               </tr>
             </tbody>
@@ -166,7 +168,7 @@ import {
   type OrderPaymentMethod,
   type PartialPaymentPayload,
 } from '@/services/ordersService'
-import { money } from '@/utils/money'
+import { lineQuantity, money } from '@/utils/money'
 import { formatTime } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors'
 import { methodOptions, paymentMethodLabel, usePaymentMethods } from '@/composables/usePaymentMethods'
@@ -222,11 +224,15 @@ const payableItems = computed(() =>
 )
 
 const selectionCount = computed(() =>
-  Object.values(paymentSelection.value).reduce((sum, qty) => sum + qty, 0),
+  Object.values(paymentSelection.value).filter(qty => qty > 0).length,
 )
 
 const unitPriceOf = (item: OrderItem) =>
-  Number(item.total_price || 0) / Math.max(1, Number(item.quantity || 1))
+  Number(item.quantity) > 0 ? Number(item.total_price || 0) / Number(item.quantity) : 0
+
+/** What `units` of a line carry of its total, as the backend's `OrderItem::amountFor()`: all of it for the whole line. */
+const amountFor = (item: OrderItem, units: number) =>
+  Math.abs(units - Number(item.quantity)) < 0.0005 ? Number(item.total_price || 0) : unitPriceOf(item) * units
 
 // Estimación con el mismo prorrateo del backend (factor total/subtotal);
 // el servidor calcula el valor definitivo.
@@ -241,7 +247,7 @@ const selectionEstimate = computed(() => {
   const factor = Number(order.total || 0) / (itemsBase + timeBase)
 
   const base = order.items.reduce(
-    (sum, i) => sum + unitPriceOf(i) * (paymentSelection.value[i.id] || 0),
+    (sum, i) => sum + amountFor(i, paymentSelection.value[i.id] || 0),
     0,
   )
 
