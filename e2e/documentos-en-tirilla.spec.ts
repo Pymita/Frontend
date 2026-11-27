@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ADMIN, API, apiLogin, loginUI } from './helpers'
+import { ADMIN, API, apiLogin, expectNoBrowserMargin, loginUI } from './helpers'
 
 /**
  * Un computador con impresora térmica (sin RawBT) que eligió "Facturas,
@@ -43,6 +43,8 @@ test('en el computador, con documentos en tirilla la factura sale en una ventana
   await expect(body).toContainText('SON:')
   // A ticket, not the sheet with its paper toolbar.
   await expect(ticket.locator('.toolbar')).toHaveCount(0)
+  // Without the browser's date and title line above the ticket.
+  await expectNoBrowserMargin(ticket, 2, 'body')
   await ticket.screenshot({ path: '../screenshots/factura-en-tirilla-80mm.png', fullPage: true })
   const widest = Math.max(...(await body.innerText()).split('\n').map(line => line.length))
   expect(widest).toBeLessThanOrEqual(38)

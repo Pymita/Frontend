@@ -145,8 +145,11 @@ const escapeHtml = (value: string): string =>
 const ticketHtml = (job: TicketJob, settings: TicketPrinterSettings): string => {
   const logo = resolveImageUrl(job.logoUrl)
   return `<html><head><meta charset="utf-8"><title>${escapeHtml(job.title)}</title>` +
+    // Chrome prints its own date and title line in the page margin when its
+    // dialog has headers on: no page margin, the ticket keeps its own padding.
+    '<style id="page-size">@page { margin: 0; }</style>' +
     `<style>body{font-family:monospace;font-size:${settings.paper === 58 ? 11 : 12}px;white-space:pre;` +
-    `width:${settings.paper}mm;margin:0 auto;padding:8px}` +
+    `width:${settings.paper}mm;margin:0 auto;padding:2mm}` +
     '.logo{display:block;max-width:100%;max-height:48px;margin:0 auto 6px}' +
     '.ticket+.ticket{break-before:page;margin-top:16px;border-top:1px dashed #999;padding-top:8px}</style>' +
     '</head><body>' +
