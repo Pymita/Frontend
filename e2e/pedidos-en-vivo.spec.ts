@@ -18,7 +18,11 @@ test('un pedido creado desde afuera aparece solo en la web', async ({ page, requ
   const productId = (await product.json()).data.id
 
   await loginUI(page, ADMIN.email, ADMIN.password)
+  // The page's first look at /orders/changes is its baseline: an order created
+  // before it answers is already "known" and never announced.
+  const baseline = page.waitForResponse(response => response.url().includes('/api/orders/changes'))
   await page.goto('/pedidos')
+  await baseline
   await expect(page.getByRole('button', { name: 'Nuevo pedido' })).toBeVisible()
   await expect(page.locator('tr', { hasText: '$1.700' })).toHaveCount(0)
 

@@ -64,6 +64,14 @@
                     Cambiar estado de pedidos
                   </v-chip>
                   <v-chip
+                    v-if="feature === 'orders' && item.can_change_order_prices"
+                    size="x-small"
+                    class="mr-1 mb-1"
+                    variant="outlined"
+                  >
+                    Cambiar precio en pedidos
+                  </v-chip>
+                  <v-chip
                     v-if="feature === 'inventory' && item.can_edit_kardex"
                     size="x-small"
                     class="mr-1 mb-1"
@@ -214,6 +222,14 @@
                       persistent-hint
                       density="compact"
                     />
+                    <v-checkbox
+                      v-model="changeOrderPrices"
+                      label="Cambiar precio en pedidos"
+                      :disabled="!formData.permissions.includes('orders')"
+                      hint="Escribe otro precio en un producto del pedido, también desde la app"
+                      persistent-hint
+                      density="compact"
+                    />
                   </v-col>
                   <v-col v-if="feature === 'inventory'" cols="6">
                     <v-checkbox
@@ -357,6 +373,7 @@ const formData = ref({
   canChangeOrderStatus: true,
   canEditKardex: false,
   canUseAccounting: false,
+  canChangeOrderPrices: false,
 })
 
 // Cobrar is part of Pedidos: without it the box reads unchecked and nothing is granted.
@@ -372,6 +389,14 @@ const changeOrderStatus = computed({
   get: () => formData.value.canChangeOrderStatus && formData.value.permissions.includes('orders'),
   set: (value: boolean) => {
     formData.value.canChangeOrderStatus = value
+  },
+})
+
+// And typing another price on an order's product.
+const changeOrderPrices = computed({
+  get: () => formData.value.canChangeOrderPrices && formData.value.permissions.includes('orders'),
+  set: (value: boolean) => {
+    formData.value.canChangeOrderPrices = value
   },
 })
 
@@ -415,6 +440,7 @@ const openDialog = (user?: CompanyUser) => {
         canChangeOrderStatus: user.features.includes('orders') ? user.can_change_order_status : true,
         canEditKardex: user.can_edit_kardex,
         canUseAccounting: !!user.can_use_accounting,
+        canChangeOrderPrices: !!user.can_change_order_prices,
       }
     : {
         name: '',
@@ -431,6 +457,7 @@ const openDialog = (user?: CompanyUser) => {
         canChangeOrderStatus: true,
         canEditKardex: false,
         canUseAccounting: false,
+        canChangeOrderPrices: false,
       }
   dialog.value = true
 }
@@ -453,6 +480,7 @@ const save = async () => {
       can_change_order_status: formData.value.role === 'employee' ? changeOrderStatus.value : undefined,
       can_edit_kardex: formData.value.role === 'employee' ? editKardex.value : undefined,
       can_use_accounting: formData.value.role === 'employee' ? useAccounting.value : undefined,
+      can_change_order_prices: formData.value.role === 'employee' ? changeOrderPrices.value : undefined,
     }
 
     if (editing.value) {

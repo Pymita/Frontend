@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { ADMIN, API, apiLogin, buildXlsx, createCompany, displayDate, field, loginUI, nitDigit, pickOptions, xlsxRows } from './helpers'
+import { ADMIN, API, apiLogin, buildXlsx, createCompany, displayDate, field, loginUI, nitDigit, pickOption, pickOptions, xlsxRows } from './helpers'
 
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
@@ -583,4 +583,47 @@ test('un proveedor guarda su tipo de contribuyente y las retenciones que se le a
   expect((await suggestion.json()).data).toEqual([
     expect.objectContaining({ name: 'Compras agrícolas o pecuarias sin procesar', rate: 1.5, amount: 60000 }),
   ])
+})
+
+/**
+ * Listas de precios in Clientes: a customer buys at its own list, else at
+ * the one of its segment (a zone), which the "Segmentos" window sets.
+ */
+test('el cliente y el segmento llevan su lista de precios', async ({ page, request }) => {
+  const company = await createCompany(request, 'listas-clientes', { business_type: 'store' })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  for (const name of ['Mayoristas', 'Zona norte']) {
+    expect((await request.post(`${API}/price-lists`, { headers: auth, data: { name } })).status()).toBe(201)
+  }
+  const segment = await request.post(`${API}/customer-segments`, { headers: auth, data: { name: 'Norte' } })
+  expect(segment.status()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/clientes')
+
+  // The segment's list, from the Segmentos window.
+  await page.getByRole('button', { name: 'Segmentos', exact: true }).click()
+  const manager = page.getByRole('dialog').filter({ hasText: 'Agrupa a tus clientes' })
+  await field(page, 'Lista de precios de Norte').click()
+  await pickOption(page, 'Zona norte')
+  await expect(page.getByText('Segmento «Norte» guardado.')).toBeVisible()
+  await manager.getByRole('button', { name: 'Cerrar' }).click()
+
+  // A customer of that segment, without a list of its own, says which one it buys at.
+  await page.getByRole('button', { name: /Nuevo cliente/ }).click()
+  const dialog = page.getByRole('dialog')
+  await field(page, 'Número de documento *').locator('input').fill('7020')
+  await field(page, 'Nombre / Razón social *').locator('input').fill('Restaurante La Esquina')
+  await pickOptions(page, 'Segmentos', ['Norte'])
+  await expect(dialog.getByText('Sin lista propia compra con la de su segmento Norte: Zona norte')).toBeVisible()
+  await field(page, 'Lista de precios').click()
+  await pickOption(page, 'Mayoristas')
+  await expect(dialog.getByText('Los pedidos de este cliente toman los precios de esta lista')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Cliente creado exitosamente')).toBeVisible()
+  await expect(page.locator('tbody tr', { hasText: 'Restaurante La Esquina' })).toContainText('Lista Mayoristas')
+
+  const customers = (await (await request.get(`${API}/customers`, { headers: auth })).json()).data
+  expect(customers.find((c: any) => c.name === 'Restaurante La Esquina').price_list.name).toBe('Mayoristas')
 })

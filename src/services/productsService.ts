@@ -1,5 +1,6 @@
 import api from './api';
 import type { PageQuery, PaginatedResponse } from '@/types/api';
+import { downloadFile } from './billingService';
 
 export type ProductType = 'raw_material' | 'intermediate' | 'final';
 
@@ -42,6 +43,13 @@ export interface Product {
   is_combo?: boolean;
   /** Only on a combo: what one combo takes, each at what it costs today */
   components?: ProductComponent[];
+  /** Its price in the lists that sell it at another price (the rest: the base price) */
+  price_list_prices?: ProductListPrice[];
+}
+
+export interface ProductListPrice {
+  price_list_id: number;
+  price: number | null;
 }
 
 export interface ProductComponent {
@@ -76,6 +84,8 @@ export interface ProductPayload extends Omit<Partial<Product>, 'components'> {
   initial_stock_date?: string | null;
   /** A combo's components; replaces the ones it had */
   components?: { product_id: number; quantity: number }[];
+  /** Its price in each list; null takes it back to the base price */
+  price_list_prices?: ProductListPrice[];
 }
 
 export interface StockAdjustmentPayload {
@@ -158,6 +168,77 @@ class ProductCategoriesService {
     await api.delete(`/categories/${id}`);
   }
 }
+
+/** Another price for the same products, for some customers or segments (Productos › Listas de precios). */
+export interface PriceList {
+  id: number;
+  name: string;
+  /** Who it is for, in the owner's words */
+  description: string | null;
+  /** Inactive: ignored, its customers buy at the next level's price */
+  active: boolean;
+  items_count: number;
+  customers_count: number;
+  segments_count: number;
+}
+
+/** A final product in a list: `price` null sells it at `base_price` (the menu's, else the sale price). */
+export interface PriceListRow {
+  product_id: number;
+  sku: string | null;
+  name: string;
+  unit: string | null;
+  base_price: number;
+  price: number | null;
+}
+
+export type PriceListPayload = Partial<Pick<PriceList, 'name' | 'description' | 'active'>>;
+
+export const priceListsService = {
+  async getAll(): Promise<PriceList[]> {
+    const response = await api.get('/price-lists');
+    return response.data.data;
+  },
+
+  async create(data: PriceListPayload): Promise<{ data: PriceList; message: string }> {
+    const response = await api.post('/price-lists', data);
+    return { data: response.data.data, message: response.data.message ?? '' };
+  },
+
+  async update(id: number, data: PriceListPayload): Promise<{ data: PriceList; message: string }> {
+    const response = await api.put(`/price-lists/${id}`, data);
+    return { data: response.data.data, message: response.data.message ?? '' };
+  },
+
+  async delete(id: number): Promise<string> {
+    const response = await api.delete(`/price-lists/${id}`);
+    return response.data.message ?? '';
+  },
+
+  async getItems(id: number): Promise<PriceListRow[]> {
+    const response = await api.get(`/price-lists/${id}/items`);
+    return response.data.data;
+  },
+
+  /** `price` null takes the product back to its base price. */
+  async saveItems(id: number, items: { product_id: number; price: number | null }[]): Promise<{ data: PriceList; message: string }> {
+    const response = await api.put(`/price-lists/${id}/items`, { items });
+    return { data: response.data.data, message: response.data.message ?? '' };
+  },
+
+  async exportExcel(list: PriceList): Promise<void> {
+    await downloadFile(`/price-lists/${list.id}/export`, `lista_precios_${list.name}.xlsx`);
+  },
+
+  async importExcel(id: number, file: File): Promise<{ data: PriceList; message: string }> {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await api.post(`/price-lists/${id}/import`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return { data: response.data.data, message: response.data.message ?? '' };
+  },
+};
 
 export const productsService = new ProductsService();
 export const productCategoriesService = new ProductCategoriesService();

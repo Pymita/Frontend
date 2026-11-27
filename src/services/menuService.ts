@@ -99,10 +99,26 @@ export const categoriesService = {
    * las categorías ocultas en la app: el Nuevo pedido de la web las vende.
    */
   async getMenuPreview({ withHidden = false }: { withHidden?: boolean } = {}): Promise<MenuCategoryNode[]> {
-    const response = await api.get<ApiResponse<MenuCategoryNode[]>>('/menu/categories', {
-      params: withHidden ? { with_hidden: 1 } : {},
-    });
-    return response.data.data;
+    return (await this.getOrderMenu({ withHidden })).categories;
+  },
+
+  /**
+   * The waiters' menu priced for an order's customer: `price` is what the
+   * API will charge that customer (its price list's, else the base price),
+   * and `priceList` names the list, or null.
+   */
+  async getOrderMenu({ withHidden = false, customerId = null }: { withHidden?: boolean; customerId?: number | null } = {}): Promise<{
+    categories: MenuCategoryNode[];
+    priceList: { id: number; name: string } | null;
+  }> {
+    const params: Record<string, number> = {};
+    if (withHidden) params.with_hidden = 1;
+    if (customerId) params.customer_id = customerId;
+    const response = await api.get<ApiResponse<MenuCategoryNode[]> & { price_list?: { id: number; name: string } | null }>(
+      '/menu/categories',
+      { params },
+    );
+    return { categories: response.data.data, priceList: response.data.price_list ?? null };
   },
 
   async getById(id: number): Promise<Category> {

@@ -21,6 +21,17 @@
 
     <!-- Catálogo: un clic agrega una unidad -->
     <v-col cols="12" md="7">
+      <!-- The customer buys at a price list: the prices below are that list's. -->
+      <v-alert
+        v-if="priceList"
+        type="info"
+        variant="tonal"
+        density="compact"
+        icon="mdi-tag-multiple"
+        class="mb-2"
+      >
+        Precios de la lista «{{ priceList }}»
+      </v-alert>
       <v-text-field
         v-model="search"
         prepend-inner-icon="mdi-magnify"
@@ -133,25 +144,38 @@
             <v-list-item-subtitle>
               {{ money(lineTotal(line.unit_price, line.quantity)) }}
               <span v-if="line.unit"> · {{ money(line.unit_price) }} / {{ line.unit }}</span>
+              <span v-else class="text-caption"> · {{ money(line.unit_price) }} c/u</span>
+              <v-chip v-if="line.price_changed" size="x-small" variant="tonal" class="ml-1">Precio cambiado</v-chip>
             </v-list-item-subtitle>
 
-            <template v-if="!line.unit" #append>
+            <template v-if="canEditPrices || !line.unit" #append>
               <div class="d-flex align-center">
                 <v-btn
-                  icon="mdi-minus"
+                  v-if="canEditPrices"
+                  icon="mdi-pencil-outline"
                   size="x-small"
-                  variant="tonal"
-                  color="secondary"
-                  :aria-label="`Quitar una unidad de ${line.name}`" @click="$emit('remove', line)"
+                  variant="text"
+                  class="mr-1"
+                  :aria-label="`Cambiar el precio de ${line.name}`"
+                  @click="startPrice(line)"
                 />
-                <span class="mx-2 font-weight-bold">{{ line.quantity }}</span>
-                <v-btn
-                  icon="mdi-plus"
-                  size="x-small"
-                  variant="tonal"
-                  color="secondary"
-                  :aria-label="`Agregar una unidad de ${line.name}`" @click="$emit('add', { id: line.menu_item_id, name: line.name, final_price: line.unit_price }, line.guest_number)"
-                />
+                <template v-if="!line.unit">
+                  <v-btn
+                    icon="mdi-minus"
+                    size="x-small"
+                    variant="tonal"
+                    color="secondary"
+                    :aria-label="`Quitar una unidad de ${line.name}`" @click="$emit('remove', line)"
+                  />
+                  <span class="mx-2 font-weight-bold">{{ line.quantity }}</span>
+                  <v-btn
+                    icon="mdi-plus"
+                    size="x-small"
+                    variant="tonal"
+                    color="secondary"
+                    :aria-label="`Agregar una unidad de ${line.name}`" @click="$emit('add', { id: line.menu_item_id, name: line.name, final_price: line.unit_price }, line.guest_number)"
+                  />
+                </template>
               </div>
             </template>
           </v-list-item>
@@ -184,6 +208,20 @@
               :aria-label="`Agregar ${lineQuantity(quantityStep(line.unit), line.unit)} de ${line.name}`" @click="$emit('add', { id: line.menu_item_id, name: line.name, final_price: line.unit_price }, line.guest_number)"
             />
           </div>
+          <!-- "Cambiar precio en pedidos": another price for this line only (per unit of a weighed one), under it at full width. -->
+          <div v-if="editingPrice === line" class="d-flex align-center flex-wrap ga-2 mb-2">
+            <MoneyField
+              v-model="editingPriceValue"
+              :label="`Precio de ${line.name}`"
+              density="compact"
+              hide-details
+              autofocus
+              class="flex-grow-1"
+              @keyup.enter="confirmPrice"
+            />
+            <v-btn size="small" color="primary" variant="tonal" @click="confirmPrice">Aplicar</v-btn>
+            <v-btn size="small" variant="text" @click="editingPrice = null">Cancelar</v-btn>
+          </div>
         </template>
       </v-list>
     </v-col>
@@ -206,6 +244,10 @@ const props = defineProps<{
   existingGuests?: number;
   /** Nombres de las personas (número→nombre); sin nombre se muestra "Persona N". */
   guestNames?: Record<number, string>;
+  /** The price list the menu is priced at (the order's customer's), or null: the base prices. */
+  priceList?: string | null;
+  /** "Cambiar precio en pedidos": each line's price can be typed (the API checks it again). */
+  canEditPrices?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -214,7 +256,22 @@ const emit = defineEmits<{
   /** A weighed line typed by hand: its new quantity (> 0, up to three decimals). */
   quantity: [line: PickedLine, value: number];
   rename: [guest: number, name: string];
+  price: [line: PickedLine, price: number];
 }>();
+
+// The line whose price is being typed, inline as a person's name is.
+const editingPrice = ref<PickedLine | null>(null);
+const editingPriceValue = ref<number | null>(null);
+const startPrice = (line: PickedLine) => {
+  editingPrice.value = line;
+  editingPriceValue.value = line.unit_price;
+};
+const confirmPrice = () => {
+  if (editingPrice.value && editingPriceValue.value !== null) {
+    emit('price', editingPrice.value, editingPriceValue.value);
+  }
+  editingPrice.value = null;
+};
 
 const search = ref('');
 

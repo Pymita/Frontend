@@ -63,7 +63,10 @@ export interface OrderItem {
   paid_quantity: number;
   unpaid_quantity: number;
   unit_price: number;
-  original_price?: number;
+  /** The price it had before someone typed another (the price list's, or the base price). */
+  original_price?: number | null;
+  /** Someone with "Cambiar precio en pedidos" typed `unit_price`. */
+  price_changed?: boolean;
   discount: number;
   total_price: number;
   special_instructions?: string;
@@ -418,6 +421,8 @@ export const ordersService = {
     variant_id?: number | null;
     special_instructions?: string;
     guest_number?: number | null;
+    /** Only a typed price; it needs "Cambiar precio en pedidos". */
+    unit_price?: number;
   }): Promise<Order> {
     const response = await api.post<ApiResponse<Order>>(`/orders/${orderId}/items`, data);
     return response.data.data;
