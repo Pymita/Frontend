@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
-import { API, PLATFORM, acceptPrivacyPolicy, apiLogin, field, issueDocuments, loginUI, pickOption, sidebarItem } from './helpers'
+import { API, PLATFORM, acceptPrivacyPolicy, apiLogin, field, loginUI, pickOption, sidebarItem, uniqueNit } from './helpers'
 
 /**
  * Capa comercial de la plataforma: vendedores, precio acordado en la
@@ -547,18 +547,20 @@ test('la plataforma le dicta una contraseña temporal a una dueña y al entrar d
 })
 
 /**
- * The platform bills its companies through one of them (12.1): its
- * Facturación automática issues the cuenta de cobro, Empresas shows each
- * company's cartera, the detail prints its documents and mails the estado de
- * cuenta, and a subscription payment lands in that Cartera as an abono with
- * its recibo de caja, counted once.
+ * The platform bills its companies as any business bills its customers
+ * (12.1): Plataforma only marks the billing company and links each company
+ * to its customer there (created from the company's data, with its fee).
+ * The charge is then Facturación automática's and Cartera's, worked by the
+ * billing company's own admin; a payment registered in Plataforma is its
+ * abono there, and Empresas reads the balance back.
  */
-test('la plataforma factura a sus empresas con la cartera de su empresa que factura', async ({ page, request }) => {
+test('la plataforma vincula una empresa como cliente de su empresa que factura y el cobro vive en sus módulos', async ({ page, browser, request }) => {
   const token = await apiLogin(request, PLATFORM.email, PLATFORM.password)
   const auth = { Authorization: `Bearer ${token}` }
   const stamp = Date.now()
   const billerName = `SERVIFYPOS E2E ${stamp}`
   const clientName = `Todo Urabá E2E ${stamp}`
+  const { nit, digit } = uniqueNit('8')
 
   const biller = await request.post(`${API}/platform/companies`, {
     headers: auth,
@@ -571,75 +573,69 @@ test('la plataforma factura a sus empresas con la cartera de su empresa que fact
     data: { name: clientName, email: `gerencia.${stamp}@e2e.test`, admin: { name: 'Dueño', email: `uraba.${stamp}@e2e.test`, password: 'clave1234' } },
   })
   const clientId = (await client.json()).data.id
-
-  // Two months ago SERVIFYPOS billed it: due on the 10th, overdue today.
-  const billerToken = await apiLogin(request, `biller.${stamp}@e2e.test`, 'clave1234')
-  const issued = new Date()
-  issued.setDate(1)
-  issued.setMonth(issued.getMonth() - 2)
-  const [document] = await issueDocuments(request, billerToken, [
-    { name: clientName, document_number: `9${String(stamp).slice(-8)}`, monthly_fee: 119000, billing_concept: 'Servicio Alojamiento Web y Procesamiento en la Nube' },
-  ], { issue_date: issued.toLocaleDateString('en-CA') })
+  expect((await request.put(`${API}/platform/companies/${clientId}/subscription`, { headers: auth, data: { monthly_price: 119000 } })).status()).toBe(200)
 
   try {
-    expect((await request.put(`${API}/platform/billing`, { headers: auth, data: { company_id: billerId } })).status()).toBe(200)
-    const customers = await (await request.get(`${API}/platform/billing/customers`, { headers: auth, params: { q: clientName } })).json()
-    expect((await request.put(`${API}/platform/companies/${clientId}/billing`, {
-      headers: auth,
-      data: { customer_id: customers.data[0].id },
-    })).status()).toBe(200)
-
+    // Plataforma: the billing company is marked on its row; another one asks before taking its place.
+    page.on('dialog', dialog => dialog.accept())
     await loginUI(page, PLATFORM.email, PLATFORM.password)
-    await expect(page.getByRole('region', { name: 'Facturación de la plataforma' })).toContainText(`Factura la plataforma: ${billerName}`)
-    // Every company on one page: the list grows with every spec.
     await page.locator('.v-data-table-footer__items-per-page .v-select').click()
     await page.getByRole('option', { name: 'Todos' }).click()
+    await page.getByRole('button', { name: `Facturar la plataforma con ${billerName}` }).click()
+    await expect(page.getByRole('region', { name: 'Facturación de la plataforma' })).toContainText(`Factura la plataforma: ${billerName}.`)
+    await expect(page.locator('tr', { hasText: billerName })).toContainText('Factura la plataforma')
+
+    // Linking creates its customer there with the company's data and its fee.
     const row = page.locator('tr', { hasText: clientName })
-    await expect(row).toContainText('En mora')
-    await expect(row).toContainText('Debe $119.000 · vencido $119.000')
-    await expect(row).toContainText('Sin abonos')
+    await expect(row).toContainText('Sin vincular')
+    await row.getByRole('button', { name: 'Vincular' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText('su cuota de $119.000 en Facturación automática')
+    await expect(field(page, 'Correo (opcional)').locator('input')).toHaveValue(`gerencia.${stamp}@e2e.test`)
+    await field(page, 'Número de documento').locator('input').fill(nit)
+    await expect(dialog).toContainText(`DV ${digit}`)
+    await dialog.getByRole('button', { name: 'Vincular' }).click()
+    await expect(page.getByText(`Se creó el cliente ${clientName} en ${billerName}, con su cuota de $119.000 en Facturación automática.`)).toBeVisible()
+    await expect(row).toContainText('Al día')
+    await expect(row).toContainText(`Cliente ${clientName}`)
 
-    // The detail prints the cuenta de cobro of SERVIFYPOS and mails the estado de cuenta.
-    await row.getByRole('button', { name: `Ver detalle de ${clientName}` }).click()
-    const cartera = page.getByRole('region', { name: 'Cartera con la empresa que factura' })
-    await expect(cartera).toContainText(`Cartera con ${billerName}`)
-    await expect(cartera.locator('tr', { hasText: document.document_number })).toContainText('Vencido')
-    const [popup] = await Promise.all([
-      page.waitForEvent('popup'),
-      cartera.getByRole('button', { name: `Imprimir el documento ${document.document_number}` }).click(),
-    ])
-    await expect(popup.locator('.doc-number')).toContainText(document.document_number)
-    await expect(popup.locator('body')).toContainText(clientName)
-    await expect(popup.locator('body')).toContainText(billerName)
-    await popup.close()
-    await cartera.getByRole('button', { name: 'Enviar estado de cuenta' }).click()
-    await expect(page.getByText(`Estado de cuenta enviado a gerencia.${stamp}@e2e.test.`)).toBeVisible()
-    await page.getByRole('dialog').filter({ has: cartera }).getByRole('button', { name: 'Cerrar', exact: true }).click()
+    // The billing company's admin bills it in Facturación automática and sees it in Cartera.
+    const context = await browser.newContext()
+    const billerPage = await context.newPage()
+    await loginUI(billerPage, `biller.${stamp}@e2e.test`, 'clave1234')
+    await billerPage.goto('/facturacion-automatica')
+    const feeRow = billerPage.locator('tr', { hasText: clientName })
+    await expect(feeRow).toContainText('$119.000')
+    await billerPage.getByRole('button', { name: `Editar y facturar a ${clientName}` }).click()
+    await billerPage.getByRole('dialog').getByRole('button', { name: 'Facturar solo a esta persona' }).click()
+    await expect(billerPage.getByText('Se generó 1 documento')).toBeVisible()
+    await expect(feeRow).toContainText('CC-1 · Por pagar')
+    await billerPage.goto('/cartera')
+    const panel = billerPage.locator('.v-expansion-panel', { hasText: clientName })
+    await expect(panel).toContainText(`${nit}`)
+    await expect(panel).toContainText('$119.000')
 
-    // The payment registered in Plataforma is also the abono in SERVIFYPOS's Cartera.
+    // Empresas reads what it owes from that Cartera.
+    await page.reload()
+    await page.locator('.v-data-table-footer__items-per-page .v-select').click()
+    await page.getByRole('option', { name: 'Todos' }).click()
+    await expect(row).toContainText('Por pagar')
+    await expect(row).toContainText('Debe $119.000')
+
+    // The payment registered in Plataforma is the abono in that Cartera, counted once.
     await row.getByRole('button', { name: `Suscripción de ${clientName}` }).click()
     await page.getByLabel('Monto (COP)').fill('119.000')
-    await expect(page.getByLabel(/Registrar también el abono/)).toBeChecked()
+    await expect(page.getByLabel(/Registrar el abono allí/)).toBeChecked()
     await page.getByRole('button', { name: 'Registrar pago y extender periodo' }).click()
     await expect(page.getByText('Pago registrado y suscripción extendida. Recibo de caja RC-1.')).toBeVisible()
     await expect(row).toContainText('Al día')
 
-    await row.getByRole('button', { name: `Ver detalle de ${clientName}` }).click()
-    const receipt = cartera.locator('tr', { hasText: 'RC-1' })
-    await expect(receipt).toContainText('Pago registrado')
-    await expect(receipt).toContainText('$119.000')
-    const [receiptPopup] = await Promise.all([
-      page.waitForEvent('popup'),
-      receipt.getByRole('button', { name: 'Imprimir el recibo de caja RC-1' }).click(),
-    ])
-    await expect(receiptPopup.locator('body')).toContainText('RECIBO DE CAJA')
-    await expect(receiptPopup.locator('body')).toContainText(`RECIBIMOS DE: ${clientName}`)
-    await receiptPopup.close()
-
-    // Counted once: SERVIFYPOS's Cartera has the abono, Ventas the payment.
-    const receivables = await (await request.get(`${API}/recurring-billing/receivables`, { headers: { Authorization: `Bearer ${billerToken}` } })).json()
-    expect(receivables.data.summary.balance).toBe(0)
+    await billerPage.reload()
+    await expect(billerPage.getByText('Nadie tiene saldo pendiente.')).toBeVisible()
+    await billerPage.getByLabel('Incluir documentos pagados').check()
+    await expect(panel.locator('.v-expansion-panel-title')).toContainText(clientName)
+    await context.close()
   } finally {
-    await request.put(`${API}/platform/billing`, { headers: auth, data: { company_id: null } })
+    await request.put(`${API}/platform/companies/${billerId}`, { headers: auth, data: { is_platform_biller: false } })
   }
 })
