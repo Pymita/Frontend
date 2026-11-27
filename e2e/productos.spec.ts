@@ -594,7 +594,7 @@ test('un producto por kilo se compra, se pide y se factura con decimales', async
   await expect(fraction).toBeChecked()
   await expect(dialog.getByText('En los pedidos escribes la cantidad con decimales, por ejemplo 1,375 kg')).toBeVisible()
   await field(page, 'Precio de venta *').locator('input').fill('5.980')
-  await field(page, 'Impuesto *').locator('.v-field').click()
+  await field(page, 'Impuestos *').locator('.v-field').click()
   await page.getByRole('option', { name: new RegExp(tax) }).click()
   await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
   await expect(page.getByText(/Producto creado/)).toBeVisible()
