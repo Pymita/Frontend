@@ -234,10 +234,11 @@
                   />
                 </v-col>
                 <v-col cols="4" sm="2">
-                  <v-text-field
-                    v-model.number="row.rate"
+                  <MoneyField
+                    v-model="row.rate"
                     label="Tarifa"
-                    type="number"
+                    quantity
+                    empty-as-zero
                     suffix="%"
                     density="compact"
                     hide-details

@@ -2120,6 +2120,7 @@ test('la retención que hace el cliente se sugiere en el abono, salda el documen
   const dialog = page.getByRole('dialog').filter({ hasText: 'FV-2001' })
   const withholding = dialog.getByRole('group', { name: 'Retención que te hizo el cliente' })
   await expect(withholding.getByLabel('Concepto')).toHaveValue('Compras generales')
+  await expect(withholding.getByLabel('Tarifa')).toHaveValue('2,5')
   await expect(withholding.getByLabel('Valor retenido')).toHaveValue('25.000')
   await expect(field(page, 'Valor del abono').locator('input')).toHaveValue('975.000')
   if (process.env.FV4_SHOTS) {
@@ -2134,10 +2135,10 @@ test('la retención que hace el cliente se sugiere en el abono, salda el documen
   await dialog.getByRole('button', { name: 'Registrar abono' }).click()
   await expect(page.getByText('Abono registrado: el documento quedó pagado')).toBeVisible()
   await expect(dialog).toContainText('Te retuvieron')
-  await expect(dialog).toContainText('Retención: Compras generales 2.5% sobre $1.000.000 = $25.000')
+  await expect(dialog).toContainText('Retención: Compras generales 2,5% sobre $1.000.000 = $25.000')
 
   const [receipt] = await Promise.all([page.waitForEvent('popup'), dialog.getByRole('button', { name: /Imprimir recibo RC-/ }).click()])
-  await expect(receipt.locator('.totals')).toContainText('RETENCIÓN COMPRAS GENERALES 2.5%: $25.000')
+  await expect(receipt.locator('.totals')).toContainText('RETENCIÓN COMPRAS GENERALES 2,5%: $25.000')
   await expect(receipt.locator('.totals')).toContainText('TOTAL RECIBIDO: $975.000')
   await expect(receipt.locator('tbody tr').first()).toContainText('$0')
   await receipt.close()
