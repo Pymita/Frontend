@@ -40,6 +40,9 @@ export interface Customer {
   joined_at?: string | null
   /** Its segments, in reading order. */
   segments?: CustomerSegmentRef[]
+  /** The price list it buys at; null: its segment's list, else the base price. */
+  price_list_id?: number | null
+  price_list?: { id: number; name: string } | null
   created_at: string
   updated_at: string
 }
@@ -52,10 +55,13 @@ export interface CustomerSegmentRef {
 
 export interface CustomerSegment extends CustomerSegmentRef {
   customers_count: number
+  /** Its customers without a list of their own buy at this one. */
+  price_list_id?: number | null
+  price_list?: { id: number; name: string } | null
 }
 
 /** What the customer forms send: `segment_ids` leaves the customer with exactly those segments. */
-export type CustomerPayload = Partial<Omit<Customer, 'segments'>> & { segment_ids?: number[] }
+export type CustomerPayload = Partial<Omit<Customer, 'segments' | 'price_list'>> & { segment_ids?: number[] }
 
 /** A customer as `GET /customers/lookup` answers it: whoever takes orders never reads their contact data. */
 export type CustomerLookup = Pick<Customer, 'id' | 'name' | 'document_type' | 'document_number' | 'verification_digit'>
@@ -407,7 +413,7 @@ const receivableParams = (filters: ReceivableFilters): Record<string, string | n
   return params
 }
 
-const downloadFile = async (url: string, filename: string): Promise<void> => {
+export const downloadFile = async (url: string, filename: string): Promise<void> => {
   const response = await api.get(url, { responseType: 'blob' })
   const link = document.createElement('a')
   link.href = URL.createObjectURL(response.data as Blob)
@@ -439,9 +445,15 @@ export const billingService = {
     return response.data.data
   },
 
-  /** Customers to pick for an order or a sale, by name or document; the first 50 when `q` is empty. */
-  async lookupCustomers(q = ''): Promise<CustomerLookup[]> {
-    const response = await api.get<ApiResponse<CustomerLookup[]>>('/customers/lookup', { params: q ? { q } : {} })
+  /**
+   * Customers to pick for an order or a sale, by name or document; the first
+   * 50 when `q` is empty. `segmentId` keeps only that segment's (a seller's zone).
+   */
+  async lookupCustomers(q = '', segmentId: number | null = null): Promise<CustomerLookup[]> {
+    const params: Record<string, string | number> = {}
+    if (q) params.q = q
+    if (segmentId) params.segment_id = segmentId
+    const response = await api.get<ApiResponse<CustomerLookup[]>>('/customers/lookup', { params })
     return response.data.data
   },
 
@@ -465,13 +477,20 @@ export const billingService = {
     return response.data.data
   },
 
-  async createSegment(name: string): Promise<{ data: CustomerSegment; message: string }> {
-    const response = await api.post<ApiResponse<CustomerSegment>>('/customer-segments', { name })
+  async createSegment(name: string, priceListId?: number | null): Promise<{ data: CustomerSegment; message: string }> {
+    const response = await api.post<ApiResponse<CustomerSegment>>('/customer-segments', {
+      name,
+      ...(priceListId !== undefined ? { price_list_id: priceListId } : {}),
+    })
     return { data: response.data.data, message: response.data.message ?? '' }
   },
 
-  async renameSegment(id: number, name: string): Promise<{ data: CustomerSegment; message: string }> {
-    const response = await api.put<ApiResponse<CustomerSegment>>(`/customer-segments/${id}`, { name })
+  /** Its name, and its price list when `priceListId` is given (null: none). */
+  async renameSegment(id: number, name: string, priceListId?: number | null): Promise<{ data: CustomerSegment; message: string }> {
+    const response = await api.put<ApiResponse<CustomerSegment>>(`/customer-segments/${id}`, {
+      name,
+      ...(priceListId !== undefined ? { price_list_id: priceListId } : {}),
+    })
     return { data: response.data.data, message: response.data.message ?? '' }
   },
 

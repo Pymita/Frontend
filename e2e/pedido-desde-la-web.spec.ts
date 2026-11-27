@@ -742,3 +742,128 @@ test('una mesa reservada no se puede elegir para un pedido y el API la rechaza',
   expect(accepted.status()).toBe(201)
   await request.post(`${API}/orders/${(await accepted.json()).data.id}/cancel`, { headers: auth })
 })
+
+/**
+ * Price lists (fruver): a customer of a zone buys at its segment's list.
+ * Nuevo pedido filters the customers by segment, shows the list's prices and
+ * charges them; a typed price needs "Cambiar precio en pedidos".
+ */
+async function priceListForZone(request: any, auth: Record<string, string>, stamp: number, product: string, base: number, listPrice: number) {
+  const { productId } = await seedMenuItem(request, auth, product, base)
+  const list = await request.post(`${API}/price-lists`, { headers: auth, data: { name: `Mayoristas ${stamp}`, description: 'Restaurantes de la zona' } })
+  expect(list.status(), await list.text()).toBe(201)
+  const listId = (await list.json()).data.id
+  expect((await request.put(`${API}/price-lists/${listId}/items`, { headers: auth, data: { items: [{ product_id: productId, price: listPrice }] } })).ok()).toBeTruthy()
+  const segment = await request.post(`${API}/customer-segments`, { headers: auth, data: { name: `Zona ${stamp}`, price_list_id: listId } })
+  expect(segment.status(), await segment.text()).toBe(201)
+  const segmentId = (await segment.json()).data.id
+  const inZone = `Restaurante Zona ${stamp}`
+  const customerId = await createCustomer(request, auth, inZone, String(stamp).slice(-9))
+  expect((await request.post(`${API}/customer-segments/${segmentId}/customers`, { headers: auth, data: { customer_ids: [customerId] } })).ok()).toBeTruthy()
+  const outside = `Restaurante Fuera ${stamp}`
+  await createCustomer(request, auth, outside, String(stamp + 1).slice(-9))
+  return { productId, listId, segment: `Zona ${stamp}`, list: `Mayoristas ${stamp}`, inZone, outside, customerId }
+}
+
+test('un cliente de una zona compra con la lista de su segmento, y quien tiene el permiso cambia el precio', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const product = `Tomate chonto ${stamp}`
+  const zone = await priceListForZone(request, auth, stamp, product, 5000, 4200)
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  const dialog = page.getByRole('dialog')
+
+  // The zone shows only its customers.
+  await dialog.locator('.v-input').filter({ has: page.getByText('Segmento', { exact: true }) }).click()
+  await (await scrollToOption(page, `${zone.segment} (1)`)).click()
+  const customerBox = dialog.getByRole('combobox', { name: 'Cliente' })
+  await customerBox.click()
+  await expect(page.getByRole('option', { name: new RegExp(zone.inZone) })).toBeVisible()
+  await expect(page.getByRole('option', { name: new RegExp(zone.outside) })).toHaveCount(0)
+  await page.getByRole('option', { name: new RegExp(zone.inZone) }).click()
+
+  // Its list's prices, named, before and after adding.
+  await expect(dialog.getByText(`Precios de la lista «${zone.list}»`)).toBeVisible()
+  await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill(product)
+  await expect(dialog.getByRole('listitem').filter({ hasText: product }).first()).toContainText('$4.200')
+  await dialog.getByText(product, { exact: true }).click()
+  await expect(dialog.getByText('Total: $4.200')).toBeVisible()
+
+  // The admin types another price for this order only.
+  await dialog.getByRole('button', { name: `Cambiar el precio de ${product}` }).click()
+  await dialog.getByRole('textbox', { name: `Precio de ${product}` }).fill('4.000')
+  await dialog.getByRole('button', { name: 'Aplicar' }).click()
+  await expect(dialog.getByText('Precio cambiado')).toBeVisible()
+  await expect(dialog.getByText('Total: $4.000')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Crear pedido' }).click()
+  await expect(page.getByText('Pedido creado')).toBeVisible()
+
+  const row = page.locator('tbody tr', { hasText: zone.inZone })
+  await expect(row).toContainText('$4.000')
+  await row.locator('.mdi-chevron-down').click()
+  await expect(page.getByText('antes $4.200')).toBeVisible()
+
+  const orders = (await (await request.get(`${API}/orders?customer_id=${zone.customerId}`, { headers: auth })).json()).data
+  expect(orders[0].items.map((item: any) => [item.unit_price, item.original_price, item.price_changed])).toEqual([[4000, 4200, true]])
+
+  // The next order remembers the zone in this browser.
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  await expect(dialog.locator('.v-input').filter({ has: page.getByText('Segmento', { exact: true }) })).toContainText(zone.segment)
+})
+
+test('sin el permiso Cambiar precio en pedidos el vendedor no escribe precios; con él, sí', async ({ page, request }) => {
+  await raisePlanLimits(request, { max_users: 50 })
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const product = `Papa pastusa ${stamp}`
+  const zone = await priceListForZone(request, auth, stamp, product, 3000, 2600)
+  const seller = { username: `vendedor.precios.${stamp}`, password: 'secreto123' }
+  const created = await request.post(`${API}/users`, {
+    headers: auth,
+    data: { name: 'Vendedor de zona', role: 'employee', permissions: ['orders', 'customers'], ...seller },
+  })
+  expect(created.status()).toBe(201)
+  const sellerId = (await created.json()).data.id
+  const order = await request.post(`${API}/orders`, { headers: auth, data: { customer_id: zone.customerId, items: [{ product_id: zone.productId, quantity: 2 }] } })
+  expect((await order.json()).data.total).toBe(5200)
+
+  await loginUI(page, seller.username, seller.password)
+  await page.goto('/pedidos')
+  const row = page.locator('tbody tr', { hasText: zone.inZone })
+  await expect(row).toContainText('$5.200')
+  await row.locator('.mdi-chevron-down').click()
+  await page.getByRole('button', { name: `Editar ${product}` }).click()
+  const edit = page.getByRole('dialog').filter({ hasText: 'Editar item' })
+  await expect(edit.getByLabel('Cantidad')).toBeVisible()
+  await expect(edit.getByRole('textbox', { name: 'Precio unitario' })).toHaveCount(0)
+  await edit.getByRole('button', { name: 'Cancelar' }).click()
+
+  // Nuevo pedido: the lines take no typed price either.
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Nuevo pedido' })
+  await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill(product)
+  await dialog.getByText(product, { exact: true }).click()
+  await expect(dialog.getByRole('button', { name: `Cambiar el precio de ${product}` })).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+
+  // The admin grants it; on the next sign-in the seller changes the price.
+  expect((await request.put(`${API}/users/${sellerId}`, { headers: auth, data: { can_change_order_prices: true } })).ok()).toBeTruthy()
+  await page.context().clearCookies()
+  await page.evaluate(() => localStorage.clear())
+  await loginUI(page, seller.username, seller.password)
+  await page.goto('/pedidos')
+  await row.locator('.mdi-chevron-down').click()
+  await page.getByRole('button', { name: `Editar ${product}` }).click()
+  await expect(edit.getByRole('textbox', { name: 'Precio unitario' })).toHaveValue('2.600')
+  await expect(edit.getByRole('textbox', { name: 'Descuento' })).toHaveCount(0)
+  await edit.getByRole('textbox', { name: 'Precio unitario' }).fill('2.500')
+  await edit.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Item actualizado')).toBeVisible()
+  await expect(row).toContainText('$5.000')
+  await expect(page.getByText('antes $2.600')).toBeVisible()
+})

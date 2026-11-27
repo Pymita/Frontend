@@ -34,6 +34,8 @@ const props = defineProps<{
   finalConsumer?: boolean
   /** Customers the page already holds (one just created, the order's own), so the chosen one reads its name. */
   known?: Option[]
+  /** Only this segment's customers (a seller's zone); null: all of them. */
+  segmentId?: number | null
 }>()
 
 const model = defineModel<number | null>({ default: null })
@@ -71,7 +73,7 @@ const lookup = async (q: string) => {
   loaded = q
   loading.value = true
   try {
-    const found = await billingService.lookupCustomers(q)
+    const found = await billingService.lookupCustomers(q, props.segmentId ?? null)
     if (request === latest) {
       results.value = found
       error.value = ''
@@ -92,6 +94,9 @@ watch(search, text => {
   if (q === loaded || (q !== '' && q === shown)) return
   timer = setTimeout(() => lookup(q), 250)
 })
+
+// Another segment is another list: it opens on its first customers.
+watch(() => props.segmentId, () => lookup(''))
 
 onMounted(() => lookup(''))
 onBeforeUnmount(() => clearTimeout(timer))

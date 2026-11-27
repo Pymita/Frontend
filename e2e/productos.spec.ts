@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { ADMIN, API, apiLogin, field, freezeTime, loginUI, pickOption } from './helpers'
+import { readFileSync } from 'node:fs'
+import { ADMIN, API, apiLogin, createCompany, field, freezeTime, loginUI, pickOption, xlsxRows } from './helpers'
 
 /**
  * Crear varios productos (por API, rápido) y verificar que la tabla de
@@ -559,4 +560,65 @@ test('un combo se arma en Productos, se vende desde Nuevo pedido y el kardex y V
   const margin = Math.round(((price - 6500) * 1000) / price) / 10
   await expect(sale).toContainText(`${margin.toLocaleString('es-CO', { maximumFractionDigits: 1 })} %`)
   await expect(sale).not.toContainText('estimado')
+})
+
+/**
+ * Listas de precios (a fruver sells the same products at other prices to
+ * some customers): the tab creates a list and prices products in it, the
+ * product form shows and changes its price per list, and Excel goes both ways.
+ */
+test('Listas de precios: se crea una lista, se ponen precios y el producto los muestra en su formulario', async ({ page, request }) => {
+  const company = await createCompany(request, 'listas-precios', { business_type: 'store' })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const stamp = Date.now()
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `Verduras ${stamp}` } })
+  const categoryId = (await category.json()).data.id
+  const taxId = (await (await request.get(`${API}/taxes`, { headers: auth })).json()).data[0].id
+  for (const [name, price] of [['Tomate chonto', 4000], ['Cebolla cabezona', 3200]] as const) {
+    const created = await request.post(`${API}/products`, {
+      headers: auth,
+      data: { name, type: 'final', unit: 'kg', sale_price: price, tracks_stock: false, category_id: categoryId, tax_id: taxId, menu: { base_price: price } },
+    })
+    expect(created.status(), await created.text()).toBe(201)
+  }
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/productos-base')
+  await page.getByRole('tab', { name: 'Listas de precios' }).click()
+  await expect(page.getByText('Todavía no tienes listas.', { exact: false })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Nueva lista' }).click()
+  const listDialog = page.getByRole('dialog').filter({ hasText: 'Nueva lista de precios' })
+  await listDialog.getByRole('textbox', { name: 'Nombre' }).fill('Mayoristas')
+  await listDialog.getByRole('textbox', { name: 'Para quién es (opcional)' }).fill('Restaurantes del centro')
+  await listDialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Lista de precios «Mayoristas» creada.')).toBeVisible()
+  await expect(page.getByText('Precios de «Mayoristas»')).toBeVisible()
+
+  // Empty means the base price; the typed one is the list's.
+  await expect(page.getByRole('row', { name: /Tomate chonto/ })).toContainText('$4.000')
+  await page.getByRole('textbox', { name: 'Precio de Tomate chonto en la lista Mayoristas' }).fill('3.500')
+  await expect(page.getByText('1 precio sin guardar')).toBeVisible()
+  await page.getByRole('button', { name: 'Guardar precios' }).click()
+  await expect(page.getByText('Precios guardados.')).toBeVisible()
+  await expect(page.getByRole('listitem').filter({ hasText: 'Mayoristas' })).toContainText('1 precio')
+
+  // The Excel brings every product, its base price and the list's.
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Descargar Excel' }).click()
+  const rows = xlsxRows(readFileSync(await (await download).path()))
+  expect(rows[0]).toEqual(['codigo', 'producto', 'unidad', 'precio_base', 'precio_lista'])
+  expect(rows.find(row => row[1] === 'Tomate chonto')?.slice(3)).toEqual(['4000', '3500'])
+
+  // The product form shows its price in the list and changes it.
+  await page.getByRole('tab', { name: 'Productos' }).click()
+  await page.getByRole('button', { name: 'Editar Cebolla cabezona' }).click()
+  const form = page.getByRole('dialog').filter({ hasText: 'Editar producto' })
+  await form.getByRole('button', { name: 'Listas de precios · precio base en todas' }).click()
+  await form.getByRole('textbox', { name: 'Mayoristas' }).fill('2.900')
+  await form.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Producto actualizado', { exact: false })).toBeVisible()
+  const lists = (await (await request.get(`${API}/price-lists`, { headers: auth })).json()).data
+  expect(lists[0].items_count).toBe(2)
 })

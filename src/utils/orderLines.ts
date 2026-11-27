@@ -9,6 +9,8 @@ export interface PickedLine {
   quantity: number;
   /** Cuentas separadas: persona de la mesa (null = compartido) */
   guest_number: number | null;
+  /** Typed by someone with "Cambiar precio en pedidos": sent as `unit_price`, kept when the customer changes. */
+  price_changed?: boolean;
 }
 
 /**
@@ -62,3 +64,29 @@ export const guestsIn = (lines: PickedLine[]): number =>
 /** The name given to the person, else "Persona N": the same rule as the API's `Order::guestLabel()`. */
 export const guestLabel = (guest: number | null | undefined, names?: Record<number, string> | null): string =>
   guest ? names?.[guest]?.trim() || `Persona ${guest}` : 'Compartido';
+
+/** A price typed for the line ("Cambiar precio en pedidos"); the API checks the permission again. */
+export const setLinePrice = (line: PickedLine, price: number): void => {
+  line.unit_price = price;
+  line.price_changed = true;
+};
+
+/**
+ * The menu came back priced for another customer (its price list): every
+ * line nobody typed a price for takes the new one, as the API will charge it.
+ */
+export const repriceLines = (lines: PickedLine[], menuItems: any[]): void => {
+  for (const line of lines) {
+    if (line.price_changed) continue;
+    const item = menuItems.find(candidate => candidate.id === line.menu_item_id);
+    if (item) line.unit_price = priceOf(item);
+  }
+};
+
+/** What `POST /orders` and `/orders/{id}/items` take for a line: the price only when it was typed. */
+export const linePayload = (line: PickedLine) => ({
+  menu_item_id: line.menu_item_id,
+  quantity: line.quantity,
+  guest_number: line.guest_number ?? undefined,
+  ...(line.price_changed ? { unit_price: line.unit_price } : {}),
+});

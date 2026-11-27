@@ -125,6 +125,9 @@
                       {{ segment.name }}
                     </v-chip>
                   </div>
+                  <div v-if="item.price_list" class="text-caption text-medium-emphasis mb-1">
+                    <v-icon size="x-small" icon="mdi-tag-multiple" /> Lista {{ item.price_list.name }}
+                  </div>
                 </template>
 
                 <template #item.joined_at="{ item }">
@@ -403,6 +406,18 @@
                   creatable
                   @created="onSegmentCreated" />
               </v-col>
+
+              <!-- The prices orders take for this customer; without one, its segment's list or the base price. -->
+              <v-col v-if="priceLists.length" cols="12" md="6">
+                <v-select
+                  v-model="formData.price_list_id"
+                  :items="customerPriceListOptions"
+                  label="Lista de precios"
+                  variant="outlined"
+                  density="comfortable"
+                  :hint="customerPriceListHint"
+                  persistent-hint />
+              </v-col>
             </v-row>
           </v-form>
         </v-card-text>
@@ -555,6 +570,19 @@
                 <v-list-item-subtitle>
                   {{ segment.customers_count === 1 ? '1 cliente' : `${segment.customers_count} clientes` }}
                 </v-list-item-subtitle>
+                <!-- Its customers without a list of their own buy at this one. -->
+                <v-select
+                  v-if="priceLists.length"
+                  :model-value="segment.price_list_id ?? null"
+                  :items="segmentPriceListOptions"
+                  :label="`Lista de precios de ${segment.name}`"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  class="mt-2"
+                  max-width="320"
+                  :disabled="isReadOnly"
+                  @update:model-value="(id: number | null) => setSegmentPriceList(segment, id)" />
               </template>
               <template #append>
                 <template v-if="renaming?.id === segment.id">
@@ -663,6 +691,7 @@ import CustomerImportDialog from '../components/CustomerImportDialog.vue'
 import CustomerSegmentPicker from '../components/CustomerSegmentPicker.vue'
 import DateField from '../components/DateField.vue'
 import LockableButton from '../components/LockableButton.vue'
+import { priceListsService, type PriceList } from '@/services/productsService'
 import { useReadOnly } from '../composables/useReadOnly'
 import { PAGE_SIZE_OPTIONS, useServerPage } from '../composables/useServerPage'
 
@@ -684,6 +713,7 @@ interface ClienteForm {
   frequent_customer: boolean
   joined_at: string
   segment_ids: number[]
+  price_list_id: number | null
 }
 
 const dialog = ref(false)
@@ -733,6 +763,7 @@ const emptyForm = (): ClienteForm => ({
   frequent_customer: false,
   joined_at: todayIso(),
   segment_ids: [],
+  price_list_id: null,
 })
 
 const formData = ref<ClienteForm>(emptyForm())
@@ -752,6 +783,46 @@ const onCustomersImported = (message: string) => {
 
 const rules = {
   required: (v: any) => !!v || 'Este campo es requerido',
+}
+
+// ===== Listas de precios (they are managed in Productos) =====
+const priceLists = ref<PriceList[]>([])
+const loadPriceLists = async () => {
+  try {
+    priceLists.value = await priceListsService.getAll()
+  } catch {
+    // Optional: without them the forms keep working as before.
+    priceLists.value = []
+  }
+}
+const listOption = (list: PriceList) => ({ title: list.active ? list.name : `${list.name} (inactiva)`, value: list.id })
+const customerPriceListOptions = computed(() => [
+  { title: 'Sin lista propia', value: null },
+  ...priceLists.value.map(listOption),
+])
+const segmentPriceListOptions = computed(() => [
+  { title: 'Sin lista de precios', value: null },
+  ...priceLists.value.map(listOption),
+])
+// What the customer buys at without a list of its own: the first segment with one, by name, as the API decides.
+const customerPriceListHint = computed(() => {
+  if (formData.value.price_list_id) return 'Los pedidos de este cliente toman los precios de esta lista'
+  const fromSegment = segments.value
+    .filter(segment => formData.value.segment_ids.includes(segment.id) && segment.price_list)
+    .sort(byName)[0]
+  return fromSegment
+    ? `Sin lista propia compra con la de su segmento ${fromSegment.name}: ${fromSegment.price_list!.name}`
+    : 'Sin lista propia compra al precio base'
+})
+
+const setSegmentPriceList = async (segment: CustomerSegment, priceListId: number | null) => {
+  try {
+    const { message } = await billingService.renameSegment(segment.id, segment.name, priceListId)
+    showMessage(message, 'success')
+    await loadSegments()
+  } catch (error) {
+    showMessage(errorMessage(error, 'No fue posible guardar la lista del segmento. Inténtalo de nuevo.'), 'error')
+  }
 }
 
 // ===== Segmentos =====
@@ -922,6 +993,7 @@ const openDialog = (cliente?: Customer) => {
       frequent_customer: cliente.frequent_customer ?? false,
       joined_at: cliente.joined_at ?? todayIso(),
       segment_ids: (cliente.segments ?? []).map(segment => segment.id),
+      price_list_id: cliente.price_list_id ?? null,
     }
   } else {
     formData.value = emptyForm()
@@ -1117,5 +1189,6 @@ onMounted(() => {
   loadClientes()
   loadSegments()
   loadSuppliers()
+  loadPriceLists()
 })
 </script>

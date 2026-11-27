@@ -2,7 +2,7 @@
   <v-container fluid>
     <v-row>
       <v-col cols="12">
-        <div class="d-flex justify-space-between align-center mb-4">
+        <div class="d-flex justify-space-between align-center flex-wrap ga-2 mb-4">
           <div>
             <h1 class="text-h4">Productos</h1>
             <p class="text-body-1 text-medium-emphasis">
@@ -30,6 +30,15 @@
       </v-col>
     </v-row>
 
+    <!-- Same products at other prices for some customers: a view of this page, not another page. -->
+    <v-tabs v-model="view" color="primary" density="compact" class="mb-4">
+      <v-tab value="products">Productos</v-tab>
+      <v-tab value="price-lists">Listas de precios</v-tab>
+    </v-tabs>
+
+    <PriceListsPanel v-if="view === 'price-lists'" @message="showMessage" />
+
+    <template v-else>
     <!-- Filtros -->
     <v-row>
       <v-col cols="12">
@@ -256,6 +265,7 @@
         </v-card>
       </v-col>
     </v-row>
+    </template>
 
     <!-- Dialog Producto: ancho y en columnas a propósito, para que a 1440×900
          quepa sin desplazarse (e2e productos lo comprueba) -->
@@ -613,6 +623,34 @@
                   persistent-hint
                   class="mt-2"
                 />
+
+                <!-- Its price for the customers of each list; empty: the base price.
+                     Folded, so the form still fits 1440×900 (e2e productos). -->
+                <template v-if="priceLists.length">
+                  <v-btn
+                    variant="text"
+                    color="primary"
+                    size="small"
+                    class="mt-3 px-1"
+                    :append-icon="showListPrices ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+                    :aria-expanded="showListPrices"
+                    @click="showListPrices = !showListPrices"
+                  >
+                    Listas de precios · {{ listPricesSummary }}
+                  </v-btn>
+                  <template v-if="showListPrices">
+                  <p class="text-caption text-medium-emphasis mb-2">Vacío: se vende al precio base</p>
+                  <MoneyField
+                    v-for="list in priceLists"
+                    :key="list.id"
+                    v-model="listPrices[list.id]"
+                    :label="list.active ? list.name : `${list.name} (inactiva)`"
+                    :placeholder="money(menuForm.base_price ?? formData.sale_price ?? 0)"
+                    density="compact"
+                    class="mb-1"
+                  />
+                  </template>
+                </template>
               </v-col>
             </v-row>
 
@@ -765,6 +803,8 @@ import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'
 import ProductImportDialog from '../components/ProductImportDialog.vue'
+import PriceListsPanel from '../components/PriceListsPanel.vue'
+import { priceListsService, type PriceList } from '@/services/productsService'
 import { useReadOnly } from '../composables/useReadOnly'
 import { PAGE_SIZE_OPTIONS, useServerPage } from '../composables/useServerPage'
 
@@ -779,6 +819,24 @@ const NO_CATEGORY = 'none' as const;
 const NO_CATEGORY_WARNING = 'Sin categoría no sale en el menú de la app hasta que le asignes una.';
 
 const categorias = ref<Category[]>([]);
+const view = ref<'products' | 'price-lists'>('products');
+
+// The product form shows and saves its price in each list (list id → price, null: base price).
+const priceLists = ref<PriceList[]>([]);
+const listPrices = ref<Record<number, number | null>>({});
+const showListPrices = ref(false);
+const listPricesSummary = computed(() => {
+  const priced = Object.values(listPrices.value).filter(price => price !== null && price !== undefined).length;
+  return priced === 0 ? 'precio base en todas' : priced === 1 ? '1 con precio propio' : `${priced} con precio propio`;
+});
+const loadPriceLists = async () => {
+  try {
+    priceLists.value = await priceListsService.getAll();
+  } catch {
+    // Optional in the form: without them the product saves as always.
+    priceLists.value = [];
+  }
+};
 const saving = ref(false);
 const tipoFilter = ref('');
 const filterCategoria = ref<number | typeof NO_CATEGORY | null>(null);
@@ -1189,6 +1247,15 @@ const openDialog = (product?: Product, forceMenu = false) => {
         minimum_stock: null,
         is_combo: false,
       };
+  // Lists created in the other tab since the page opened show up too.
+  const fillListPrices = () => {
+    listPrices.value = Object.fromEntries(
+      priceLists.value.map(list => [list.id, product?.price_list_prices?.find(entry => entry.price_list_id === list.id)?.price ?? null]),
+    );
+  };
+  fillListPrices();
+  showListPrices.value = false;
+  loadPriceLists().then(fillListPrices);
   components.value = (product?.components ?? []).map(component => ({
     key: ++componentKey,
     product_id: component.product_id,
@@ -1273,6 +1340,10 @@ const save = async () => {
             },
           }
         : {}),
+      // Only the lists it saw: a list created meanwhile keeps what it has.
+      price_list_prices: formData.value.type === 'final'
+        ? priceLists.value.map(list => ({ price_list_id: list.id, price: listPrices.value[list.id] ?? null }))
+        : undefined,
       // SKU vacío: lo genera el backend (secuencial por empresa).
       sku: formData.value.sku?.trim() || undefined,
       barcode: formData.value.barcode?.trim() || null,

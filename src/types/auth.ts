@@ -96,6 +96,8 @@ export interface User {
   can_edit_kardex?: boolean
   /** "Contabilidad" inside Informes: configures the accounts and downloads the accounting movement (admin always). */
   can_use_accounting?: boolean
+  /** "Cambiar precio en pedidos": types another price on an order's product, web and app (admin always). */
+  can_change_order_prices?: boolean
   /** Verificación en dos pasos (solo la cuenta de plataforma la usa). */
   two_factor?: { enabled: boolean; setup_required: boolean }
   /** Signed in with a temporary password the platform dictated: the API answers 403 until it is changed. */
