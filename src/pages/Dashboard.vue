@@ -161,7 +161,7 @@
                   {{ plural(product.documents_count ?? 0, 'documento', 'documentos') }}
                 </v-list-item-subtitle>
                 <v-list-item-subtitle v-else>
-                  {{ product.sold }} {{ product.sold === 1 ? 'vendido' : 'vendidos' }} · {{ product.orders_count }} {{ product.orders_count === 1 ? 'pedido' : 'pedidos' }}
+                  {{ quantity(product.sold) }} {{ product.sold === 1 ? 'vendido' : 'vendidos' }} · {{ product.orders_count }} {{ product.orders_count === 1 ? 'pedido' : 'pedidos' }}
                 </v-list-item-subtitle>
                 <v-progress-linear
                   :model-value="product.share"

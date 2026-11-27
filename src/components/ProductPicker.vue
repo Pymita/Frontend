@@ -40,7 +40,7 @@
           v-for="item in filteredItems"
           :key="item.id"
           :title="item.name"
-          :subtitle="money(priceOf(item))"
+          :subtitle="item.sold_by_fraction ? `${money(priceOf(item))} / ${fractionUnitOf(item)}` : money(priceOf(item))"
           @click="$emit('add', item, guest)"
         >
           <template #append>
@@ -116,57 +116,86 @@
       </p>
 
       <v-list v-else density="compact">
-        <v-list-item
-          v-for="line in selection"
-          :key="`${line.menu_item_id}-${line.guest_number ?? 0}`"
-          class="px-0"
-        >
-          <v-list-item-title class="text-body-2">
-            <v-chip
-              v-if="line.guest_number"
-              size="x-small"
-              color="primary"
-              variant="tonal"
-              class="mr-1"
-            >
-              {{ guestLabel(line.guest_number, guestNames) }}
-            </v-chip>
-            {{ line.name }}
-          </v-list-item-title>
-          <v-list-item-subtitle>
-            {{ money(line.unit_price * line.quantity) }}
-          </v-list-item-subtitle>
+        <template v-for="line in selection" :key="`${line.menu_item_id}-${line.guest_number ?? 0}`">
+          <v-list-item class="px-0">
+            <v-list-item-title class="text-body-2">
+              <v-chip
+                v-if="line.guest_number"
+                size="x-small"
+                color="primary"
+                variant="tonal"
+                class="mr-1"
+              >
+                {{ guestLabel(line.guest_number, guestNames) }}
+              </v-chip>
+              {{ line.name }}
+            </v-list-item-title>
+            <v-list-item-subtitle>
+              {{ money(lineTotal(line.unit_price, line.quantity)) }}
+              <span v-if="line.unit"> · {{ money(line.unit_price) }} / {{ line.unit }}</span>
+            </v-list-item-subtitle>
 
-          <template #append>
-            <div class="d-flex align-center">
-              <v-btn
-                icon="mdi-minus"
-                size="x-small"
-                variant="tonal"
-                color="secondary"
-                :aria-label="`Quitar una unidad de ${line.name}`" @click="$emit('remove', line)"
-              />
-              <span class="mx-2 font-weight-bold">{{ line.quantity }}</span>
-              <v-btn
-                icon="mdi-plus"
-                size="x-small"
-                variant="tonal"
-                color="secondary"
-                :aria-label="`Agregar una unidad de ${line.name}`" @click="$emit('add', { id: line.menu_item_id, name: line.name, final_price: line.unit_price }, line.guest_number)"
-              />
-            </div>
-          </template>
-        </v-list-item>
+            <template v-if="!line.unit" #append>
+              <div class="d-flex align-center">
+                <v-btn
+                  icon="mdi-minus"
+                  size="x-small"
+                  variant="tonal"
+                  color="secondary"
+                  :aria-label="`Quitar una unidad de ${line.name}`" @click="$emit('remove', line)"
+                />
+                <span class="mx-2 font-weight-bold">{{ line.quantity }}</span>
+                <v-btn
+                  icon="mdi-plus"
+                  size="x-small"
+                  variant="tonal"
+                  color="secondary"
+                  :aria-label="`Agregar una unidad de ${line.name}`" @click="$emit('add', { id: line.menu_item_id, name: line.name, final_price: line.unit_price }, line.guest_number)"
+                />
+              </div>
+            </template>
+          </v-list-item>
+          <!-- Lo pesado se escribe como lo marca la balanza ("1,375", coma o punto), debajo del nombre para que este no se corte. -->
+          <div v-if="line.unit" class="d-flex align-center mb-2">
+            <v-btn
+              icon="mdi-minus"
+              size="x-small"
+              variant="tonal"
+              color="secondary"
+              :aria-label="`Quitar ${lineQuantity(quantityStep(line.unit), line.unit)} de ${line.name}`" @click="$emit('remove', line)"
+            />
+            <MoneyField
+              quantity
+              :model-value="line.quantity"
+              :suffix="line.unit"
+              :aria-label="`Cantidad de ${line.name} en ${line.unit}`"
+              density="compact"
+              variant="outlined"
+              hide-details="auto"
+              width="140"
+              class="mx-2 flex-grow-0"
+              @update:model-value="(value: number | null) => value && value > 0 && $emit('quantity', line, value)"
+            />
+            <v-btn
+              icon="mdi-plus"
+              size="x-small"
+              variant="tonal"
+              color="secondary"
+              :aria-label="`Agregar ${lineQuantity(quantityStep(line.unit), line.unit)} de ${line.name}`" @click="$emit('add', { id: line.menu_item_id, name: line.name, final_price: line.unit_price }, line.guest_number)"
+            />
+          </div>
+        </template>
       </v-list>
     </v-col>
   </v-row>
 </template>
 
 <script setup lang="ts">
-import { money } from '@/utils/money'
+import { lineQuantity, money, quantityStep } from '@/utils/money'
+import MoneyField from './MoneyField.vue'
 import { computed, ref, watch } from 'vue';
 import type { MenuCategoryNode } from '@/services/menuService';
-import { guestLabel, guestsIn, priceOf, type PickedLine } from '@/utils/orderLines';
+import { fractionUnitOf, guestLabel, guestsIn, lineTotal, priceOf, type PickedLine } from '@/utils/orderLines';
 
 const props = defineProps<{
   /** El menú de los meseros (`/menu/categories`): categorías principales con sus subcategorías. */
@@ -182,6 +211,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   add: [item: any, guest: number | null];
   remove: [line: PickedLine];
+  /** A weighed line typed by hand: its new quantity (> 0, up to three decimals). */
+  quantity: [line: PickedLine, value: number];
   rename: [guest: number, name: string];
 }>();
 

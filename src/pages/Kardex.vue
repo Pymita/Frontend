@@ -136,11 +136,10 @@
                   </v-autocomplete>
                 </v-col>
                 <v-col :cols="isEntry ? 6 : 12" :sm="isEntry ? 2 : 3" order="3" order-sm="0">
-                  <v-text-field
-                    v-model.number="line.quantity"
-                    type="number"
-                    min="0"
-                    step="0.01"
+                  <!-- 20,5 kg typed with a comma: a type="number" field read it as nothing. -->
+                  <MoneyField
+                    v-model="line.quantity"
+                    quantity
                     :suffix="unitOf(line.product_id)"
                     :error="line.error?.field === 'quantity'"
                     hide-details="auto"
@@ -149,7 +148,7 @@
                     <template #label>
                       Cantidad <span class="text-error font-weight-bold" title="Campo obligatorio">*</span>
                     </template>
-                  </v-text-field>
+                  </MoneyField>
                 </v-col>
                 <v-col v-if="isEntry" cols="6" sm="2" order="3" order-sm="0">
                   <MoneyField
@@ -291,7 +290,7 @@
       <v-col cols="12" md="4">
         <v-card class="pa-4 text-center">
           <div class="text-caption text-medium-emphasis">Existencia actual</div>
-          <div class="text-h5" :class="{ 'text-error': report.product.current_stock <= 0 }">{{ report.product.current_stock }} {{ report.product.unit }}</div>
+          <div class="text-h5" :class="{ 'text-error': report.product.current_stock <= 0 }">{{ quantity(report.product.current_stock) }} {{ report.product.unit }}</div>
         </v-card>
       </v-col>
       <v-col cols="12" md="4">
@@ -348,7 +347,7 @@
                 <td class="px-2">SALDO ANTERIOR</td>
                 <td v-if="showProductColumn"></td>
                 <td colspan="6"></td>
-                <td class="text-right px-2">{{ report.opening_balance.quantity }}</td>
+                <td class="text-right px-2">{{ quantity(report.opening_balance.quantity) }}</td>
                 <td class="text-right px-2">{{ preciseMoney(report.opening_balance.unit_cost) }}</td>
                 <td class="text-right px-2">{{ preciseMoney(report.opening_balance.total_cost) }}</td>
                 <td></td>
@@ -392,10 +391,10 @@
                 </td>
                 <td v-if="showProductColumn" class="px-2">{{ m.product.name }}</td>
                 <td class="text-right text-success px-2">
-                  {{ m.movement_type === 'in' ? m.quantity : '' }}
+                  {{ m.movement_type === 'in' ? quantity(m.quantity) : '' }}
                 </td>
                 <td class="text-right text-error px-2">
-                  {{ m.movement_type === 'out' ? m.quantity : '' }}
+                  {{ m.movement_type === 'out' ? quantity(m.quantity) : '' }}
                 </td>
                 <td class="text-right px-2">{{ preciseMoney(m.unit_cost) }}</td>
                 <td class="text-right px-2">{{ preciseMoney(m.total_cost) }}</td>
@@ -407,7 +406,7 @@
                   <template v-else>—</template>
                 </td>
                 <td class="text-right px-2">{{ preciseMoney(m.net_total) }}</td>
-                <td class="text-right px-2" :class="{ 'text-error font-weight-bold': m.balance_quantity < 0 }">{{ m.balance_quantity }}</td>
+                <td class="text-right px-2" :class="{ 'text-error font-weight-bold': m.balance_quantity < 0 }">{{ quantity(m.balance_quantity) }}</td>
                 <td class="text-right px-2">{{ preciseMoney(m.balance_unit_cost) }}</td>
                 <td class="text-right px-2" :class="{ 'text-error font-weight-bold': m.balance_total_cost < 0 }">{{ preciseMoney(m.balance_total_cost) }}</td>
                 <td class="text-caption px-2">{{ m.user || '—' }}</td>
@@ -435,7 +434,7 @@
             <tfoot v-if="report && report.movements.length > 0">
               <tr class="font-weight-bold bg-surface-light">
                 <td :colspan="leadingColumns">Entradas del periodo</td>
-                <td class="text-right text-success px-2">{{ report.totals.in_quantity }}</td>
+                <td class="text-right text-success px-2">{{ quantity(report.totals.in_quantity) }}</td>
                 <td></td>
                 <td></td>
                 <td class="text-right px-2">{{ preciseMoney(report.totals.in_cost) }}</td>
@@ -446,7 +445,7 @@
               <tr class="font-weight-bold bg-surface-light">
                 <td :colspan="leadingColumns">Salidas del periodo</td>
                 <td></td>
-                <td class="text-right text-error px-2">{{ report.totals.out_quantity }}</td>
+                <td class="text-right text-error px-2">{{ quantity(report.totals.out_quantity) }}</td>
                 <td></td>
                 <td class="text-right px-2">{{ preciseMoney(report.totals.out_cost) }}</td>
                 <td colspan="2"></td>
@@ -465,7 +464,7 @@
 </template>
 
 <script setup lang="ts">
-import { money, percent, preciseMoney } from '@/utils/money'
+import { money, percent, preciseMoney, quantity } from '@/utils/money'
 import { formatDateTime, formatDay, toIsoDate } from '@/utils/dates'
 import { errorMessage } from '@/utils/errors'
 import { computed, onMounted, ref, watch } from 'vue'
@@ -517,7 +516,7 @@ interface MovementLine {
   saved?: KardexMovement
   product_id: number | null
   /** An emptied number field gives '' */
-  quantity: number | '' | null
+  quantity: number | null
   unit_cost: number | null
   tax_id: number | null
   error: { field: 'product' | 'quantity' | 'unit_cost' | 'tax'; text: string } | null
@@ -654,7 +653,7 @@ watch(selectedDocCode, code => {
   })
 })
 
-const hasQuantity = (line: MovementLine) => line.quantity !== null && line.quantity !== ''
+const hasQuantity = (line: MovementLine) => line.quantity !== null
 // A new line with no product, quantity or cost is a leftover row: it is not
 // sent. A saved line is only removed with its delete button.
 const isBlankLine = (line: MovementLine) =>

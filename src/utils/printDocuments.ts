@@ -1,4 +1,4 @@
-import { money } from './money'
+import { lineQuantity, money, quantity } from './money'
 /**
  * Documentos imprimibles en carta o media carta: cuenta de cobro / factura de venta y
  * recibo de caja de la facturación automática, la factura de venta de una
@@ -412,7 +412,7 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
           ${lines.map(line => `
           <tr>
             <td class="left">${escape(line.name)}</td>
-            <td class="center">${line.quantity}</td>
+            <td class="center">${lineQuantity(line.quantity, line.unit)}</td>
             <td class="right">${money(line.unit_price)}</td>
             <td class="center">${line.tax}</td>
             <td class="right">${money(line.total)}</td>
@@ -557,10 +557,10 @@ const withdrawalsTable = (withdrawals: CashWithdrawal[], total: number): string 
     </tbody>
   </table>`
 
-const productsTable = (products: { name: string; quantity: number }[]): string => `
+const productsTable = (products: { name: string; quantity: number; unit?: string | null }[]): string => `
   <table class="compact">
     <thead><tr><th class="left">PRODUCTO</th><th class="right">CANT.</th></tr></thead>
-    <tbody>${products.map(p => `<tr><td class="left">${escape(p.name)}</td><td class="right">${p.quantity}</td></tr>`).join('')}</tbody>
+    <tbody>${products.map(p => `<tr><td class="left">${escape(p.name)}</td><td class="right">${lineQuantity(p.quantity, p.unit)}</td></tr>`).join('')}</tbody>
   </table>`
 
 /**
@@ -693,7 +693,7 @@ export const cashCloseHtml = (
       ${products.length
         ? `<div class="columns">${productsTable(products.slice(0, half))}${products.length > 1 ? productsTable(products.slice(half)) : ''}</div>`
         : '<div>No se vendieron productos en este turno.</div>'}
-      ${summary.products_others ? `<div>Otros ${summary.products_others.count} productos: ${summary.products_others.quantity} unidades.</div>` : ''}
+      ${summary.products_others ? `<div>Otros ${summary.products_others.count} productos: ${quantity(summary.products_others.quantity)} unidades.</div>` : ''}
     </div>` : ''}
     <div class="box notes">
       <div class="label">OBSERVACIONES:</div>

@@ -129,7 +129,9 @@ export interface ProductSalesRow {
   name: string
   origin: SaleOrigin
   category: string | null
+  /** Units, or kilos of a product sold by fraction (`unit`) */
   quantity: number
+  unit?: string | null
   gross: number
   net: number
   /** What its sales took from the kardex, line by line */
@@ -262,7 +264,7 @@ export interface CashSession {
     orders_count: number | null
     tips_total: number | null
     order_abonos: number | null
-    products: { name: string; quantity: number }[] | null
+    products: { name: string; quantity: number; unit?: string | null }[] | null
     products_others: { count: number; quantity: number } | null
     first_invoice: string | null
     last_invoice: string | null
