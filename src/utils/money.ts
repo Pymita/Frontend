@@ -57,6 +57,10 @@ export const quantityStep = (unit?: string | null): number => {
   return /^(g|gr|grs|gramo|gramos|ml|mililitro|mililitros)$/i.test(unit.trim()) ? 100 : 0.5
 }
 
+/** A rate as Colombia writes it, with a decimal comma and no trailing zeros ("2,5", "0,966"). */
+export const rateNumber = (value: number | null | undefined): string =>
+  Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 3 })
+
 /** La parte de un total, con una cifra decimal como la manda el API ("86,2 %"). */
 export const percent = (value: number | null | undefined): string =>
   `${Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 1 })} %`

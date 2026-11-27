@@ -401,7 +401,7 @@
           </v-table>
 
           <p v-for="row in paymentInvoice.withholdings ?? []" :key="row.id" class="text-body-2 mb-1">
-            Retención: {{ row.name }} {{ row.rate }}% sobre {{ money(row.base) }} = {{ money(row.amount) }}
+            Retención: {{ row.name }} {{ rateNumber(row.rate) }}% sobre {{ money(row.base) }} = {{ money(row.amount) }}
           </p>
 
           <v-form v-if="paymentInvoice.balance > 0" ref="paymentFormRef">
@@ -423,7 +423,7 @@
                   <v-combobox v-model="row.name" :items="conceptNames" label="Concepto" density="compact" hide-details @update:model-value="onPaymentConcept(row)" />
                 </v-col>
                 <v-col cols="4" sm="2">
-                  <v-text-field v-model.number="row.rate" label="Tarifa" type="number" suffix="%" density="compact" hide-details @update:model-value="onPaymentRate(row)" />
+                  <MoneyField v-model="row.rate" label="Tarifa" quantity empty-as-zero suffix="%" density="compact" hide-details @update:model-value="onPaymentRate(row)" />
                 </v-col>
                 <v-col cols="6" sm="4">
                   <MoneyField v-model="row.amount" label="Valor retenido" density="compact" empty-as-zero hide-details @update:model-value="fitAbono" />
@@ -922,7 +922,7 @@
 </template>
 
 <script setup lang="ts">
-import { money } from '@/utils/money'
+import { money, rateNumber } from '@/utils/money'
 import { formatDay, formatTime } from '@/utils/dates'
 import { downloadAbonosPdf } from '@/utils/abonosPdf'
 import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage'
