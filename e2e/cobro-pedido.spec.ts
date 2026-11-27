@@ -9,6 +9,7 @@ import {
   createCompany,
   displayDate,
   e2eSql,
+  expectNoBrowserMargin,
   field,
   freezeTime,
   issueDocuments,
@@ -1576,6 +1577,7 @@ test('la factura crece con sus líneas, se pagina en carta y la corta también s
     const pdf = await popup.pdf({ preferCSSPageSize: true })
     expect(pdfPages(pdf)).toBe(sheets)
     expect(pdfPageSize(pdf)).toEqual(size)
+    await expectNoBrowserMargin(popup, size === HALF ? 8 : 12)
     return sheets
   }
   const LETTER = [612, 792]
