@@ -111,6 +111,17 @@
       </v-col>
     </v-row>
 
+    <!-- A setting of this device, not of the company: stored in the browser.
+         Every company prints documents, with orders or only monthly fees. -->
+    <v-row>
+      <v-col cols="12">
+        <v-card class="pa-4">
+          <h2 class="text-h6 mb-1">Impresora de este equipo</h2>
+          <TicketPrinterSettings />
+        </v-card>
+      </v-col>
+    </v-row>
+
     <!-- Presentation, not a module: the API takes an order with or without a
          table in any mode, so switching back loses nothing. -->
     <v-row v-if="takesOrders">
@@ -790,6 +801,7 @@ import kardexService, { type DocumentType, type Tax, type TaxPayload, type Withh
 import { taxAddsToCost, taxRateLabel } from '../utils/taxes'
 import invoicingService, { type InvoicingResolution, type ResolutionStatus } from '../services/invoicingService'
 import LockableButton from '../components/LockableButton.vue'
+import TicketPrinterSettings from '../components/TicketPrinterSettings.vue'
 import ImageUploader from '../components/ImageUploader.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'

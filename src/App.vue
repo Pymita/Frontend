@@ -94,6 +94,7 @@
     <v-app-bar v-if="showShell" app color="surface" flat border="b">
       <v-app-bar-nav-icon v-if="smAndDown" aria-label="Abrir menú" @click="drawer = !drawer" />
       <v-app-bar-title>{{ pageTitle }}</v-app-bar-title>
+      <PrinterSettingsButton />
       <div class="d-flex align-center ga-2 mr-4">
         <v-avatar color="primary-container" size="32">
           <span class="text-caption font-weight-bold">{{ userInitials }}</span>
@@ -191,6 +192,7 @@
         <p class="text-body-2 text-white mt-3">Cerrando sesión...</p>
       </div>
     </v-overlay>
+    <TicketSendPrompt />
   </v-app>
 </template>
 
@@ -198,6 +200,8 @@
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDisplay } from 'vuetify'
+import PrinterSettingsButton from './components/PrinterSettingsButton.vue'
+import TicketSendPrompt from './components/TicketSendPrompt.vue'
 import invoicingService from './services/invoicingService'
 import { useAuthStore } from './stores/auth'
 import { effectiveFeatures, type Feature } from './types/auth'

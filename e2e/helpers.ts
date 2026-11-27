@@ -438,13 +438,14 @@ export function pageRule(popup: Page): Promise<string> {
 /**
  * The browser draws its own header and footer (date, title, URL, page) in the
  * page margin when its print dialog has them on: the `@page` margin must be 0
- * and the paper's margin (millimetres) kept inside every printed sheet.
+ * and the paper's margin (millimetres) kept inside every printed sheet
+ * (`sheet`: what carries it, the ticket's body on a tirilla).
  */
-export async function expectNoBrowserMargin(popup: Page, marginMm: number): Promise<void> {
+export async function expectNoBrowserMargin(popup: Page, marginMm: number, sheet = '.sheet'): Promise<void> {
   expect(await pageRule(popup)).toMatch(/margin: 0(px)?;/)
   await popup.emulateMedia({ media: 'print' })
   try {
-    const paddings = await popup.locator('.sheet').evaluateAll(sheets => sheets.map(sheet => {
+    const paddings = await popup.locator(sheet).evaluateAll(sheets => sheets.map(sheet => {
       const style = getComputedStyle(sheet)
       return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft].map(parseFloat)
     }))

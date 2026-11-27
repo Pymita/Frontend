@@ -210,6 +210,9 @@ test('por producto carga cuando se vendieron varios ítems del menú', async ({ 
   await loginUI(page, ADMIN.email, ADMIN.password)
   await page.goto('/ventas')
   await page.getByRole('button', { name: 'Por producto' }).click()
+  // Every spec of the suite sells today: the juice's low net can sit past the first page.
+  await page.locator('.v-data-table-footer__items-per-page .v-select').click()
+  await page.getByRole('option', { name: 'Todos' }).click()
 
   // Neto 36.000 y costo 14.000 del producto final: ganancia 22.000.
   const burgerRow = page.locator('tr', { hasText: 'Hamburguesa Menú E2E' })

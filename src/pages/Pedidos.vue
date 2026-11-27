@@ -1388,7 +1388,7 @@ import {
   taxRegimeText,
   timeLineDetail,
 } from '@/utils/printDocuments';
-import { resolveImageUrl } from '@/utils/images';
+import { startTicketPrint, ticketColumns, type TicketPrint } from '@/utils/ticketPrinter';
 import { PAGE_SIZE_OPTIONS, useServerPage } from '@/composables/useServerPage';
 import type { PageQuery, PaginatedResponse } from '@/types/api';
 import type { OrderGuest } from '@/services/ordersService';
@@ -2225,7 +2225,8 @@ const cobrarPersona = async (guest: OrderGuest, withTip = false) => {
 
 // --- Impresión: cuenta (antes de cobrar) y factura (después) ---
 
-const TICKET_WIDTH = 38;
+// Columns of this device's printer, read at the start of every ticket.
+let TICKET_WIDTH = ticketColumns();
 
 const center = (text: string): string => {
   if (!text || text.length >= TICKET_WIDTH) return text;
@@ -2267,18 +2268,20 @@ interface TicketOptions {
  * mencionar la resolución: un documento sin consecutivo no es factura.
  */
 const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
+  TICKET_WIDTH = ticketColumns();
+  const nameWidth = TICKET_WIDTH - 14;
   const line = '-'.repeat(TICKET_WIDTH);
   const isInvoice = !opts.preBill && !!r.invoice_number;
 
   // Lo pesado no cabe en la columna de cantidad: va debajo, con su precio por unidad.
   const rows = r.items.flatMap(i => i.unit
     ? [
-        `${''.padEnd(4)}${i.name.slice(0, 22).padEnd(24)}${money(i.total).padStart(10)}`,
+        `${''.padEnd(4)}${i.name.slice(0, nameWidth - 2).padEnd(nameWidth)}${money(i.total).padStart(10)}`,
         `${''.padEnd(4)}${lineQuantity(i.quantity, i.unit)} x ${money(i.unit_price)}`,
       ]
-    : [`${String(i.quantity).padEnd(4)}${i.name.slice(0, 22).padEnd(24)}${money(i.total).padStart(10)}`]);
+    : [`${String(i.quantity).padEnd(4)}${i.name.slice(0, nameWidth - 2).padEnd(nameWidth)}${money(i.total).padStart(10)}`]);
   if (r.time_amount && r.time_amount > 0) {
-    rows.push(`${'1'.padEnd(4)}${'Tiempo de mesa'.padEnd(24)}${money(r.time_amount).padStart(10)}`);
+    rows.push(`${'1'.padEnd(4)}${'Tiempo de mesa'.padEnd(nameWidth)}${money(r.time_amount).padStart(10)}`);
     const detail = timeLineDetail(r.time_detail);
     if (detail) rows.push(`${''.padEnd(4)}${detail}`);
   }
@@ -2357,7 +2360,7 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
     r.dining_table ? `MESA    : ${r.dining_table}` : '',
     r.waiter ? `ATENDIÓ: ${r.waiter}` : '',
     line,
-    'CANT ARTICULO                    VALOR',
+    'CANT ARTICULO'.padEnd(TICKET_WIDTH - 5) + 'VALOR',
     line,
     ...rows,
     line,
@@ -2377,49 +2380,18 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
 };
 
 /**
- * La ventana se abre en el mismo clic (los navegadores bloquean las que se
- * abren después de esperar al servidor) y se llena cuando llega la tirilla.
+ * Empieza a imprimir en el mismo clic (los navegadores bloquean la ventana que
+ * se abre después de esperar al servidor); se llena cuando llega la tirilla.
+ * Cómo se imprime lo elige cada equipo en "Impresora de este equipo".
  */
-const openPrintWindow = (): Window | null => {
-  const win = window.open('', '_blank', 'width=420,height=650');
-  if (!win) {
-    showMessage('El navegador bloqueó la ventana de impresión: permite las ventanas emergentes para este sitio', 'error');
-    return null;
-  }
-  win.document.write('<html><body style="font-family:monospace;padding:8px">Generando…</body></html>');
-  return win;
-};
+const openPrintWindow = (): TicketPrint | null =>
+  startTicketPrint({
+    onBlocked: () => showMessage('El navegador bloqueó la ventana de impresión: permite las ventanas emergentes para este sitio', 'error'),
+    onNeedsTap: send => showMessage('La tirilla está lista', 'success', [{ text: 'Enviar a la impresora', run: send }]),
+  });
 
-const fillPrintWindow = (win: Window, title: string, body: string, logoUrl?: string | null) => {
-  const logo = resolveImageUrl(logoUrl);
-  win.document.open();
-  win.document.write(
-    `<html><head><title>${title.replace(/</g, '&lt;')}</title>` +
-    '<style>body{font-family:monospace;font-size:12px;white-space:pre;width:80mm;margin:0 auto;padding:8px}' +
-    '.logo{display:block;max-width:100%;max-height:48px;margin:0 auto 6px}</style>' +
-    '</head><body>' +
-    (logo ? `<img class="logo" src="${logo.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" alt="">` : '') +
-    `${body.replace(/</g, '&lt;')}</body></html>`,
-  );
-  win.document.close();
-  win.focus();
-  // Printing before the logo arrives from the API host prints it blank: it
-  // waits for the logo, or for its failure, a few seconds at most.
-  const image = win.document.images[0];
-  if (!image || image.complete) {
-    win.print();
-    return;
-  }
-  let printed = false;
-  const print = () => {
-    if (printed) return;
-    printed = true;
-    win.print();
-  };
-  image.addEventListener('load', print);
-  image.addEventListener('error', print);
-  win.setTimeout(print, 5000);
-};
+const fillPrintWindow = (job: TicketPrint, title: string, text: string, logoUrl?: string | null) =>
+  job.fill({ title, text, logoUrl });
 
 /** Factura (o comprobante) de un pedido ya cobrado. */
 const printReceipt = async (order: Order) => {
@@ -2429,7 +2401,7 @@ const printReceipt = async (order: Order) => {
     const r = await ordersService.receipt(order.id);
     fillPrintWindow(win, r.invoice_number || orderLabel({ ...order, number: r.number }), buildTicket(r), r.business.logo_url);
   } catch (error) {
-    win.close();
+    win.cancel();
     showMessage(errorMessage(error, 'No fue posible generar la factura. Inténtalo de nuevo.'), 'error');
   }
 };
@@ -2442,7 +2414,7 @@ const printGuestReceipt = async (order: Order, guest: OrderGuest) => {
     const r = await ordersService.receipt(order.id, guest.number);
     fillPrintWindow(win, `${guest.label} - ${orderLabel(order)}`, buildTicket(r, { preBill: true, paidNow: true }), r.business.logo_url);
   } catch (error) {
-    win.close();
+    win.cancel();
     showMessage(errorMessage(error, 'No fue posible generar el comprobante. Inténtalo de nuevo.'), 'error');
   }
 };
@@ -2502,7 +2474,7 @@ const printGuestBill = async (order: Order, guest: number | null) => {
       tipPercent: tipEnabled.value ? tipPercent.value : undefined,
     }), r.business.logo_url);
   } catch (error) {
-    win.close();
+    win.cancel();
     showMessage(errorMessage(error, 'No fue posible generar la cuenta. Inténtalo de nuevo.'), 'error');
   } finally {
     printing.value = false;
@@ -2534,7 +2506,7 @@ const printPreBill = async (order: Order) => {
       amountPaid: consumptionPaid,
     }), r.business.logo_url);
   } catch (error) {
-    win.close();
+    win.cancel();
     showMessage(errorMessage(error, 'No fue posible generar la cuenta. Inténtalo de nuevo.'), 'error');
   } finally {
     printing.value = false;
