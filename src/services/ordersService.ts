@@ -67,6 +67,11 @@ export interface OrderItem {
   original_price?: number | null;
   /** Someone with "Cambiar precio en pedidos" typed `unit_price`. */
   price_changed?: boolean;
+  /** The list that priced the line (null: the base price), and its name as it was then. */
+  price_list_id?: number | null;
+  price_list_name?: string | null;
+  /** The seller picked that list among the product's prices. */
+  price_picked?: boolean;
   discount: number;
   total_price: number;
   special_instructions?: string;
@@ -190,7 +195,7 @@ export interface OrderReceipt {
    * `unit`: the unit of a line sold by fraction ("kg"), null for whole units.
    * `tax_rate` is the sum of the line's percentages; `tax_label` every tax of it ("IVA 19% + IBUA $68 c/u").
    */
-  items: { quantity: number; unit?: string | null; name: string; unit_price: number; total: number; tax_rate: number; tax_label?: string }[]
+  items: { quantity: number; unit?: string | null; name: string; unit_price: number; total: number; tax_rate: number; tax_label?: string; price_list?: string | null }[]
   /** Each tax the total includes; their amounts add up to `included_vat`. */
   taxes?: TaxBreakdownLine[]
   /** Lines + table time, tax included. Printed documents show `subtotal_before_tax`. */
@@ -425,6 +430,8 @@ export const ordersService = {
     guest_number?: number | null;
     /** Only a typed price; it needs "Cambiar precio en pedidos". */
     unit_price?: number;
+    /** Only a list price the seller picked (null: the base price). */
+    price_list_id?: number | null;
   }): Promise<Order> {
     const response = await api.post<ApiResponse<Order>>(`/orders/${orderId}/items`, data);
     return response.data.data;
@@ -433,6 +440,8 @@ export const ordersService = {
   async updateItem(orderId: number, itemId: number, data: {
     quantity?: number;
     unit_price?: number;
+    /** Another of the product's list prices (null: its base price); no grant needed. */
+    price_list_id?: number | null;
     discount?: number;
     guest_number?: number | null;
   }): Promise<Order> {

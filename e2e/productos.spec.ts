@@ -721,10 +721,80 @@ test('Listas de precios: se crea una lista, se ponen precios y el producto los m
   await page.getByRole('tab', { name: 'Productos' }).click()
   await page.getByRole('button', { name: 'Editar Cebolla cabezona' }).click()
   const form = page.getByRole('dialog').filter({ hasText: 'Editar producto' })
-  await form.getByRole('button', { name: 'Listas de precios · precio base en todas' }).click()
+  await expect(form.getByText('Precio base en todas · Automático por cliente o segmento')).toBeVisible()
+  await form.getByRole('button', { name: 'Precios en listas' }).click()
   await form.getByRole('textbox', { name: 'Mayoristas' }).fill('2.900')
   await form.getByRole('button', { name: 'Guardar' }).click()
   await expect(page.getByText('Producto actualizado', { exact: false })).toBeVisible()
   const lists = (await (await request.get(`${API}/price-lists`, { headers: auth })).json()).data
   expect(lists[0].items_count).toBe(2)
 })
+
+/**
+ * Prices inside the product form, while creating it: a list only for this
+ * product ("solo los tomates"), who it applies to (a segment and a
+ * customer, the same assignment Clientes writes) and how orders take it.
+ */
+test('Precios al crear un producto: su propia lista, a quién aplica y cómo la toman los pedidos', async ({ page, request }) => {
+  const company = await createCompany(request, 'precios-producto', { business_type: 'store' })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const stamp = Date.now()
+  await request.post(`${API}/categories`, { headers: auth, data: { name: `Fruver ${stamp}` } })
+  const segment = await request.post(`${API}/customer-segments`, { headers: auth, data: { name: `Zona norte ${stamp}` } })
+  expect(segment.status(), await segment.text()).toBe(201)
+  const name = `Tomate de la finca ${stamp}`
+  const listName = `Solo tomates ${stamp}`
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/productos-base')
+  await page.getByRole('button', { name: 'Nuevo producto' }).click()
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Nuevo producto' })
+  await field(page, 'Nombre del producto *').locator('input').fill(name)
+  await field(page, 'Categoría *').click()
+  await pickOption(page, `Fruver ${stamp}`)
+  await field(page, 'Precio de venta *').locator('input').fill('4.000')
+  await field(page, 'Impuestos *').locator('.v-field').click()
+  await page.locator('.v-overlay--active').getByRole('option').first().click()
+  await page.keyboard.press('Escape')
+
+  await expect(dialog.getByText('Sin listas · Automático por cliente o segmento')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Precios en listas' }).click()
+  await dialog.getByRole('radio', { name: 'El vendedor elige en el pedido' }).check()
+  await expect(dialog.getByText('Ninguna lista se aplica sola', { exact: false })).toBeVisible()
+
+  // A new list right here, for this product, and who it applies to.
+  await dialog.getByRole('button', { name: 'Nueva lista para este producto' }).click()
+  const listDialog = page.getByRole('dialog').filter({ hasText: 'Nueva lista de precios' })
+  await listDialog.getByRole('textbox', { name: 'Nombre' }).fill(listName)
+  await listDialog.getByRole('textbox', { name: 'Para quién es (opcional)' }).fill('Tomate de la finca para restaurantes')
+  await listDialog.locator('.v-input').filter({ has: page.getByText('Segmentos', { exact: true }) }).click()
+  await page.locator('.v-overlay--active').getByRole('option', { name: `Zona norte ${stamp}` }).click()
+  await page.keyboard.press('Escape')
+  await listDialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText(`Lista de precios «${listName}» creada.`)).toBeVisible()
+  await expect(dialog.getByText(`Aplica a Zona norte ${stamp}`)).toBeVisible()
+  await dialog.getByRole('textbox', { name: listName }).fill('3.200')
+  await expect(dialog.getByText('1 con precio propio · El vendedor elige en el pedido')).toBeVisible()
+
+  await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Producto creado')).toBeVisible()
+
+  // Saved with the product: its price in the list, the mode and the list's segment.
+  const products = (await (await request.get(`${API}/products?q=${encodeURIComponent(name)}`, { headers: auth })).json()).data
+  const product = products.find((candidate: any) => candidate.name === name)
+  expect(product.price_list_mode).toBe('seller')
+  const lists = (await (await request.get(`${API}/price-lists`, { headers: auth })).json()).data
+  const list = lists.find((candidate: any) => candidate.name === listName)
+  expect(product.price_list_prices).toEqual([{ price_list_id: list.id, price: 3200 }])
+  expect(list.segments.map((entry: any) => entry.name)).toEqual([`Zona norte ${stamp}`])
+
+  // Reopened, the form reads it all back.
+  await page.getByRole('textbox', { name: 'Buscar' }).fill(name)
+  await page.getByRole('button', { name: `Editar ${name}` }).click()
+  const form = page.getByRole('dialog').filter({ hasText: 'Editar producto' })
+  await form.getByRole('button', { name: 'Precios en listas' }).click()
+  await expect(form.getByRole('radio', { name: 'El vendedor elige en el pedido' })).toBeChecked()
+  await expect(form.getByRole('textbox', { name: listName })).toHaveValue('3.200')
+})
+
