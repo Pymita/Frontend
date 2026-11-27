@@ -867,3 +867,106 @@ test('sin el permiso Cambiar precio en pedidos el vendedor no escribe precios; c
   await expect(row).toContainText('$5.000')
   await expect(page.getByText('antes $2.600')).toBeVisible()
 })
+
+/**
+ * The fruver batch together: a tomato sold by the kilo with IVA 19 % and an
+ * impoconsumo of 8 %, at $4.990 the kilo in a zone's list instead of $5.980.
+ * 1,375 kg × $4.990 = $6.861,25: the backend charges $6.861, every screen
+ * shows that, and the factura prints the kilos, the list's price and each
+ * tax on the same base ($6.861 / 1,27 = $5.402).
+ */
+test('un producto por kilo con dos impuestos se pide con la lista del cliente y su factura lo imprime', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const product = `Tomate chonto ${stamp}`
+  const iva = `IVA 19% F${stamp}`
+  const inc = `Impoconsumo 8% F${stamp}`
+  const taxIds: number[] = []
+  for (const data of [{ name: iva, kind: 'iva', rate: 19 }, { name: inc, kind: 'inc', rate: 8 }]) {
+    const tax = await request.post(`${API}/taxes`, { headers: auth, data })
+    expect(tax.status(), await tax.text()).toBe(201)
+    taxIds.push((await tax.json()).data.id)
+  }
+  const categoryId = await createCategory(request, auth, `Fruver ${stamp}`)
+  const created = await request.post(`${API}/products`, {
+    headers: auth,
+    data: {
+      name: product, type: 'final', unit: 'kg', sold_by_fraction: true, sale_price: 5980, tracks_stock: false,
+      category_id: categoryId, tax_ids: taxIds, menu: { base_price: 5980 },
+    },
+  })
+  expect(created.status(), await created.text()).toBe(201)
+  const productId = (await created.json()).data.id
+  const list = await request.post(`${API}/price-lists`, { headers: auth, data: { name: `Fruver mayorista ${stamp}` } })
+  const listId = (await list.json()).data.id
+  expect((await request.put(`${API}/price-lists/${listId}/items`, { headers: auth, data: { items: [{ product_id: productId, price: 4990 }] } })).ok()).toBeTruthy()
+  const customer = `Restaurante Fruver ${stamp}`
+  const createdCustomer = await request.post(`${API}/customers`, {
+    headers: auth,
+    data: { document_type: 'CC', document_number: String(stamp).slice(-9), name: customer, price_list_id: listId },
+  })
+  expect(createdCustomer.status(), await createdCustomer.text()).toBe(201)
+  const customerId = (await createdCustomer.json()).data.id
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  const dialog = page.getByRole('dialog')
+  // Typed before the picker's first lookup returns, the text lands after "Consumidor final".
+  const customerBox = dialog.getByRole('combobox', { name: 'Cliente' })
+  await customerBox.click()
+  await expect(page.getByRole('option').nth(1)).toBeVisible()
+  await customerBox.fill(customer)
+  await page.getByRole('option', { name: `${customer} (${String(stamp).slice(-9)})` }).click()
+  await expect(dialog.getByText(`Precios de la lista «Fruver mayorista ${stamp}»`)).toBeVisible()
+
+  // The list's price per kilo, and 1,375 kg typed as the scale shows it.
+  await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill(product)
+  await expect(dialog.getByText('$4.990 / kg')).toBeVisible()
+  await dialog.getByText(product, { exact: true }).click()
+  const weight = dialog.getByLabel(`Cantidad de ${product} en kg`)
+  await weight.fill('1,375')
+  await expect(dialog.getByText('Total: $6.861')).toBeVisible()
+  if (process.env.FV6_SHOTS) {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 })
+      await weight.scrollIntoViewIfNeeded()
+      // Dialogs fade in: the picture waits for them to settle.
+      await page.waitForTimeout(600)
+      await page.screenshot({ path: `/Users/valentina.morales/Documents/Pymita/screenshots/fruver/fv6-pedido-pesado-lista-impuestos-${width}.png` })
+    }
+    await page.setViewportSize({ width: 1440, height: 900 })
+  }
+  await dialog.getByRole('button', { name: 'Crear pedido' }).click()
+  await expect(page.getByText('Pedido creado')).toBeVisible()
+
+  const orders = (await (await request.get(`${API}/orders?customer_id=${customerId}`, { headers: auth })).json()).data
+  expect(orders[0].items.map((item: any) => [item.quantity, item.unit, Number(item.unit_price), Number(item.total_price), item.price_changed]))
+    .toEqual([[1.375, 'kg', 4990, 6861, false]])
+
+  // Charged, and printed as a letter factura.
+  const row = page.locator('tbody tr', { hasText: customer })
+  await expect(row).toContainText('$6.861')
+  await row.getByRole('button', { name: 'Cobrar' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirmar cobro' }).click()
+  await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
+  const [invoice] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('button', { name: 'Generar factura' }).click(),
+  ])
+  await expect(invoice.locator('.items tbody tr').first().locator('td')).toHaveText([product, '1,375 kg', '$4.990', `${iva} + ${inc}`, '$6.861'])
+  await expect(invoice.locator('.tax-detail tbody tr').nth(0).locator('td')).toHaveText([iva, '19%', '$5.402', '$1.026'])
+  await expect(invoice.locator('.tax-detail tbody tr').nth(1).locator('td')).toHaveText([inc, '8%', '$5.402', '$432'])
+  await expect(invoice.locator('.totals')).toContainText('SUBTOTAL: $5.402')
+  await expect(invoice.locator('.totals')).toContainText('TOTAL: $6.861')
+  if (process.env.FV6_SHOTS) {
+    for (const width of [1440, 390]) {
+      await invoice.setViewportSize({ width, height: 1100 })
+      await invoice.waitForTimeout(400)
+      await invoice.screenshot({ path: `/Users/valentina.morales/Documents/Pymita/screenshots/fruver/fv6-factura-pesado-lista-impuestos-${width}.png`, fullPage: true })
+    }
+  }
+  await invoice.close()
+})

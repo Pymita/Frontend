@@ -753,3 +753,83 @@ test('una compra lleva varios impuestos, el que es costo sube el costo y la rete
   await expect(page.getByRole('group', { name: 'Retenciones de la compra' }).getByLabel('Valor retenido')).toHaveValue('21.000')
   await expect(lineField(page, 1, 'Costo unitario').locator('input')).toHaveValue('6.000')
 })
+
+/**
+ * Decimals and taxes together: 20,5 kg of queso costeño at $28.000 the kilo
+ * before taxes ($574.000) with IVA 19 % ($109.060) and a contribution of $45
+ * per kilo that is cost: 20,5 × $45 = $922,50, paid in whole pesos ($923),
+ * the same figure the API keeps. The supplier is withheld "Compras
+ * generales": 2,5 % of $574.000 = $14.350.
+ */
+test('una compra de 20,5 kg con un impuesto por kilo que es costo y la retención sugerida', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const supplier = `Lácteos del Llano ${stamp}`
+  const product = `Queso costeño ${stamp}`
+  const iva = await createTax(request, auth, `IVA Queso ${stamp}`, 19)
+  const perKilo = await request.post(`${API}/taxes`, {
+    headers: auth,
+    data: { name: `Contribución por kilo ${stamp}`, kind: 'other', calculation: 'per_unit', amount: 45, in_cost: true },
+  })
+  expect(perKilo.status(), await perKilo.text()).toBe(201)
+  const concepts = (await (await request.get(`${API}/withholding-concepts`, { headers: auth })).json()).data
+  const general = concepts.find((concept: { name: string }) => concept.name === 'Compras generales').id
+  const created = await request.post(`${API}/suppliers`, {
+    headers: auth,
+    data: { name: supplier, document_type: 'NIT', person_type: 'legal', income_tax_declarant: true, withholding_concept_ids: [general] },
+  })
+  expect(created.status(), await created.text()).toBe(201)
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `Lácteos ${stamp}` } })
+  const saved = await request.post(`${API}/products`, {
+    headers: auth,
+    data: {
+      name: product, type: 'final', unit: 'kg', sold_by_fraction: true, sale_price: 36000, unit_cost: 0, current_stock: 0, tracks_stock: true,
+      category_id: (await category.json()).data.id, tax_ids: [iva, (await perKilo.json()).data.id],
+    },
+  })
+  expect(saved.status(), await saved.text()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/kardex')
+  await page.getByRole('button', { name: /Registrar movimiento/ }).click()
+  await field(page, 'Tipo de documento *').click()
+  await page.getByRole('option', { name: /FC — Factura de compra/ }).click()
+  await page.getByLabel('Proveedor *').fill(supplier)
+  await page.getByLabel('Número de factura').fill(`Q-${stamp}`)
+  await pickLineProduct(page, 1, product)
+  await lineField(page, 1, 'Cantidad *').locator('input').fill('20,5')
+  await lineField(page, 1, 'Costo unitario').locator('input').fill('28.000')
+
+  await expect(summaryRow(page, 'Valor bruto')).toContainText('$574.000')
+  await expect(summaryRow(page, 'Costo por impuestos')).toContainText('$923')
+  await expect(summaryRow(page, 'Impuestos')).toContainText('$109.060')
+  await expect(summaryRow(page, 'Valor neto')).toContainText('$683.983')
+  const withholdings = page.getByRole('group', { name: 'Retenciones de la compra' })
+  await expect(withholdings.getByLabel('Concepto')).toHaveValue('Compras generales')
+  await expect(withholdings.getByLabel('Valor retenido')).toHaveValue('14.350')
+  await expect(summaryRow(page, 'Neto a pagar')).toContainText('$669.633')
+  if (process.env.FV6_SHOTS) {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 })
+      await line(page, 1).scrollIntoViewIfNeeded()
+      // Menus and dialogs fade: the picture waits for them to settle.
+      await page.waitForTimeout(600)
+      await page.screenshot({ path: `/Users/valentina.morales/Documents/Pymita/screenshots/fruver/fv6-kardex-compra-kilos-impuestos-${width}.png` })
+      await withholdings.scrollIntoViewIfNeeded()
+      await page.waitForTimeout(300)
+      await page.screenshot({ path: `/Users/valentina.morales/Documents/Pymita/screenshots/fruver/fv6-kardex-compra-retencion-${width}.png` })
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 })
+  }
+  await page.getByRole('button', { name: 'Registrar', exact: true }).click()
+  await expect(page.getByText('Movimiento registrado en el kardex')).toBeVisible()
+
+  // The kilos enter to the gram at the cost with the contribution: $28.000 + $923 / 20,5 = $28.045.
+  await filterByProduct(page, product)
+  const row = rowsOf(page, 'FC').first()
+  await expect(row).toContainText('20,5')
+  await expect(row).toContainText('$28.045')
+  await expect(page.locator('.v-card', { hasText: 'Existencia actual' })).toContainText('20,5 kg')
+})
