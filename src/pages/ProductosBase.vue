@@ -648,35 +648,72 @@
                   class="mt-2"
                 />
 
-                <!-- Its price for the customers of each list; empty: the base price.
-                     Folded, so the form still fits 1440×900 (e2e productos). -->
-                <template v-if="priceLists.length">
-                  <v-btn
-                    variant="text"
-                    color="primary"
-                    size="small"
-                    class="mt-3 px-1"
-                    :append-icon="showListPrices ? 'mdi-chevron-up' : 'mdi-chevron-down'"
-                    :aria-expanded="showListPrices"
-                    @click="showListPrices = !showListPrices"
-                  >
-                    Listas de precios · {{ listPricesSummary }}
-                  </v-btn>
-                  <template v-if="showListPrices">
-                  <p class="text-caption text-medium-emphasis mb-2">Vacío: se vende al precio base</p>
-                  <MoneyField
-                    v-for="list in priceLists"
-                    :key="list.id"
-                    v-model="listPrices[list.id]"
-                    :label="list.active ? list.name : `${list.name} (inactiva)`"
-                    :placeholder="money(menuForm.base_price ?? formData.sale_price ?? 0)"
-                    density="compact"
-                    class="mb-1"
-                  />
-                  </template>
-                </template>
+                <v-btn
+                  variant="text"
+                  color="primary"
+                  size="small"
+                  class="mt-3 px-1"
+                  :append-icon="showListPrices ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+                  :aria-expanded="showListPrices"
+                  @click="showListPrices = !showListPrices"
+                >
+                  Precios en listas
+                </v-btn>
+                <div class="text-caption text-medium-emphasis px-1">{{ listPricesSummary }}</div>
               </v-col>
             </v-row>
+
+            <!-- Precios: its price in each list, new lists for it, who they apply to and how
+                 orders take them. Opened from the Menú column, so folded it adds no height
+                 and the form still fits 1440×900 (e2e productos). -->
+            <template v-if="formData.type === 'final' && showListPrices">
+              <v-divider class="my-3" />
+              <h4 class="mb-1">Precios</h4>
+              <v-radio-group
+                v-model="formData.price_list_mode"
+                label="En los pedidos"
+                density="compact"
+                :hint="label(priceListModeHints, formData.price_list_mode)"
+                persistent-hint
+                class="mt-2 mb-3"
+              >
+                <v-radio
+                  v-for="option in options(priceListModeLabels)"
+                  :key="option.value"
+                  :label="option.title"
+                  :value="option.value"
+                />
+              </v-radio-group>
+              <p class="text-body-2 text-medium-emphasis mb-2">
+                Precio base {{ money(basePrice) }}. Deja vacío el precio de una lista para venderlo ahí a su precio base.
+              </p>
+              <v-row v-for="list in priceLists" :key="list.id" dense align="center" class="mb-1">
+                <v-col cols="12" sm="4">
+                  <MoneyField
+                    v-model="listPrices[list.id]"
+                    :label="list.active ? list.name : `${list.name} (inactiva)`"
+                    :placeholder="money(basePrice)"
+                    density="compact"
+                    hide-details
+                  />
+                </v-col>
+                <v-col cols="10" sm="7" class="text-body-2 text-medium-emphasis">
+                  {{ appliesTo(list) }}
+                </v-col>
+                <v-col cols="2" sm="1" class="text-right">
+                  <v-btn
+                    icon="mdi-account-multiple-outline"
+                    size="small"
+                    variant="text"
+                    :aria-label="`Editar la lista ${list.name} y a quién aplica`"
+                    @click="openListDialog(list)"
+                  />
+                </v-col>
+              </v-row>
+              <v-btn variant="tonal" color="primary" size="small" prepend-icon="mdi-plus" class="mt-1" @click="openListDialog()">
+                Nueva lista para este producto
+              </v-btn>
+            </template>
 
             <v-alert v-if="formData.type === 'intermediate'" type="info" density="compact" class="mt-2">
               <strong>Producto intermedio:</strong> El costo de este producto se calculará automáticamente desde su receta
@@ -790,6 +827,15 @@
 
     <ProductImportDialog v-model="importDialog" @imported="onImported" />
 
+    <!-- A list made from the product form ("solo los tomates"), and who it applies to. -->
+    <PriceListDialog
+      v-model="listDialog"
+      :list="editingList"
+      :name-hint="formData.name ? `Ej: ${formData.name} mayorista` : 'Ej: Mayoristas, Zona norte'"
+      @saved="onListSaved"
+      @error="text => showMessage(text, 'error')"
+    />
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="snackbarColor === 'error' ? 9000 : 3000" closable>
       {{ snackbarText }}
     </v-snackbar>
@@ -823,13 +869,14 @@ import { productsService, productCategoriesService, type Product, type Category,
 import { menuItemsService } from '@/services/menuService';
 import kardexService, { type Tax } from '@/services/kardexService';
 import { splitPrice, taxOptionTitle } from '@/utils/taxes';
-import { productTypeLabels, label } from '@/utils/labels';
+import { productTypeLabels, priceListModeLabels, priceListModeHints, label, options } from '@/utils/labels';
 import LockableButton from '../components/LockableButton.vue'
 import DateField from '../components/DateField.vue'
 import MoneyField from '../components/MoneyField.vue'
 import ProductImportDialog from '../components/ProductImportDialog.vue'
 import PriceListsPanel from '../components/PriceListsPanel.vue'
-import { priceListsService, type PriceList } from '@/services/productsService'
+import PriceListDialog from '../components/PriceListDialog.vue'
+import { priceListsService, type PriceList, type PriceListMode } from '@/services/productsService'
 import { useReadOnly } from '../composables/useReadOnly'
 import { PAGE_SIZE_OPTIONS, useServerPage } from '../composables/useServerPage'
 
@@ -852,8 +899,33 @@ const listPrices = ref<Record<number, number | null>>({});
 const showListPrices = ref(false);
 const listPricesSummary = computed(() => {
   const priced = Object.values(listPrices.value).filter(price => price !== null && price !== undefined).length;
-  return priced === 0 ? 'precio base en todas' : priced === 1 ? '1 con precio propio' : `${priced} con precio propio`;
+  const lists = !priceLists.value.length
+    ? 'Sin listas'
+    : priced === 0 ? 'Precio base en todas' : priced === 1 ? '1 con precio propio' : `${priced} con precio propio`;
+  return `${lists} · ${label(priceListModeLabels, formData.value.price_list_mode)}`;
 });
+const basePrice = computed(() => menuForm.value.base_price ?? formData.value.sale_price ?? 0);
+const appliesTo = (list: PriceList): string => {
+  const who = [
+    ...list.segments.map(segment => segment.name),
+    ...(list.customers.length === 1 ? [list.customers[0]!.name] : list.customers.length > 1 ? [`${list.customers.length} clientes`] : []),
+  ];
+  return who.length ? `Aplica a ${who.join(', ')}` : 'Sin clientes ni segmentos: solo si el vendedor la elige';
+};
+// A list created here starts empty for this product: its price is typed right after.
+const listDialog = ref(false);
+const editingList = ref<PriceList | null>(null);
+const openListDialog = (list?: PriceList) => {
+  editingList.value = list ?? null;
+  listDialog.value = true;
+};
+const onListSaved = async (saved: PriceList, message: string) => {
+  showMessage(message);
+  const typed = { ...listPrices.value };
+  await loadPriceLists();
+  listPrices.value = Object.fromEntries(priceLists.value.map(list => [list.id, typed[list.id] ?? null]));
+  if (!priceLists.value.some(list => list.id === saved.id)) priceLists.value.push(saved);
+};
 const loadPriceLists = async () => {
   try {
     priceLists.value = await priceListsService.getAll();
@@ -949,6 +1021,8 @@ const formData = ref({
   initial_stock_date: today,
   minimum_stock: null as string | number | null,
   is_combo: false,
+  /** How orders take its list prices; every product had the first until 2026-11. */
+  price_list_mode: 'customer' as PriceListMode,
 });
 
 // A combo is something sold: only a final product can be one.
@@ -1271,6 +1345,7 @@ const openDialog = (product?: Product, forceMenu = false) => {
         initial_stock_date: today,
         minimum_stock: product.minimum_stock || null,
         is_combo: !!product.is_combo,
+        price_list_mode: product.price_list_mode ?? 'customer',
       }
     : {
         name: '',
@@ -1293,6 +1368,7 @@ const openDialog = (product?: Product, forceMenu = false) => {
         initial_stock_date: today,
         minimum_stock: null,
         is_combo: false,
+        price_list_mode: 'customer',
       };
   // Lists created in the other tab since the page opened show up too.
   const fillListPrices = () => {

@@ -15,7 +15,28 @@ export interface PickedLine {
   guest_number: number | null;
   /** Typed by someone with "Cambiar precio en pedidos": sent as `unit_price`, kept when the customer changes. */
   price_changed?: boolean;
+  /** The list whose price it carries (null: the base price), as the menu or the seller's pick gave it. */
+  price_list_id?: number | null;
+  /** The prices the seller may pick for it (the product lets the seller choose); empty: the customer's list decides. */
+  price_options?: PriceOption[];
+  /** The seller picked `price_list_id` among `price_options`: sent, kept when the customer changes. */
+  price_picked?: boolean;
 }
+
+/** One of a product's prices the seller may pick on a line: its base price (`price_list_id` null) or a list's. */
+export interface PriceOption {
+  price_list_id: number | null;
+  name: string;
+  price: number;
+}
+
+/** The option a line is priced at, by its list. */
+export const pickedOption = (options: PriceOption[] | undefined, listId: number | null | undefined): PriceOption | undefined =>
+  options?.find(option => option.price_list_id === (listId ?? null));
+
+/** What a price option reads in a select: "Mayoristas · $3.000". */
+export const priceOptionTitle = (option: PriceOption, money: (value: number) => string): string =>
+  `${option.name} · ${money(option.price)}`;
 
 /**
  * El precio que se cobra es el final: puede venir de una variante o un ajuste.
@@ -65,6 +86,8 @@ export const addLine = (lines: PickedLine[], item: any, guest: number | null = n
     quantity: 1,
     unit: fractionUnitOf(item),
     guest_number: guest ?? null,
+    price_list_id: item.price_list_id ?? null,
+    price_options: item.price_options ?? [],
   });
 };
 
@@ -99,21 +122,41 @@ export const setLinePrice = (line: PickedLine, price: number): void => {
 };
 
 /**
+ * One of the product's list prices, picked by the seller (no grant: the API
+ * resolves the price from the list). It replaces a typed price.
+ */
+export const pickLinePrice = (line: PickedLine, option: PriceOption): void => {
+  line.unit_price = option.price;
+  line.price_list_id = option.price_list_id;
+  line.price_picked = true;
+  line.price_changed = false;
+};
+
+/**
  * The menu came back priced for another customer (its price list): every
- * line nobody typed a price for takes the new one, as the API will charge it.
+ * line nobody typed or picked a price for takes the new one, as the API will
+ * charge it.
  */
 export const repriceLines = (lines: PickedLine[], menuItems: any[]): void => {
   for (const line of lines) {
-    if (line.price_changed) continue;
+    if (line.price_changed || line.price_picked) continue;
     const item = menuItems.find(candidate => candidate.id === line.menu_item_id);
-    if (item) line.unit_price = priceOf(item);
+    if (item) {
+      line.unit_price = priceOf(item);
+      line.price_list_id = item.price_list_id ?? null;
+    }
   }
 };
 
-/** What `POST /orders` and `/orders/{id}/items` take for a line: the price only when it was typed. */
+/**
+ * What `POST /orders` and `/orders/{id}/items` take for a line: the price
+ * only when it was typed, the list only when the seller picked it (without
+ * it the API applies the customer's list, as for the installed app).
+ */
 export const linePayload = (line: PickedLine) => ({
   menu_item_id: line.menu_item_id,
   quantity: line.quantity,
   guest_number: line.guest_number ?? undefined,
+  ...(line.price_picked ? { price_list_id: line.price_list_id ?? null } : {}),
   ...(line.price_changed ? { unit_price: line.unit_price } : {}),
 });

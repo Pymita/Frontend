@@ -208,6 +208,18 @@
               :aria-label="`Agregar ${lineQuantity(quantityStep(line.unit), line.unit)} de ${line.name}`" @click="$emit('add', { id: line.menu_item_id, name: line.name, final_price: line.unit_price }, line.guest_number)"
             />
           </div>
+          <!-- The product lets the seller pick: its base price or one of its lists' (no grant needed). -->
+          <v-select
+            v-if="(line.price_options?.length ?? 0) > 1"
+            :model-value="line.price_list_id ?? BASE"
+            :items="optionItems(line)"
+            :label="`Precio de ${line.name}`"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="mb-2"
+            @update:model-value="(value: number) => pick(line, value)"
+          />
           <!-- "Cambiar precio en pedidos": another price for this line only (per unit of a weighed one), under it at full width. -->
           <div v-if="editingPrice === line" class="d-flex align-center flex-wrap ga-2 mb-2">
             <MoneyField
@@ -233,7 +245,7 @@ import { lineQuantity, money, quantityStep } from '@/utils/money'
 import MoneyField from './MoneyField.vue'
 import { computed, ref, watch } from 'vue';
 import type { MenuCategoryNode } from '@/services/menuService';
-import { fractionUnitOf, guestLabel, guestsIn, lineTotal, priceOf, type PickedLine } from '@/utils/orderLines';
+import { fractionUnitOf, guestLabel, guestsIn, lineTotal, priceOf, priceOptionTitle, type PickedLine, type PriceOption } from '@/utils/orderLines';
 
 const props = defineProps<{
   /** El menú de los meseros (`/menu/categories`): categorías principales con sus subcategorías. */
@@ -257,7 +269,18 @@ const emit = defineEmits<{
   quantity: [line: PickedLine, value: number];
   rename: [guest: number, name: string];
   price: [line: PickedLine, price: number];
+  /** One of the product's list prices, picked for this line. */
+  pick: [line: PickedLine, option: PriceOption];
 }>();
+
+// A select cannot hold null as a value: the base price is 0, never a list id.
+const BASE = 0;
+const optionItems = (line: PickedLine) =>
+  (line.price_options ?? []).map(option => ({ title: priceOptionTitle(option, money), value: option.price_list_id ?? BASE }));
+const pick = (line: PickedLine, value: number) => {
+  const option = line.price_options?.find(candidate => (candidate.price_list_id ?? BASE) === value);
+  if (option) emit('pick', line, option);
+};
 
 // The line whose price is being typed, inline as a person's name is.
 const editingPrice = ref<PickedLine | null>(null);

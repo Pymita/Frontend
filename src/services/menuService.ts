@@ -1,5 +1,7 @@
 import api from './api';
 import type { VariantGroup, Variant } from './variantsService';
+import type { PriceListMode } from './productsService';
+import type { PriceOption } from '@/utils/orderLines';
 
 export interface Category {
   id: number;
@@ -45,6 +47,12 @@ export interface MenuCategoryNode {
     /** Se vende por fracción de `unit` (1,375 kg): la cantidad lleva decimales. */
     sold_by_fraction?: boolean;
     unit?: string | null;
+    /** The list that gave `price` (null: the base price). */
+    price_list_id?: number | null;
+    /** How an order takes its list prices: by the customer, the seller picks, or both. */
+    price_list_mode?: PriceListMode;
+    /** The prices the seller may pick on the line (base + each list); empty: the customer's list decides. */
+    price_options?: PriceOption[];
   }[];
   children: MenuCategoryNode[];
 }

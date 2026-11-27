@@ -174,6 +174,19 @@ export const productTypeLabels: Record<string, string> = {
   final: 'Final',
 }
 
+/** How an order takes a product's list prices (`products.price_list_mode`; same map in mobile/src/utils/labels.ts). */
+export const priceListModeLabels: Record<string, string> = {
+  customer: 'Automático por cliente o segmento',
+  seller: 'El vendedor elige en el pedido',
+  both: 'Ambos',
+}
+
+export const priceListModeHints: Record<string, string> = {
+  customer: 'El pedido toma el precio de la lista del cliente, o la de su segmento.',
+  seller: 'Ninguna lista se aplica sola: en el pedido el vendedor elige el precio base o el de una lista.',
+  both: 'Primero el precio de la lista del cliente, y el vendedor puede cambiarlo por el de otra lista.',
+}
+
 // ===== Gastos =====
 export const expenseCategoryTypeLabels: Record<string, string> = {
   inventory_purchase: 'Compra inventario',

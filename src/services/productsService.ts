@@ -45,7 +45,12 @@ export interface Product {
   components?: ProductComponent[];
   /** Its price in the lists that sell it at another price (the rest: the base price) */
   price_list_prices?: ProductListPrice[];
+  /** How an order takes those prices (absent on old payloads: by the customer) */
+  price_list_mode?: PriceListMode;
 }
+
+/** `customer`: the customer's (or its segment's) list by itself; `seller`: the seller picks on the line; `both`. */
+export type PriceListMode = 'customer' | 'seller' | 'both';
 
 export interface ProductListPrice {
   price_list_id: number;
@@ -180,6 +185,9 @@ export interface PriceList {
   items_count: number;
   customers_count: number;
   segments_count: number;
+  /** Who it applies to, by name */
+  segments: { id: number; name: string }[];
+  customers: { id: number; name: string }[];
 }
 
 /** A final product in a list: `price` null sells it at `base_price` (the menu's, else the sale price). */
@@ -192,7 +200,11 @@ export interface PriceListRow {
   price: number | null;
 }
 
-export type PriceListPayload = Partial<Pick<PriceList, 'name' | 'description' | 'active'>>;
+export type PriceListPayload = Partial<Pick<PriceList, 'name' | 'description' | 'active'>> & {
+  /** Who it applies to, each the whole set (absent: untouched); it takes access to Clientes */
+  segment_ids?: number[];
+  customer_ids?: number[];
+};
 
 export const priceListsService = {
   async getAll(): Promise<PriceList[]> {

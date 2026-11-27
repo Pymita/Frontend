@@ -368,6 +368,9 @@
                             </td>
                             <td>
                               {{ money(orderItem.unit_price) }}
+                              <div v-if="orderItem.price_list_name" class="text-caption text-medium-emphasis">
+                                Lista {{ orderItem.price_list_name }}
+                              </div>
                               <div v-if="orderItem.original_price != null && orderItem.original_price !== orderItem.unit_price" class="text-caption text-medium-emphasis">
                                 antes {{ money(orderItem.original_price) }}
                               </div>
@@ -1083,6 +1086,15 @@
             persistent-hint
             class="mb-2"
           />
+          <!-- The product lets the seller pick: its base price or a list's, without the grant. -->
+          <v-select
+            v-if="editItemOptions.length > 1"
+            v-model="editItemData.price_list"
+            :items="editItemOptions"
+            label="Precio de la lista"
+            class="mb-2"
+            @update:model-value="onEditItemPick"
+          />
           <!-- Another price takes "Cambiar precio en pedidos"; discounting is the admin's. -->
           <MoneyField
             v-if="canChangePrices"
@@ -1201,6 +1213,7 @@
             @quantity="fijarCantidad"
             @rename="renombrarPersonaNueva"
             @price="setLinePrice"
+            @pick="pickLinePrice"
           />
 
           <v-textarea
@@ -1246,6 +1259,7 @@
             :price-list="menuPriceList"
             :can-edit-prices="canChangePrices"
             @price="setLinePrice"
+            @pick="pickLinePrice"
             @add="(item: any, guest: number | null) => agregarASeleccion(itemsParaAgregar, item, guest)"
             @remove="(line: PickedLine) => quitarDeSeleccion(itemsParaAgregar, line)"
             @quantity="fijarCantidad"
@@ -1357,7 +1371,7 @@ import { categoriesService, type MenuCategoryNode } from '@/services/menuService
 import { tablesService } from '@/services/tablesService';
 import { reservedTableLabel, taxLineLabel } from '@/utils/labels';
 import { effectiveFeatures } from '@/types/auth';
-import { addLine, removeLine, linesTotal, guestLabel, linePayload, repriceLines, setLinePrice, type PickedLine } from '@/utils/orderLines';
+import { addLine, removeLine, linesTotal, guestLabel, linePayload, repriceLines, setLinePrice, pickLinePrice, priceOptionTitle, type PickedLine, type PriceOption } from '@/utils/orderLines';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
 import { isCashMethod, methodOptions, methodsFor, paymentMethodLabel, usePaymentMethods } from '@/composables/usePaymentMethods';
 import { lineQuantity, money } from '@/utils/money';
@@ -1458,7 +1472,17 @@ const discountReason = ref('');
 
 const pagoDialog = ref(false);
 const editItemDialog = ref(false);
-const editItemData = ref({ quantity: 1 as number | null, unit_price: 0 as number | null, discount: 0, guest_number: null as number | null });
+const editItemData = ref({ quantity: 1 as number | null, unit_price: 0 as number | null, discount: 0, guest_number: null as number | null, price_list: 0 });
+// The line's list prices come from the waiters' menu (the same for every customer); 0 is the base price.
+const editItemPriceOptions = computed<PriceOption[]>(() => {
+  const menuItemId = selectedItem.value?.menu_item_id;
+  return menuItemId ? allMenuItems(menu.value).find(item => item.id === menuItemId)?.price_options ?? [] : [];
+});
+const editItemOptions = computed(() => editItemPriceOptions.value.map(option => ({ title: priceOptionTitle(option, money), value: option.price_list_id ?? 0 })));
+const onEditItemPick = (value: number) => {
+  const option = editItemPriceOptions.value.find(candidate => (candidate.price_list_id ?? 0) === value);
+  if (option) editItemData.value.unit_price = option.price;
+};
 
 // Compartido + las personas que ya hay + una más, por si llega alguien.
 const guestOptions = computed(() => {
@@ -2541,8 +2565,11 @@ const openEditItemDialog = (order: Order, item: OrderItem) => {
     unit_price: item.unit_price,
     discount: item.discount,
     guest_number: item.guest_number ?? null,
+    price_list: item.price_list_id ?? 0,
   };
   editItemDialog.value = true;
+  // Its list prices, when the product lets the seller pick them.
+  if (!menu.value.length) cargarCatalogo(order.customer_id ?? null);
 };
 
 const guardarItem = async () => {
@@ -2554,6 +2581,9 @@ const guardarItem = async () => {
     const payload = {
       quantity: editItemData.value.quantity ?? undefined,
       guest_number: editItemData.value.guest_number,
+      ...(editItemOptions.value.length > 1 && editItemData.value.price_list !== (selectedItem.value.price_list_id ?? 0)
+        ? { price_list_id: editItemData.value.price_list || null }
+        : {}),
       ...(canChangePrices.value && editItemData.value.unit_price !== null ? { unit_price: editItemData.value.unit_price } : {}),
       ...(isAdmin.value ? { discount: editItemData.value.discount } : {}),
     };
