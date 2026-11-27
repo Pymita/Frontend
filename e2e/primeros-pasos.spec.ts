@@ -145,7 +145,7 @@ test('una empresa nueva sigue los primeros pasos y hace su primera venta', async
   await field(page, 'Unidad de medida *').locator('input').fill('plato')
   await product.getByLabel('Precio de costo').fill('9000')
   await field(page, 'Precio de venta *').locator('input').fill('18000')
-  await field(page, 'Impuesto *').click()
+  await field(page, 'Impuestos *').click()
   await page.getByRole('option', { name: /Exento/ }).click()
   await product.getByLabel('Saldo inicial', { exact: true }).fill('20')
   await product.getByLabel('Publicar en el menú de venta').check()

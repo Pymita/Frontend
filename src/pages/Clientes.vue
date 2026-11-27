@@ -403,6 +403,19 @@
                   creatable
                   @created="onSegmentCreated" />
               </v-col>
+              <v-col cols="12">
+                <v-select
+                  v-model="formData.withholding_concept_ids"
+                  :items="conceptOptions"
+                  label="Retenciones que te practica (opcional)"
+                  hint="Un gran contribuyente o una empresa agente de retención te retiene al pagarte: se sugieren al registrar sus abonos en Cartera."
+                  persistent-hint
+                  multiple
+                  chips
+                  closable-chips
+                  variant="outlined"
+                  density="comfortable" />
+              </v-col>
             </v-row>
           </v-form>
         </v-card-text>
@@ -487,6 +500,42 @@
                 <v-text-field
                   v-model="supplierForm.address"
                   label="Dirección"
+                  variant="outlined"
+                  density="comfortable" />
+              </v-col>
+              <!-- Who the supplier is for taxes decides what you withhold when buying from it (docs/RETENCIONES.md). -->
+              <v-col cols="12">
+                <div class="text-subtitle-1">Impuestos y retenciones</div>
+                <p class="text-caption text-medium-emphasis">
+                  Lo dice el RUT del proveedor. Si eres agente de retención, elige las retenciones que le aplicas: se sugieren en sus facturas de compra del kardex y siempre se pueden cambiar.
+                </p>
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-select
+                  v-model="supplierForm.person_type"
+                  :items="tiposPersona"
+                  label="Tipo de persona"
+                  variant="outlined"
+                  density="comfortable"
+                  clearable />
+              </v-col>
+              <v-col cols="12" md="8" class="d-flex flex-wrap column-gap-4">
+                <v-checkbox v-model="supplierForm.income_tax_declarant" label="Declarante de renta" density="compact" hide-details />
+                <v-checkbox v-model="supplierForm.iva_responsible" label="Responsable de IVA" density="compact" hide-details />
+                <v-checkbox v-model="supplierForm.simple_regime" label="Régimen simple" density="compact" hide-details />
+                <v-checkbox v-model="supplierForm.large_taxpayer" label="Gran contribuyente" density="compact" hide-details />
+                <v-checkbox v-model="supplierForm.self_withholder" label="Autorretenedor" density="compact" hide-details />
+              </v-col>
+              <v-col cols="12">
+                <v-select
+                  v-model="supplierForm.withholding_concept_ids"
+                  :items="conceptOptions"
+                  label="Retenciones que le aplicas"
+                  :hint="supplierWithholdingHint"
+                  persistent-hint
+                  multiple
+                  chips
+                  closable-chips
                   variant="outlined"
                   density="comfortable" />
               </v-col>
@@ -660,6 +709,8 @@ import {
   type Supplier,
 } from '@/services/billingService'
 import CustomerImportDialog from '../components/CustomerImportDialog.vue'
+import kardexService, { type WithholdingConcept } from '../services/kardexService'
+import { label, withholdingTypeLabels } from '../utils/labels'
 import CustomerSegmentPicker from '../components/CustomerSegmentPicker.vue'
 import DateField from '../components/DateField.vue'
 import LockableButton from '../components/LockableButton.vue'
@@ -684,6 +735,7 @@ interface ClienteForm {
   frequent_customer: boolean
   joined_at: string
   segment_ids: number[]
+  withholding_concept_ids: number[]
 }
 
 const dialog = ref(false)
@@ -733,6 +785,7 @@ const emptyForm = (): ClienteForm => ({
   frequent_customer: false,
   joined_at: todayIso(),
   segment_ids: [],
+  withholding_concept_ids: [],
 })
 
 const formData = ref<ClienteForm>(emptyForm())
@@ -922,6 +975,7 @@ const openDialog = (cliente?: Customer) => {
       frequent_customer: cliente.frequent_customer ?? false,
       joined_at: cliente.joined_at ?? todayIso(),
       segment_ids: (cliente.segments ?? []).map(segment => segment.id),
+      withholding_concept_ids: [...(cliente.withholding_concept_ids ?? [])],
     }
   } else {
     formData.value = emptyForm()
@@ -996,7 +1050,38 @@ interface SupplierForm {
   email?: string
   address?: string
   notes?: string
+  person_type: 'natural' | 'legal' | null
+  income_tax_declarant: boolean
+  iva_responsible: boolean
+  simple_regime: boolean
+  large_taxpayer: boolean
+  self_withholder: boolean
+  withholding_concept_ids: number[]
 }
+
+// Retenciones de la empresa (Configuración › Retenciones), para proveedores y clientes.
+const withholdingConcepts = ref<WithholdingConcept[]>([])
+const conceptOptions = computed(() =>
+  withholdingConcepts.value
+    .filter(concept => concept.active)
+    .map(concept => ({ value: concept.id, title: `${concept.name} (${label(withholdingTypeLabels, concept.type)})` })),
+)
+const loadWithholdingConcepts = async () => {
+  try {
+    withholdingConcepts.value = (await kardexService.withholdingConcepts()).concepts
+  } catch {
+    // Optional: without them the forms save without withholdings.
+  }
+}
+const supplierWithholdingHint = computed(() => {
+  const form = supplierForm.value
+  if (form.simple_regime || form.self_withholder) {
+    return 'Régimen simple o autorretenedor: no se le sugiere retención en la fuente (sí ReteIVA y ReteICA si las eliges).'
+  }
+  return form.income_tax_declarant
+    ? 'Se sugiere la tarifa de declarante.'
+    : 'Se sugiere la tarifa de no declarante.'
+})
 
 const suppliers = ref<Supplier[]>([])
 const loadingSuppliers = ref(false)
@@ -1025,6 +1110,13 @@ const emptySupplierForm = (): SupplierForm => ({
   email: '',
   address: '',
   notes: '',
+  person_type: 'legal',
+  income_tax_declarant: true,
+  iva_responsible: true,
+  simple_regime: false,
+  large_taxpayer: false,
+  self_withholder: false,
+  withholding_concept_ids: [],
 })
 
 const supplierForm = ref<SupplierForm>(emptySupplierForm())
@@ -1060,6 +1152,13 @@ const openSupplierDialog = (supplier?: Supplier) => {
       email: supplier.email || '',
       address: supplier.address || '',
       notes: supplier.notes || '',
+      person_type: supplier.person_type ?? null,
+      income_tax_declarant: supplier.income_tax_declarant ?? true,
+      iva_responsible: supplier.iva_responsible ?? true,
+      simple_regime: supplier.simple_regime ?? false,
+      large_taxpayer: supplier.large_taxpayer ?? false,
+      self_withholder: supplier.self_withholder ?? false,
+      withholding_concept_ids: [...(supplier.withholding_concept_ids ?? [])],
     }
   } else {
     supplierForm.value = emptySupplierForm()
@@ -1117,5 +1216,6 @@ onMounted(() => {
   loadClientes()
   loadSegments()
   loadSuppliers()
+  loadWithholdingConcepts()
 })
 </script>

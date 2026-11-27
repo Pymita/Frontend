@@ -248,6 +248,47 @@ export const taxRegimeLabels: Record<string, string> = {
   large_taxpayer: 'Gran contribuyente',
 }
 
+/** What the law calls each tax (docs/FACTURACION_ELECTRONICA_COLOMBIA.md, "Impuestos de un producto"). */
+export const taxKindLabels: Record<string, string> = {
+  iva: 'IVA',
+  inc: 'Impuesto al consumo (INC)',
+  ibua: 'Bebidas azucaradas (IBUA)',
+  icui: 'Comestibles ultraprocesados (ICUI)',
+  licores: 'Impuesto al consumo de licores',
+  other: 'Otro',
+}
+
+export const taxCalculationLabels: Record<string, string> = {
+  percentage: 'Porcentaje del valor',
+  per_unit: 'Valor fijo por unidad',
+}
+
+/** Retenciones (docs/RETENCIONES.md). */
+export const withholdingTypeLabels: Record<string, string> = {
+  renta: 'Retención en la fuente',
+  iva: 'ReteIVA',
+  ica: 'ReteICA',
+}
+
+/**
+ * A tax as a document or an order's summary names it: its name, with its
+ * rate when the name does not already say it ("IVA 19%", "IBUA $68 c/u").
+ * Same rule as `taxLineLabel()` in the waiter app's labels.
+ */
+export const taxLineLabel = (tax: { name: string; rate_label: string }): string =>
+  tax.name.includes(tax.rate_label.replace(' c/u', '')) ? tax.name : `${tax.name} ${tax.rate_label}`
+
+/** Who withheld (Informes › Retenciones; `Report::ENUMS` withholding_side). */
+export const withholdingSideLabels: Record<string, string> = {
+  purchase: 'Retuviste (compras)',
+  sale: 'Te retuvieron (ventas)',
+}
+
+export const personTypeLabels: Record<string, string> = {
+  natural: 'Persona natural',
+  legal: 'Persona jurídica',
+}
+
 export const expensePaymentMethodLabels: Record<string, string> = {
   cash: 'Efectivo',
   transfer: 'Transferencia',
@@ -353,6 +394,8 @@ export const enumLabels: Record<string, Record<string, string>> = {
   payment_status: paymentStatusLabels,
   movement_type: movementTypeLabels,
   invoice_status: invoiceStatusLabels,
+  withholding_side: withholdingSideLabels,
+  withholding_type: withholdingTypeLabels,
 }
 
 /** Enums that are states (or a kardex direction): their cells read as a chip of its role. */

@@ -103,10 +103,10 @@
             <div class="text-subtitle-1 mt-2">Productos</div>
             <p class="text-caption text-medium-emphasis mb-2">
               <template v-if="isEntry && editedMovement">
-                El costo unitario va antes de IVA; si lo dejas vacío, una línea guardada conserva su costo y una nueva entra al costo promedio.
+                El costo unitario va antes de impuestos; si lo dejas vacío, una línea guardada conserva su costo y una nueva entra al costo promedio.
               </template>
               <template v-else-if="isEntry">
-                El costo unitario va antes de IVA y trae el último costo del producto; si lo dejas vacío, entra al costo promedio.
+                El costo unitario va antes de impuestos y trae el último costo del producto; si lo dejas vacío, entra al costo promedio.
               </template>
               Un producto repetido queda como otro movimiento. Las líneas vacías no se registran.
             </p>
@@ -161,15 +161,19 @@
                 </v-col>
                 <v-col v-if="isEntry" cols="12" sm="3" order="3" order-sm="0">
                   <v-select
-                    v-model="line.tax_id"
+                    v-model="line.tax_ids"
                     :items="lineTaxes(line)"
-                    item-title="name"
+                    :item-title="taxOptionTitle"
                     item-value="id"
-                    label="IVA"
-                    placeholder="Sin IVA"
+                    label="Impuestos"
+                    placeholder="Sin impuestos"
                     persistent-placeholder
-                    clearable
+                    multiple
+                    chips
+                    closable-chips
+                    :menu-props="{ closeOnContentClick: true }"
                     :error="line.error?.field === 'tax'"
+                    :messages="costTaxNote(line)"
                     hide-details="auto"
                     @update:model-value="line.error = null"
                   />
@@ -205,6 +209,62 @@
                   <span>{{ row.value }}</span>
                 </div>
               </div>
+            </div>
+            <!-- Retenciones de la compra: sugeridas por el proveedor y su base mínima,
+                 siempre editables; bajan lo que se le paga, nunca el costo. -->
+            <div v-if="isPurchase" role="group" aria-label="Retenciones de la compra" class="mb-4">
+              <div class="d-flex align-center flex-wrap ga-2 mb-1">
+                <div class="text-subtitle-1">Retenciones</div>
+                <v-spacer />
+                <v-btn size="small" variant="text" prepend-icon="mdi-refresh" :loading="suggestingWithholdings" @click="suggestWithholdings(true)">
+                  Sugerir según el proveedor
+                </v-btn>
+                <v-btn size="small" variant="text" prepend-icon="mdi-plus" @click="addWithholding">Agregar retención</v-btn>
+              </div>
+              <p class="text-caption text-medium-emphasis mb-2">{{ withholdingHint }}</p>
+              <v-row v-for="(row, index) in withholdings" :key="index" dense align="center">
+                <v-col cols="12" sm="5">
+                  <v-combobox
+                    v-model="row.name"
+                    :items="conceptNames"
+                    label="Concepto"
+                    density="compact"
+                    hide-details
+                    @update:model-value="onWithholdingConcept(row)"
+                  />
+                </v-col>
+                <v-col cols="4" sm="2">
+                  <v-text-field
+                    v-model.number="row.rate"
+                    label="Tarifa"
+                    type="number"
+                    suffix="%"
+                    density="compact"
+                    hide-details
+                    @update:model-value="onWithholdingRate(row)"
+                  />
+                </v-col>
+                <v-col cols="6" sm="4">
+                  <MoneyField
+                    v-model="row.amount"
+                    label="Valor retenido"
+                    density="compact"
+                    :hint="`Base ${money(row.base)}`"
+                    persistent-hint
+                    empty-as-zero
+                    @update:model-value="withholdingsTouched = true"
+                  />
+                </v-col>
+                <v-col cols="2" sm="1" class="text-center">
+                  <v-btn
+                    icon="mdi-delete-outline"
+                    variant="text"
+                    size="small"
+                    :aria-label="`Quitar la retención ${row.name || index + 1}`"
+                    @click="removeWithholding(index)"
+                  />
+                </v-col>
+              </v-row>
             </div>
             <v-textarea
               v-model="movementForm.notes"
@@ -474,7 +534,10 @@ import kardexService, {
   type KardexMovement,
   type KardexReport,
   type Tax,
+  type WithholdingConcept,
+  type WithholdingLine,
 } from '../services/kardexService'
+import { taxAddsToCost, taxOnCost, taxOptionTitle } from '../utils/taxes'
 import { productsService } from '../services/productsService'
 import { billingService, type Customer, type Supplier } from '../services/billingService'
 import { useAuthStore } from '../stores/auth'
@@ -518,7 +581,8 @@ interface MovementLine {
   /** An emptied number field gives '' */
   quantity: number | null
   unit_cost: number | null
-  tax_id: number | null
+  /** Every tax of the line (IVA, impoconsumo, IBUA…) */
+  tax_ids: number[]
   error: { field: 'product' | 'quantity' | 'unit_cost' | 'tax'; text: string } | null
 }
 let lineKeys = 0
@@ -534,13 +598,16 @@ const products = ref<{
   unit_cost?: number | null
   tracks_stock?: boolean
   tax_id?: number | null
+  tax_ids?: number[]
 }[]>([])
 // Products without inventory have no kardex: listing them only made every picker huge.
 const stockProducts = computed(() => products.value.filter(p => p.tracks_stock !== false))
 const documentTypes = ref<DocumentType[]>([])
 const taxes = ref<Tax[]>([])
 const activeTaxes = computed(() => taxes.value.filter(t => t.active))
-const taxRate = (id: number | null) => Number(taxes.value.find(t => t.id === id)?.rate ?? 0)
+const taxOf = (id: number) => taxes.value.find(t => t.id === id)
+// A "No responsable de IVA" cannot discount the IVA it pays: it is cost (Tax::addsToCost()).
+const companyChargesIva = ref(true)
 
 // Terceros para el selector Cliente/Proveedor del movimiento.
 const suppliers = ref<Supplier[]>([])
@@ -601,10 +668,11 @@ const isEntry = computed(() => movementForm.value.movement_type === 'in')
 const productOf = (id: number | null) => products.value.find(p => p.id === id)
 const productName = (id: number | null) => productOf(id)?.name ?? 'el producto'
 const unitOf = (id: number | null) => productOf(id)?.unit || undefined
-// A purchase invoice (FC) charges the product's own tax; an inactive one is not offered.
-const productTax = (id: number | null) => {
-  const taxId = productOf(id)?.tax_id
-  return activeTaxes.value.some(t => t.id === taxId) ? (taxId as number) : null
+// A purchase invoice (FC) charges the product's own taxes; an inactive one is not offered.
+const productTaxes = (id: number | null): number[] => {
+  const product = productOf(id)
+  const ids = product?.tax_ids?.length ? product.tax_ids : product?.tax_id ? [product.tax_id] : []
+  return ids.filter(taxId => activeTaxes.value.some(t => t.id === taxId))
 }
 
 // A saved line keeps its product and its tax in the lists even if the product
@@ -613,10 +681,7 @@ const lineProducts = (line: MovementLine) => {
   const own = line.saved?.product
   return !own || stockProducts.value.some(p => p.id === own.id) ? stockProducts.value : [own, ...stockProducts.value]
 }
-const lineTaxes = (line: MovementLine) =>
-  line.tax_id === null || activeTaxes.value.some(t => t.id === line.tax_id)
-    ? activeTaxes.value
-    : taxes.value.filter(t => t.active || t.id === line.tax_id)
+const lineTaxes = (line: MovementLine) => taxes.value.filter(t => t.active || line.tax_ids.includes(t.id))
 
 const newLine = (productId: number | null = null): MovementLine => {
   const cost = productOf(productId)?.unit_cost
@@ -625,7 +690,7 @@ const newLine = (productId: number | null = null): MovementLine => {
     product_id: productId,
     quantity: null,
     unit_cost: cost != null ? Number(cost) : null,
-    tax_id: selectedDocCode.value === 'FC' ? productTax(productId) : null,
+    tax_ids: selectedDocCode.value === 'FC' ? productTaxes(productId) : [],
     error: null,
   }
 }
@@ -637,19 +702,19 @@ const onLineProduct = (line: MovementLine) => {
   line.error = null
   if (!line.product_id) {
     line.unit_cost = null
-    if (selectedDocCode.value === 'FC') line.tax_id = null
+    if (selectedDocCode.value === 'FC') line.tax_ids = []
     return
   }
   const cost = productOf(line.product_id)?.unit_cost
   if (cost != null) line.unit_cost = Number(cost)
-  if (selectedDocCode.value === 'FC') line.tax_id = productTax(line.product_id)
+  if (selectedDocCode.value === 'FC') line.tax_ids = productTaxes(line.product_id)
 }
 
 // Products picked before choosing FC still get their tax; a saved line without tax stays without.
 watch(selectedDocCode, code => {
   if (code !== 'FC') return
   movementLines.value.forEach(line => {
-    if (line.product_id && line.tax_id === null && !line.saved) line.tax_id = productTax(line.product_id)
+    if (line.product_id && line.tax_ids.length === 0 && !line.saved) line.tax_ids = productTaxes(line.product_id)
   })
 })
 
@@ -677,15 +742,94 @@ const lineGross = (line: MovementLine) => {
   return Number(line.quantity) > 0 ? Number(line.quantity) * Number(cost) : 0
 }
 const linesGross = computed(() => movementLines.value.reduce((total, line) => total + lineGross(line), 0))
-const linesTax = computed(() =>
-  movementLines.value.reduce((total, line) => total + (lineGross(line) * taxRate(line.tax_id)) / 100, 0),
-)
+// Each tax of each line on its cost before taxes; the ones that are cost go into the inventory.
+const lineTaxAmounts = (line: MovementLine) =>
+  line.tax_ids.map(taxOf).filter((tax): tax is Tax => !!tax).map(tax => ({
+    tax,
+    amount: taxOnCost(tax, lineGross(line), Number(line.quantity) || 0),
+    inCost: taxAddsToCost(tax, companyChargesIva.value),
+  }))
+const linesTaxes = computed(() => movementLines.value.flatMap(lineTaxAmounts))
+const linesTax = computed(() => linesTaxes.value.filter(t => !t.inCost).reduce((sum, t) => sum + t.amount, 0))
+const linesCostTax = computed(() => linesTaxes.value.filter(t => t.inCost).reduce((sum, t) => sum + t.amount, 0))
+const linesIva = computed(() => linesTaxes.value.filter(t => t.tax.kind === 'iva').reduce((sum, t) => sum + t.amount, 0))
+const costTaxNote = (line: MovementLine) => {
+  const inCost = lineTaxAmounts(line).filter(t => t.inCost)
+  return inCost.length ? `${inCost.map(t => t.tax.name).join(' y ')} suma al costo` : undefined
+}
+const withheldTotal = computed(() => withholdings.value.reduce((sum, row) => sum + (Number(row.amount) || 0), 0))
 
 const summaryRows = computed(() => [
   { label: 'Valor bruto', value: money(linesGross.value), total: false },
-  { label: 'IVA', value: money(linesTax.value), total: false },
-  { label: 'Valor neto', value: money(linesGross.value + linesTax.value), total: true },
+  ...(linesCostTax.value > 0 ? [{ label: 'Costo por impuestos', value: money(linesCostTax.value), total: false }] : []),
+  { label: 'Impuestos', value: money(linesTax.value), total: false },
+  { label: 'Valor neto', value: money(linesGross.value + linesCostTax.value + linesTax.value), total: true },
+  ...(isPurchase.value && withheldTotal.value > 0
+    ? [
+        { label: 'Retenciones', value: money(-withheldTotal.value), total: false },
+        { label: 'Neto a pagar', value: money(linesGross.value + linesCostTax.value + linesTax.value - withheldTotal.value), total: true },
+      ]
+    : []),
 ])
+
+// --- Retenciones de una compra (docs/RETENCIONES.md) ---
+const isPurchase = computed(() => selectedDocCode.value === 'FC' && isEntry.value)
+const withholdings = ref<WithholdingLine[]>([])
+const withholdingConcepts = ref<WithholdingConcept[]>([])
+const conceptNames = computed(() => withholdingConcepts.value.filter(c => c.active).map(c => c.name))
+// Once edited by hand, a new supplier or total no longer replaces what was typed.
+const withholdingsTouched = ref(false)
+const suggestingWithholdings = ref(false)
+const withholdingHint = computed(() =>
+  withholdings.value.length
+    ? 'Sugeridas según el proveedor y el valor antes de impuestos; cambia la tarifa o el valor si tu factura dice otro. Bajan lo que le pagas, no el costo.'
+    : 'Sin retenciones. Se sugieren cuando el proveedor tiene retenciones asignadas en Clientes › Proveedores y la compra supera su base mínima.',
+)
+const suggestWithholdings = async (force = false) => {
+  if (!isPurchase.value || (withholdingsTouched.value && !force)) return
+  const counterparty = (movementForm.value.counterparty || '').trim()
+  if (!counterparty || linesGross.value <= 0) {
+    if (!withholdingsTouched.value) withholdings.value = []
+    return
+  }
+  suggestingWithholdings.value = true
+  try {
+    withholdings.value = await kardexService.suggestWithholdings({ counterparty, base: Math.round(linesGross.value * 100) / 100, iva: Math.round(linesIva.value * 100) / 100 })
+    withholdingsTouched.value = false
+  } catch {
+    // Only a suggestion: without it the purchase saves with what is typed.
+  } finally {
+    suggestingWithholdings.value = false
+  }
+}
+let suggestTimer: ReturnType<typeof setTimeout> | undefined
+watch([() => movementForm.value.counterparty, linesGross, linesIva, isPurchase], () => {
+  clearTimeout(suggestTimer)
+  suggestTimer = setTimeout(() => suggestWithholdings(), 400)
+})
+const conceptNamed = (name: string) => withholdingConcepts.value.find(c => c.name === name)
+const onWithholdingConcept = (row: WithholdingLine) => {
+  withholdingsTouched.value = true
+  const concept = conceptNamed(row.name)
+  if (!concept) return
+  row.withholding_concept_id = concept.id
+  row.type = concept.type
+  row.rate = concept.rate_declarant
+  row.base = concept.type === 'iva' ? linesIva.value : linesGross.value
+  onWithholdingRate(row)
+}
+const onWithholdingRate = (row: WithholdingLine) => {
+  withholdingsTouched.value = true
+  row.amount = Math.round(row.base * (Number(row.rate) || 0) / 100)
+}
+const addWithholding = () => {
+  withholdingsTouched.value = true
+  withholdings.value.push({ name: '', type: 'renta', rate: 0, base: Math.round(linesGross.value * 100) / 100, amount: 0 })
+}
+const removeWithholding = (index: number) => {
+  withholdingsTouched.value = true
+  withholdings.value.splice(index, 1)
+}
 
 const lineProblem = (line: MovementLine): MovementLine['error'] => {
   if (!line.product_id) {
@@ -703,6 +847,7 @@ const LINE_FIELDS: Record<string, NonNullable<MovementLine['error']>['field']> =
   quantity: 'quantity',
   unit_cost: 'unit_cost',
   tax_id: 'tax',
+  tax_ids: 'tax',
 }
 
 const openMovementDialog = () => {
@@ -718,6 +863,8 @@ const openMovementDialog = () => {
   }
   // Con un producto ya filtrado, el movimiento seguramente es para él.
   movementLines.value = [newLine(filters.value.product_id ?? null)]
+  withholdings.value = []
+  withholdingsTouched.value = false
   movementError.value = ''
   movementDialog.value = true
 }
@@ -756,14 +903,18 @@ const saveMovement = async () => {
   // Solo para que TypeScript sepa que ya no es null (la guarda de arriba cubre).
   if (!form.document_type_id) return
   // An empty cost is not sent: a new line enters at the average cost and a
-  // saved one keeps its own. No tax is sent as null, so a saved line loses it.
+  // saved one keeps its own. Its taxes always go, so a saved line can lose them.
   const items = lines.map(line => ({
     ...(line.saved ? { id: line.saved.id } : {}),
     product_id: line.product_id as number,
     quantity: Number(line.quantity),
     ...(isEntry.value && line.unit_cost !== null ? { unit_cost: line.unit_cost } : {}),
-    ...(isEntry.value ? { tax_id: line.tax_id } : {}),
+    ...(isEntry.value ? { tax_ids: line.tax_ids } : {}),
   }))
+  // A withholding without a name or a value is a leftover row: it is not sent.
+  const typedWithholdings = isPurchase.value
+    ? withholdings.value.filter(row => row.name.trim() && Number(row.amount) > 0).map(row => ({ ...row, name: row.name.trim() }))
+    : []
   const edited = editedMovement.value
   savingMovement.value = true
   try {
@@ -775,6 +926,7 @@ const saveMovement = async () => {
           notes: form.notes.trim() || null,
           movement_type: form.movement_type,
           items,
+          ...(isPurchase.value ? { withholdings: typedWithholdings } : {}),
         })
       : await kardexService.createKardexMovement({
           document_type_id: form.document_type_id,
@@ -784,6 +936,7 @@ const saveMovement = async () => {
           counterparty: (form.counterparty || '').trim() || undefined,
           reference: form.reference.trim() || undefined,
           notes: form.notes.trim() || undefined,
+          ...(typedWithholdings.length ? { withholdings: typedWithholdings } : {}),
         })
     notify(result.message || (edited ? 'Movimiento actualizado en el kardex' : 'Movimiento registrado en el kardex'), 'success')
     movementDialog.value = false
@@ -827,7 +980,8 @@ const editDocument = async (m: KardexMovement) => {
   if (loadingDocument.value !== null) return
   loadingDocument.value = m.id
   try {
-    const found = m.batch ? (await kardexService.report({ batch: m.batch })).movements : []
+    const document = m.batch ? await kardexService.report({ batch: m.batch }) : null
+    const found = document?.movements ?? []
     const rows = found.length > 0 ? found : [m]
     const header = rows.find(row => row.id === m.id) ?? rows[0]!
     editedMovement.value = header
@@ -844,10 +998,14 @@ const editDocument = async (m: KardexMovement) => {
       saved: row,
       product_id: row.product.id,
       quantity: Number(row.quantity),
-      unit_cost: Number(row.unit_cost),
-      tax_id: row.tax_id ?? null,
+      // The cost was typed before taxes: the ones that are cost went on top of it.
+      unit_cost: Number(row.unit_cost_before_taxes ?? row.unit_cost),
+      tax_ids: row.tax_ids ?? (row.tax_id ? [row.tax_id] : []),
       error: null,
     }))
+    withholdings.value = (document?.withholdings ?? []).map(row => ({ ...row }))
+    // What the document already kept is what was typed: it is not re-suggested.
+    withholdingsTouched.value = true
     movementError.value = ''
     movementDialog.value = true
   } catch (error) {
@@ -918,6 +1076,9 @@ onMounted(async () => {
   } catch (error) {
     notify(errorMessage(error, 'No fue posible cargar los impuestos. Inténtalo de nuevo.'))
   }
+  // Optional: without them a purchase is typed with no suggestion and the IVA follows the tax's flag.
+  kardexService.withholdingConcepts().then(({ concepts }) => (withholdingConcepts.value = concepts)).catch(() => {})
+  billingService.getBusiness().then(business => (companyChargesIva.value = business.tax_regime !== 'simplified')).catch(() => {})
   // Terceros para el selector; si fallan, el combobox queda como texto libre.
   try {
     const [sup, cust] = await Promise.all([

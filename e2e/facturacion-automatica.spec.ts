@@ -4,6 +4,7 @@ import {
   API,
   apiLogin,
   buildXlsx,
+  chooseReport,
   createCompany,
   displayDate,
   field,
@@ -2086,4 +2087,75 @@ test('en un restaurante, un empleado con solo clientes registra un saldo inicial
   await expect(row.getByRole('button', { name: 'Imprimir F-77' })).toHaveCount(0)
   // Nothing on the page is wider than the phone.
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+})
+
+/**
+ * Un cliente agente de retención (un supermercado gran contribuyente) paga
+ * la factura de $1.000.000 reteniendo 2,5 % de "Compras generales": el abono
+ * sugiere la retención y el resto, $975.000; registrarlos deja el documento
+ * pagado, el recibo de caja dice lo retenido e Informes › Retenciones suma lo
+ * que te retuvieron.
+ */
+test('la retención que hace el cliente se sugiere en el abono, salda el documento y suma en Informes', async ({ page, request }) => {
+  const company = await createRecurringCompany(request, 'retencion-cliente')
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const concepts = (await (await request.get(`${API}/withholding-concepts`, { headers: auth })).json()).data
+  const general = concepts.find((concept: { name: string }) => concept.name === 'Compras generales').id
+  const customer = await createResident(request, company.token, { name: 'Supermercado Retenedor', document_number: '7001' })
+  const tagged = await request.put(`${API}/customers/${customer}`, { headers: auth, data: { withholding_concept_ids: [general] } })
+  expect(tagged.ok(), await tagged.text()).toBeTruthy()
+  const opening = await request.post(`${API}/recurring-billing/opening-balances`, {
+    headers: auth,
+    data: { customer_id: customer, lines: [{ document_number: 'FV-2001', issued_at: '2026-11-01', total: 1000000 }] },
+  })
+  expect(opening.status(), await opening.text()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await sidebarItem(page, 'Cartera').click()
+  const panel = page.locator('.v-expansion-panel', { hasText: 'Supermercado Retenedor' })
+  await panel.locator('.v-expansion-panel-title').click()
+  await panel.locator('tbody tr', { hasText: 'FV-2001' }).getByRole('button', { name: 'Abonar' }).click()
+
+  const dialog = page.getByRole('dialog').filter({ hasText: 'FV-2001' })
+  const withholding = dialog.getByRole('group', { name: 'Retención que te hizo el cliente' })
+  await expect(withholding.getByLabel('Concepto')).toHaveValue('Compras generales')
+  await expect(withholding.getByLabel('Valor retenido')).toHaveValue('25.000')
+  await expect(field(page, 'Valor del abono').locator('input')).toHaveValue('975.000')
+  if (process.env.FV4_SHOTS) {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 })
+      // Menus and dialogs fade: the picture waits for them to settle.
+      await page.waitForTimeout(600)
+      await page.screenshot({ path: `/Users/valentina.morales/Documents/Pymita/screenshots/fruver/fv4-abono-retencion-cliente-${width}.png` })
+    }
+    await page.setViewportSize({ width: 1440, height: 900 })
+  }
+  await dialog.getByRole('button', { name: 'Registrar abono' }).click()
+  await expect(page.getByText('Abono registrado: el documento quedó pagado')).toBeVisible()
+  await expect(dialog).toContainText('Te retuvieron')
+  await expect(dialog).toContainText('Retención: Compras generales 2.5% sobre $1.000.000 = $25.000')
+
+  const [receipt] = await Promise.all([page.waitForEvent('popup'), dialog.getByRole('button', { name: /Imprimir recibo RC-/ }).click()])
+  await expect(receipt.locator('.totals')).toContainText('RETENCIÓN COMPRAS GENERALES 2.5%: $25.000')
+  await expect(receipt.locator('.totals')).toContainText('TOTAL RECIBIDO: $975.000')
+  await expect(receipt.locator('tbody tr').first()).toContainText('$0')
+  await receipt.close()
+  await dialog.getByRole('button', { name: 'Cerrar' }).click()
+
+  // Informes › Retenciones: what the customers withheld this month.
+  await page.goto('/informes')
+  await chooseReport(page, 'Retenciones')
+  const row = page.locator('.v-data-table tbody tr', { hasText: 'Te retuvieron (ventas)' })
+  await expect(row).toContainText('Retención en la fuente')
+  await expect(row).toContainText('$1.000.000')
+  await expect(row).toContainText('$25.000')
+  if (process.env.FV4_SHOTS) {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      // Menus and dialogs fade: the picture waits for them to settle.
+      await page.waitForTimeout(600)
+      await page.screenshot({ path: `/Users/valentina.morales/Documents/Pymita/screenshots/fruver/fv4-informe-retenciones-${width}.png` })
+    }
+  }
 })

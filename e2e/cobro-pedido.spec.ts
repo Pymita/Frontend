@@ -1171,10 +1171,10 @@ test('la venta se imprime en hoja como factura de venta, desde Pedidos y desde V
   const rows = invoice.locator('.items tbody tr')
   await expect(rows).toHaveCount(2)
   await expect(rows.nth(0).locator('td')).toHaveText(['Cerveza Club', '2', '$6.500', '—', '$13.000'])
-  await expect(rows.nth(1).locator('td')).toHaveText(['Empanada de pipián', '3', '$3.000', '8%', '$9.000'])
+  await expect(rows.nth(1).locator('td')).toHaveText(['Empanada de pipián', '3', '$3.000', 'Impoconsumo E2E 8%', '$9.000'])
   // The subtotal is the value before the tax: 21.333 + 667 = 22.000.
   await expect(invoice.locator('.totals')).toContainText('SUBTOTAL: $21.333')
-  await expect(invoice.locator('.totals')).toContainText('IMPUESTO: $667')
+  await expect(invoice.locator('.totals')).toContainText('IMPOCONSUMO E2E 8%: $667')
   await expect(invoice.locator('.totals')).toContainText('TOTAL: $22.000')
   await expect(invoice.locator('.totals')).not.toContainText('PROPINA')
   // Nobody identified the buyer: the consumidor final with the DIAN's NIT, never the table.
@@ -1242,10 +1242,13 @@ async function paidOrderWithTaxes(
 ) {
   const categoryId = (await (await request.post(`${API}/categories`, { headers: auth, data: { name: `Bebidas ${Date.now()}` } })).json()).data.id
   const items = []
+  // One tax per rate, named as the documents print it ("Impuesto 19%").
+  const taxes = new Map<number, { id: number }>()
   for (const line of lines) {
-    const tax = line.rate
-      ? (await (await request.post(`${API}/taxes`, { headers: auth, data: { name: `Impuesto ${line.rate}% ${Date.now()}`, rate: line.rate } })).json()).data
-      : null
+    if (line.rate && !taxes.has(line.rate)) {
+      taxes.set(line.rate, (await (await request.post(`${API}/taxes`, { headers: auth, data: { name: `Impuesto ${line.rate}%`, rate: line.rate } })).json()).data)
+    }
+    const tax = line.rate ? taxes.get(line.rate) : null
     const product = await request.post(`${API}/products`, {
       headers: auth,
       data: { name: line.name, type: 'final', unit: 'und', sale_price: line.price, tracks_stock: false, category_id: categoryId, ...(tax ? { tax_id: tax.id } : {}) },
@@ -1308,13 +1311,15 @@ test('el subtotal impreso es el valor antes de impuestos y suma el total con el 
   const { ticket, letter } = await printPaidOrder(page, '$24.000')
 
   expect(ticket).toMatch(ticketLine('SUBTOTAL', '$20.168'))
-  expect(ticket).toMatch(ticketLine('IMPUESTO', '$3.832'))
+  expect(ticket).toMatch(ticketLine('IMPUESTO 19%', '$3.832'))
   expect(ticket).toMatch(ticketLine('TOTAL', '$24.000'))
   expect(ticket).not.toContain('IVA INCL.')
 
   await expect(letter.locator('.doc-number')).toContainText('COMPROBANTE DE VENTA')
-  await expect(letter.locator('.items tbody tr td')).toHaveText(['CERVEZA CORONA x 330ML', '4', '$6.000', '19%', '$24.000'])
-  await expect(letter.locator('.totals > div')).toHaveText(['SUBTOTAL: $20.168', 'IMPUESTO: $3.832', 'TOTAL: $24.000'])
+  await expect(letter.locator('.items tbody tr td')).toHaveText(['CERVEZA CORONA x 330ML', '4', '$6.000', 'Impuesto 19%', '$24.000'])
+  await expect(letter.locator('.totals > div')).toHaveText(['SUBTOTAL: $20.168', 'IMPUESTO 19%: $3.832', 'TOTAL: $24.000'])
+  // Each tax with its rate, the base it was computed on and its value.
+  await expect(letter.locator('.tax-detail tbody tr td')).toHaveText(['Impuesto 19%', '19%', '$20.168', '$3.832'])
   await expect(letter.locator('.son')).toHaveText('SON: VEINTICUATRO MIL PESOS M/CTE')
 })
 
@@ -1342,7 +1347,8 @@ test('con descuento, dos impuestos y propina las cifras impresas suman el total'
   for (const [label, amount] of [
     ['SUBTOTAL', '$18.418'],
     ['DESCUENTO', '-$1.842'],
-    ['IMPUESTO', '$2.324'],
+    ['IMPUESTO 19%', '$1.724'],
+    ['IMPUESTO 8%', '$600'],
     ['TOTAL SIN PROPINA', '$18.900'],
     ['PROPINA VOLUNTARIA', '$2.000'],
     ['TOTAL PAGADO', '$20.900'],
@@ -1353,7 +1359,8 @@ test('con descuento, dos impuestos y propina las cifras impresas suman el total'
   await expect(letter.locator('.totals > div')).toHaveText([
     'SUBTOTAL: $18.418',
     'DESCUENTO: -$1.842',
-    'IMPUESTO: $2.324',
+    'IMPUESTO 19%: $1.724',
+    'IMPUESTO 8%: $600',
     'TOTAL: $18.900',
     'PROPINA VOLUNTARIA: $2.000',
     'TOTAL PAGADO: $20.900',
@@ -2181,4 +2188,110 @@ test('una venta con un abono por transferencia y el resto en efectivo imprime la
     .toHaveText('FORMA DE PAGO: Efectivo $46.500 + Transferencia $50.000')
   await expect(comprobante.locator('.totals')).toContainText('TOTAL: $96.500')
   await comprobante.close()
+})
+
+/**
+ * A product carries several taxes and every summary lists each one: a beer
+ * at $11.900 with IVA 19 % and impoconsumo 8 % (one base, neither on the
+ * other) and two sugary sodas at $5.000 with IVA 19 % and $68 per unit of
+ * the impuesto a bebidas azucaradas, which is not part of the IVA's base.
+ * Pedidos' summary, the ticket and the letter factura read the same taxes.
+ */
+test('un producto con varios impuestos los desglosa en el resumen del pedido, la tirilla y la factura', async ({ page, request }) => {
+  const { credentials, auth } = await createRestaurant(request, `varios-impuestos-${Date.now()}`)
+  const tax = async (data: Record<string, unknown>): Promise<number> => {
+    const response = await request.post(`${API}/taxes`, { headers: auth, data })
+    expect(response.status(), await response.text()).toBe(201)
+    return (await response.json()).data.id
+  }
+  // A new company starts with IVA 19% and Impoconsumo 8%; the sugary drinks' tax is created.
+  const catalog = (await (await request.get(`${API}/taxes`, { headers: auth })).json()).data as { id: number; name: string }[]
+  const iva = catalog.find(t => t.name === 'IVA 19%')!.id
+  const inc = catalog.find(t => t.name === 'Impoconsumo 8%')!.id
+  const ibua = await tax({ name: 'Bebidas azucaradas', kind: 'ibua', calculation: 'per_unit', amount: 68 })
+  const categoryId = (await (await request.post(`${API}/categories`, { headers: auth, data: { name: 'Bebidas' } })).json()).data.id
+  const product = async (name: string, price: number, taxIds: number[]): Promise<number> => {
+    const response = await request.post(`${API}/products`, {
+      headers: auth,
+      data: { name, type: 'final', unit: 'und', sale_price: price, tracks_stock: false, category_id: categoryId, tax_ids: taxIds },
+    })
+    expect(response.status(), await response.text()).toBe(201)
+    return (await response.json()).data.id
+  }
+  const beer = await product('Cerveza michelada', 11900, [iva, inc])
+  const soda = await product('Gaseosa azucarada', 5000, [iva, ibua])
+  const table = (await (await request.post(`${API}/tables`, { headers: auth, data: { number: 7, capacity: 4 } })).json()).data
+  const order = (await (await request.post(`${API}/orders`, {
+    headers: auth,
+    data: { dining_table_id: table.id, customer_name: table.display_name, items: [{ product_id: beer, quantity: 1 }, { product_id: soda, quantity: 2 }] },
+  })).json()).data
+
+  await freezeTime(page, order.created_at)
+  await loginUI(page, credentials.email, credentials.password)
+
+  // The product form lists its taxes and what the price is before them.
+  await page.goto('/productos-base')
+  await page.getByRole('button', { name: 'Editar Gaseosa azucarada' }).click()
+  const taxes = field(page, 'Impuestos *')
+  await expect(taxes).toContainText('IVA 19%')
+  await expect(taxes).toContainText('Bebidas azucaradas ($68 c/u)')
+  await expect(page.getByRole('dialog')).toContainText('Antes de impuestos $4.145 · IVA 19% $787 + Bebidas azucaradas $68')
+  if (process.env.FV4_SHOTS) {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 })
+      await expect(page.getByRole('dialog')).toBeVisible()
+      await taxes.scrollIntoViewIfNeeded()
+      // Menus and dialogs fade: the picture waits for them to settle.
+      await page.waitForTimeout(600)
+      await page.screenshot({ path: `/Users/valentina.morales/Documents/Pymita/screenshots/fruver/fv4-producto-varios-impuestos-${width}.png` })
+    }
+    await page.setViewportSize({ width: 1440, height: 900 })
+  }
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancelar' }).click()
+
+  // The open order's summary: prices include them, each one says how much.
+  await page.goto('/pedidos')
+  const row = page.locator('tbody tr', { hasText: '$21.900' }).first()
+  await expect(row).toBeVisible()
+  const summary = page.locator('tr', { hasText: 'Productos del pedido' })
+  if (!(await summary.isVisible())) await row.locator('.v-data-table__td--expanded-row').getByRole('button').click()
+  for (const [label, amount] of [['Incluye IVA 19%', '$3.355'], ['Incluye Impoconsumo 8%', '$750'], ['Incluye Bebidas azucaradas $68 c/u', '$136']]) {
+    await expect(summary.locator('.d-flex', { hasText: label! })).toContainText(amount!)
+  }
+  if (process.env.FV4_SHOTS) {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 })
+      await summary.getByText('Incluye IVA 19%').scrollIntoViewIfNeeded()
+      // Menus and dialogs fade: the picture waits for them to settle.
+      await page.waitForTimeout(600)
+      await page.screenshot({ path: `/Users/valentina.morales/Documents/Pymita/screenshots/fruver/fv4-resumen-pedido-impuestos-${width}.png` })
+    }
+    await page.setViewportSize({ width: 1440, height: 900 })
+  }
+
+  const paid = await request.post(`${API}/orders/${order.id}/pay`, { headers: auth, data: { payment_method: 'cash' } })
+  expect(paid.ok(), await paid.text()).toBeTruthy()
+  const { ticket, letter } = await printPaidOrder(page, '$21.900')
+
+  for (const [label, amount] of [['SUBTOTAL', '$17.659'], ['IVA 19%', '$3.355'], ['IMPOCONSUMO 8%', '$750'], ['BEBIDAS AZUCARADAS \\$68', '$136'], ['TOTAL', '$21.900']]) {
+    expect(ticket).toMatch(ticketLine(label!, amount!))
+  }
+  await expect(letter.locator('.items tbody tr').nth(1).locator('td')).toHaveText(['Gaseosa azucarada', '2', '$5.000', 'IVA 19% + Bebidas azucaradas $68 c/u', '$10.000'])
+  await expect(letter.locator('.totals > div')).toHaveText([
+    'SUBTOTAL: $17.659',
+    'IVA 19%: $3.355',
+    'IMPOCONSUMO 8%: $750',
+    'BEBIDAS AZUCARADAS $68 C/U: $136',
+    'TOTAL: $21.900',
+  ])
+  const detail = letter.locator('.tax-detail tbody tr')
+  await expect(detail.nth(0).locator('td')).toHaveText(['IVA 19%', '19%', '$17.659', '$3.355'])
+  await expect(detail.nth(1).locator('td')).toHaveText(['Impoconsumo 8%', '8%', '$9.370', '$750'])
+  await expect(detail.nth(2).locator('td')).toHaveText(['Bebidas azucaradas', '$68 c/u', '$8.289', '$136'])
+  if (process.env.FV4_SHOTS) {
+    for (const width of [1440, 390]) {
+      await letter.setViewportSize({ width, height: 1100 })
+      await letter.screenshot({ path: `/Users/valentina.morales/Documents/Pymita/screenshots/fruver/fv4-factura-impuestos-${width}.png`, fullPage: true })
+    }
+  }
 })
