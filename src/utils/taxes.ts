@@ -10,9 +10,19 @@ import { money } from './money'
 
 type TaxLike = Pick<Tax, 'calculation' | 'rate' | 'amount'>
 
+/**
+ * A fixed tax for `quantity` units: a fraction of a unit pays its share,
+ * rounded to whole pesos as the weighed line itself is (backend
+ * `TaxMath::perUnitAmount()`).
+ */
+const perUnitAmount = (tax: TaxLike, quantity: number): number => {
+  const amount = tax.amount * quantity
+  return Number.isInteger(Number(quantity.toFixed(3))) ? amount : Math.round(amount)
+}
+
 /** What one tax charges on a purchase line of `base` (before taxes) and `quantity` units. */
 export const taxOnCost = (tax: TaxLike, base: number, quantity: number): number =>
-  Math.round((tax.calculation === 'per_unit' ? tax.amount * quantity : base * tax.rate / 100) * 100) / 100
+  Math.round((tax.calculation === 'per_unit' ? perUnitAmount(tax, quantity) : base * tax.rate / 100) * 100) / 100
 
 /** "19%" or "$68 c/u", as the documents print it. */
 export const taxRateLabel = (tax: TaxLike): string =>
@@ -37,12 +47,12 @@ export const taxAddsToCost = (tax: Pick<Tax, 'in_cost' | 'kind'>, companyCharges
  * `TaxMath::split()`): the fixed taxes first, then base = rest / (1 + Σ%/100).
  */
 export const splitPrice = (taxes: TaxLike[], price: number, quantity = 1): { base: number; amounts: number[] } => {
-  const fixed = taxes.reduce((sum, tax) => sum + (tax.calculation === 'per_unit' ? tax.amount * quantity : 0), 0)
+  const fixed = taxes.reduce((sum, tax) => sum + (tax.calculation === 'per_unit' ? perUnitAmount(tax, quantity) : 0), 0)
   const factor = fixed > price && fixed > 0 ? price / fixed : 1
   const rate = taxes.reduce((sum, tax) => sum + (tax.calculation === 'per_unit' ? 0 : Number(tax.rate)), 0)
   const base = (price - fixed * factor) / (1 + rate / 100)
   return {
     base,
-    amounts: taxes.map(tax => (tax.calculation === 'per_unit' ? tax.amount * quantity * factor : base * tax.rate / 100)),
+    amounts: taxes.map(tax => (tax.calculation === 'per_unit' ? perUnitAmount(tax, quantity) * factor : base * tax.rate / 100)),
   }
 }
