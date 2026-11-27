@@ -56,7 +56,10 @@ export interface OrderItem {
   menu_item_id?: number | null;
   variant_id?: number | null;
   product_name: string;
+  /** Whole units, or kilos (1.375) of a line sold by fraction. */
   quantity: number;
+  /** The unit a line sold by fraction is in ("kg"); null for whole units. */
+  unit?: string | null;
   paid_quantity: number;
   unpaid_quantity: number;
   unit_price: number;
@@ -165,7 +168,8 @@ export interface OrderReceipt {
     city?: string | null
     phone?: string | null
   }
-  items: { quantity: number; name: string; unit_price: number; total: number; tax_rate: number }[]
+  /** `unit`: the unit of a line sold by fraction ("kg"), null for whole units. */
+  items: { quantity: number; unit?: string | null; name: string; unit_price: number; total: number; tax_rate: number }[]
   /** Lines + table time, tax included. Printed documents show `subtotal_before_tax`. */
   subtotal: number
   /** What the documents print as SUBTOTAL, in whole pesos: − discount_before_tax + included_vat + delivery_fee + tip = total. */

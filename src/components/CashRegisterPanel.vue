@@ -263,7 +263,7 @@
                 class="d-flex justify-space-between text-body-2"
                 data-testid="cash-product"
               >
-                <span>{{ product.name }}</span><span class="tabular-nums">{{ product.quantity }}</span>
+                <span>{{ product.name }}</span><span class="tabular-nums">{{ lineQuantity(product.quantity, product.unit) }}</span>
               </div>
               <div v-if="moreProducts" class="text-caption text-medium-emphasis">
                 y {{ moreProducts }} más en el resumen impreso
@@ -327,7 +327,7 @@
 </template>
 
 <script setup lang="ts">
-import { money } from '@/utils/money'
+import { lineQuantity, money } from '@/utils/money'
 import { formatDateTime, formatMomentDay, formatRecent } from '@/utils/dates'
 import { computed, onMounted, ref } from 'vue'
 import LockableButton from './LockableButton.vue'
