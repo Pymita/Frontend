@@ -216,15 +216,20 @@
             <thead>
               <tr>
                 <th>Nombre</th>
-                <th class="text-right">Porcentaje</th>
+                <th class="text-right">Valor</th>
                 <th>Estado</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="tax in taxes" :key="tax.id">
-                <td>{{ tax.name }}</td>
-                <td class="text-right">{{ tax.rate }}%</td>
+                <td>
+                  {{ tax.name }}
+                  <div class="text-caption text-medium-emphasis">
+                    {{ label(taxKindLabels, tax.kind) }}<template v-if="taxAddsToCost(tax, chargesIva)"> · Forma parte del costo</template>
+                  </div>
+                </td>
+                <td class="text-right text-no-wrap">{{ taxRateLabel(tax) }}</td>
                 <td>
                   <v-chip :color="tax.active ? 'success' : 'secondary'" size="x-small">
                     {{ tax.active ? 'Activo' : 'Inactivo' }}
@@ -242,7 +247,80 @@
             </tbody>
           </v-table>
           <p class="text-caption text-medium-emphasis mt-2">
-            Estos porcentajes alimentan los selectores de impuesto en productos y menú.
+            Un producto puede llevar varios (IVA e impoconsumo, o IVA y el impuesto a bebidas azucaradas): se eligen en Productos y la factura muestra cada uno.
+          </p>
+        </v-card>
+      </v-col>
+
+      <!-- Retenciones (docs/RETENCIONES.md): los conceptos que se sugieren en las
+           compras y en los abonos, y la UVT del año que fija sus bases mínimas. -->
+      <v-col cols="12" md="6">
+        <v-card class="pa-4">
+          <div class="d-flex align-center mb-3">
+            <h2 class="text-h6">Retenciones</h2>
+            <v-spacer />
+            <LockableButton icon="mdi-plus" color="primary" size="small" @click="openConceptDialog()">
+              Nueva
+            </LockableButton>
+          </div>
+          <div class="d-flex flex-wrap ga-3 align-center mb-2">
+            <MoneyField
+              v-model="withholdingSettings.uvt_value"
+              label="Valor de la UVT"
+              hint="52.374 en 2026 (Resolución DIAN 000238 de 2025)"
+              persistent-hint
+              density="compact"
+              max-width="240"
+              :disabled="isReadOnly"
+              @blur="saveWithholdingSettings"
+            />
+            <v-switch
+              v-model="withholdingSettings.income_tax_declarant"
+              label="Mi empresa declara renta"
+              color="primary"
+              density="compact"
+              hide-details
+              :disabled="isReadOnly"
+              @update:model-value="saveWithholdingSettings"
+            />
+          </div>
+          <v-table density="compact">
+            <thead>
+              <tr>
+                <th>Concepto</th>
+                <th class="text-right">Declarante</th>
+                <th class="text-right">No declarante</th>
+                <th class="text-right">Base mínima</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="concept in withholdingConcepts" :key="concept.id">
+                <td>
+                  {{ concept.name }}
+                  <div class="text-caption text-medium-emphasis">
+                    {{ label(withholdingTypeLabels, concept.type) }}<template v-if="!concept.active"> · Inactiva</template>
+                  </div>
+                </td>
+                <td class="text-right">{{ percent(concept.rate_declarant) }}</td>
+                <td class="text-right">{{ percent(concept.rate_non_declarant) }}</td>
+                <td class="text-right text-no-wrap">
+                  {{ concept.min_base_uvt > 0 ? `${concept.min_base_uvt} UVT` : 'Sin base' }}
+                  <div v-if="concept.min_base_uvt > 0" class="text-caption text-medium-emphasis">{{ money(concept.min_base_uvt * withholdingSettings.uvt_value) }}</div>
+                </td>
+                <td class="text-right text-no-wrap">
+                  <v-btn icon size="x-small" variant="text" :disabled="isReadOnly" :aria-label="`Editar la retención ${concept.name}`" @click="openConceptDialog(concept)">
+                    <v-icon size="small">mdi-pencil</v-icon>
+                  </v-btn>
+                  <v-btn icon size="x-small" variant="text" color="error" :disabled="isReadOnly" :aria-label="`Eliminar la retención ${concept.name}`" @click="deleteConcept(concept)">
+                    <v-icon size="small">mdi-delete</v-icon>
+                  </v-btn>
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
+          <p class="text-caption text-medium-emphasis mt-2">
+            Las tarifas vigentes en noviembre de 2026. Asígnalas a cada proveedor (lo que tú le retienes) o cliente (lo que te retiene) en Clientes: se sugieren al registrar la compra o el abono y siempre se pueden cambiar.
           </p>
         </v-card>
       </v-col>
@@ -540,12 +618,38 @@
             label="Nombre (ej: IVA 19%)"
             :rules="[(v: string) => !!v || 'Nombre requerido']"
           />
+          <v-select v-model="taxForm.kind" :items="taxKindOptions" label="Tipo de impuesto" />
+          <v-btn-toggle v-model="taxForm.calculation" mandatory density="comfortable" color="primary" variant="outlined" class="mb-4">
+            <v-btn value="percentage">Porcentaje</v-btn>
+            <v-btn value="per_unit">Valor por unidad</v-btn>
+          </v-btn-toggle>
           <v-text-field
+            v-if="taxForm.calculation === 'percentage'"
             v-model.number="taxForm.rate"
             label="Porcentaje"
             type="number"
             suffix="%"
+            hint="Sobre el valor antes de impuestos; nunca se calcula sobre otro impuesto"
+            persistent-hint
             :rules="[(v: number) => v >= 0 || 'Debe ser 0 o mayor']"
+          />
+          <MoneyField
+            v-else
+            v-model="taxForm.amount"
+            label="Valor por unidad"
+            hint="Ej: impuesto a bebidas azucaradas, $68 por cada 100 ml con 9 g de azúcar o más (2026)"
+            persistent-hint
+          />
+          <v-switch
+            v-model="taxForm.in_cost"
+            label="Forma parte del costo"
+            color="primary"
+            class="mt-2"
+            :disabled="taxForm.kind === 'iva' && !chargesIva"
+            :hint="taxForm.kind === 'iva' && !chargesIva
+              ? 'Tu empresa no es responsable de IVA: el IVA que pagas en las compras siempre suma al costo.'
+              : 'Lo que pagas por este impuesto al comprar se suma al costo del inventario en vez de descontarse como impuesto.'"
+            persistent-hint
           />
           <v-switch
             v-if="editingTax"
@@ -559,6 +663,37 @@
           <v-spacer />
           <v-btn variant="text" @click="taxDialog = false">Cancelar</v-btn>
           <v-btn color="primary" :loading="saving" @click="saveTax">Guardar</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Dialog retención -->
+    <v-dialog v-model="conceptDialog" max-width="480" persistent>
+      <v-card>
+        <v-card-title>{{ editingConcept ? 'Editar retención' : 'Nueva retención' }}</v-card-title>
+        <v-card-text>
+          <v-text-field v-model="conceptForm.name" label="Concepto (ej: Compras generales)" />
+          <v-select v-model="conceptForm.type" :items="withholdingTypeOptions" label="Tipo" />
+          <div class="d-flex ga-3">
+            <v-text-field v-model.number="conceptForm.rate_declarant" label="Tarifa declarante" type="number" suffix="%" />
+            <v-text-field v-model.number="conceptForm.rate_non_declarant" label="Tarifa no declarante" type="number" suffix="%" />
+          </div>
+          <v-text-field
+            v-model.number="conceptForm.min_base_uvt"
+            label="Base mínima"
+            type="number"
+            suffix="UVT"
+            :hint="conceptForm.type === 'iva'
+              ? 'ReteIVA se calcula sobre el IVA de la factura; la base mínima se compara con el valor antes de impuestos.'
+              : `Por debajo de ${money((conceptForm.min_base_uvt || 0) * withholdingSettings.uvt_value)} no se sugiere. ReteICA: 3,5 por mil es 0,35 %.`"
+            persistent-hint
+          />
+          <v-switch v-if="editingConcept" v-model="conceptForm.active" label="Activa" color="primary" hide-details />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="conceptDialog = false">Cancelar</v-btn>
+          <v-btn color="primary" :loading="saving" @click="saveConcept">Guardar</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -651,7 +786,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
-import kardexService, { type DocumentType, type Tax } from '../services/kardexService'
+import kardexService, { type DocumentType, type Tax, type TaxPayload, type WithholdingConcept, type WithholdingSettings } from '../services/kardexService'
+import { taxAddsToCost, taxRateLabel } from '../utils/taxes'
 import invoicingService, { type InvoicingResolution, type ResolutionStatus } from '../services/invoicingService'
 import LockableButton from '../components/LockableButton.vue'
 import ImageUploader from '../components/ImageUploader.vue'
@@ -662,11 +798,12 @@ import { usePaymentMethods } from '../composables/usePaymentMethods'
 import { billingService, type BusinessForm } from '../services/billingService'
 import salesService, { type PaymentDocument, type PaymentMethodPayload, type PaymentMethodRow } from '../services/salesService'
 import type { DocumentBusiness } from '../utils/printDocuments'
-import { label, options, orderModeHints, orderModeLabels, paymentDocumentLabels, taxRegimeLabels } from '../utils/labels'
+import { label, options, orderModeHints, orderModeLabels, paymentDocumentLabels, taxKindLabels, taxRegimeLabels, withholdingTypeLabels } from '../utils/labels'
 import { useAuthStore } from '../stores/auth'
 import { effectiveFeatures, type OrderMode } from '../types/auth'
 import { toIsoDate } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
+import { money } from '../utils/money'
 import {
   ACCOUNT_MAX_LENGTH,
   BANK_ACCOUNT_MAX_LENGTH,
@@ -700,7 +837,7 @@ const directionLabel = (d: string) => ({ in: 'Entrada', out: 'Salida', both: 'Am
 
 const load = async () => {
   try {
-    const [docs, taxList] = await Promise.all([kardexService.documentTypes(), kardexService.taxes()])
+    const [docs, taxList] = await Promise.all([kardexService.documentTypes(), kardexService.taxes(), loadWithholdings()])
     documentTypes.value = docs
     taxes.value = taxList
   } catch (error) {
@@ -956,23 +1093,30 @@ const deleteDocType = async (dt: DocumentType) => {
 // --- Impuestos ---
 const taxDialog = ref(false)
 const editingTax = ref<Tax | null>(null)
-const taxForm = ref({ name: '', rate: 0, active: true })
+type TaxForm = Omit<TaxPayload, 'amount'> & { amount: number | null }
+const emptyTax = (): TaxForm => ({ name: '', kind: 'iva', calculation: 'percentage', rate: 0, amount: null, in_cost: false, active: true })
+const taxForm = ref(emptyTax())
+const taxKindOptions = options(taxKindLabels)
+// A "No responsable de IVA" cannot discount the IVA it pays: it is cost (Tax::addsToCost()).
+const chargesIva = computed(() => businessForm.value.tax_regime !== 'simplified')
 
 const openTaxDialog = (tax?: Tax) => {
   editingTax.value = tax ?? null
   taxForm.value = tax
-    ? { name: tax.name, rate: tax.rate, active: tax.active }
-    : { name: '', rate: 0, active: true }
+    ? { name: tax.name, kind: tax.kind, calculation: tax.calculation, rate: tax.rate, amount: tax.amount, in_cost: tax.in_cost, active: tax.active }
+    : emptyTax()
   taxDialog.value = true
 }
 
 const saveTax = async () => {
   saving.value = true
   try {
+    const payload = { ...taxForm.value, amount: taxForm.value.amount ?? 0 }
     if (editingTax.value) {
-      await kardexService.updateTax(editingTax.value.id, { ...taxForm.value })
+      await kardexService.updateTax(editingTax.value.id, payload)
     } else {
-      await kardexService.createTax({ name: taxForm.value.name, rate: taxForm.value.rate })
+      const { active: _active, ...created } = payload
+      await kardexService.createTax(created)
     }
     notify('Impuesto guardado')
     taxDialog.value = false
@@ -992,6 +1136,70 @@ const deleteTax = async (tax: Tax) => {
     await load()
   } catch (error: any) {
     notify(errorMessage(error, 'No fue posible eliminar. Inténtalo de nuevo.'), 'error')
+  }
+}
+
+// --- Retenciones ---
+const withholdingConcepts = ref<WithholdingConcept[]>([])
+const withholdingSettings = ref<WithholdingSettings>({ uvt_value: 52374, income_tax_declarant: true })
+const conceptDialog = ref(false)
+const editingConcept = ref<WithholdingConcept | null>(null)
+const emptyConcept = () => ({ name: '', type: 'renta' as WithholdingConcept['type'], rate_declarant: 0, rate_non_declarant: 0, min_base_uvt: 0, active: true })
+const conceptForm = ref(emptyConcept())
+const withholdingTypeOptions = options(withholdingTypeLabels)
+const percent = (value: number) => `${Number(value).toLocaleString('es-CO', { maximumFractionDigits: 3 })}%`
+
+const loadWithholdings = async () => {
+  const { concepts, settings } = await kardexService.withholdingConcepts()
+  withholdingConcepts.value = concepts
+  withholdingSettings.value = settings
+}
+
+const saveWithholdingSettings = async () => {
+  try {
+    withholdingSettings.value = await kardexService.updateWithholdingSettings({
+      uvt_value: withholdingSettings.value.uvt_value || 52374,
+      income_tax_declarant: withholdingSettings.value.income_tax_declarant,
+    })
+    notify('Datos de retenciones guardados')
+  } catch (error: any) {
+    notify(errorMessage(error, 'No fue posible guardar las retenciones. Inténtalo de nuevo.'), 'error')
+  }
+}
+
+const openConceptDialog = (concept?: WithholdingConcept) => {
+  editingConcept.value = concept ?? null
+  conceptForm.value = concept ? { ...concept } : emptyConcept()
+  conceptDialog.value = true
+}
+
+const saveConcept = async () => {
+  saving.value = true
+  try {
+    if (editingConcept.value) {
+      await kardexService.updateWithholdingConcept(editingConcept.value.id, conceptForm.value)
+    } else {
+      const { active: _active, ...created } = conceptForm.value
+      await kardexService.createWithholdingConcept(created)
+    }
+    notify('Retención guardada')
+    conceptDialog.value = false
+    await loadWithholdings()
+  } catch (error: any) {
+    notify(errorMessage(error, 'No fue posible guardar la retención. Inténtalo de nuevo.'), 'error')
+  } finally {
+    saving.value = false
+  }
+}
+
+const deleteConcept = async (concept: WithholdingConcept) => {
+  if (!window.confirm(`¿Eliminar la retención "${concept.name}"? Los documentos que ya la tienen la conservan.`)) return
+  try {
+    await kardexService.deleteWithholdingConcept(concept.id)
+    notify('Retención eliminada')
+    await loadWithholdings()
+  } catch (error: any) {
+    notify(errorMessage(error, 'No fue posible eliminar la retención. Inténtalo de nuevo.'), 'error')
   }
 }
 

@@ -1,4 +1,5 @@
 import api from './api'
+import type { WithholdingLine } from './kardexService'
 import type { PageQuery, PaginatedResponse } from '@/types/api'
 import type { ImportFormat, ImportRowError } from './productImportService'
 import type { PaymentMethod } from './salesService'
@@ -40,6 +41,8 @@ export interface Customer {
   joined_at?: string | null
   /** Its segments, in reading order. */
   segments?: CustomerSegmentRef[]
+  /** The withholdings this customer applies to the company when it pays (docs/RETENCIONES.md) */
+  withholding_concept_ids?: number[]
   created_at: string
   updated_at: string
 }
@@ -180,7 +183,14 @@ export interface RecurringInvoice {
   tax_rate: number
   tax_amount: number
   total: number
+  /** Paid plus what the customer withheld: what is settled */
   amount_paid: number
+  /** What the customer withheld from this document, with the abono it came with */
+  withholdings?: (WithholdingLine & { recurring_invoice_payment_id: number | null })[]
+  /** Only reading one document: the base (before taxes) and IVA a withholding is computed on, and what this customer usually withholds */
+  withholding_base?: number
+  withholding_iva?: number
+  suggested_withholdings?: WithholdingLine[]
   balance: number
   status: RecurringInvoiceStatus
   seller: string | null
@@ -359,6 +369,15 @@ export interface Supplier {
   notes?: string | null
   /** Proveedor por defecto (nombre de la empresa), precargado en el kardex */
   is_default: boolean
+  /** Who the supplier is for taxes: what is withheld when buying from it (docs/RETENCIONES.md) */
+  person_type?: 'natural' | 'legal' | null
+  income_tax_declarant?: boolean
+  iva_responsible?: boolean
+  simple_regime?: boolean
+  large_taxpayer?: boolean
+  self_withholder?: boolean
+  /** The withholdings the company applies when it buys from it */
+  withholding_concept_ids?: number[]
   created_at: string
   updated_at: string
 }
@@ -582,7 +601,7 @@ export const billingService = {
 
   async addRecurringPayment(
     invoiceId: number,
-    data: { amount: number; payment_method: PaymentMethod; paid_at?: string; notes?: string },
+    data: { amount: number; payment_method: PaymentMethod; paid_at?: string; notes?: string; withholdings?: WithholdingLine[] },
   ): Promise<{ data: RecurringInvoice & { receipt_number: number }; message: string }> {
     const response = await api.post<ApiResponse<RecurringInvoice & { receipt_number: number }>>(`/recurring-billing/invoices/${invoiceId}/payments`, data)
     return { data: response.data.data, message: response.data.message ?? '' }

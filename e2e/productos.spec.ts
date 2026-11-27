@@ -215,7 +215,7 @@ test('un producto con saldo inicial 0 se crea, se vende y el kardex queda en neg
   await expect(field(page, 'Saldo inicial').locator('input')).toHaveValue('0')
 
   await field(page, 'Precio de venta *').locator('input').fill('5000')
-  await field(page, 'Impuesto *').locator('.v-field').click()
+  await field(page, 'Impuestos *').locator('.v-field').click()
   await page.getByRole('option', { name: /Exento|IVA|%/ }).first().click()
 
   await page.getByRole('dialog').getByRole('button', { name: 'Guardar', exact: true }).click()
@@ -289,7 +289,7 @@ test('el costo, el precio de venta y el del menú se escriben en pesos', async (
   await sale.fill('18.500')
   await expect(menu).toHaveValue('18.500')
   await menu.fill('19.000')
-  await field(page, 'Impuesto *').locator('.v-field').click()
+  await field(page, 'Impuestos *').locator('.v-field').click()
   await page.getByRole('option', { name: new RegExp(`IVA Precios ${stamp}`) }).click()
   await expect(dialog.getByLabel('Saldo inicial', { exact: true })).toBeVisible()
   const card = page.locator('.v-dialog > .v-overlay__content > .v-card')
@@ -336,7 +336,7 @@ test('un producto sin ventas en rojo lo guarda así, la tabla lo marca y se pued
   await field(page, 'Categoría *').click()
   await pickOption(page, `Sin Rojo ${stamp}`)
   await field(page, 'Precio de venta *').locator('input').fill('4.000')
-  await field(page, 'Impuesto *').locator('.v-field').click()
+  await field(page, 'Impuestos *').locator('.v-field').click()
   await page.getByRole('option', { name: new RegExp(`IVA Sin Rojo ${stamp}`) }).click()
 
   // New products allow red sales, and the switch sits with the stock one.
@@ -483,7 +483,7 @@ test('un combo se arma en Productos, se vende desde Nuevo pedido y el kardex y V
   await field(page, 'Categoría *').click()
   await pickOption(page, names.category)
   await field(page, 'Precio de venta *').locator('input').fill(String(price))
-  await field(page, 'Impuesto *').locator('.v-field').click()
+  await field(page, 'Impuestos *').locator('.v-field').click()
   await page.getByRole('option', { name: new RegExp(names.tax) }).click()
 
   // A combo has no stock nor cost of its own: its components do.

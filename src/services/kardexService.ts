@@ -9,11 +9,68 @@ export interface DocumentType {
   active: boolean
 }
 
+export type TaxKind = 'iva' | 'inc' | 'ibua' | 'icui' | 'licores' | 'other'
+export type TaxCalculation = 'percentage' | 'per_unit'
+
+/**
+ * A tax of the company's catalog: a percentage of the value before taxes
+ * (`rate`) or a fixed amount in pesos per unit (`amount`). `in_cost`: what is
+ * paid for it when buying is inventory cost, not a deductible tax.
+ */
 export interface Tax {
   id: number
   name: string
+  kind: TaxKind
+  calculation: TaxCalculation
   rate: number
+  amount: number
+  in_cost: boolean
   active: boolean
+}
+
+export type TaxPayload = Partial<Pick<Tax, 'name' | 'kind' | 'calculation' | 'rate' | 'amount' | 'in_cost' | 'active'>>
+
+/** One tax of a purchase line as the kardex kept it (`in_cost`: it went into the unit cost). */
+export interface MovementTax {
+  tax_id: number | null
+  name: string | null
+  kind: TaxKind
+  calculation: TaxCalculation
+  rate: number
+  unit_amount: number
+  in_cost: boolean
+  amount: number
+  /** "19%" or "$68 c/u" */
+  rate_label: string
+}
+
+/** A withholding concept of the company (Configuración › Retenciones). Rates are percentages: ReteICA's 3,5 por mil is 0,35. */
+export interface WithholdingConcept {
+  id: number
+  name: string
+  type: 'renta' | 'iva' | 'ica'
+  rate_declarant: number
+  rate_non_declarant: number
+  /** Below this base, in UVT, nothing is withheld */
+  min_base_uvt: number
+  active: boolean
+}
+
+export interface WithholdingSettings {
+  uvt_value: number
+  /** Whether the company declares renta: the rate its customers withhold from it */
+  income_tax_declarant: boolean
+}
+
+/** A withholding typed with a document (the suggestion, edited or not). */
+export interface WithholdingLine {
+  id?: number
+  withholding_concept_id?: number | null
+  name: string
+  type: 'renta' | 'iva' | 'ica'
+  rate: number
+  base: number
+  amount: number
 }
 
 export interface KardexMovement {
@@ -36,6 +93,11 @@ export interface KardexMovement {
   tax_amount: number
   /** Valor neto: total_cost + tax_amount */
   net_total: number
+  /** Every tax of the line, the ones that went into the cost included */
+  tax_ids?: number[]
+  taxes?: MovementTax[]
+  /** The cost typed: unit_cost without the taxes that are cost */
+  unit_cost_before_taxes?: number
   balance_quantity: number
   balance_unit_cost: number
   balance_total_cost: number
@@ -59,6 +121,8 @@ export interface KardexLine {
   quantity: number
   unit_cost?: number | null
   tax_id?: number | null
+  /** Every tax of the line; wins over `tax_id` */
+  tax_ids?: number[]
 }
 
 export interface KardexDocumentUpdate {
@@ -75,6 +139,8 @@ export interface KardexDocumentUpdate {
    * and a line of the document left out is deleted from the kardex.
    */
   items: (KardexLine & { id?: number })[]
+  /** Sent, the document keeps exactly these; absent, the ones it had */
+  withholdings?: WithholdingLine[]
 }
 
 export interface KardexFilters {
@@ -98,6 +164,8 @@ export interface KardexReport {
   } | null
   opening_balance: { quantity: number; unit_cost: number; total_cost: number } | null
   movements: KardexMovement[]
+  /** A document's withholdings, when it is read by `batch` */
+  withholdings?: WithholdingLine[]
   totals: {
     in_quantity: number
     in_cost: number
@@ -239,6 +307,8 @@ class KardexService {
     reference?: string | null
     /** Observaciones opcionales del movimiento */
     notes?: string
+    /** Retenciones de una compra (sugeridas por el proveedor y editables) */
+    withholdings?: WithholdingLine[]
   }): Promise<{ movements: KardexMovement[]; message: string }> {
     const response = await api.post<ApiEnvelope<KardexMovement[]>>('/kardex/movements', payload)
     return { movements: response.data.data, message: response.data.message ?? '' }
@@ -268,17 +338,52 @@ class KardexService {
     await api.delete(`/document-types/${id}`)
   }
 
+  /** Withholding concepts of the company, its UVT and whether it declares renta (docs/RETENCIONES.md). */
+  async withholdingConcepts(): Promise<{ concepts: WithholdingConcept[]; settings: WithholdingSettings }> {
+    const response = await api.get<ApiEnvelope<WithholdingConcept[]> & { settings: WithholdingSettings }>('/withholding-concepts')
+    return { concepts: response.data.data, settings: response.data.settings }
+  }
+
+  async createWithholdingConcept(payload: Omit<WithholdingConcept, 'id' | 'active'>): Promise<WithholdingConcept> {
+    const response = await api.post<ApiEnvelope<WithholdingConcept>>('/withholding-concepts', payload)
+    return response.data.data
+  }
+
+  async updateWithholdingConcept(id: number, payload: Partial<Omit<WithholdingConcept, 'id'>>): Promise<WithholdingConcept> {
+    const response = await api.put<ApiEnvelope<WithholdingConcept>>(`/withholding-concepts/${id}`, payload)
+    return response.data.data
+  }
+
+  async deleteWithholdingConcept(id: number): Promise<void> {
+    await api.delete(`/withholding-concepts/${id}`)
+  }
+
+  async updateWithholdingSettings(payload: Partial<WithholdingSettings>): Promise<WithholdingSettings> {
+    const response = await api.put<ApiEnvelope<WithholdingSettings>>('/withholding-concepts/settings', payload)
+    return response.data.data
+  }
+
+  /**
+   * What to withhold on a document of `base` (before taxes) with `iva`: a
+   * purchase from the supplier named `counterparty`, or a Cartera document of
+   * `customer_id`. Only a suggestion: the document saves what is typed.
+   */
+  async suggestWithholdings(params: { base: number; iva?: number; counterparty?: string; customer_id?: number }): Promise<WithholdingLine[]> {
+    const response = await api.get<ApiEnvelope<WithholdingLine[]>>('/withholdings/suggest', { params })
+    return response.data.data
+  }
+
   async taxes(): Promise<Tax[]> {
     const response = await api.get<ApiEnvelope<Tax[]>>('/taxes')
     return response.data.data
   }
 
-  async createTax(payload: Pick<Tax, 'name' | 'rate'>): Promise<Tax> {
+  async createTax(payload: TaxPayload): Promise<Tax> {
     const response = await api.post<ApiEnvelope<Tax>>('/taxes', payload)
     return response.data.data
   }
 
-  async updateTax(id: number, payload: Partial<Pick<Tax, 'name' | 'rate' | 'active'>>): Promise<Tax> {
+  async updateTax(id: number, payload: TaxPayload): Promise<Tax> {
     const response = await api.put<ApiEnvelope<Tax>>(`/taxes/${id}`, payload)
     return response.data.data
   }

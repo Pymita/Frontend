@@ -119,6 +119,19 @@ export interface ReceiptTimeDetail {
   players: number | null;
 }
 
+/** One tax of a document: its name, how its rate reads ("19%", "$68 c/u"), its base and its amount. */
+export interface TaxBreakdownLine {
+  tax_id: number | null
+  name: string
+  kind: string
+  calculation: 'percentage' | 'per_unit'
+  rate: number
+  unit_amount: number
+  rate_label: string
+  base: number
+  amount: number
+}
+
 /** Datos de la factura sencilla (tirilla POS), no la e-factura DIAN. */
 export interface OrderReceipt {
   /** Cuenta de una sola persona de la mesa (cuentas separadas) */
@@ -165,7 +178,10 @@ export interface OrderReceipt {
     city?: string | null
     phone?: string | null
   }
-  items: { quantity: number; name: string; unit_price: number; total: number; tax_rate: number }[]
+  /** `tax_rate` is the sum of the line's percentages; `tax_label` every tax of it ("IVA 19% + IBUA $68 c/u") */
+  items: { quantity: number; name: string; unit_price: number; total: number; tax_rate: number; tax_label?: string }[]
+  /** Each tax the total includes; their amounts add up to `included_vat`. */
+  taxes?: TaxBreakdownLine[]
   /** Lines + table time, tax included. Printed documents show `subtotal_before_tax`. */
   subtotal: number
   /** What the documents print as SUBTOTAL, in whole pesos: − discount_before_tax + included_vat + delivery_fee + tip = total. */
@@ -235,6 +251,8 @@ export interface Order {
   payments?: OrderPayment[] | null;
   created_at: string;
   paid_at?: string;
+  /** The taxes the total includes, one per tax (prices include them) */
+  taxes?: TaxBreakdownLine[];
 }
 
 interface ApiResponse<T> {

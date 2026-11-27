@@ -451,6 +451,15 @@
                             <span>Total:</span>
                             <span class="tabular-nums">{{ money(item.total) }}</span>
                           </div>
+                          <!-- Prices include their taxes: what the total carries of each one. -->
+                          <div
+                            v-for="tax in item.taxes ?? []"
+                            :key="`${tax.tax_id}-${tax.rate_label}`"
+                            class="d-flex justify-space-between text-caption text-medium-emphasis"
+                          >
+                            <span>Incluye {{ taxLineLabel(tax) }}</span>
+                            <span class="tabular-nums">{{ money(tax.amount) }}</span>
+                          </div>
                           <div v-if="item.invoice_number" class="d-flex justify-space-between text-caption text-medium-emphasis mt-1">
                             <span>Factura:</span>
                             <span>{{ item.invoice_number }}</span>
@@ -1309,7 +1318,7 @@ import ProductPicker from '../components/ProductPicker.vue'
 import CustomerPicker from '../components/CustomerPicker.vue'
 import { categoriesService, type MenuCategoryNode } from '@/services/menuService';
 import { tablesService } from '@/services/tablesService';
-import { reservedTableLabel } from '@/utils/labels';
+import { reservedTableLabel, taxLineLabel } from '@/utils/labels';
 import { effectiveFeatures } from '@/types/auth';
 import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/utils/orderLines';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
@@ -2245,7 +2254,10 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
     line,
     amountLine('SUBTOTAL', r.subtotal_before_tax),
     r.discount_before_tax > 0 ? amountLine('DESCUENTO', r.discount_before_tax, '-') : '',
-    r.included_vat > 0 ? amountLine('IMPUESTO', r.included_vat) : '',
+    // Each tax the total includes, with its rate ("IVA 19%", "IBUA $68 c/u").
+    ...(r.taxes?.length
+      ? r.taxes.map(tax => amountLine(taxLineLabel(tax).toUpperCase().slice(0, 22), tax.amount))
+      : [r.included_vat > 0 ? amountLine('IMPUESTO', r.included_vat) : '']),
     r.delivery_fee > 0 ? amountLine('DOMICILIO', r.delivery_fee) : '',
     ...totals,
     ...(notes.length ? [line, 'OBSERVACIONES:', ...notes] : []),

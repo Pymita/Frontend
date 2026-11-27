@@ -9,7 +9,7 @@ const lineField = (page: Page, n: number, label: string) =>
   line(page, n).locator('.v-input').filter({ has: page.getByText(label, { exact: true }) })
 
 /** Valor bruto, IVA and Valor neto of the open dialog. */
-const summaryRow = (page: Page, label: 'Valor bruto' | 'IVA' | 'Valor neto') =>
+const summaryRow = (page: Page, label: 'Valor bruto' | 'Costo por impuestos' | 'Impuestos' | 'Valor neto' | 'Retenciones' | 'Neto a pagar') =>
   page.getByRole('dialog').getByRole('group', { name: 'Totales del movimiento' }).locator('div', { hasText: new RegExp(`^${label}`) })
 
 /** Kardex rows of one document, told apart by its chip. */
@@ -250,7 +250,7 @@ test('una compra de varios productos queda en el kardex como una sola factura', 
 
   // 10 × $2.500 + 2 × $3.000 (average) + 3 × $8.000, with no tax.
   await expect(summaryRow(page, 'Valor bruto')).toContainText('$55.000')
-  await expect(summaryRow(page, 'IVA')).toContainText('$0')
+  await expect(summaryRow(page, 'Impuestos')).toContainText('$0')
   await expect(summaryRow(page, 'Valor neto')).toContainText('$55.000')
   await page.getByRole('button', { name: 'Registrar', exact: true }).click()
   await expect(page.getByText('3 movimientos registrados en el kardex')).toBeVisible()
@@ -364,18 +364,18 @@ test('una compra con IVA muestra el valor bruto, el IVA y el valor neto', async 
   await page.getByLabel('Número de factura').fill(invoice)
 
   await pickLineProduct(page, 1, beer)
-  await expect(lineField(page, 1, 'IVA')).toContainText(taxName)
+  await expect(lineField(page, 1, 'Impuestos')).toContainText(taxName)
   await lineField(page, 1, 'Cantidad *').locator('input').fill('10')
   await lineField(page, 1, 'Costo unitario').locator('input').fill('2.000')
   await page.getByRole('button', { name: 'Agregar producto' }).click()
   await pickLineProduct(page, 2, soda)
-  await expect(lineField(page, 2, 'IVA')).toContainText(taxName)
+  await expect(lineField(page, 2, 'Impuestos')).toContainText(taxName)
   await lineField(page, 2, 'Cantidad *').locator('input').fill('5')
   await lineField(page, 2, 'Costo unitario').locator('input').fill('3.000')
 
   // 10 × $2.000 + 5 × $3.000 before tax, and 19 % of it.
   await expect(summaryRow(page, 'Valor bruto')).toContainText('$35.000')
-  await expect(summaryRow(page, 'IVA')).toContainText('$6.650')
+  await expect(summaryRow(page, 'Impuestos')).toContainText('$6.650')
   await expect(summaryRow(page, 'Valor neto')).toContainText('$41.650')
   await page.getByRole('button', { name: 'Registrar', exact: true }).click()
   await expect(page.getByText('2 movimientos registrados en el kardex')).toBeVisible()
@@ -664,4 +664,92 @@ test('un empleado con inventario pero sin permiso para editar el kardex no ve el
   await filterByProduct(page, flour)
   await expect(rowsOf(page, 'FC')).toHaveCount(1)
   await expect(page.getByRole('button', { name: /^Editar el movimiento/ })).toHaveCount(0)
+})
+
+/**
+ * Varios impuestos por línea, el que forma parte del costo y la retención
+ * sugerida por el proveedor (editable): 100 cajas de gaseosa a $6.000 antes
+ * de impuestos con IVA 19 % y un impuesto de $1.200 por caja marcado "Forma
+ * parte del costo". Bruto $600.000 supera las 10 UVT de "Compras generales"
+ * ($523.740), así que se sugiere 2,5 % = $15.000; se corrige a 3,5 %.
+ */
+test('una compra lleva varios impuestos, el que es costo sube el costo y la retención sugerida se edita', async ({ page, request }) => {
+  const auth = await adminAuth(request)
+  const stamp = Date.now()
+  const supplier = `Distribuidora Retención ${stamp}`
+  const product = `Gaseosa caja ${stamp}`
+  const iva = await createTax(request, auth, `IVA Retención ${stamp}`, 19)
+  const unitTax = await request.post(`${API}/taxes`, {
+    headers: auth,
+    data: { name: `Bebidas azucaradas ${stamp}`, kind: 'ibua', calculation: 'per_unit', amount: 1200, in_cost: true },
+  })
+  expect(unitTax.status(), await unitTax.text()).toBe(201)
+  const concepts = (await (await request.get(`${API}/withholding-concepts`, { headers: auth })).json()).data
+  const general = concepts.find((concept: { name: string }) => concept.name === 'Compras generales').id
+  const created = await request.post(`${API}/suppliers`, {
+    headers: auth,
+    data: { name: supplier, document_type: 'NIT', person_type: 'legal', income_tax_declarant: true, withholding_concept_ids: [general] },
+  })
+  expect(created.status(), await created.text()).toBe(201)
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `Bebidas compra ${stamp}` } })
+  const saved = await request.post(`${API}/products`, {
+    headers: auth,
+    data: {
+      name: product, type: 'raw_material', unit: 'caja', unit_cost: 6000, current_stock: 0, tracks_stock: true,
+      category_id: (await category.json()).data.id, tax_ids: [iva, (await unitTax.json()).data.id],
+    },
+  })
+  expect(saved.status(), await saved.text()).toBe(201)
+
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/kardex')
+  await page.getByRole('button', { name: /Registrar movimiento/ }).click()
+  await field(page, 'Tipo de documento *').click()
+  await page.getByRole('option', { name: /FC — Factura de compra/ }).click()
+  await page.getByLabel('Proveedor *').fill(supplier)
+  await page.getByLabel('Número de factura').fill(`R-${stamp}`)
+  await pickLineProduct(page, 1, product)
+  await expect(lineField(page, 1, 'Impuestos')).toContainText(`IVA Retención ${stamp}`)
+  await expect(lineField(page, 1, 'Impuestos')).toContainText(`Bebidas azucaradas ${stamp}`)
+  await lineField(page, 1, 'Cantidad *').locator('input').fill('100')
+  await lineField(page, 1, 'Costo unitario').locator('input').fill('6.000')
+  await expect(line(page, 1).getByText(`Bebidas azucaradas ${stamp} suma al costo`)).toBeVisible()
+
+  await expect(summaryRow(page, 'Valor bruto')).toContainText('$600.000')
+  await expect(summaryRow(page, 'Costo por impuestos')).toContainText('$120.000')
+  await expect(summaryRow(page, 'Impuestos')).toContainText('$114.000')
+  await expect(summaryRow(page, 'Valor neto')).toContainText('$834.000')
+
+  // Suggested from the supplier: 2,5 % of the value before taxes.
+  const withholdings = page.getByRole('group', { name: 'Retenciones de la compra' })
+  await expect(withholdings.getByLabel('Concepto')).toHaveValue('Compras generales')
+  await expect(withholdings.getByLabel('Valor retenido')).toHaveValue('15.000')
+  await expect(summaryRow(page, 'Neto a pagar')).toContainText('$819.000')
+  // Edited: the invoice says 3,5 %.
+  await withholdings.getByLabel('Tarifa').fill('3.5')
+  await expect(withholdings.getByLabel('Valor retenido')).toHaveValue('21.000')
+  await expect(summaryRow(page, 'Retenciones')).toContainText('-$21.000')
+  await expect(summaryRow(page, 'Neto a pagar')).toContainText('$813.000')
+  if (process.env.FV4_SHOTS) {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 })
+      await withholdings.scrollIntoViewIfNeeded()
+      // Menus and dialogs fade: the picture waits for them to settle.
+      await page.waitForTimeout(600)
+      await page.screenshot({ path: `/Users/valentina.morales/Documents/Pymita/screenshots/fruver/fv4-compra-retencion-${width}.png` })
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 })
+  }
+  await page.getByRole('button', { name: 'Registrar', exact: true }).click()
+  await expect(page.getByText('Movimiento registrado en el kardex')).toBeVisible()
+
+  // The inventory takes the tax that is cost ($7.200 a box); the withholding never.
+  await filterByProduct(page, product)
+  const row = rowsOf(page, 'FC').first()
+  await expect(row).toContainText('$7.200')
+
+  // Reopened, the document keeps the withholding as it was typed.
+  await row.getByRole('button', { name: /Editar/ }).click()
+  await expect(page.getByRole('group', { name: 'Retenciones de la compra' }).getByLabel('Valor retenido')).toHaveValue('21.000')
+  await expect(lineField(page, 1, 'Costo unitario').locator('input')).toHaveValue('6.000')
 })
