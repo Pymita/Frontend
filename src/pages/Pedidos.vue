@@ -466,7 +466,7 @@
                             class="d-flex justify-space-between text-caption text-medium-emphasis"
                           >
                             <span>Incluye {{ taxLineLabel(tax) }}</span>
-                            <span class="tabular-nums">{{ money(tax.amount) }}</span>
+                            <span class="tabular-nums">{{ money(tax.printed_amount ?? tax.amount) }}</span>
                           </div>
                           <div v-if="item.invoice_number" class="d-flex justify-space-between text-caption text-medium-emphasis mt-1">
                             <span>Factura:</span>
@@ -2365,7 +2365,7 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
     r.discount_before_tax > 0 ? amountLine('DESCUENTO', r.discount_before_tax, '-') : '',
     // Each tax the total includes, with its rate ("IVA 19%", "IBUA $68 c/u").
     ...(r.taxes?.length
-      ? r.taxes.map(tax => amountLine(taxLineLabel(tax).toUpperCase().slice(0, 22), tax.amount))
+      ? r.taxes.map(tax => amountLine(taxLineLabel(tax).toUpperCase().slice(0, 22), tax.printed_amount ?? tax.amount))
       : [r.included_vat > 0 ? amountLine('IMPUESTO', r.included_vat) : '']),
     r.delivery_fee > 0 ? amountLine('DOMICILIO', r.delivery_fee) : '',
     ...totals,

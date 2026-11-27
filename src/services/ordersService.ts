@@ -141,6 +141,8 @@ export interface TaxBreakdownLine {
   rate_label: string
   base: number
   amount: number
+  /** The amount in whole pesos as documents print it: the rows add up to the printed total of taxes. */
+  printed_amount?: number
 }
 
 /** Datos de la factura sencilla (tirilla POS), no la e-factura DIAN. */
