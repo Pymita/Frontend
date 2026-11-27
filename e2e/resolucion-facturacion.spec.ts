@@ -7,6 +7,7 @@ import {
   PLATFORM,
   apiLogin,
   createCompany,
+  expectNoBrowserMargin,
   field,
   freezeTime,
   issueDocuments,
@@ -516,6 +517,8 @@ test('el logo de Datos del negocio sale en lo que se imprime, con la fecha y hor
   await expectLogo(receiptWindow.locator('.header img.logo'))
   await expect(receiptWindow.locator('.party')).toContainText(new RegExp(`FECHA \\(D/M/A\\): ${printedMoment(registeredAt)}`))
   await expect(receiptWindow.locator('.printed-by')).toContainText(new RegExp(`Impreso el ${printedMoment(printedAt)}`))
+  // Only the receipt on the paper: no line of the browser above its frame.
+  await expectNoBrowserMargin(receiptWindow, 12)
   await receiptWindow.getByRole('button', { name: 'Imprimir o guardar en PDF' }).click()
   // The count starts again with each page load.
   await expect.poll(async () => (await printing()).printed).toBe(1)

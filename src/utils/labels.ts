@@ -184,6 +184,21 @@ export const expenseCategoryTypeLabels: Record<string, string> = {
   taxes: 'Impuestos',
 }
 
+/** Where the next payment of a recurring expense stands (`RecurringExpense::dueStatus()`). */
+export const recurringExpenseStatusLabels: Record<string, string> = {
+  overdue: 'Vencido',
+  due_soon: 'Próximo',
+  scheduled: 'Programado',
+  finished: 'Terminado',
+}
+
+export const recurringExpenseStatusColors: Record<string, string> = {
+  overdue: 'error',
+  due_soon: 'warning',
+  scheduled: 'info',
+  finished: 'secondary',
+}
+
 /**
  * The legacy names of the seven built-in methods (OrderPayment::METHODS),
  * which the waiter app still offers. Each company now has its own list

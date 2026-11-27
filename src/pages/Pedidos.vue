@@ -356,7 +356,7 @@
                         </thead>
                         <tbody>
                           <tr v-for="orderItem in item.items" :key="orderItem.id">
-                            <td>{{ orderItem.quantity }}</td>
+                            <td class="text-no-wrap">{{ lineQuantity(orderItem.quantity, orderItem.unit) }}</td>
                             <td>
                               {{ orderItem.product_name }}
                               <span v-if="orderItem.variant" class="text-medium-emphasis"> ({{ orderItem.variant }})</span>
@@ -1054,7 +1054,17 @@
         <v-card-title>Editar item</v-card-title>
         <v-card-text>
           <p class="mb-4 font-weight-bold">{{ selectedItem?.product_name }}</p>
+          <!-- Lo pesado lleva hasta tres decimales ("1,375"); lo demás, unidades enteras. -->
+          <MoneyField
+            v-if="selectedItem?.unit"
+            v-model="editItemData.quantity"
+            quantity
+            label="Cantidad"
+            :suffix="selectedItem.unit"
+            :rules="[value => (value ?? 0) > 0 || 'Escribe una cantidad mayor que 0']"
+          />
           <v-text-field
+            v-else
             v-model.number="editItemData.quantity"
             label="Cantidad"
             type="number"
@@ -1167,6 +1177,7 @@
             :guest-names="nuevoPedido.guest_names"
             @add="agregarAlPedido"
             @remove="quitarDelPedido"
+            @quantity="fijarCantidad"
             @rename="renombrarPersonaNueva"
           />
 
@@ -1212,6 +1223,7 @@
             :guest-names="agregarGuestNames"
             @add="(item: any, guest: number | null) => agregarASeleccion(itemsParaAgregar, item, guest)"
             @remove="(line: PickedLine) => quitarDeSeleccion(itemsParaAgregar, line)"
+            @quantity="fijarCantidad"
             @rename="renombrarPersonaExistente"
           />
         </v-card-text>
@@ -1323,7 +1335,7 @@ import { effectiveFeatures } from '@/types/auth';
 import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/utils/orderLines';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
 import { isCashMethod, methodOptions, methodsFor, paymentMethodLabel, usePaymentMethods } from '@/composables/usePaymentMethods';
-import { money } from '@/utils/money';
+import { lineQuantity, money } from '@/utils/money';
 import { creditDueDate, formatDay, formatFullDateTime, formatIsoDate, formatRecent, todayIso } from '@/utils/dates';
 import {
   bankAccountNotes,
@@ -1421,7 +1433,7 @@ const discountReason = ref('');
 
 const pagoDialog = ref(false);
 const editItemDialog = ref(false);
-const editItemData = ref({ quantity: 1, unit_price: 0 as number | null, discount: 0, guest_number: null as number | null });
+const editItemData = ref({ quantity: 1 as number | null, unit_price: 0 as number | null, discount: 0, guest_number: null as number | null });
 
 // Compartido + las personas que ya hay + una más, por si llega alguien.
 const guestOptions = computed(() => {
@@ -2166,8 +2178,13 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
   const line = '-'.repeat(TICKET_WIDTH);
   const isInvoice = !opts.preBill && !!r.invoice_number;
 
-  const rows = r.items
-    .map(i => `${String(i.quantity).padEnd(4)}${i.name.slice(0, 22).padEnd(24)}${money(i.total).padStart(10)}`);
+  // Lo pesado no cabe en la columna de cantidad: va debajo, con su precio por unidad.
+  const rows = r.items.flatMap(i => i.unit
+    ? [
+        `${''.padEnd(4)}${i.name.slice(0, 22).padEnd(24)}${money(i.total).padStart(10)}`,
+        `${''.padEnd(4)}${lineQuantity(i.quantity, i.unit)} x ${money(i.unit_price)}`,
+      ]
+    : [`${String(i.quantity).padEnd(4)}${i.name.slice(0, 22).padEnd(24)}${money(i.total).padStart(10)}`]);
   if (r.time_amount && r.time_amount > 0) {
     rows.push(`${'1'.padEnd(4)}${'Tiempo de mesa'.padEnd(24)}${money(r.time_amount).padStart(10)}`);
     const detail = timeLineDetail(r.time_detail);
@@ -2493,9 +2510,10 @@ const guardarItem = async () => {
   saving.value = true;
   try {
     // Los empleados solo tocan cantidad y persona; el cobro es cosa del admin.
+    const quantity = editItemData.value.quantity ?? undefined;
     const payload = isAdmin.value
-      ? { ...editItemData.value, unit_price: editItemData.value.unit_price ?? undefined }
-      : { quantity: editItemData.value.quantity, guest_number: editItemData.value.guest_number };
+      ? { ...editItemData.value, quantity, unit_price: editItemData.value.unit_price ?? undefined }
+      : { quantity, guest_number: editItemData.value.guest_number };
     await ordersService.updateItem(
       selectedOrder.value.id,
       selectedItem.value.id,
@@ -2564,6 +2582,8 @@ const agregarAlPedido = (item: any, guest: number | null) => addLine(nuevoPedido
 const quitarDelPedido = (line: PickedLine) => removeLine(nuevoPedido.value.items, line.menu_item_id, line.guest_number);
 const agregarASeleccion = (lines: PickedLine[], item: any, guest: number | null) => addLine(lines, item, guest);
 const quitarDeSeleccion = (lines: PickedLine[], line: PickedLine) => removeLine(lines, line.menu_item_id, line.guest_number);
+/** Lo pesado que se escribió a mano (1,375 kg). */
+const fijarCantidad = (line: PickedLine, value: number) => { line.quantity = value; };
 
 // Guarda (o borra si queda vacío) el nombre puesto a una persona.
 const setGuestName = (target: Record<number, string>, n: number, name: string) => {

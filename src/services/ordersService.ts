@@ -56,7 +56,10 @@ export interface OrderItem {
   menu_item_id?: number | null;
   variant_id?: number | null;
   product_name: string;
+  /** Whole units, or kilos (1.375) of a line sold by fraction. */
   quantity: number;
+  /** The unit a line sold by fraction is in ("kg"); null for whole units. */
+  unit?: string | null;
   paid_quantity: number;
   unpaid_quantity: number;
   unit_price: number;
@@ -178,8 +181,11 @@ export interface OrderReceipt {
     city?: string | null
     phone?: string | null
   }
-  /** `tax_rate` is the sum of the line's percentages; `tax_label` every tax of it ("IVA 19% + IBUA $68 c/u") */
-  items: { quantity: number; name: string; unit_price: number; total: number; tax_rate: number; tax_label?: string }[]
+  /**
+   * `unit`: the unit of a line sold by fraction ("kg"), null for whole units.
+   * `tax_rate` is the sum of the line's percentages; `tax_label` every tax of it ("IVA 19% + IBUA $68 c/u").
+   */
+  items: { quantity: number; unit?: string | null; name: string; unit_price: number; total: number; tax_rate: number; tax_label?: string }[]
   /** Each tax the total includes; their amounts add up to `included_vat`. */
   taxes?: TaxBreakdownLine[]
   /** Lines + table time, tax included. Printed documents show `subtotal_before_tax`. */

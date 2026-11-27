@@ -1,4 +1,4 @@
-import { money } from './money'
+import { lineQuantity, money, quantity } from './money'
 /**
  * Documentos imprimibles en carta o media carta: cuenta de cobro / factura de venta y
  * recibo de caja de la facturación automática, la factura de venta de una
@@ -437,7 +437,7 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
           ${lines.map(line => `
           <tr>
             <td class="left">${escape(line.name)}</td>
-            <td class="center">${line.quantity}</td>
+            <td class="center">${lineQuantity(line.quantity, line.unit)}</td>
             <td class="right">${money(line.unit_price)}</td>
             <td class="center">${line.tax}</td>
             <td class="right">${money(line.total)}</td>
@@ -592,10 +592,10 @@ const withdrawalsTable = (withdrawals: CashWithdrawal[], total: number): string 
     </tbody>
   </table>`
 
-const productsTable = (products: { name: string; quantity: number }[]): string => `
+const productsTable = (products: { name: string; quantity: number; unit?: string | null }[]): string => `
   <table class="compact">
     <thead><tr><th class="left">PRODUCTO</th><th class="right">CANT.</th></tr></thead>
-    <tbody>${products.map(p => `<tr><td class="left">${escape(p.name)}</td><td class="right">${p.quantity}</td></tr>`).join('')}</tbody>
+    <tbody>${products.map(p => `<tr><td class="left">${escape(p.name)}</td><td class="right">${lineQuantity(p.quantity, p.unit)}</td></tr>`).join('')}</tbody>
   </table>`
 
 /**
@@ -728,7 +728,7 @@ export const cashCloseHtml = (
       ${products.length
         ? `<div class="columns">${productsTable(products.slice(0, half))}${products.length > 1 ? productsTable(products.slice(half)) : ''}</div>`
         : '<div>No se vendieron productos en este turno.</div>'}
-      ${summary.products_others ? `<div>Otros ${summary.products_others.count} productos: ${summary.products_others.quantity} unidades.</div>` : ''}
+      ${summary.products_others ? `<div>Otros ${summary.products_others.count} productos: ${quantity(summary.products_others.quantity)} unidades.</div>` : ''}
     </div>` : ''}
     <div class="box notes">
       <div class="label">OBSERVACIONES:</div>
@@ -740,7 +740,7 @@ export const cashCloseHtml = (
 
 // Documento en blanco y negro: se imprime en cualquier impresora de oficina.
 const STYLES = `
-  @page { size: letter; margin: 12mm; }
+  @page { size: letter; margin: 0; }
   * { box-sizing: border-box; }
   body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: black; margin: 0; }
   .document { max-width: 190mm; margin: 0 auto; }
@@ -793,7 +793,8 @@ const STYLES = `
   }
   @media print {
     .toolbar { display: none; }
-    .sheet { break-after: page; }
+    /* A sheet that flows onto a second page (a long cash close) keeps its margin there too. */
+    .sheet { break-after: page; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
     .sheet:last-child { break-after: auto; }
   }
   body[data-paper="half"] { font-size: 10px; }
@@ -948,7 +949,11 @@ const layOut = (section: HTMLElement, paper: PaperSize): LaidOut => {
 const render = (doc: Document, sections: string, paper: Paper): LaidOut[] => {
   const size = PAPERS[paper]
   doc.body.dataset.paper = paper
-  doc.getElementById('page-size')!.textContent = `@page { size: ${size.size}; margin: ${size.margin}mm; }`
+  // Without a page margin the browser has nowhere to draw its own header and
+  // footer (date, title, URL) even when its print dialog has them on: the
+  // paper's margin is kept inside every sheet instead.
+  doc.getElementById('page-size')!.textContent =
+    `@page { size: ${size.size}; margin: 0; } @media print { .sheet { padding: ${size.margin}mm; } }`
   const container = doc.querySelector<HTMLElement>('.sheets')!
   container.innerHTML = sections
   return [...container.querySelectorAll<HTMLElement>(':scope > .document')].map(section => layOut(section, size))

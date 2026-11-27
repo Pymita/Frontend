@@ -12,6 +12,8 @@ export interface Product {
   image_url?: string | null;
   type: ProductType;
   unit: string;
+  /** Sold in fractions of `unit` (1,375 kg): order quantities take up to three decimals. */
+  sold_by_fraction?: boolean;
   tracks_stock?: boolean;
   /** "Permite ventas en rojo": may sell past the kardex balance (only with tracks_stock) */
   allows_negative_stock?: boolean;

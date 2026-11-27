@@ -155,3 +155,95 @@ test('los gastos se buscan por concepto o proveedor y siguen las fechas elegidas
   await page.getByLabel('Fecha fin').fill('2001-01-31')
   await expect(page.locator('tbody tr', { hasText: String(stamp) })).toHaveCount(0)
 })
+
+/**
+ * Gastos recurrentes (DEVELOPMENT.md 7.4.1): the schedule is a projection.
+ * The tab spreads each one over its months (the domain every 3 years is
+ * $X/36 a month), says what is overdue and what comes in 30 and 90 days, and
+ * "Registrar pago" writes the real expense and moves the due date.
+ */
+test('un gasto recurrente proyecta el costo mensual y registrar el pago crea el gasto y mueve la fecha', async ({ page, request }) => {
+  const company = await createCompany(request, `gastos-recurrentes-${Date.now()}`, {
+    business_type: 'restaurant',
+    modules: ['orders', 'menu', 'inventory', 'customers', 'expenses', 'reports'],
+  })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const stamp = Date.now()
+  const iso = (date: Date) => date.toLocaleDateString('en-CA')
+  const shift = (months: number, days = 0) => {
+    const date = new Date()
+    date.setDate(date.getDate() + days)
+    date.setMonth(date.getMonth() + months)
+    return date
+  }
+  const dmy = (date: Date) => date.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+  const category = await (await request.post(`${API}/expense-categories`, {
+    headers: auth,
+    data: { name: `Servicios ${stamp}`, type: 'fixed_expense' },
+  })).json()
+  const schedule = (data: Record<string, unknown>) => request.post(`${API}/recurring-expenses`, {
+    headers: auth,
+    data: { expense_category_id: category.data.id, interval_unit: 'month', interval_count: 1, ...data },
+  })
+  // The rent was due 10 days ago; the domain, in two years.
+  const rentStart = shift(0, -10)
+  expect((await schedule({ concept: `Arriendo ${stamp}`, estimated_amount: 1500000, starts_on: iso(rentStart) })).status()).toBe(201)
+  expect((await schedule({
+    concept: `Dominio ${stamp}`, estimated_amount: 180000, interval_unit: 'year', interval_count: 3,
+    starts_on: iso(shift(-12)), next_due_on: iso(shift(24)),
+  })).status()).toBe(201)
+
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/gastos')
+  await page.getByRole('tab', { name: /Gastos recurrentes/ }).click()
+
+  const tile = (title: string) => page.getByRole('region', { name: 'Costo de los gastos recurrentes' }).getByText(title, { exact: true }).locator('..')
+  const rent = page.locator('tbody tr', { hasText: `Arriendo ${stamp}` })
+  const domain = page.locator('tbody tr', { hasText: `Dominio ${stamp}` })
+  await expect(rent).toContainText('Vencido')
+  await expect(rent).toContainText('Hace 10 días')
+  await expect(domain).toContainText('Cada 3 años')
+  // $180.000 / 36 months.
+  await expect(domain).toContainText('$5.000')
+  await expect(tile('Costo mensual real')).toContainText('$1.505.000')
+  await expect(tile('Vencidos')).toContainText('$1.500.000')
+
+  // A new one from the form, monthly from today: the hint spreads it.
+  await page.getByRole('button', { name: 'Nuevo gasto recurrente' }).click()
+  const form = page.getByRole('dialog')
+  await field(page, 'Categoría *').click()
+  await page.getByRole('option', { name: `Servicios ${stamp}` }).click()
+  await form.getByLabel('Concepto').fill(`Hosting ${stamp}`)
+  await field(page, 'Valor de cada pago *').locator('input').pressSequentially('95.000')
+  await expect(form.getByText('Equivale a $95.000 al mes')).toBeVisible()
+  await form.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText(`Gasto recurrente creado: el próximo pago vence el ${dmy(new Date())}.`)).toBeVisible()
+  await expect(tile('Costo mensual real')).toContainText('$1.600.000')
+
+  // Vencidos shows only the rent.
+  await page.getByRole('button', { name: 'Vencidos', exact: true }).click()
+  await expect(rent).toBeVisible()
+  await expect(domain).toHaveCount(0)
+
+  // Paid late and a bit more: the calendar keeps its day.
+  await rent.getByRole('button', { name: `Registrar pago de Arriendo ${stamp}` }).click()
+  const pay = page.getByRole('dialog')
+  await expect(pay).toContainText(`Arriendo ${stamp} · vencimiento del`)
+  const amount = pay.getByLabel('Valor pagado')
+  await expect(amount).toHaveValue('1.500.000')
+  await amount.fill('1.550.000')
+  await pay.getByRole('button', { name: 'Registrar pago' }).click()
+  await expect(page.getByText(`Pago de «Arriendo ${stamp}» registrado. El próximo vence el ${dmy(shift(1, -10))}.`)).toBeVisible()
+  await expect(page.getByText('Nada por pagar en ese periodo.')).toBeVisible()
+  await expect(tile('Vencidos')).toContainText('$0')
+
+  // The payment is an ordinary expense, marked as recurring; the schedules are not.
+  await page.getByRole('tab', { name: 'Registro de gastos' }).click()
+  const paid = page.locator('tbody tr', { hasText: `Arriendo ${stamp}` })
+  await expect(paid).toContainText('Recurrente')
+  await expect(paid).toContainText('$1.550.000')
+  await expect(page.locator('tbody tr', { hasText: `Dominio ${stamp}` })).toHaveCount(0)
+  const summary = await (await request.get(`${API}/expenses/summary`, { headers: auth })).json()
+  expect(Number(summary.data.total_expenses)).toBe(1550000)
+})
