@@ -28,8 +28,10 @@ export interface PlatformCompany {
   is_template: boolean
   /** A demo or a copy to try things: out of Novedades, Ventas and the commissions */
   is_test: boolean
-  /** Its Facturación automática and Cartera bill the other companies */
+  /** Its Clientes, Facturación automática and Cartera bill the other companies */
   is_platform_biller: boolean
+  /** Datos del negocio's NIT: the document of its customer in the billing company */
+  nit?: string | null
   /** Lista efectiva (preset del tipo o personalizada) */
   modules: Feature[]
   modules_customized: boolean
@@ -46,8 +48,8 @@ export interface PlatformCompany {
   data_deleted_at: string | null
   subscription: PlatformSubscription | null
   /**
-   * Its cartera with the platform's billing company (only in the list); null
-   * while no company bills the platform.
+   * What it owes the platform's billing company, read from that company's
+   * Cartera (only in the list); null while no company bills the platform.
    */
   billing?: CompanyBillingSummary | null
 }
@@ -55,74 +57,22 @@ export interface PlatformCompany {
 /** al día, por pagar (nothing past its due date), en mora, or not linked to a customer yet. */
 export type CompanyBillingStatus = 'up_to_date' | 'pending' | 'overdue' | 'unlinked'
 
-/** A company's cartera with the platform's billing company. */
 export interface CompanyBillingSummary {
   status: CompanyBillingStatus
   /** The billing company's customer that is this company */
   customer_id: number | null
   customer_name?: string
-  customer_document?: string | null
-  customer_email?: string | null
   balance?: number
   overdue_balance?: number
-  last_payment_at?: string | null
-  last_payment_amount?: number | null
-  last_receipt_number?: number | null
-  /** The next monthly document: the customer's cutoff in the first month not billed yet */
-  next_charge_on?: string | null
-  next_charge_amount?: number | null
 }
 
-export interface CompanyBillingDocument {
-  id: number
-  document_kind: string
-  document_number: string
-  concept: string
-  period: string | null
-  issued_at: string | null
-  due_date: string | null
-  total: number
-  balance: number
-  status: string
-  overdue: boolean
-  /** Only the monthly documents print from here */
-  printable: boolean
-}
-
-export interface CompanyBillingReceipt {
-  number: number
-  reference: string
-  paid_at: string | null
-  amount: number
-  payment_method: string | null
-  documents: string[]
-  /** The subscription payment it already is in Ventas; null while it is not one */
-  subscription_payment_id: number | null
-}
-
-/** The company's side of "Cartera con <empresa que factura>" in its detail. */
-export interface CompanyBillingDetail extends CompanyBillingSummary {
-  biller: { id: number; name: string }
-  /** Unlinked: the billing company's customer whose document is the company's NIT */
-  suggested_customer?: { id: number; name: string; document_number: string } | null
-  documents: CompanyBillingDocument[]
-  receipts: CompanyBillingReceipt[]
-}
-
-export interface PlatformBillingSettings {
-  biller: { id: number; name: string } | null
-  /** Companies with Facturación automática: the only ones that can bill the others */
-  candidates: { id: number; name: string }[]
-}
-
-export interface BillerCustomer {
-  id: number
+/** The company's data for its customer in the billing company; an existing customer with that document is reused. */
+export interface LinkBillingCustomerPayload {
   name: string
-  document_type: string | null
-  document_number: string | null
-  email: string | null
-  /** The company this customer already is, if any */
-  linked_company: { id: number; name: string } | null
+  document_type: string
+  document_number: string
+  email?: string | null
+  phone?: string | null
 }
 
 /** Lo que borraría "Eliminar empresa" y qué lo impide. */
@@ -259,8 +209,9 @@ export interface RegisterPaymentPayload {
   notes?: string
   /**
    * With the platform's billing company: `abono` also records it in its
-   * Cartera (a new recibo de caja); `receipt` says it IS the recibo
-   * `receipt_number` already there. Either way it counts once in Ventas.
+   * Cartera (a new recibo de caja, after issuing the months paid when it
+   * owes less); `receipt` says it IS the recibo `receipt_number` already
+   * there. Either way it counts once in Ventas.
    */
   billing?: 'none' | 'abono' | 'receipt'
   receipt_number?: number
@@ -414,7 +365,7 @@ export interface PlatformActivity {
   signed_in: number
   idle: (ActivityCompany & { last_login_at: string | null; status: SubscriptionStatus | null })[]
   /** Companies with an overdue balance with the platform's billing company */
-  billing_overdue?: (ActivityCompany & { overdue_balance: number; balance: number; last_payment_at: string | null })[]
+  billing_overdue?: (ActivityCompany & { overdue_balance: number; balance: number })[]
   /** The platform's own recurring expenses (the billing company's Gastos) overdue or due within 7 days */
   expenses_due?: { id: number; concept: string; next_due_on: string; estimated_amount: number; overdue: boolean }[]
 }
