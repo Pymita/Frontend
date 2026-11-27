@@ -313,7 +313,7 @@
           <v-card-text class="d-flex flex-wrap ga-4 pb-0">
             <div>
               <div class="text-caption text-medium-emphasis">Unidades vendidas</div>
-              <div class="text-h6">{{ productReport?.summary.quantity ?? 0 }}</div>
+              <div class="text-h6">{{ quantity(productReport?.summary.quantity) }}</div>
             </div>
             <div>
               <div class="text-caption text-medium-emphasis">Neto vendido</div>
@@ -353,6 +353,7 @@
               </v-chip>
               <template v-else>{{ item.category || '—' }}</template>
             </template>
+            <template #item.quantity="{ item }"><span class="text-no-wrap">{{ lineQuantity(item.quantity, item.unit) }}</span></template>
             <template #item.gross="{ item }">{{ money(item.gross) }}</template>
             <template #item.net="{ item }">
               <span class="font-weight-bold">{{ money(item.net) }}</span>
@@ -683,7 +684,7 @@
 </template>
 
 <script setup lang="ts">
-import { money, percent } from '@/utils/money'
+import { lineQuantity, money, percent, quantity } from '@/utils/money'
 import { formatDateTime, formatIsoDate, parseTimeText, toIsoDate, toTimeText, todayIso } from '@/utils/dates'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'

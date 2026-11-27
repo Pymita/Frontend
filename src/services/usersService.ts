@@ -21,6 +21,8 @@ export interface CompanyUser {
   can_edit_kardex: boolean
   /** "Contabilidad": a permission inside Informes, granted like can_edit_kardex */
   can_use_accounting: boolean
+  /** "Cambiar precio en pedidos": a permission inside Pedidos, granted like can_charge_orders */
+  can_change_order_prices?: boolean
   /** "Fecha de ingreso a la empresa" (AAAA-MM-DD), optional; not the last sign-in. */
   hired_at: string | null
   last_login_at: string | null
@@ -39,6 +41,7 @@ export interface CreateUserPayload {
   can_change_order_status?: boolean
   can_edit_kardex?: boolean
   can_use_accounting?: boolean
+  can_change_order_prices?: boolean
 }
 
 export interface UpdateUserPayload {
@@ -55,6 +58,7 @@ export interface UpdateUserPayload {
   can_change_order_status?: boolean
   can_edit_kardex?: boolean
   can_use_accounting?: boolean
+  can_change_order_prices?: boolean
 }
 
 interface ApiEnvelope<T> {

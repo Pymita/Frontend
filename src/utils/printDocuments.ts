@@ -1,6 +1,6 @@
 import { documentsTicketText } from './documentTicket'
 import { isAndroid, loadTicketPrinter, startTicketPrint, ticketColumns } from './ticketPrinter'
-import { money } from './money'
+import { lineQuantity, money, quantity } from './money'
 /**
  * Documentos imprimibles en carta o media carta: cuenta de cobro / factura de venta y
  * recibo de caja de la facturación automática, la factura de venta de una
@@ -10,14 +10,14 @@ import { money } from './money'
  * Datos del negocio), así que cada negocio imprime con su nombre, NIT,
  * régimen, dirección, teléfonos y observaciones.
  */
-import { FINAL_CONSUMER, customerLabel, documentKindLabels, durationLabel, playersLabel, taxRegimeLabels } from './labels'
+import { FINAL_CONSUMER, customerLabel, documentKindLabels, durationLabel, playersLabel, taxLineLabel, taxRegimeLabels } from './labels'
 import { APP_NAME } from './branding'
 import { formatFullDateTime, formatIsoDate, toIsoDate } from './dates'
 import { resolveImageUrl } from './images'
 import { documentBase, verificationDigit } from './validation'
 import { closeMethodLabel, compareMethodKeys, drawerText, paymentMethodLabel } from '../composables/usePaymentMethods'
 import type { CashSession, CashWithdrawal, PaymentLine, PaymentMethodDetail } from '../services/salesService'
-import type { OrderReceipt, ReceiptTimeDetail } from '../services/ordersService'
+import type { OrderReceipt, ReceiptTimeDetail, TaxBreakdownLine } from '../services/ordersService'
 
 export interface DocumentBusiness {
   legal_name: string
@@ -108,6 +108,9 @@ export interface PrintableReceipt {
     period: string | null
     document_total: number
     amount: number
+    /** What the customer withheld with this abono: settles the document, no money received */
+    withheld?: number
+    withholdings?: { name: string; rate: number; base: number; amount: number }[]
     balance: number
   }[]
 }
@@ -361,6 +364,28 @@ export const timeLineDetail = (detail?: ReceiptTimeDetail | null): string | null
         .join(' × ')
     : null
 
+/** DETALLE DE IMPUESTOS: each tax with its rate, the base it was computed on and its amount. */
+const taxDetailBox = (taxes: TaxBreakdownLine[]): string =>
+  taxes.length === 0
+    ? ''
+    : `
+    <div class="box tax-detail">
+      <table class="compact">
+        <thead>
+          <tr><th class="left">DETALLE DE IMPUESTOS</th><th class="center">TARIFA</th><th class="right">BASE</th><th class="right">VALOR</th></tr>
+        </thead>
+        <tbody>
+          ${taxes.map(tax => `
+          <tr>
+            <td class="left">${escape(tax.name)}</td>
+            <td class="center">${escape(tax.rate_label)}</td>
+            <td class="right">${money(tax.base)}</td>
+            <td class="right">${money(tax.amount)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`
+
 /** What a POS sale document is numbered with: its DIAN number, or its `#<order>-<n>` reference without one. */
 export const saleDocumentNumber = (sale: OrderReceipt): string => sale.invoice_number || sale.sale?.reference || ''
 
@@ -374,7 +399,7 @@ export const saleDocumentNumber = (sale: OrderReceipt): string => sale.invoice_n
 export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt): string => {
   const isInvoice = !!sale.invoice_number
   const value = Number(sale.total) - Number(sale.tip || 0)
-  const lines = sale.items.map(item => ({ ...item, tax: item.tax_rate > 0 ? `${item.tax_rate}%` : '—' }))
+  const lines = sale.items.map(item => ({ ...item, tax: item.tax_label || (item.tax_rate > 0 ? `${item.tax_rate}%` : '—') }))
   if (sale.time_amount && sale.time_amount > 0) {
     const detail = timeLineDetail(sale.time_detail)
     const name = detail ? `Tiempo de mesa: ${detail}` : 'Tiempo de mesa'
@@ -414,7 +439,7 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
           ${lines.map(line => `
           <tr>
             <td class="left">${escape(line.name)}</td>
-            <td class="center">${line.quantity}</td>
+            <td class="center">${lineQuantity(line.quantity, line.unit)}</td>
             <td class="right">${money(line.unit_price)}</td>
             <td class="center">${line.tax}</td>
             <td class="right">${money(line.total)}</td>
@@ -424,13 +449,16 @@ export const saleInvoiceHtml = (business: DocumentBusiness, sale: OrderReceipt):
       <div class="totals">
         <div><span>SUBTOTAL:</span> <span>${money(sale.subtotal_before_tax)}</span></div>
         ${sale.discount_before_tax > 0 ? `<div><span>DESCUENTO:</span> <span>-${money(sale.discount_before_tax)}</span></div>` : ''}
-        ${sale.included_vat > 0 ? `<div><span>IMPUESTO:</span> <span>${money(sale.included_vat)}</span></div>` : ''}
+        ${sale.taxes?.length
+          ? sale.taxes.map(tax => `<div><span>${escape(taxLineLabel(tax).toUpperCase())}:</span> <span>${money(tax.amount)}</span></div>`).join('')
+          : sale.included_vat > 0 ? `<div><span>IMPUESTO:</span> <span>${money(sale.included_vat)}</span></div>` : ''}
         ${sale.delivery_fee > 0 ? `<div><span>DOMICILIO:</span> <span>${money(sale.delivery_fee)}</span></div>` : ''}
         <div class="grand-total"><span>TOTAL:</span> <span>${money(value)}</span></div>
         ${sale.tip > 0 ? `<div><span>PROPINA VOLUNTARIA:</span> <span>${money(sale.tip)}</span></div>` : ''}
         ${sale.tip > 0 ? `<div class="grand-total"><span>TOTAL PAGADO:</span> <span>${money(sale.total)}</span></div>` : ''}
       </div>
     </div>
+    ${taxDetailBox(sale.taxes ?? [])}
     <div class="son"><span class="label">SON:</span> ${escape(amountInWords(value))}</div>
     ${notesBox([business.document_notes, ...bankAccountNotes(sale.payment_methods_detail)])}
     ${footer('RECIBIDO / CLIENTE', 'ATENDIÓ')}
@@ -495,10 +523,17 @@ export const receiptHtml = (business: DocumentBusiness, receipt: PrintableReceip
         </tbody>
       </table>
       <div class="totals">
+        ${receipt.lines.flatMap(line => line.withholdings ?? []).map(withholding =>
+          `<div><span>${escape(`Retención ${withholding.name} ${withholding.rate}%`.toUpperCase())}:</span> <span>${money(withholding.amount)}</span></div>`).join('')}
         <div class="grand-total"><span>TOTAL RECIBIDO:</span> <span>${money(receipt.total)}</span></div>
       </div>
     </div>
-    ${notesBox([receipt.notes, receipt.received_by ? `Recibió: ${receipt.received_by}` : '', ...bankAccountNotes(receipt.payment_methods_detail)])}
+    ${notesBox([
+      receipt.notes,
+      receipt.received_by ? `Recibió: ${receipt.received_by}` : '',
+      receipt.lines.some(line => (line.withheld ?? 0) > 0) ? 'La retención la practicó el cliente: salda el documento y se descuenta de los impuestos de quien recibe.' : '',
+      ...bankAccountNotes(receipt.payment_methods_detail),
+    ])}
     ${footer('ENTREGA (QUIEN PAGA)', 'RECIBIDO POR')}
   </section>`
 
@@ -559,10 +594,10 @@ const withdrawalsTable = (withdrawals: CashWithdrawal[], total: number): string 
     </tbody>
   </table>`
 
-const productsTable = (products: { name: string; quantity: number }[]): string => `
+const productsTable = (products: { name: string; quantity: number; unit?: string | null }[]): string => `
   <table class="compact">
     <thead><tr><th class="left">PRODUCTO</th><th class="right">CANT.</th></tr></thead>
-    <tbody>${products.map(p => `<tr><td class="left">${escape(p.name)}</td><td class="right">${p.quantity}</td></tr>`).join('')}</tbody>
+    <tbody>${products.map(p => `<tr><td class="left">${escape(p.name)}</td><td class="right">${lineQuantity(p.quantity, p.unit)}</td></tr>`).join('')}</tbody>
   </table>`
 
 /**
@@ -695,7 +730,7 @@ export const cashCloseHtml = (
       ${products.length
         ? `<div class="columns">${productsTable(products.slice(0, half))}${products.length > 1 ? productsTable(products.slice(half)) : ''}</div>`
         : '<div>No se vendieron productos en este turno.</div>'}
-      ${summary.products_others ? `<div>Otros ${summary.products_others.count} productos: ${summary.products_others.quantity} unidades.</div>` : ''}
+      ${summary.products_others ? `<div>Otros ${summary.products_others.count} productos: ${quantity(summary.products_others.quantity)} unidades.</div>` : ''}
     </div>` : ''}
     <div class="box notes">
       <div class="label">OBSERVACIONES:</div>
@@ -707,7 +742,7 @@ export const cashCloseHtml = (
 
 // Documento en blanco y negro: se imprime en cualquier impresora de oficina.
 const STYLES = `
-  @page { size: letter; margin: 12mm; }
+  @page { size: letter; margin: 0; }
   * { box-sizing: border-box; }
   body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: black; margin: 0; }
   .document { max-width: 190mm; margin: 0 auto; }
@@ -760,7 +795,8 @@ const STYLES = `
   }
   @media print {
     .toolbar { display: none; }
-    .sheet { break-after: page; }
+    /* A sheet that flows onto a second page (a long cash close) keeps its margin there too. */
+    .sheet { break-after: page; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
     .sheet:last-child { break-after: auto; }
   }
   body[data-paper="half"] { font-size: 10px; }
@@ -970,7 +1006,11 @@ const layOut = (section: HTMLElement, paper: PaperSize): LaidOut => {
 const render = (doc: Document, sections: string, paper: Paper): LaidOut[] => {
   const size = PAPERS[paper]
   doc.body.dataset.paper = paper
-  doc.getElementById('page-size')!.textContent = `@page { size: ${size.size}; margin: ${size.margin}mm; }`
+  // Without a page margin the browser has nowhere to draw its own header and
+  // footer (date, title, URL) even when its print dialog has them on: the
+  // paper's margin is kept inside every sheet instead.
+  doc.getElementById('page-size')!.textContent =
+    `@page { size: ${size.size}; margin: 0; } @media print { .sheet { padding: ${size.margin}mm; } }`
   const container = doc.querySelector<HTMLElement>('.sheets')!
   container.innerHTML = sections
   return [...container.querySelectorAll<HTMLElement>(':scope > .document')].map(section => layOut(section, size))

@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { ADMIN, API, apiLogin, field, freezeTime, loginUI, pickOption } from './helpers'
+import { readFileSync } from 'node:fs'
+import { ADMIN, API, apiLogin, createCompany, field, freezeTime, loginUI, pickOption, xlsxRows } from './helpers'
 
 /**
  * Crear varios productos (por API, rápido) y verificar que la tabla de
@@ -215,7 +216,7 @@ test('un producto con saldo inicial 0 se crea, se vende y el kardex queda en neg
   await expect(field(page, 'Saldo inicial').locator('input')).toHaveValue('0')
 
   await field(page, 'Precio de venta *').locator('input').fill('5000')
-  await field(page, 'Impuesto *').locator('.v-field').click()
+  await field(page, 'Impuestos *').locator('.v-field').click()
   await page.getByRole('option', { name: /Exento|IVA|%/ }).first().click()
 
   await page.getByRole('dialog').getByRole('button', { name: 'Guardar', exact: true }).click()
@@ -289,7 +290,7 @@ test('el costo, el precio de venta y el del menú se escriben en pesos', async (
   await sale.fill('18.500')
   await expect(menu).toHaveValue('18.500')
   await menu.fill('19.000')
-  await field(page, 'Impuesto *').locator('.v-field').click()
+  await field(page, 'Impuestos *').locator('.v-field').click()
   await page.getByRole('option', { name: new RegExp(`IVA Precios ${stamp}`) }).click()
   await expect(dialog.getByLabel('Saldo inicial', { exact: true })).toBeVisible()
   const card = page.locator('.v-dialog > .v-overlay__content > .v-card')
@@ -336,7 +337,7 @@ test('un producto sin ventas en rojo lo guarda así, la tabla lo marca y se pued
   await field(page, 'Categoría *').click()
   await pickOption(page, `Sin Rojo ${stamp}`)
   await field(page, 'Precio de venta *').locator('input').fill('4.000')
-  await field(page, 'Impuesto *').locator('.v-field').click()
+  await field(page, 'Impuestos *').locator('.v-field').click()
   await page.getByRole('option', { name: new RegExp(`IVA Sin Rojo ${stamp}`) }).click()
 
   // New products allow red sales, and the switch sits with the stock one.
@@ -483,7 +484,7 @@ test('un combo se arma en Productos, se vende desde Nuevo pedido y el kardex y V
   await field(page, 'Categoría *').click()
   await pickOption(page, names.category)
   await field(page, 'Precio de venta *').locator('input').fill(String(price))
-  await field(page, 'Impuesto *').locator('.v-field').click()
+  await field(page, 'Impuestos *').locator('.v-field').click()
   await page.getByRole('option', { name: new RegExp(names.tax) }).click()
 
   // A combo has no stock nor cost of its own: its components do.
@@ -559,4 +560,171 @@ test('un combo se arma en Productos, se vende desde Nuevo pedido y el kardex y V
   const margin = Math.round(((price - 6500) * 1000) / price) / 10
   await expect(sale).toContainText(`${margin.toLocaleString('es-CO', { maximumFractionDigits: 1 })} %`)
   await expect(sale).not.toContainText('estimado')
+})
+
+/**
+ * A fruver sells by weight (fv-2): the owner marks a product "Se vende por
+ * fracción" in kg, a supplier invoice brings 20,5 kg typed with a comma, the
+ * cashier orders 1,375 kg from Nuevo pedido, charges it, and the factura and
+ * the Kardex read the kilos to the gram. 1,375 kg × $5.980 = $8.222,50: the
+ * backend charges $8.223 and every screen shows that.
+ */
+test('un producto por kilo se compra, se pide y se factura con decimales', async ({ page, request }) => {
+  const token = await apiLogin(request, ADMIN.email, ADMIN.password)
+  const auth = { Authorization: `Bearer ${token}` }
+  const stamp = Date.now()
+  const name = `Tomate chonto ${stamp}`
+  const category = `Fruver ${stamp}`
+  const tax = `Exento fruver ${stamp}`
+  expect((await request.post(`${API}/categories`, { headers: auth, data: { name: category } })).status()).toBe(201)
+  expect((await request.post(`${API}/taxes`, { headers: auth, data: { name: tax, rate: 0 } })).status()).toBe(201)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, ADMIN.email, ADMIN.password)
+  await page.goto('/productos-base')
+  await page.getByRole('button', { name: 'Nuevo producto' }).click()
+  const dialog = page.getByRole('dialog')
+  await field(page, 'Nombre del producto *').locator('input').fill(name)
+  await field(page, 'Categoría *').click()
+  await pickOption(page, category)
+  // Choosing kilos turns the fraction on; a counted unit turns it off again.
+  const fraction = dialog.getByLabel('Se vende por fracción')
+  await expect(fraction).not.toBeChecked()
+  await field(page, 'Unidad de medida *').locator('input').click()
+  await page.getByRole('option', { name: 'kg', exact: true }).click()
+  await expect(fraction).toBeChecked()
+  await expect(dialog.getByText('En los pedidos escribes la cantidad con decimales, por ejemplo 1,375 kg')).toBeVisible()
+  await field(page, 'Precio de venta *').locator('input').fill('5.980')
+  await field(page, 'Impuestos *').locator('.v-field').click()
+  await page.getByRole('option', { name: new RegExp(tax) }).click()
+  await dialog.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText(/Producto creado/)).toBeVisible()
+  await page.getByRole('textbox', { name: 'Buscar' }).fill(name)
+  await expect(page.locator('tr', { hasText: name }).locator('.v-chip', { hasText: 'Por fracción' })).toBeVisible()
+
+  // The supplier's invoice: 20,5 kg at $2.400, typed as Colombia writes it.
+  await page.goto('/kardex')
+  await page.getByRole('button', { name: /Registrar movimiento/ }).click()
+  await field(page, 'Tipo de documento *').click()
+  await page.getByRole('option', { name: /FC — Factura de compra/ }).click()
+  await page.getByLabel('Proveedor *').fill('Central de Abastos E2E')
+  const purchaseLine = page.getByRole('group', { name: 'Línea 1' })
+  const productInput = purchaseLine.locator('.v-input').filter({ has: page.getByText('Producto *', { exact: true }) }).locator('input')
+  await productInput.click()
+  await productInput.fill(name)
+  await page.getByRole('option', { name }).click()
+  await purchaseLine.getByLabel('Cantidad *').fill('20,5')
+  await purchaseLine.getByLabel('Costo unitario').fill('2.400')
+  await expect(dialog.getByRole('group', { name: 'Totales del movimiento' })).toContainText('$49.200')
+  await page.getByRole('button', { name: 'Registrar', exact: true }).click()
+  await expect(page.getByText(/registrado en el kardex/)).toBeVisible()
+
+  // Nuevo pedido: the product reads its price per kilo and takes 1,375.
+  await page.goto('/pedidos')
+  await page.getByRole('button', { name: 'Nuevo pedido' }).click()
+  await dialog.getByRole('textbox', { name: /Buscar producto/ }).fill(name)
+  await expect(dialog.getByText('$5.980 / kg')).toBeVisible()
+  await dialog.getByText(name, { exact: true }).click()
+  const weight = dialog.getByLabel(`Cantidad de ${name} en kg`)
+  await expect(weight).toHaveValue('1')
+  await weight.fill('1,375')
+  await expect(dialog.getByText('Total: $8.223')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Crear pedido' }).click()
+  await expect(page.getByText('Pedido creado')).toBeVisible()
+
+  const orders = (await (await request.get(`${API}/orders?q=`, { headers: auth })).json()).data
+  const created = orders.find((order: any) => order.items?.some((item: any) => item.product_name === name))
+  expect(created.items.map((item: any) => [item.quantity, item.unit, Number(item.total_price)])).toEqual([[1.375, 'kg', 8223]])
+
+  const row = page.locator('tbody tr', { hasText: '$8.223' }).first()
+  await row.locator('.v-data-table__td--expanded-row').getByRole('button').click()
+  const line = page.getByRole('row', { name: new RegExp(`^1,375 kg ${name}`) })
+  await expect(line).toContainText('1,375 kg')
+  await expect(line).toContainText('$8.223')
+
+  // Charged, and printed as a letter factura with the kilos.
+  await row.getByRole('button', { name: 'Cobrar' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirmar cobro' }).click()
+  await expect(page.getByText('Pedido cobrado', { exact: true })).toBeVisible()
+  const [invoice] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.getByRole('button', { name: 'Generar factura' }).click(),
+  ])
+  await expect(invoice.locator('.items tbody tr').first().locator('td')).toHaveText([name, '1,375 kg', '$5.980', '—', '$8.223'])
+  await expect(invoice.locator('.totals')).toContainText('TOTAL: $8.223')
+  await invoice.close()
+
+  // The Kardex: 20,5 kg in, 1,375 kg out, 19,125 kg left.
+  await page.goto('/kardex')
+  await page.getByRole('combobox', { name: 'Producto' }).fill(name)
+  await page.getByRole('option', { name }).click()
+  await page.getByRole('button').filter({ has: page.locator('.mdi-magnify') }).click()
+  // Filtered by the product, its rows no longer repeat its name.
+  const rowsOf = (code: string) => page.locator('tbody tr').filter({ has: page.locator('.v-chip').getByText(code, { exact: true }) })
+  await expect(page.locator('.v-card', { hasText: 'Existencia actual' })).toContainText('19,125 kg')
+  await expect(rowsOf('FC')).toContainText('20,5')
+  const exit = rowsOf('FV')
+  await expect(exit).toContainText('1,375')
+  await expect(exit).toContainText('19,125')
+})
+
+/**
+ * Listas de precios (a fruver sells the same products at other prices to
+ * some customers): the tab creates a list and prices products in it, the
+ * product form shows and changes its price per list, and Excel goes both ways.
+ */
+test('Listas de precios: se crea una lista, se ponen precios y el producto los muestra en su formulario', async ({ page, request }) => {
+  const company = await createCompany(request, 'listas-precios', { business_type: 'store' })
+  const auth = { Authorization: `Bearer ${company.token}` }
+  const stamp = Date.now()
+  const category = await request.post(`${API}/categories`, { headers: auth, data: { name: `Verduras ${stamp}` } })
+  const categoryId = (await category.json()).data.id
+  const taxId = (await (await request.get(`${API}/taxes`, { headers: auth })).json()).data[0].id
+  for (const [name, price] of [['Tomate chonto', 4000], ['Cebolla cabezona', 3200]] as const) {
+    const created = await request.post(`${API}/products`, {
+      headers: auth,
+      data: { name, type: 'final', unit: 'kg', sale_price: price, tracks_stock: false, category_id: categoryId, tax_id: taxId, menu: { base_price: price } },
+    })
+    expect(created.status(), await created.text()).toBe(201)
+  }
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginUI(page, company.credentials.email, company.credentials.password)
+  await page.goto('/productos-base')
+  await page.getByRole('tab', { name: 'Listas de precios' }).click()
+  await expect(page.getByText('Todavía no tienes listas.', { exact: false })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Nueva lista' }).click()
+  const listDialog = page.getByRole('dialog').filter({ hasText: 'Nueva lista de precios' })
+  await listDialog.getByRole('textbox', { name: 'Nombre' }).fill('Mayoristas')
+  await listDialog.getByRole('textbox', { name: 'Para quién es (opcional)' }).fill('Restaurantes del centro')
+  await listDialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Lista de precios «Mayoristas» creada.')).toBeVisible()
+  await expect(page.getByText('Precios de «Mayoristas»')).toBeVisible()
+
+  // Empty means the base price; the typed one is the list's.
+  await expect(page.getByRole('row', { name: /Tomate chonto/ })).toContainText('$4.000')
+  await page.getByRole('textbox', { name: 'Precio de Tomate chonto en la lista Mayoristas' }).fill('3.500')
+  await expect(page.getByText('1 precio sin guardar')).toBeVisible()
+  await page.getByRole('button', { name: 'Guardar precios' }).click()
+  await expect(page.getByText('Precios guardados.')).toBeVisible()
+  await expect(page.getByRole('listitem').filter({ hasText: 'Mayoristas' })).toContainText('1 precio')
+
+  // The Excel brings every product, its base price and the list's.
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Descargar Excel' }).click()
+  const rows = xlsxRows(readFileSync(await (await download).path()))
+  expect(rows[0]).toEqual(['codigo', 'producto', 'unidad', 'precio_base', 'precio_lista'])
+  expect(rows.find(row => row[1] === 'Tomate chonto')?.slice(3)).toEqual(['4000', '3500'])
+
+  // The product form shows its price in the list and changes it.
+  await page.getByRole('tab', { name: 'Productos' }).click()
+  await page.getByRole('button', { name: 'Editar Cebolla cabezona' }).click()
+  const form = page.getByRole('dialog').filter({ hasText: 'Editar producto' })
+  await form.getByRole('button', { name: 'Listas de precios · precio base en todas' }).click()
+  await form.getByRole('textbox', { name: 'Mayoristas' }).fill('2.900')
+  await form.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page.getByText('Producto actualizado', { exact: false })).toBeVisible()
+  const lists = (await (await request.get(`${API}/price-lists`, { headers: auth })).json()).data
+  expect(lists[0].items_count).toBe(2)
 })

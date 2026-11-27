@@ -356,7 +356,7 @@
                         </thead>
                         <tbody>
                           <tr v-for="orderItem in item.items" :key="orderItem.id">
-                            <td>{{ orderItem.quantity }}</td>
+                            <td class="text-no-wrap">{{ lineQuantity(orderItem.quantity, orderItem.unit) }}</td>
                             <td>
                               {{ orderItem.product_name }}
                               <span v-if="orderItem.variant" class="text-medium-emphasis"> ({{ orderItem.variant }})</span>
@@ -366,7 +366,12 @@
                                 {{ guestLabel(orderItem.guest_number, item.guest_names) }}
                               </v-chip>
                             </td>
-                            <td>{{ money(orderItem.unit_price) }}</td>
+                            <td>
+                              {{ money(orderItem.unit_price) }}
+                              <div v-if="orderItem.original_price != null && orderItem.original_price !== orderItem.unit_price" class="text-caption text-medium-emphasis">
+                                antes {{ money(orderItem.original_price) }}
+                              </div>
+                            </td>
                             <td class="font-weight-bold">{{ money(orderItem.total_price) }}</td>
                             <td>
                               <v-btn
@@ -450,6 +455,15 @@
                           <div class="d-flex justify-space-between font-weight-bold">
                             <span>Total:</span>
                             <span class="tabular-nums">{{ money(item.total) }}</span>
+                          </div>
+                          <!-- Prices include their taxes: what the total carries of each one. -->
+                          <div
+                            v-for="tax in item.taxes ?? []"
+                            :key="`${tax.tax_id}-${tax.rate_label}`"
+                            class="d-flex justify-space-between text-caption text-medium-emphasis"
+                          >
+                            <span>Incluye {{ taxLineLabel(tax) }}</span>
+                            <span class="tabular-nums">{{ money(tax.amount) }}</span>
                           </div>
                           <div v-if="item.invoice_number" class="d-flex justify-space-between text-caption text-medium-emphasis mt-1">
                             <span>Factura:</span>
@@ -1045,7 +1059,17 @@
         <v-card-title>Editar item</v-card-title>
         <v-card-text>
           <p class="mb-4 font-weight-bold">{{ selectedItem?.product_name }}</p>
+          <!-- Lo pesado lleva hasta tres decimales ("1,375"); lo demás, unidades enteras. -->
+          <MoneyField
+            v-if="selectedItem?.unit"
+            v-model="editItemData.quantity"
+            quantity
+            label="Cantidad"
+            :suffix="selectedItem.unit"
+            :rules="[value => (value ?? 0) > 0 || 'Escribe una cantidad mayor que 0']"
+          />
           <v-text-field
+            v-else
             v-model.number="editItemData.quantity"
             label="Cantidad"
             type="number"
@@ -1059,15 +1083,16 @@
             persistent-hint
             class="mb-2"
           />
-          <!-- Cambiar precio o descontar es ajustar el cobro: solo admin. -->
-          <template v-if="isAdmin">
-            <MoneyField
-              v-model="editItemData.unit_price"
-              label="Precio unitario"
-              :rules="[value => value !== null || 'Escribe el precio unitario']"
-            />
-            <MoneyField v-model="editItemData.discount" label="Descuento" empty-as-zero />
-          </template>
+          <!-- Another price takes "Cambiar precio en pedidos"; discounting is the admin's. -->
+          <MoneyField
+            v-if="canChangePrices"
+            v-model="editItemData.unit_price"
+            label="Precio unitario"
+            :hint="selectedItem?.original_price != null ? `Antes ${money(selectedItem.original_price)}` : undefined"
+            :persistent-hint="selectedItem?.original_price != null"
+            :rules="[value => value !== null || 'Escribe el precio unitario']"
+          />
+          <MoneyField v-if="isAdmin" v-model="editItemData.discount" label="Descuento" empty-as-zero />
         </v-card-text>
         <v-card-actions>
           <v-btn color="error" variant="text" @click="eliminarItem">Eliminar</v-btn>
@@ -1076,7 +1101,7 @@
           <v-btn
             color="primary"
             :loading="saving"
-            :disabled="isAdmin && editItemData.unit_price === null"
+            :disabled="canChangePrices && editItemData.unit_price === null"
             @click="guardarItem"
           >
             Guardar
@@ -1108,12 +1133,25 @@
                 clearable
               />
             </v-col>
+            <!-- Its column never changes when the segments arrive: nothing moves under the typing. -->
             <v-col cols="12" md="6">
               <CustomerPicker
                 v-model="nuevoPedido.customer_id"
                 final-consumer
+                :segment-id="orderSegmentId"
                 label="Cliente"
                 hint="Búscalo por nombre o documento"
+                persistent-hint
+              />
+            </v-col>
+            <!-- A seller who works one zone sees only its customers; the choice is
+                 remembered here. After the customer, which stays the first field. -->
+            <v-col v-if="segments.length" cols="12" md="6">
+              <v-select
+                v-model="orderSegmentId"
+                :items="segmentOptions"
+                label="Segmento"
+                hint="El campo Cliente muestra solo sus clientes"
                 persistent-hint
               />
             </v-col>
@@ -1156,9 +1194,13 @@
             :loading="loadingMenu"
             :selection="nuevoPedido.items"
             :guest-names="nuevoPedido.guest_names"
+            :price-list="menuPriceList"
+            :can-edit-prices="canChangePrices"
             @add="agregarAlPedido"
             @remove="quitarDelPedido"
+            @quantity="fijarCantidad"
             @rename="renombrarPersonaNueva"
+            @price="setLinePrice"
           />
 
           <v-textarea
@@ -1201,8 +1243,12 @@
             :selection="itemsParaAgregar"
             :existing-guests="guestsOf(selectedOrder)"
             :guest-names="agregarGuestNames"
+            :price-list="menuPriceList"
+            :can-edit-prices="canChangePrices"
+            @price="setLinePrice"
             @add="(item: any, guest: number | null) => agregarASeleccion(itemsParaAgregar, item, guest)"
             @remove="(line: PickedLine) => quitarDeSeleccion(itemsParaAgregar, line)"
+            @quantity="fijarCantidad"
             @rename="renombrarPersonaExistente"
           />
         </v-card-text>
@@ -1281,7 +1327,7 @@ import {
   type OrderTime,
   type TimeBilling,
 } from '@/services/ordersService';
-import { billingService, type Customer } from '@/services/billingService';
+import { billingService, type Customer, type CustomerSegment } from '@/services/billingService';
 import {
   orderStatusLabels,
   orderStatusColors,
@@ -1309,12 +1355,12 @@ import ProductPicker from '../components/ProductPicker.vue'
 import CustomerPicker from '../components/CustomerPicker.vue'
 import { categoriesService, type MenuCategoryNode } from '@/services/menuService';
 import { tablesService } from '@/services/tablesService';
-import { reservedTableLabel } from '@/utils/labels';
+import { reservedTableLabel, taxLineLabel } from '@/utils/labels';
 import { effectiveFeatures } from '@/types/auth';
-import { addLine, removeLine, linesTotal, guestLabel, type PickedLine } from '@/utils/orderLines';
+import { addLine, removeLine, linesTotal, guestLabel, linePayload, repriceLines, setLinePrice, type PickedLine } from '@/utils/orderLines';
 import { useLiveRefresh } from '@/composables/useLiveRefresh';
 import { isCashMethod, methodOptions, methodsFor, paymentMethodLabel, usePaymentMethods } from '@/composables/usePaymentMethods';
-import { money } from '@/utils/money';
+import { lineQuantity, money } from '@/utils/money';
 import { creditDueDate, formatDay, formatFullDateTime, formatIsoDate, formatRecent, todayIso } from '@/utils/dates';
 import {
   bankAccountNotes,
@@ -1412,7 +1458,7 @@ const discountReason = ref('');
 
 const pagoDialog = ref(false);
 const editItemDialog = ref(false);
-const editItemData = ref({ quantity: 1, unit_price: 0 as number | null, discount: 0, guest_number: null as number | null });
+const editItemData = ref({ quantity: 1 as number | null, unit_price: 0 as number | null, discount: 0, guest_number: null as number | null });
 
 // Compartido + las personas que ya hay + una más, por si llega alguien.
 const guestOptions = computed(() => {
@@ -1427,6 +1473,8 @@ const guestOptions = computed(() => {
 const nuevoPedidoDialog = ref(false);
 const agregarItemsDialog = ref(false);
 const menu = ref<MenuCategoryNode[]>([]);
+/** The price list the menu above is priced at (the order's customer's), or null. */
+const menuPriceList = ref<string | null>(null);
 const loadingMenu = ref(false);
 const mesasDisponibles = ref<any[]>([]);
 const itemsParaAgregar = ref<PickedLine[]>([]);
@@ -1519,6 +1567,47 @@ const canManageOrders = computed(() =>
 // Charging (the whole bill, by person, a partial payment, a tip) takes
 // "Cobrar pedidos". A session stored before the field leaves it to the API.
 const canCharge = computed(() => authStore.user?.can_charge_orders ?? true);
+
+// Typing another price on a line takes "Cambiar precio en pedidos" (an admin
+// always has it); the API refuses it without the permission anyway.
+const canChangePrices = computed(() => authStore.user?.can_change_order_prices ?? isAdmin.value);
+
+// Customer segments for the order's customer picker (a seller's zone). The
+// last one chosen is kept in this browser for this user: a seller who works
+// one zone picks it once.
+const segments = ref<CustomerSegment[]>([]);
+const segmentOptions = computed(() => [
+  { title: 'Todos los clientes', value: null },
+  ...segments.value.map(segment => ({ title: `${segment.name} (${segment.customers_count})`, value: segment.id })),
+]);
+const segmentKey = () => `servify:order-segment:${authStore.user?.id ?? 0}`;
+const readSegment = (): number | null => {
+  try {
+    const saved = Number(localStorage.getItem(segmentKey()));
+    return Number.isInteger(saved) && saved > 0 ? saved : null;
+  } catch {
+    return null; // Storage blocked: every order starts on all customers.
+  }
+};
+const orderSegmentId = ref<number | null>(null);
+watch(orderSegmentId, id => {
+  try {
+    if (id) localStorage.setItem(segmentKey(), String(id));
+    else localStorage.removeItem(segmentKey());
+  } catch {
+    // Only a convenience: this dialog still filters.
+  }
+});
+const loadSegments = async () => {
+  try {
+    segments.value = await billingService.getSegments();
+    const saved = readSegment();
+    orderSegmentId.value = segments.value.some(segment => segment.id === saved) ? saved : null;
+  } catch {
+    // Optional: without the list the picker shows every customer.
+    segments.value = [];
+  }
+};
 
 // Pendiente → En preparación → Listo → Entregado takes "Cambiar estado de
 // pedidos", which the API checks too; same fallback as charging.
@@ -2160,8 +2249,13 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
   const line = '-'.repeat(TICKET_WIDTH);
   const isInvoice = !opts.preBill && !!r.invoice_number;
 
-  const rows = r.items
-    .map(i => `${String(i.quantity).padEnd(4)}${i.name.slice(0, nameWidth - 2).padEnd(nameWidth)}${money(i.total).padStart(10)}`);
+  // Lo pesado no cabe en la columna de cantidad: va debajo, con su precio por unidad.
+  const rows = r.items.flatMap(i => i.unit
+    ? [
+        `${''.padEnd(4)}${i.name.slice(0, nameWidth - 2).padEnd(nameWidth)}${money(i.total).padStart(10)}`,
+        `${''.padEnd(4)}${lineQuantity(i.quantity, i.unit)} x ${money(i.unit_price)}`,
+      ]
+    : [`${String(i.quantity).padEnd(4)}${i.name.slice(0, nameWidth - 2).padEnd(nameWidth)}${money(i.total).padStart(10)}`]);
   if (r.time_amount && r.time_amount > 0) {
     rows.push(`${'1'.padEnd(4)}${'Tiempo de mesa'.padEnd(nameWidth)}${money(r.time_amount).padStart(10)}`);
     const detail = timeLineDetail(r.time_detail);
@@ -2248,7 +2342,10 @@ const buildTicket = (r: OrderReceipt, opts: TicketOptions = {}): string => {
     line,
     amountLine('SUBTOTAL', r.subtotal_before_tax),
     r.discount_before_tax > 0 ? amountLine('DESCUENTO', r.discount_before_tax, '-') : '',
-    r.included_vat > 0 ? amountLine('IMPUESTO', r.included_vat) : '',
+    // Each tax the total includes, with its rate ("IVA 19%", "IBUA $68 c/u").
+    ...(r.taxes?.length
+      ? r.taxes.map(tax => amountLine(taxLineLabel(tax).toUpperCase().slice(0, 22), tax.amount))
+      : [r.included_vat > 0 ? amountLine('IMPUESTO', r.included_vat) : '']),
     r.delivery_fee > 0 ? amountLine('DOMICILIO', r.delivery_fee) : '',
     ...totals,
     ...(notes.length ? [line, 'OBSERVACIONES:', ...notes] : []),
@@ -2452,10 +2549,14 @@ const guardarItem = async () => {
   if (!selectedOrder.value || !selectedItem.value) return;
   saving.value = true;
   try {
-    // Los empleados solo tocan cantidad y persona; el cobro es cosa del admin.
-    const payload = isAdmin.value
-      ? { ...editItemData.value, unit_price: editItemData.value.unit_price ?? undefined }
-      : { quantity: editItemData.value.quantity, guest_number: editItemData.value.guest_number };
+    // Quantity and person for everyone; the price with "Cambiar precio en
+    // pedidos", the discount only the admin (the API checks both again).
+    const payload = {
+      quantity: editItemData.value.quantity ?? undefined,
+      guest_number: editItemData.value.guest_number,
+      ...(canChangePrices.value && editItemData.value.unit_price !== null ? { unit_price: editItemData.value.unit_price } : {}),
+      ...(isAdmin.value ? { discount: editItemData.value.discount } : {}),
+    };
     await ordersService.updateItem(
       selectedOrder.value.id,
       selectedItem.value.id,
@@ -2490,14 +2591,16 @@ const eliminarItem = async () => {
 // El menú y las mesas se cargan al abrir un diálogo, no al entrar a la página.
 // The waiters' menu: it opens without the Menú permission and its `price` is
 // what the order charges; with the categories hidden only from the app.
-const cargarCatalogo = async () => {
+// Priced for the order's customer: its price list, else the base prices.
+const cargarCatalogo = async (customerId: number | null = null) => {
   loadingMenu.value = true;
   try {
-    const [categories, mesas] = await Promise.all([
-      categoriesService.getMenuPreview({ withHidden: true }),
+    const [priced, mesas] = await Promise.all([
+      categoriesService.getOrderMenu({ withHidden: true, customerId }),
       tablesService.getAvailable().catch(() => []),
     ]);
-    menu.value = categories;
+    menu.value = priced.categories;
+    menuPriceList.value = priced.priceList?.name ?? null;
     mesasDisponibles.value = mesas;
   } catch (error) {
     showMessage(errorMessage(error, 'No fue posible cargar el menú. Inténtalo de nuevo.'), 'error');
@@ -2520,10 +2623,20 @@ const openNuevoPedidoDialog = () => {
   cargarCatalogo();
 };
 
+// Another customer may buy at another list: the menu and the lines not typed follow it.
+const allMenuItems = (nodes: MenuCategoryNode[]): any[] => nodes.flatMap(node => [...node.items, ...allMenuItems(node.children)]);
+watch(() => nuevoPedido.value.customer_id, async customerId => {
+  if (!nuevoPedidoDialog.value) return;
+  await cargarCatalogo(customerId);
+  repriceLines(nuevoPedido.value.items, allMenuItems(menu.value));
+});
+
 const agregarAlPedido = (item: any, guest: number | null) => addLine(nuevoPedido.value.items, item, guest);
 const quitarDelPedido = (line: PickedLine) => removeLine(nuevoPedido.value.items, line.menu_item_id, line.guest_number);
 const agregarASeleccion = (lines: PickedLine[], item: any, guest: number | null) => addLine(lines, item, guest);
 const quitarDeSeleccion = (lines: PickedLine[], line: PickedLine) => removeLine(lines, line.menu_item_id, line.guest_number);
+/** Lo pesado que se escribió a mano (1,375 kg). */
+const fijarCantidad = (line: PickedLine, value: number) => { line.quantity = value; };
 
 // Guarda (o borra si queda vacío) el nombre puesto a una persona.
 const setGuestName = (target: Record<number, string>, n: number, name: string) => {
@@ -2555,11 +2668,7 @@ const crearPedido = async () => {
       dining_table_id: nuevoPedido.value.dining_table_id,
       customer_id: nuevoPedido.value.customer_id ?? undefined,
       notes: nuevoPedido.value.notes || undefined,
-      items: nuevoPedido.value.items.map(line => ({
-        menu_item_id: line.menu_item_id,
-        quantity: line.quantity,
-        guest_number: line.guest_number ?? undefined,
-      })),
+      items: nuevoPedido.value.items.map(linePayload),
       guest_names: Object.keys(nuevoPedido.value.guest_names).length ? nuevoPedido.value.guest_names : undefined,
       ...(opensByTime.value ? { time_billing: nuevoPedido.value.time_billing } : {}),
       ...(byPerson ? { time_players: nuevoPedido.value.time_players } : {}),
@@ -2588,7 +2697,7 @@ const openAgregarItemsDialog = (order: Order) => {
   itemsParaAgregar.value = [];
   agregarGuestNames.value = { ...(order.guest_names ?? {}) };
   agregarItemsDialog.value = true;
-  cargarCatalogo();
+  cargarCatalogo(order.customer_id ?? null);
 };
 
 // En un pedido abierto el renombrado se guarda al momento (el pedido ya existe).
@@ -2609,11 +2718,7 @@ const guardarItemsAgregados = async () => {
   saving.value = true;
   try {
     for (const line of itemsParaAgregar.value) {
-      await ordersService.addItem(selectedOrder.value.id, {
-        menu_item_id: line.menu_item_id,
-        quantity: line.quantity,
-        guest_number: line.guest_number ?? undefined,
-      });
+      await ordersService.addItem(selectedOrder.value.id, linePayload(line));
     }
 
     showMessage('Productos agregados al pedido');
@@ -2628,6 +2733,9 @@ const guardarItemsAgregados = async () => {
 
 onMounted(() => {
   loadOrders();
+  // Loaded with the page, not with the dialog: the fields must not move
+  // while someone is already typing the customer.
+  if (canManageOrders.value) loadSegments();
 });
 
 // --- En vivo: lo que hace el mesero desde el celular aparece aquí solo ---

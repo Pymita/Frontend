@@ -1,6 +1,11 @@
 import api from './api'
+import type { CashReceipt, InvoiceDocument } from './billingService'
+import type { DocumentBusiness } from '../utils/printDocuments'
 import type {
+  BillerCustomer,
+  CompanyBillingDetail,
   CompanyDeletionPlan,
+  PlatformBillingSettings,
   CompanyDeletionSummary,
   CreateCompanyPayload,
   DeleteCompanyPayload,
@@ -92,12 +97,62 @@ class PlatformService {
     return response.data.data
   }
 
-  async registerPayment(companyId: number, payload: RegisterPaymentPayload): Promise<{ subscription: PlatformSubscription }> {
-    const response = await api.post<ApiEnvelope<{ subscription: PlatformSubscription }>>(
+  /** `payment.billing_receipt_number`: the recibo de caja of the billing company it is. */
+  async registerPayment(
+    companyId: number,
+    payload: RegisterPaymentPayload,
+  ): Promise<{ subscription: PlatformSubscription; payment: { billing_receipt_number: number | null }; message: string }> {
+    const response = await api.post<ApiEnvelope<{ subscription: PlatformSubscription; payment: { billing_receipt_number: number | null } }>>(
       `/platform/companies/${companyId}/subscription/payments`,
       payload
     )
+    return { ...response.data.data, message: response.data.message ?? '' }
+  }
+
+  // --- Billing the companies through the platform's billing company ---
+  async billingSettings(): Promise<PlatformBillingSettings> {
+    const response = await api.get<ApiEnvelope<PlatformBillingSettings>>('/platform/billing')
     return response.data.data
+  }
+
+  /** Returns the API's message, which says what to do next. */
+  async setBiller(companyId: number | null): Promise<string> {
+    const response = await api.put<ApiEnvelope<unknown>>('/platform/billing', { company_id: companyId })
+    return response.data.message ?? ''
+  }
+
+  async billerCustomers(q: string): Promise<BillerCustomer[]> {
+    const response = await api.get<ApiEnvelope<BillerCustomer[]>>('/platform/billing/customers', { params: { q: q || undefined } })
+    return response.data.data
+  }
+
+  async companyBilling(companyId: number): Promise<CompanyBillingDetail> {
+    const response = await api.get<ApiEnvelope<CompanyBillingDetail>>(`/platform/companies/${companyId}/billing`)
+    return response.data.data
+  }
+
+  async linkBillingCustomer(companyId: number, customerId: number | null): Promise<{ detail: CompanyBillingDetail; message: string }> {
+    const response = await api.put<ApiEnvelope<CompanyBillingDetail>>(`/platform/companies/${companyId}/billing`, { customer_id: customerId })
+    return { detail: response.data.data, message: response.data.message ?? '' }
+  }
+
+  /** The same payload as Cartera's print of a cuenta de cobro / factura. */
+  async billingDocument(companyId: number, invoiceId: number): Promise<InvoiceDocument> {
+    const response = await api.get<ApiEnvelope<InvoiceDocument>>(`/platform/companies/${companyId}/billing/documents/${invoiceId}`)
+    return response.data.data
+  }
+
+  async billingReceipt(companyId: number, receiptNumber: number): Promise<{ business: DocumentBusiness; receipt: CashReceipt }> {
+    const response = await api.get<ApiEnvelope<{ business: DocumentBusiness; receipt: CashReceipt }>>(
+      `/platform/companies/${companyId}/billing/receipts/${receiptNumber}`,
+    )
+    return response.data.data
+  }
+
+  /** Mails the estado de cuenta; returns the API's message, which names the address. */
+  async mailStatement(companyId: number): Promise<string> {
+    const response = await api.post<{ message: string }>(`/platform/companies/${companyId}/billing/mail`)
+    return response.data.message
   }
 
   // --- Vendedores del SaaS ---

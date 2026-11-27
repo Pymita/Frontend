@@ -56,11 +56,17 @@ export interface OrderItem {
   menu_item_id?: number | null;
   variant_id?: number | null;
   product_name: string;
+  /** Whole units, or kilos (1.375) of a line sold by fraction. */
   quantity: number;
+  /** The unit a line sold by fraction is in ("kg"); null for whole units. */
+  unit?: string | null;
   paid_quantity: number;
   unpaid_quantity: number;
   unit_price: number;
-  original_price?: number;
+  /** The price it had before someone typed another (the price list's, or the base price). */
+  original_price?: number | null;
+  /** Someone with "Cambiar precio en pedidos" typed `unit_price`. */
+  price_changed?: boolean;
   discount: number;
   total_price: number;
   special_instructions?: string;
@@ -119,6 +125,19 @@ export interface ReceiptTimeDetail {
   players: number | null;
 }
 
+/** One tax of a document: its name, how its rate reads ("19%", "$68 c/u"), its base and its amount. */
+export interface TaxBreakdownLine {
+  tax_id: number | null
+  name: string
+  kind: string
+  calculation: 'percentage' | 'per_unit'
+  rate: number
+  unit_amount: number
+  rate_label: string
+  base: number
+  amount: number
+}
+
 /** Datos de la factura sencilla (tirilla POS), no la e-factura DIAN. */
 export interface OrderReceipt {
   /** Cuenta de una sola persona de la mesa (cuentas separadas) */
@@ -165,7 +184,13 @@ export interface OrderReceipt {
     city?: string | null
     phone?: string | null
   }
-  items: { quantity: number; name: string; unit_price: number; total: number; tax_rate: number }[]
+  /**
+   * `unit`: the unit of a line sold by fraction ("kg"), null for whole units.
+   * `tax_rate` is the sum of the line's percentages; `tax_label` every tax of it ("IVA 19% + IBUA $68 c/u").
+   */
+  items: { quantity: number; unit?: string | null; name: string; unit_price: number; total: number; tax_rate: number; tax_label?: string }[]
+  /** Each tax the total includes; their amounts add up to `included_vat`. */
+  taxes?: TaxBreakdownLine[]
   /** Lines + table time, tax included. Printed documents show `subtotal_before_tax`. */
   subtotal: number
   /** What the documents print as SUBTOTAL, in whole pesos: − discount_before_tax + included_vat + delivery_fee + tip = total. */
@@ -235,6 +260,8 @@ export interface Order {
   payments?: OrderPayment[] | null;
   created_at: string;
   paid_at?: string;
+  /** The taxes the total includes, one per tax (prices include them) */
+  taxes?: TaxBreakdownLine[];
 }
 
 interface ApiResponse<T> {
@@ -394,6 +421,8 @@ export const ordersService = {
     variant_id?: number | null;
     special_instructions?: string;
     guest_number?: number | null;
+    /** Only a typed price; it needs "Cambiar precio en pedidos". */
+    unit_price?: number;
   }): Promise<Order> {
     const response = await api.post<ApiResponse<Order>>(`/orders/${orderId}/items`, data);
     return response.data.data;

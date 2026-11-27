@@ -125,6 +125,9 @@
                       {{ segment.name }}
                     </v-chip>
                   </div>
+                  <div v-if="item.price_list" class="text-caption text-medium-emphasis mb-1">
+                    <v-icon size="x-small" icon="mdi-tag-multiple" /> Lista {{ item.price_list.name }}
+                  </div>
                 </template>
 
                 <template #item.joined_at="{ item }">
@@ -403,6 +406,31 @@
                   creatable
                   @created="onSegmentCreated" />
               </v-col>
+              <v-col cols="12">
+                <v-select
+                  v-model="formData.withholding_concept_ids"
+                  :items="conceptOptions"
+                  label="Retenciones que te practica (opcional)"
+                  hint="Un gran contribuyente o una empresa agente de retención te retiene al pagarte: se sugieren al registrar sus abonos en Cartera."
+                  persistent-hint
+                  multiple
+                  chips
+                  closable-chips
+                  variant="outlined"
+                  density="comfortable" />
+              </v-col>
+
+              <!-- The prices orders take for this customer; without one, its segment's list or the base price. -->
+              <v-col v-if="priceLists.length" cols="12" md="6">
+                <v-select
+                  v-model="formData.price_list_id"
+                  :items="customerPriceListOptions"
+                  label="Lista de precios"
+                  variant="outlined"
+                  density="comfortable"
+                  :hint="customerPriceListHint"
+                  persistent-hint />
+              </v-col>
             </v-row>
           </v-form>
         </v-card-text>
@@ -490,6 +518,42 @@
                   variant="outlined"
                   density="comfortable" />
               </v-col>
+              <!-- Who the supplier is for taxes decides what you withhold when buying from it (docs/RETENCIONES.md). -->
+              <v-col cols="12">
+                <div class="text-subtitle-1">Impuestos y retenciones</div>
+                <p class="text-caption text-medium-emphasis">
+                  Lo dice el RUT del proveedor. Si eres agente de retención, elige las retenciones que le aplicas: se sugieren en sus facturas de compra del kardex y siempre se pueden cambiar.
+                </p>
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-select
+                  v-model="supplierForm.person_type"
+                  :items="tiposPersona"
+                  label="Tipo de persona"
+                  variant="outlined"
+                  density="comfortable"
+                  clearable />
+              </v-col>
+              <v-col cols="12" md="8" class="d-flex flex-wrap column-gap-4">
+                <v-checkbox v-model="supplierForm.income_tax_declarant" label="Declarante de renta" density="compact" hide-details />
+                <v-checkbox v-model="supplierForm.iva_responsible" label="Responsable de IVA" density="compact" hide-details />
+                <v-checkbox v-model="supplierForm.simple_regime" label="Régimen simple" density="compact" hide-details />
+                <v-checkbox v-model="supplierForm.large_taxpayer" label="Gran contribuyente" density="compact" hide-details />
+                <v-checkbox v-model="supplierForm.self_withholder" label="Autorretenedor" density="compact" hide-details />
+              </v-col>
+              <v-col cols="12">
+                <v-select
+                  v-model="supplierForm.withholding_concept_ids"
+                  :items="conceptOptions"
+                  label="Retenciones que le aplicas"
+                  :hint="supplierWithholdingHint"
+                  persistent-hint
+                  multiple
+                  chips
+                  closable-chips
+                  variant="outlined"
+                  density="comfortable" />
+              </v-col>
               <v-col cols="12">
                 <v-textarea
                   v-model="supplierForm.notes"
@@ -555,6 +619,19 @@
                 <v-list-item-subtitle>
                   {{ segment.customers_count === 1 ? '1 cliente' : `${segment.customers_count} clientes` }}
                 </v-list-item-subtitle>
+                <!-- Its customers without a list of their own buy at this one. -->
+                <v-select
+                  v-if="priceLists.length"
+                  :model-value="segment.price_list_id ?? null"
+                  :items="segmentPriceListOptions"
+                  :label="`Lista de precios de ${segment.name}`"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  class="mt-2"
+                  max-width="320"
+                  :disabled="isReadOnly"
+                  @update:model-value="(id: number | null) => setSegmentPriceList(segment, id)" />
               </template>
               <template #append>
                 <template v-if="renaming?.id === segment.id">
@@ -660,9 +737,12 @@ import {
   type Supplier,
 } from '@/services/billingService'
 import CustomerImportDialog from '../components/CustomerImportDialog.vue'
+import kardexService, { type WithholdingConcept } from '../services/kardexService'
+import { label, withholdingTypeLabels } from '../utils/labels'
 import CustomerSegmentPicker from '../components/CustomerSegmentPicker.vue'
 import DateField from '../components/DateField.vue'
 import LockableButton from '../components/LockableButton.vue'
+import { priceListsService, type PriceList } from '@/services/productsService'
 import { useReadOnly } from '../composables/useReadOnly'
 import { PAGE_SIZE_OPTIONS, useServerPage } from '../composables/useServerPage'
 
@@ -684,6 +764,8 @@ interface ClienteForm {
   frequent_customer: boolean
   joined_at: string
   segment_ids: number[]
+  withholding_concept_ids: number[]
+  price_list_id: number | null
 }
 
 const dialog = ref(false)
@@ -733,6 +815,8 @@ const emptyForm = (): ClienteForm => ({
   frequent_customer: false,
   joined_at: todayIso(),
   segment_ids: [],
+  withholding_concept_ids: [],
+  price_list_id: null,
 })
 
 const formData = ref<ClienteForm>(emptyForm())
@@ -752,6 +836,46 @@ const onCustomersImported = (message: string) => {
 
 const rules = {
   required: (v: any) => !!v || 'Este campo es requerido',
+}
+
+// ===== Listas de precios (they are managed in Productos) =====
+const priceLists = ref<PriceList[]>([])
+const loadPriceLists = async () => {
+  try {
+    priceLists.value = await priceListsService.getAll()
+  } catch {
+    // Optional: without them the forms keep working as before.
+    priceLists.value = []
+  }
+}
+const listOption = (list: PriceList) => ({ title: list.active ? list.name : `${list.name} (inactiva)`, value: list.id })
+const customerPriceListOptions = computed(() => [
+  { title: 'Sin lista propia', value: null },
+  ...priceLists.value.map(listOption),
+])
+const segmentPriceListOptions = computed(() => [
+  { title: 'Sin lista de precios', value: null },
+  ...priceLists.value.map(listOption),
+])
+// What the customer buys at without a list of its own: the first segment with one, by name, as the API decides.
+const customerPriceListHint = computed(() => {
+  if (formData.value.price_list_id) return 'Los pedidos de este cliente toman los precios de esta lista'
+  const fromSegment = segments.value
+    .filter(segment => formData.value.segment_ids.includes(segment.id) && segment.price_list)
+    .sort(byName)[0]
+  return fromSegment
+    ? `Sin lista propia compra con la de su segmento ${fromSegment.name}: ${fromSegment.price_list!.name}`
+    : 'Sin lista propia compra al precio base'
+})
+
+const setSegmentPriceList = async (segment: CustomerSegment, priceListId: number | null) => {
+  try {
+    const { message } = await billingService.renameSegment(segment.id, segment.name, priceListId)
+    showMessage(message, 'success')
+    await loadSegments()
+  } catch (error) {
+    showMessage(errorMessage(error, 'No fue posible guardar la lista del segmento. Inténtalo de nuevo.'), 'error')
+  }
 }
 
 // ===== Segmentos =====
@@ -922,6 +1046,8 @@ const openDialog = (cliente?: Customer) => {
       frequent_customer: cliente.frequent_customer ?? false,
       joined_at: cliente.joined_at ?? todayIso(),
       segment_ids: (cliente.segments ?? []).map(segment => segment.id),
+      withholding_concept_ids: [...(cliente.withholding_concept_ids ?? [])],
+      price_list_id: cliente.price_list_id ?? null,
     }
   } else {
     formData.value = emptyForm()
@@ -996,7 +1122,38 @@ interface SupplierForm {
   email?: string
   address?: string
   notes?: string
+  person_type: 'natural' | 'legal' | null
+  income_tax_declarant: boolean
+  iva_responsible: boolean
+  simple_regime: boolean
+  large_taxpayer: boolean
+  self_withholder: boolean
+  withholding_concept_ids: number[]
 }
+
+// Retenciones de la empresa (Configuración › Retenciones), para proveedores y clientes.
+const withholdingConcepts = ref<WithholdingConcept[]>([])
+const conceptOptions = computed(() =>
+  withholdingConcepts.value
+    .filter(concept => concept.active)
+    .map(concept => ({ value: concept.id, title: `${concept.name} (${label(withholdingTypeLabels, concept.type)})` })),
+)
+const loadWithholdingConcepts = async () => {
+  try {
+    withholdingConcepts.value = (await kardexService.withholdingConcepts()).concepts
+  } catch {
+    // Optional: without them the forms save without withholdings.
+  }
+}
+const supplierWithholdingHint = computed(() => {
+  const form = supplierForm.value
+  if (form.simple_regime || form.self_withholder) {
+    return 'Régimen simple o autorretenedor: no se le sugiere retención en la fuente (sí ReteIVA y ReteICA si las eliges).'
+  }
+  return form.income_tax_declarant
+    ? 'Se sugiere la tarifa de declarante.'
+    : 'Se sugiere la tarifa de no declarante.'
+})
 
 const suppliers = ref<Supplier[]>([])
 const loadingSuppliers = ref(false)
@@ -1025,6 +1182,13 @@ const emptySupplierForm = (): SupplierForm => ({
   email: '',
   address: '',
   notes: '',
+  person_type: 'legal',
+  income_tax_declarant: true,
+  iva_responsible: true,
+  simple_regime: false,
+  large_taxpayer: false,
+  self_withholder: false,
+  withholding_concept_ids: [],
 })
 
 const supplierForm = ref<SupplierForm>(emptySupplierForm())
@@ -1060,6 +1224,13 @@ const openSupplierDialog = (supplier?: Supplier) => {
       email: supplier.email || '',
       address: supplier.address || '',
       notes: supplier.notes || '',
+      person_type: supplier.person_type ?? null,
+      income_tax_declarant: supplier.income_tax_declarant ?? true,
+      iva_responsible: supplier.iva_responsible ?? true,
+      simple_regime: supplier.simple_regime ?? false,
+      large_taxpayer: supplier.large_taxpayer ?? false,
+      self_withholder: supplier.self_withholder ?? false,
+      withholding_concept_ids: [...(supplier.withholding_concept_ids ?? [])],
     }
   } else {
     supplierForm.value = emptySupplierForm()
@@ -1117,5 +1288,7 @@ onMounted(() => {
   loadClientes()
   loadSegments()
   loadSuppliers()
+  loadWithholdingConcepts()
+  loadPriceLists()
 })
 </script>
